@@ -1888,7 +1888,14 @@ The tag admits markup; it does not sanitise it. So a producer keeps its markup o
 2. Rewrite each call site to the replacement listed above. The mount-path rewrites (`render` / `unmount-component-at-node`) are mechanical once the caller's `container` reference is identified — they become one `defonce` `client-root` handle with `render!` / `unmount!` through it, around the same container ([worked recipe](#legacy-mount-path)).
 3. `dom-node` rewrites are NOT mechanical — `findDOMNode` returned the underlying DOM node for a mounted React component, and the canonical React-19 replacement is to capture the node via `:ref` at the call site **of the parent**, not at the consumer. Flag every `dom-node` call site for human review, and grep the historical `reagent.dom` spelling plus its aliases (`reagent.dom/dom-node`, `rdom/dom-node`, `dom/dom-node`, `r-dom/dom-node`), which is what a real v1 codebase carries.
 4. `force-update-all` rewrites are NOT mechanical — the surface had no documented use case beyond global-rebuild scripts. Flag for human review and ask the maintainer whether the call site can be removed entirely; if not, file an issue.
-5. Inventory every `dangerouslySetInnerHTML` / `__html` producer — mounted views and server-render or static-export paths alike — before the coordinate swap, and record the consumer each one feeds. Wrap each producer whose string the code shows to be escaped, sanitized or application-owned in `reagent.core/unsafe-html`, and flag the rest for an ownership decision. Prove each preserved producer by its rendered output, not by the compile; the evidence each one needs is the migration skill's [§M-42](../../skills/re-frame-migration/references/guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces).
+5. Inventory every `dangerouslySetInnerHTML` / `__html` producer — mounted views and server-render or static-export paths alike — before the coordinate swap, and record the consumer each one feeds. Wrap each producer whose string the code shows to be escaped, sanitized or application-owned in `reagent.core/unsafe-html`, and flag the rest for an ownership decision. The tag replaces the whole `{:__html …}` map, because Reagent keeps the prop only when its value *is* the tag — `{:__html (r/unsafe-html s)}` is deleted as silently as the untagged map, with the tag on the line to make the site look done:
+
+    ```clojure
+    [:div {:dangerouslySetInnerHTML {:__html s}}]          ; v1
+    [:div {:dangerouslySetInnerHTML (r/unsafe-html s)}]    ; re-frame2, on the Reagent bridge
+    ```
+
+    Prove each preserved producer by its rendered output, not by the compile; the evidence each one needs is the migration skill's [§M-42](../../skills/re-frame-migration/references/guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces).
 
 <a id="legacy-mount-path"></a>**Anchor: `#legacy-mount-path`** — the `render` / `unmount-component-at-node` worked recipe.
 
