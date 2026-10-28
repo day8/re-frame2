@@ -282,8 +282,8 @@ neither partition raw:
 - **Classified values are redacted.** A path the app classified `:sensitive` inside
   an allowed key ships redacted.
 - **The runtime-db keeps only durable state**: the route and machine slices, with
-  classified values (such as a reset token in a query string) redacted and the frame's
-  classification registry left out. On this page the runtime-db is empty, so the
+  classified values (such as a reset token in a query string) redacted. On this page
+  the runtime-db is empty, so the
   payload has no `:rf/runtime-db` at all.
 - **There is no `:rf/frame-id`.** The client names its own frame in Step 4, so the
   server's per-request frame id stays off the wire.

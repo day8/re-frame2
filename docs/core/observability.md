@@ -422,14 +422,12 @@ A profile only changes projection options; your sink always receives a projected
 record. That is the difference from a `:trace` listener, which gets only the in-process
 classification pass and leaves the egress profile to you.
 
-A path counts as sensitive when the handler that writes it says so, with a
-`:sensitive` entry beside its `:db`:
+A path counts as sensitive when the feature that owns it declares so, with a
+`reg-classification`:
 
 ```clojure
-(rf/reg-event :auth/login-succeeded
-  (fn [{:keys [db]} [_ token]]
-    {:db        (assoc-in db [:auth :token] token)
-     :sensitive [[:auth :token]]}))   ;; redact this path on egress
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token]]})   ;; redact this path on egress
 ```
 
 [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers marking

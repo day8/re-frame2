@@ -91,7 +91,7 @@ test, override `:auth.session/load` to dispatch that fake reply; see
 
 ### Keep the secret out of traces
 
-The token is a credential, so the init event in step 4 also returns a `:sensitive` [classification](../glossary.md#data-classification) effect for `[:auth :token]`. That classification covers app-db projections; the persistence effect and restore event above classify their own copies, and the login reply below classifies its payload. Handlers still receive the real value. Raw local epoch snapshots retain app-db for restoration, so project them before forwarding ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
+The token is a credential, so the auth feature declares `[:auth :token]` `:sensitive` with a `reg-classification` ([data classification](../glossary.md#data-classification)), shown in step 4. That declaration covers app-db projections; the persistence effect and restore event above classify their own copies, and the login reply below classifies its payload. Handlers still receive the real value. Raw local epoch snapshots retain app-db for restoration, so project them before forwarding ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
 !!! note "If your API hands out a token and nothing else"
 
@@ -245,14 +245,17 @@ The guard needs no wiring: it is route metadata, and requiring the routing artef
 Restore the session from the frame's `:initial-events`. A `:url-bound? true` frame runs every `:initial-events` step first and only then resolves the current URL, so the session is in app-db before any guard runs. A restore dispatched after `make-frame` returns is too late: the first URL has already been checked against an empty auth slice.
 
 ```clojure
-;; Seed and classify the slice before the load effect queues its reply.
+;; The token path is redacted at every egress, from the first write.
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token]]})
+
+;; Seed the slice before the load effect queues its reply.
 (rf/reg-event :auth/init
   (fn [{:keys [db]} _]
-    {:db        (-> db
-                    (update :auth-generation (fnil inc 0))
-                    (update :auth assoc :user nil :token nil))
-     :sensitive [[:auth :token]]
-     :fx        [[:auth.session/load]]}))
+    {:db (-> db
+             (update :auth-generation (fnil inc 0))
+             (update :auth assoc :user nil :token nil))
+     :fx [[:auth.session/load]]}))
 
 (rf/make-frame
   {:id                :rf/default

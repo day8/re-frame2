@@ -12,71 +12,36 @@ erase secrets from memory or make a raw snapshot safe to export.
 
 ## Classify a durable secret in app-db
 
-For a token that lives in app-db at a path you own, return a classification effect from an [event handler](../glossary.md#event-handler), alongside `:db` in the same [effect map](../glossary.md#effect-map):
+For a token that lives in app-db at a path you own, declare the path once with `reg-classification`, beside the feature's other [registrations](../glossary.md#registration):
 
 ```clojure
-(rf/reg-event :auth/init
-  (fn [_ _]
-    {:sensitive [[:auth :token] [:auth :refresh-token]]}))
+(rf/reg-classification :auth
+  {:doc       "The session token and its refresh token."
+   :sensitive [[:auth :token] [:auth :refresh-token]]})
 ```
 
-`:sensitive` takes a vector of paths. From then on, whatever value is at `[:auth :token]` shows as `:rf/redacted` in Xray's App-DB panel, in your off-box sink, and in any epoch you export through `project-egress`, while your handlers still read the real token. Only the copy projected for observers is redacted, never the live value.
+`:sensitive` takes a vector of paths, absolute in app-db. Whatever value is at `[:auth :token]` shows as `:rf/redacted` in Xray's App-DB panel, in your off-box sink, and in any epoch you export through `project-egress`, while your handlers still read the real token. Only the copy projected for observers is redacted, never the live value.
 
-The path is classified before any token exists there, since `:auth/init` writes nothing. A classification over an absent path does nothing until a value arrives, so you don't re-classify on every write.
+The declaration exists before any event runs, so the path is redacted from its first egress, including the trace of the event that first writes a token there. A declaration over an absent path does nothing until a value arrives, so nothing has to run at boot and nothing is re-classified on each write.
 
-Run `:auth/init` from the frame's `:initial-events`, so the classification is in place before any value can be observed:
-
-```clojure
-(rf/make-frame
-  {:id :rf/default
-   :initial-events [[:auth/init]]})
-```
-
-If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: `frame-root` uses them only when it creates the frame. An already-live frame keeps its config. To change it, call `make-frame` with the same `:id` and the complete updated config; omitted keys are dropped.
-
-The token stays in app-db and is redacted at egress. App-db paths are classified only by events.
-
-??? info "For JavaScript developers"
-
-    A [frame](../glossary.md#frame) always starts with `app-db = {}`, and `:initial-events` is how you set it up; there is no `:initial-db` or `:on-create`. To seed raw state, make `[:rf/set-db {…}]` the first step ([Frames](../frames.md)).
+The token stays in app-db and is redacted at egress. App-db paths are classified only by `reg-classification`: an [effect map](../glossary.md#effect-map) returning `:sensitive` beside `:db` is refused with `:rf.error/effect-map-shape`, and a frame config carrying `:sensitive` or `:large` is refused at `make-frame`.
 
 ### Two axes: sensitive and large
 
-You can say two independent things about a path. `:sensitive` redacts the value; `:large` replaces an oversized value with a size marker, so a 5MB upload doesn't flood a trace. Each has an inverse:
+You can say two independent things about a path. `:sensitive` redacts the value; `:large` replaces an oversized value with a size marker, so a 5MB upload doesn't flood a trace:
 
 ```clojure
-:sensitive       [[path] …]   ; redact at egress
-:large           [[path] …]   ; size marker at egress
-:clear-sensitive [[path] …]   ; un-classify sensitive
-:clear-large     [[path] …]   ; un-classify large
+(rf/reg-classification :docs
+  {:doc       "Scanned documents: the text can hold PII, the scan is big."
+   :sensitive [[:docs :body]]
+   :large     [[:docs :scan]]})
 ```
 
-`:clear-sensitive` undoes `:sensitive` and leaves the large axis alone, and vice versa. If a path is declared both, sensitive wins and no size marker is shown, since even the size says something about a secret.
+A path names slots, not positions, so a key under a map or an index into a vector consumes no segment: `[:docs :body]` reaches `[:docs "inv-42" :body]` for every document, however many there are ([Spec 015 §Projection](../../../spec/015-Data-Classification.md#collection-matching)). If a path is declared both, sensitive wins and no size marker is shown, since even the size says something about a secret.
 
-When a secret's path is only known at runtime, classify it in the handler that writes it:
+`:sensitive` is a collection of paths, never a flag, so there is no `:sensitive false`. Don't confuse it with `:sensitive?`, the yes/no schema property covered below.
 
-```clojure
-(rf/reg-event :doc/scanned
-  (fn [{:keys [db]} [_ doc-id raw]]
-    (cond-> {:db (assoc-in db [:docs doc-id] {:body raw})}
-      (contains-pii? raw) (assoc :sensitive [[:docs doc-id :body]]))))
-```
-
-You rarely need `:clear-*`: when a value goes away, nothing is left to redact. Clear a path only when it is reused for non-secret data:
-
-```clojure
-;; a path that held PII is overwritten with sanitised content — un-classify it
-(rf/reg-event :doc/sanitised
-  (fn [{:keys [db]} [_ doc-id clean]]
-    {:db              (assoc-in db [:docs doc-id :body] clean)
-     :clear-sensitive [[:docs doc-id :body]]}))
-```
-
-`:sensitive` is a collection of paths, never a flag: clear it with `:clear-sensitive`, not `:sensitive false`. Don't confuse it with `:sensitive?`, the yes/no schema property covered below.
-
-??? note "How classification is stored"
-
-    Classification effects are applied together with the `:db` write, at the [commit](../glossary.md#commit), rather than as a later `:fx`. They are stored in the framework's [runtime-db](../glossary.md#runtime-db) partition rather than in app-db. So a path classified in an event is redacted from its very first egress, and a `restore-epoch!` revert rolls the classification back with the rest of the frame's state.
+A `reg-classification` is a registration like any other. Registering the same id again replaces its declaration, and `(rf/clear :classification :docs)` removes it. A frame made with `:images` applies the declarations its images select, so put the `reg-classification` in the namespace of the feature that owns the path.
 
 ## Classify a transient payload on the registration
 
@@ -163,7 +128,7 @@ Carriers apply to the whole process (there is one registration, not one per fram
 
 ## Classify subsystem data on the subsystem
 
-Some data lives inside a runtime subsystem: a [machine](../../machines/glossary.md#machine)'s `:data`, a [resource](../../resources/glossary.md#resource)'s fetched data or params, a [route](../../routing/glossary.md#route)'s query string. The subsystem decides where each instance is stored, so you declare `:sensitive` / `:large` relative to the instance, on the subsystem definition. When an instance is created (a machine spawns, a resource fetches), the framework registers the concrete path for it, and removes it when the instance goes away:
+Some data lives inside a runtime subsystem: a [machine](../../machines/glossary.md#machine)'s `:data`, a [resource](../../resources/glossary.md#resource)'s fetched data, a [route](../../routing/glossary.md#route)'s query string. The subsystem decides where each instance is stored, so you declare `:sensitive` / `:large` relative to the instance, on the subsystem definition. Egress applies the declaration to every instance present at that moment, so an instance is classified exactly while it exists, with nothing recorded when it is created or removed when it goes away:
 
 ```clojure
 (rf/reg-machine :checkout/payment
@@ -178,14 +143,14 @@ Some data lives inside a runtime subsystem: a [machine](../../machines/glossary.
 
 `[:data :payment :token]` is now redacted in every machine trace, including [transition](../../machines/glossary.md#transition) before/after, [snapshots](../../machines/glossary.md#snapshot), and [guard](../../machines/glossary.md#guard) inputs, for every instance of the machine, with no per-instance code.
 
-Four subsystems work this way. In each, your path is relative to a fixed point inside one instance, and the framework adds the declaration when the instance appears and drops it when the instance goes away:
+Four subsystems work this way. In each, your path is relative to a fixed point inside one instance ([Spec 015 §Subsystem projection-relative classification](../../../spec/015-Data-Classification.md#subsystem-projection-relative-classification)):
 
-| Subsystem | Your path is relative to | Added at | Dropped at |
-|---|---|---|---|
-| `reg-machine` | one actor snapshot's `:data` | actor spawn / first-boot | actor destroy (any cause) |
-| `reg-resource` | the entry's `:params` / `:data` | params at scoped-key mint; data when the fetch lands | entry eviction |
-| `reg-mutation` | one work row's `:params` | work creation | work completion |
-| `reg-route` | the current route's `:query` / `:params` | route activation | route change / deactivation |
+| Subsystem | Your path is relative to | Classified while |
+|---|---|---|
+| `reg-machine` | one actor snapshot's `:data` | the actor exists |
+| `reg-resource` | the entry's `:data` | the entry is cached |
+| `reg-mutation` | one instance's `:params` / `:scope`, and its `:result` | the instance row exists |
+| `reg-route` | the current route's `:query` / `:params` | the route is current |
 
 A route with a token in its query string (`?reset_token=…`) classifies it on the route definition, and a resource declares its own known fields:
 
@@ -205,14 +170,14 @@ A route with a token in its query string (`?reset_token=…`) classifies it on t
 
 !!! warning "Gotcha: `:sensitive` and `:sensitive?` are different"
 
-    `:sensitive` (no `?`) is a collection of paths: a classification effect, a registration's metadata, or a subsystem declaration. `:sensitive?` (with `?`) is a yes/no property on one schema slot. On a machine's `[:schemas :data]` slot, `:sensitive?` redacts the value only in that schema's validation-failure trace; it doesn't classify the machine's `:data` for snapshots, which needs the `:sensitive` declaration above. On an HTTP `:decode` schema, `:sensitive?` is how you classify the response body. `:large` and `:large?` follow the same rule.
+    `:sensitive` (no `?`) is a collection of paths: a `reg-classification` declaration, a registration's metadata, or a subsystem declaration. `:sensitive?` (with `?`) is a yes/no property on one schema slot. On a machine's `[:schemas :data]` slot, `:sensitive?` redacts the value only in that schema's validation-failure trace; it doesn't classify the machine's `:data` for snapshots, which needs the `:sensitive` declaration above. On an HTTP `:decode` schema, `:sensitive?` is how you classify the response body. `:large` and `:large?` follow the same rule.
 
 ### Where to declare, by owner
 
 | The data is… | Owner | Declare with |
 |---|---|---|
-| Durable app-db state | the event that writes it | `:sensitive` / `:large` classification effects |
-| Subsystem instance data (machine `:data`, resource data/params, route query) | the subsystem definition | `:sensitive` / `:large` on `reg-machine` / `reg-resource` / `reg-mutation` / `reg-route` |
+| Durable app-db state | the feature that owns the path | `:sensitive` / `:large` in a `reg-classification` beside the feature |
+| Subsystem instance data (machine `:data`, resource data, route query) | the subsystem definition | `:sensitive` / `:large` on `reg-machine` / `reg-resource` / `reg-mutation` / `reg-route` |
 | Transient payloads (event args, fx/cofx values, sub outputs, HTTP bodies, headers and query params) | the registration, or its `:decode` schema | `:sensitive` / `:large` paths, `:sensitive?` on the `:decode` schema, or the `:carriers` block |
 
 A sub or flow that reads a sensitive value does not classify its own output. If you derive a secret into a new path, through a sub, a flow, or a rendered field, classify that path too.
@@ -233,8 +198,7 @@ To send production records to Datadog, Sentry, or another monitor, declare them 
                      :rf.egress/profile :rf.egress/off-box-observability}]
                    :errors
                    [{:sink :my-app.sinks/sentry
-                     :rf.egress/profile :rf.egress/off-box-observability}]}
-   :initial-events [[:auth/init]]})         ;; classifies [:auth :token]
+                     :rf.egress/profile :rf.egress/off-box-observability}]}})
 
 ;; datadog/send and sentry/capture stand for your vendor SDK calls.
 (rf/register-observability-sink! :my-app.sinks/datadog
@@ -319,9 +283,9 @@ To see a sensitive value in a local tool, the tool uses the trusted-local [`:rf.
 | Symptom | Cause | Fix |
 |---|---|---|
 | A value you expected redacted shows raw | Its path isn't classified: the declaration is missing, names the wrong path, or the secret was copied to a path you didn't classify | Classify the path where the value actually lives; Xray, the epoch history and your sinks all pick it up |
-| `:rf.error/bad-frame-classification` at `make-frame` | A frame-level `:sensitive` / `:large` key | Classify app-db paths from an event, beside `:db` |
-| `:rf.error/classification-effect-shape`; the event's commit is aborted | A classification effect whose value is not a vector of paths, or holds an invalid path | Return a vector of path vectors |
-| `:rf.error/bad-classification` at registration | A non-vector path in a registration's `:sensitive` / `:large`, or a malformed `:carriers` block (a [flow](../glossary.md#flow)'s malformed marks raise `:rf.error/flow-bad-marks`) | Use vectors of keys |
+| `:rf.error/bad-frame-classification` at `make-frame` | A frame-level `:sensitive` / `:large` key | Declare the app-db paths with `reg-classification` |
+| `:rf.error/effect-map-shape` naming `reg-classification`; nothing commits | A handler returned `:sensitive` or `:large` beside `:db` | Move the paths into a `reg-classification` |
+| `:rf.error/bad-classification` at registration | A non-vector path in a registration's or a `reg-classification`'s `:sensitive` / `:large`, a `reg-classification` key other than `:sensitive`, `:large` or `:doc`, or a malformed `:carriers` block (a [flow](../glossary.md#flow)'s malformed marks raise `:rf.error/flow-bad-marks`) | Use vectors of keys |
 | `:rf.error/invalid-machine-classification` / `:rf.error/resource-bad-spec` at registration | A malformed `:sensitive` / `:large` on `reg-machine` / `reg-resource` | Use vectors of paths relative to the instance |
 | `:rf.error/unknown-egress-profile` | A profile outside the built-in six | Use one from [Choosing a profile](#choosing-a-profile) or [the other egress profiles](#the-other-egress-profiles) |
 
@@ -346,7 +310,7 @@ The four profiles a shipper doesn't use cover dev panels, trusted local access, 
 
 With [SSR](../../ssr/concepts.md), the server sends the browser a hydration payload, a serialised slice of app-db that the browser adopts on first render. That payload goes to an untrusted client, so it is an egress point too, and it works by allowlist: you name the state that may be sent, and unlisted state isn't sent even if you never classified it. A frame that renders on the server with no payload policy throws `:rf.error/ssr-missing-payload-policy` rather than sending all of app-db.
 
-Classification applies on top: a sensitive value inside an allowlisted slice is still redacted unless the SSR host permits it by path. That second pass is the `:rf.egress/ssr-hydration` profile, and it doesn't elide large values, because the payload becomes the browser's live state. The classification registry itself is not sent, since a classified path can contain a sensitive id such as `[:by-id "user-secret" :token]`; the client rebuilds its own registry on mount.
+Classification applies on top: a sensitive value inside an allowlisted slice is still redacted unless the SSR host permits it by path. That second pass is the `:rf.egress/ssr-hydration` profile, and it doesn't elide large values, because the payload becomes the browser's live state. The payload carries no classification: the client loads the same `reg-classification` declarations as the server, so it redacts the same paths from its first egress.
 
 Sometimes the user's own browser must hold a classified value, such as a CSRF token you keep out of Datadog but the page has to send back. For that, the SSR host accepts `:payload-include-sensitive [[:session :csrf]]` beside its allowlist: specific app-db paths whose raw value may be sent. Permit individual values rather than whole maps, and never a long-lived bearer credential. A value the browser itself originated, such as a password being typed, is re-seeded on the client after hydration rather than permitted. Both options belong to the SSR host; see [the SSR concept page](../../ssr/concepts.md#payload--the-fail-closed-allowlist) for their exact shape.
 

@@ -33,10 +33,10 @@ children and the spawn registry.
 the runtime-db subtrees you saved, so the route slice and anything else the
 frame booted with stay as they are. Entry actions are not re-run, and spawned
 children come back with their state. Each restored machine's live `:after`
-timer is armed again for its full delay, and its `:sensitive` / `:large`
-declarations are re-derived from its machine definition, so you save no
-classification alongside the snapshots and a restored secret redacts exactly
-as the live one did.
+timer is armed again for its full delay. Its `:sensitive` / `:large`
+declarations come from its machine definition, which applies to every actor
+present, so you save no classification alongside the snapshots and a restored
+secret redacts exactly as the live one did.
 
 Only values that survive `pr-str` and `read-string` persist, which is why a
 machine's `:data` holds no functions, atoms or host objects

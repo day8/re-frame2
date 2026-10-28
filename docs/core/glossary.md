@@ -116,9 +116,8 @@ change. `:db` is the new [app-db](#app-db); `:fx` is a vector of
       [:todo.storage/save todos]]}
 ```
 
-The top level is closed. Besides `:db` and `:fx` it accepts `:rf.db/runtime` and the
-classification keys `:sensitive`, `:large`, `:clear-sensitive` and `:clear-large`.
-Any other key fails loud and nothing commits.
+The top level is closed. Besides `:db` and `:fx` it accepts only the framework's
+`:rf.db/runtime`. Any other key fails loud and nothing commits.
 
 Related: [Effects](effects.md).
 
@@ -720,6 +719,15 @@ Marking an [app-db](#app-db) path `:sensitive` or `:large`, so the runtime repla
 its value with a redaction or size marker wherever it leaves the app (traces,
 [Xray](#xray), SSR payloads, off-box logs). Rendering in the app still sees the real
 value. It is hygiene at the boundary, not a security control.
+
+A feature declares its app-db paths once with `reg-classification`, beside its other
+registrations; an event, effect or subscription classifies its own payload in its
+registration metadata, and a machine, resource or route classifies its instance data
+on its definition.
+
+```clojure
+(rf/reg-classification :auth {:sensitive [[:auth :token]]})
+```
 
 Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 

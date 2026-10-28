@@ -220,17 +220,16 @@ machine snapshot. [Frames](frames.md) goes deeper.
 
 ### Keeping secrets out of traces
 
-Tools and traces see a copy of app-db. To redact a path in that copy, return a
-classification effect beside `:db`. `:sensitive` redacts the value and `:large`
-replaces it with a size marker; `:clear-sensitive` and `:clear-large` undo them:
+Tools and traces see a copy of app-db. To redact a path in that copy, declare it with
+`reg-classification` beside the feature that owns it. `:sensitive` redacts the value
+and `:large` replaces it with a size marker:
 
 ```clojure
-(rf/reg-event :auth/init
-  (fn [{:keys [db]} _]
-    {:db        (assoc db :auth {})
-     :sensitive [[:auth :token] [:auth :refresh-token]]}))
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token] [:auth :refresh-token]]})
 ```
 
-Your handlers and subscriptions still read the real value. Classifying a path before
-anything is stored there is fine, so a seed event is the natural place.
+Your handlers and subscriptions still read the real value. The declaration holds
+before anything is stored at the path, so the first value written there is already
+redacted.
 [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers the details.

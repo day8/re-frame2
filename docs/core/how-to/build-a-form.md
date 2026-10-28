@@ -30,13 +30,15 @@ The form's state is one map. The examples assume `(:require [re-frame.core :as r
                     :status            :idle     ;; :idle | :submitting | :submitted | :error
                     :errors            {}        ;; {<field> ["msg" ...]}; :_form for form-level
                     :touched           #{}       ;; fields the user has interacted with
-                    :submit-error      nil})     ;; transport failure (network down, timeout)
-     ;; classify password paths in state projections and off-box records
-     :sensitive [[:auth :login :draft :password]
-                 [:auth :login :submitted :password]]}))
+                    :submit-error      nil})}))  ;; transport failure (network down, timeout)
+
+;; classify password paths in state projections and off-box records
+(rf/reg-classification :form.login
+  {:sensitive [[:auth :login :draft :password]
+               [:auth :login :submitted :password]]})
 ```
 
-The `:sensitive` entry beside `:db` classifies the password paths in the draft and in the `:submitted` snapshot, so projected state shows `:rf/redacted` while your handlers and raw local epoch snapshots retain the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
+The `reg-classification` beside the form's events classifies the password paths in the draft and in the `:submitted` snapshot, so projected state shows `:rf/redacted` while your handlers and raw local epoch snapshots retain the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
 `:submitted` makes "is this form dirty?" a value comparison: the draft differs from the last snapshot the server accepted. `:errors` holds renderable validation messages, whichever validator produced them. `:submit-error` is separate because a transport failure (the network is down) renders as a banner, while field errors render under their input.
 
