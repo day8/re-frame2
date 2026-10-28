@@ -142,7 +142,7 @@ jobs:
   # lights so the build runs unconditionally (push is already path-filtered
   # above, and a manual dispatch always wants a build). The heavy MkDocs
   # build keys its `if:` on this output, while the always-present aggregator
-  # does not — so a docs-irrelevant PR runs only this ~5-second job, the
+  # does not — so a docs-irrelevant PR runs only this sub-minute job, the
   # unconditional `source-scans` job and the rollup, and the build skips.
   detect:
     name: Detect docs surface
@@ -153,7 +153,15 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          # Every commit and tree, HEAD's blobs only: the step below diffs
+          # names against a merge base and never reads a file at an old
+          # revision, and old blobs are almost all of this repository by size.
+          # Its rename detection does read the old side of a renamed-and-edited
+          # file, which the partial clone fetches on demand, so the answer is a
+          # full clone's. Nothing here asks whether an object EXISTS, so unlike
+          # `provenance-pins` below this job leaves on-demand fetching on.
           fetch-depth: 0
+          filter: blob:none
 
       # On a PR, classify the changed-file list against the docs surface.
       # On any non-PR event (push/dispatch) light the gate so the build
