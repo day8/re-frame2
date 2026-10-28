@@ -99,6 +99,8 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (React co
 
 `(rf/capture-frame)` captures `(current-frame-id)`; `(rf/capture-frame :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}` — a **frame api**, not a container. Read the frame's app-db value via `(rf/app-db-value (:frame frame-api))`, never off the frame api itself. A per-call `:frame` opt cannot override the captured frame; the frame api is locked to one frame.
 
+From a callback, call the captured `dispatch` / `dispatch-sync`, but read a sub once with `(rf/subscribe-once query-v {:frame (:frame frame-api)})`: the captured `subscribe` is a reactive read and a callback is no reactive owner, so each call takes a sub-cache reference that nothing releases, one more per fire. A live read outside a render belongs only in a reaction body, which owns it, or in a hook that pairs it with an `unsubscribe`.
+
 `capture-frame` is the **one public carry primitive**: every async / callback / tooling boundary captures it, or routes with an explicit `{:frame …}` opt.
 
 ## Canonical mini-example
