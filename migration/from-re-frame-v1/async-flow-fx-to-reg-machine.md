@@ -258,7 +258,28 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 1. **`:halt-fns?` predicates closing over state outside `:data`.** See the `:halt-fns?` section above. Strict encapsulation makes this a design decision, not a mechanical translation.
 
-2. **Rules with `:events` as a predicate fn** (not a keyword / vector / collection of keywords). async-flow accepts `:events` as a predicate that runs against each observed event. The machine's `:on` map is keyword-indexed; arbitrary-predicate event matching has no direct equivalent. Escalation paths: (a) restructure the upstream dispatches so the events carry distinguishing ids, each with its own `:on` entry; (b) use a namespace or total wildcard (`:job/*`, `:*`, per Spec 005 §Wildcard transitions) whose `:guard` runs the predicate against `:event` from its one context map — works for catch-all behaviour but reads less clearly than named transitions; (c) when neither fits, hold the flow for the author's design decision. The unchanged add-on is not a destination for a held flow: it throws when it runs on v2 ([§Acting is forced](#acting-is-forced-the-conversion-path-is-the-opt-in-part)), so the flow is redesigned or removed, never kept.
+2. **Rules with `:events` as a predicate fn** (not a keyword / vector / collection of keywords). async-flow accepts `:events` as a predicate that runs against each observed event. **When the predicate fixes the event id and tests only the payload**, it is not an escalation: lower it to that exact `:on` key with a `:guard` that tests the payload of `:event` from its one context map, the shape the worked example's `:config-loaded` transition takes with `:this-run?`.
+
+    ```clojure
+    ;; v1: :events fixes the id and tests the payload.
+    {:when     :seen?
+     :events   (fn [[id {:keys [status]}]]
+                 (and (= :job/status id) (= :failed status)))
+     :dispatch [:jobs/failed]
+     :halt?    true}
+
+    ;; v2: the exact :job/status key, with a guard testing the payload of :event.
+    (rf/reg-machine :jobs/watch
+      {:initial :running
+       :guards  {:failed? (fn [{:keys [event]}]
+                            (= :failed (:status (second event))))}
+       :states
+       {:running {:on {:job/status {:guard :failed? :target :failed}}}
+        :failed  {:final? true
+                  :entry  (fn [_ctx] {:fx [[:dispatch [:jobs/failed]]]})}}})
+    ```
+
+    Any other predicate escalates, because the machine's `:on` map is keyword-indexed and arbitrary-predicate event matching has no direct equivalent. Escalation paths: (a) restructure the upstream dispatches so the events carry distinguishing ids, each with its own `:on` entry; (b) use a namespace or total wildcard (`:job/*`, `:*`, per Spec 005 §Wildcard transitions) whose `:guard` runs the predicate against `:event` from its one context map — works for catch-all behaviour but reads less clearly than named transitions; (c) when neither fits, hold the flow for the author's design decision. The unchanged add-on is not a destination for a held flow: it throws when it runs on v2 ([§Acting is forced](#acting-is-forced-the-conversion-path-is-the-opt-in-part)), so the flow is redesigned or removed, never kept.
 
     ```clojure
     ;; v1: halt when any :job/* event reports a failure. :events is a predicate.
@@ -280,7 +301,7 @@ The migration agent does NOT silently rewrite the following. It presents the cal
                   :entry  (fn [_ctx] {:fx [[:dispatch [:jobs/failed]]]})}}})
     ```
 
-    A `:job/*` event whose payload is not `:failed` is guard-blocked and leaves the machine in `:running`; a failed one reaches `:failed`, which dispatches `[:jobs/failed]`, and the machine rests there, as a `:halt? true` flow stopped. As with any await, the `:job/*` producers dispatch to the machine's address ([§Retarget the producers](#retarget-the-producers--the-1-silent-stall-hazard)).
+    In either machine, a matching event whose payload is not `:failed` is guard-blocked and leaves the machine in `:running`; a failed one reaches `:failed`, which dispatches `[:jobs/failed]`, and the machine rests there, as a `:halt? true` flow stopped. As with any await, the producers of the matched events dispatch to the machine's address ([§Retarget the producers](#retarget-the-producers--the-1-silent-stall-hazard)).
 
 3. **Flows whose `:rules` vector is computed at runtime** (e.g. `(into base-rules (when feature-flag? extra-rules))`). The machine spec is declarative and stamped at registration time. Conditional behaviour belongs inside the spec (`:guard` predicates that read `:data`, or `:always` transitions that branch on state). A computed `:rules` vector either lowers to one machine with branching guards (preferred) or to multiple `reg-machine` calls behind a runtime selector (rare; escalate).
 
