@@ -16,9 +16,7 @@
   artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -38,8 +36,7 @@
             cannot match [:auth :password]. The off-box-tool projection of the
             record carries the secret nowhere"
     (rf/make-frame {:id :test/eg})
-    (rf.frame/swap-runtime-db! :test/eg
-      #(rf.elision/apply-classification-effects % {:sensitive [[:auth :password]]}))
+    (rf/reg-classification ::classified {:sensitive [[:auth :password]]})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db (assoc db :auth {:password secret})}))
     (rf/reg-event :rotate {:interceptors [[:rf.interceptor/path [:auth]]]}
       (fn [{:keys [db]} _] {:db (assoc db :password (str secret "-rotated"))}))

@@ -27,7 +27,7 @@
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -58,16 +58,21 @@
   ([fid] (last (rf.epoch/epoch-history fid))))
 
 (defn- fresh-frame!
-  "Make the suite's frame with `[:auth :password]` sensitive and
-  `[:blob :payload]` large — the registry write a `reg-event` returning
-  `:sensitive` / `:large` performs."
+  "Make the suite's frame, with `[:auth :password]` declared sensitive and
+  `[:blob :payload]` large."
   []
   (rf/make-frame {:id frame-id})
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects
-               rt {:sensitive [[:auth :password]]
-                   :large     [[:blob :payload]]})))
+  (rf/reg-classification ::classified {:sensitive [[:auth :password]]
+                                       :large     [[:blob :payload]]})
   nil)
+
+(def ^:private unclassified-image
+  "A frame running this image classifies nothing: classification resolves
+  through the frame's own view (Spec 015 §Static app-db classification), and
+  this image holds one inline event and no classification."
+  (rf.image/image {:id            ::unclassified
+                   :registrations {:reg-event [[::noop {} (fn [{:keys [db]} _] {:db db})]]}}))
+
 
 (defn- contains-secret?
   "True when `secret` appears anywhere in a nested EDN value."
@@ -257,7 +262,7 @@
             borrowing the record's frame"
     (let [raw  (login-record!)
           opts {:rf.egress/profile :rf.egress/off-box-tool}
-          _    (rf/make-frame {:id control-frame-id})
+          _    (rf/make-frame {:id control-frame-id :images [unclassified-image]})
           none (rf/project-egress raw (assoc opts :frame nil))]
       (is (= [secret :rf/redacted]
              [(get-in (rf/project-egress raw (assoc opts :frame control-frame-id))

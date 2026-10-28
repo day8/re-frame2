@@ -374,9 +374,8 @@
   `value-bearing-node-keys`) is walked through the single shared
   `elide-wire-value` walker under the named `frame-id`'s own elision policy:
 
-  - **per-frame** — the policy is the FRAME's declared `:sensitive` /
-    `:large` `:app-db` classifications (`re-frame.elision`, sourced from
-    the commit-plane classification effects), passed explicitly as the
+  - **per-frame** — the policy is the FRAME's `:sensitive` / `:large`
+    app-db classification (`re-frame.elision/frame-policy`), named by the
     `:frame` opt so the walk applies THAT frame's policy regardless of any
     ambient scope;
   - **fail-closed** — `elide-wire-value` redacts the whole value to the

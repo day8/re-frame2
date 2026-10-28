@@ -10,11 +10,9 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.events :as rf.events]
-            [re-frame.frame :as rf.frame]
             [re-frame.observability :as rf.observability]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -29,9 +27,8 @@
                 (rf.observability/clear-observability-sinks!))}))
 
 (defn- classify-sensitive!
-  [frame-id path]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [path]}))))
+  [path]
+  (rf/reg-classification (keyword "classified" (str (hash path))) {:sensitive [path]}))
 
 (defn- error-of-kind [kind records]
   (some #(when (= kind (:rf.error/id %)) %) records))
@@ -119,7 +116,7 @@
       (rf/make-frame {:id :obs/err :observability
                       {:errors [{:sink :test.sinks/sentry
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
-      (classify-sensitive! :obs/err [:auth :token])
+      (classify-sensitive! [:auth :token])
       (rf/reg-event :auth/login
                     {:frame :obs/err}
                     (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {:cause :test}))}))
@@ -225,7 +222,7 @@
       (rf/make-frame {:id :obs/reason :observability
                       {:errors [{:sink :test.sinks/classified-reason
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
-      (classify-sensitive! :obs/reason [:reason])
+      (classify-sensitive! [:reason])
       (rf/reg-cofx :kuky65/classified-boom-cofx {:recordable? false}
                    (fn [] (throw (ex-info "supplier leaked hunter2 into its message" {}))))
       (reg-event-at! {:ns 'kuky65.reason :file "test/kuky65/reason.cljc" :line 11}
@@ -248,7 +245,7 @@
       (rf/make-frame {:id :obs/pub :observability
                       {:errors [{:sink :test.sinks/public
                                  :rf.egress/profile :rf.egress/public-error}]}})
-      (classify-sensitive! :obs/pub [:auth :token])
+      (classify-sensitive! [:auth :token])
       (rf/reg-interceptor :kuky65/pub-boom
                           {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
       (rf/reg-event :kuky65/pub-event

@@ -15,10 +15,8 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
-            [re-frame.frame :as rf.frame]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -44,9 +42,7 @@
                                :rf.egress/profile :rf.egress/off-box-observability}]}})
     ;; The index-free declaration matches the runtime
     ;; `[:hook-failures 0 :exception-data :token]`.
-    (rf.frame/swap-runtime-db! :obs/teardown
-      (fn [rt] (rf.elision/apply-classification-effects rt
-                 {:sensitive [[:hook-failures :exception-data :token]]})))
+    (rf/reg-classification ::classified {:sensitive [[:hook-failures :exception-data :token]]})
     (rf.error-emit/dispatch-frame-teardown-report!
       :obs/teardown
       [{:hook           :flows

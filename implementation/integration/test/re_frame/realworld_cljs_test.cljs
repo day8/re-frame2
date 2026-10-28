@@ -218,8 +218,7 @@
     #(rf.frame/make-anon-frame-record!
        {:url-bound?     true
         :url-strategy   (decode-to-url-strategy url)
-        :initial-events [[:auth/classify-token]
-                         [:auth/initialise]
+        :initial-events [[:auth/initialise]
                          [:app/initialise]]
         :fx-overrides   {:rf.http/managed      :realworld.test/held-managed
                          :auth.session/persist :rf/no-op

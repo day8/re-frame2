@@ -617,8 +617,8 @@
   runtime validation consumer, surfaced as the process-node `:schema` by
   `re-frame.resources.tooling`, and is retained as that reflection surface.
   NOTHING is precomputed from either at registration time — durable app-db
-  classification rides the commit-plane classification effects into the
-  per-frame elision registry, and a registration's transient-payload
+  classification is the `:classification` registrations a frame's policy
+  resolves (`re-frame.elision/frame-policy`), and a registration's transient-payload
   classification is the author's own `:sensitive` / `:large` / `:large?`
   keys, DERIVED at read time off this registrar by
   `re-frame.classification/registration-classification`.

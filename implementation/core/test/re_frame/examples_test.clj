@@ -656,13 +656,11 @@
 
 (deftest realworld-ssr-payload-never-ships-the-jwt
   (testing "examples/real-apps/realworld_http — with the token classified (as the
-            app's :auth/classify-token does) or not, the server frame's payload
+            app's `reg-classification :auth` does) or not, the server frame's payload
             carries the allowlisted slices without [:auth :token], and hydrates
             the client to exactly those slices"
     (require 'realworld-http.ssr :reload)
     (init-ssr!)
-    (rf/reg-event :realworld.ssr-test/classify-token
-      (fn [{:keys [db]} _] {:db db :sensitive [[:auth :token]]}))
     (rf/reg-event :realworld.ssr-test/seed
       (fn [_ _] {:db {:auth      {:user {:username "alice"} :token "jwt-secret"}
                       :articles  {:status :loaded :data []}
@@ -670,12 +668,14 @@
     (let [hydration-payload @(resolve 'realworld-http.ssr/hydration-payload)
           shipped           {:auth     {:user {:username "alice"}}
                              :articles {:status :loaded :data []}}]
-      (doseq [[label initial-events] [[:classified [[:realworld.ssr-test/classify-token]
-                                                    [:realworld.ssr-test/seed]]]
-                                      [:unclassified [[:realworld.ssr-test/seed]]]]]
+      (doseq [label [:classified :unclassified]]
+        (if (= :classified label)
+          (rf/reg-classification :realworld.ssr-test/jwt {:sensitive [[:auth :token]]})
+          (rf/clear :classification :realworld.ssr-test/jwt))
         (let [server  (keyword "realworld.ssr-test" (str "server-" (name label)))
               client  (keyword "realworld.ssr-test" (str "client-" (name label)))
-              _       (rf/make-frame {:id server :platform :server :initial-events initial-events})
+              _       (rf/make-frame {:id server :platform :server
+                                      :initial-events [[:realworld.ssr-test/seed]]})
               payload (hydration-payload server)]
           (rf/make-frame {:id client :platform :client})
           (is (= [shipped false payload shipped]

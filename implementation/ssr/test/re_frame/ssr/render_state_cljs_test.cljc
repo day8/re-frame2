@@ -79,7 +79,8 @@
    :nav-token 3})
 
 (def ^:private auth-machine
-  {:initial :anon
+  {:sensitive [[:data :token]]
+   :initial :anon
    :data    {:retries 0 :token nil}
    :actions {:remember (fn [{data :data}]
                          {:data (assoc data :retries 1 :token "secret-machine-token")})}
@@ -90,7 +91,7 @@
   "A server frame holding the corpus app-db, a REAL machine snapshot (the
   machine ran to `:authed` on this frame), a route slice beside a transient
   routing sibling, ssr metadata, a runtime-db key the projector has no
-  vocabulary for, and frame classification of `[:session :token]` and of the
+  vocabulary for, and classification of `[:session :token]` and of the
   snapshot's `:data :token`."
   [mid]
   (let [sfid (fresh-frame! :server)]
@@ -102,13 +103,7 @@
                                                   :pending-navigation {:to :route/next}}
                              :rf.runtime/ssr     {:hydration {:version 1}}
                              :rf.runtime/custom  {:tenant "acme"}})
-    (let [classify-app (fresh-id "classify-app")
-          classify-rt  (fresh-id "classify-rt")]
-      (rf/reg-event classify-app (fn [_ _] {:sensitive [[:session :token]]}))
-      (rf/reg-event classify-rt
-                    (fn [_ _] {:sensitive [[:rf.runtime/machines :snapshots mid :data :token]]}))
-      (rf/dispatch-sync [classify-app] {:frame sfid})
-      (rf/dispatch-sync [classify-rt] {:frame sfid}))
+    (rf/reg-classification (fresh-id "classify-app") {:sensitive [[:session :token]]})
     sfid))
 
 (def ^:private full-policy
@@ -166,8 +161,7 @@
   (let [mid      (fresh-id "auth")
         sfid     (settled-server-frame! mid)
         classify (fresh-id "classify-user")]
-    (rf/reg-event classify (fn [_ _] {:sensitive [[:session :user]]}))
-    (rf/dispatch-sync [classify] {:frame sfid})
+    (rf/reg-classification classify {:sensitive [[:session :user]]})
     (is (= {:session {:user :rf/redacted :token "secret-session-token"}
             :todos   (:todos corpus-app-db)}
            (:rf/app-db (rf.ssr.render-state/project
@@ -295,8 +289,7 @@
   (testing "malformed allowlists → the family's malformed id, naming :render-state"
     (doseq [[bad entries] [[{:app-db ["todos"]} ["todos"]]
                            [{:app-db #{:a}} []]
-                           [{:app-db [:a] :extra [:b]} []]
-                           [{:runtime-db [:rf.runtime/elision]} []]]]
+                           [{:app-db [:a] :extra [:b]} []]]]
       (is (= [:rf.error/ssr-malformed-payload-allowlist :render-state entries]
              ((juxt :rf.error/id :opt :bad-entries) (policy-error {:render-state bad})))
           (pr-str bad))))

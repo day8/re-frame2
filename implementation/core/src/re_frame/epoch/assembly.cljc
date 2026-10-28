@@ -109,8 +109,8 @@
 ;;   1. The captured trace stream already stamps `:sensitive?` per
 ;;      handler-meta scope — if any event in `:trace-events` carries the
 ;;      stamp, the record's cascade involved sensitive material.
-;;   2. The frame's frame-declared `[:rf.runtime/elision :sensitive-declarations]`
-;;      registry names paths that hold sensitive data; if any such path
+;;   2. The frame's classification names app-db paths that hold sensitive
+;;      data; if any such path
 ;;      resolves to a non-nil leaf in `:db-before` or `:db-after`, the
 ;;      record's app-db state carries sensitive material.
 ;;
@@ -127,9 +127,8 @@
 
 (defn- sensitive-paths-for
   "Return the classified sensitive paths for `frame-id`. Empty when
-  the frame classifies no `:sensitive` app-db path (EP-0025 — the
-  `[:rf.runtime/elision :sensitive-declarations]` registry is written by the
-  commit-plane classification effects, not schema-populated)."
+  the frame classifies no `:sensitive` app-db path (its `reg-classification`
+  and flow-output declarations, never schema props)."
   [frame-id]
   (try (keys (rf.elision/sensitive-declarations frame-id))
        (catch #?(:clj Throwable :cljs :default) _ nil)))

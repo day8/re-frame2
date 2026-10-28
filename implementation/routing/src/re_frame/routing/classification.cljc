@@ -49,8 +49,8 @@
   before any state mutates and before the route can ever activate — with the
   canonical thrown-error shape (Spec 009 §The thrown-error shape) carrying
   `:rf.error/id :rf.error/invalid-route-classification`. This mirrors the
-  frame-config classification's `:rf.error/bad-frame-classification` and the
-  commit-plane effect's `:rf.error/classification-effect-shape`. A FORGOTTEN
+  frame-config classification's `:rf.error/bad-frame-classification` and
+  `reg-classification`'s `:rf.error/bad-classification`. A FORGOTTEN
   classification is fail-open (the value ships raw).
 
   ## Sensitive wins over large

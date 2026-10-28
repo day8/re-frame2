@@ -9,7 +9,6 @@
   cannot see this: they classify and project under the same ambient frame."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             ;; Loading routing / machines publishes the route classification
             ;; machinery and the `:machines/project-ssr-runtime-db` hook; the
@@ -30,15 +29,10 @@
 (def ^:private machine-id    :review.ssr/auth)
 
 (defn- frame-a-runtime-db
-  "Frame A's runtime-db: effect declarations for a machine `:data` token and an
-  app-db `[:secret]`, a `:current` slice of the classified route and a machine
-  snapshot each holding a secret."
+  "Frame A's runtime-db: a `:current` slice of the classified route and a
+  snapshot of the classified machine, each holding a secret."
   []
   (-> {}
-      (rf.elision/apply-classification-effects
-        {:sensitive [[:secret]
-                     [:rf.runtime/machines :snapshots machine-id :data :token]]
-         :large     [[:rf.runtime/machines :snapshots machine-id :data :blob]]})
       (assoc :rf.runtime/routing
              {:current            {:route-id  route-id
                                    :query     {:token     "secret-oauth-token"
@@ -60,7 +54,9 @@
                   :platform       :server
                   :initial-events [[:review.ssr/seed-db {:public "ok" :secret "app-db-secret"}]]})
   (rf/reg-machine machine-id
-    {:initial :anon
+    {:sensitive [[:data :token]]
+     :large     [[:data :blob]]
+     :initial :anon
      :data    {:retries 0 :token nil :blob nil}
      :schemas {:data [:map [:retries :int] [:token [:maybe :string]] [:blob [:maybe :string]]]}
      :states  {:anon {:on {:login :authed}} :authed {}}})

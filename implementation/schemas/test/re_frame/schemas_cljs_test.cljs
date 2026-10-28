@@ -43,8 +43,11 @@
 (deftest humanizer-published-in-dev-cljs
   (testing "under goog.DEBUG=true the default bundle carries the humanizer, so
             an app-db failure carries Malli's :explain-humanized payload"
-    (rf/reg-app-schema [:auth :token] [:string])
+    ;; An unclassified path: a classified one's failure trace is redacted
+    ;; (Spec 010 §`:sensitive?`), and the bundle loads apps that classify
+    ;; `[:auth :token]`.
+    (rf/reg-app-schema [:greeting :text] [:string])
     (with-trace-recorder! [traces]
-      (rf.schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
+      (rf.schemas/validate-app-schema! {:greeting {:text 42}} :greeting/init-bad)
       (is (= [["should be a string"]]
              (map (comp :explain-humanized :tags) (failures traces)))))))

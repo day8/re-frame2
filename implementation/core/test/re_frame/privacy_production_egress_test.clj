@@ -45,9 +45,8 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- install-sensitive! [frame-id paths]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
+(defn- install-sensitive! [paths]
+  (rf/reg-classification ::classified {:sensitive (mapv vec paths)}))
 
 (defn- always-on-error
   "The first always-on record of `error-kw` that `body-fn` fans — what an
@@ -98,7 +97,7 @@
     ;; The secret sits at [:attempts 0 :token] under the declaration
     ;; [:attempts :token]: a `get-in` redactor finds nothing there, while the
     ;; walker descends positional containers index-free.
-    (install-sensitive! :rf/default [[:attempts :token]])
+    (install-sensitive! [[:attempts :token]])
     (let [event [:auth/missing {:username "ada" :attempts [{:token chainless-secret}]}]
           err   (always-on-error :rf.error/no-such-handler
                                  #(try (rf/dispatch-sync event)

@@ -479,9 +479,8 @@
   "Write the session identity into the frame's app-db, classified `:sensitive`
   there, so the app-db axis can never be what a scan catches."
   []
-  (rf.frame/swap-runtime-db! :test/rt
-    (fn [rt] (rf.elision/apply-classification-effects
-               rt {:sensitive [[:auth :user :username]]})))
+  (let [decl {:sensitive [[:auth :user :username]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl))
   (rf.frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret))
 
 (defn- managed-args

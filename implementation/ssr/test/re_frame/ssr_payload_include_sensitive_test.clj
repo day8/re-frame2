@@ -32,10 +32,11 @@
 (def ^:private redacted rf.privacy/redacted-sentinel)
 
 (defn- reg-server-frame!
-  "A server frame whose init event seeds `db` and classifies `sensitive`."
+  "A server frame whose init event seeds `db`, with `sensitive` classified."
   [db sensitive]
+  (rf/reg-classification :rf.hjz4r/session {:sensitive sensitive})
   (rf/reg-event :rf.hjz4r/seed
-    (fn [_ _] {:db db :sensitive sensitive}))
+    (fn [_ _] {:db db}))
   (rf/make-frame {:id sframe :platform :server
                   :initial-events [[:rf.hjz4r/seed]]}))
 

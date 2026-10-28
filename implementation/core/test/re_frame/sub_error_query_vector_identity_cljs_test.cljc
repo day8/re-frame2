@@ -25,7 +25,6 @@
             [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
-            [re-frame.frame :as rf.frame]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -57,8 +56,8 @@
                       :observability
                       {:errors [{:sink :px0i9/sink
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
-      (rf.frame/swap-runtime-db! :probe
-        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[1]]})))
+      (let [decl {:sensitive [[1]]}]
+        (rf/reg-classification (keyword "classified" (str (hash decl))) decl))
       (rf.error-emit/dispatch-on-error! error-kw event event-id :probe nil 0 1000 attrs)
       {:walker   (rf.elision/elide-wire-value event {:frame :probe})
        :listener @listener-seen

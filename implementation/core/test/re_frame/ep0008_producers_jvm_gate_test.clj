@@ -9,7 +9,6 @@
   namespace as coverage of it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
@@ -67,8 +66,7 @@
         (rf/make-frame {:id :gate/evt :observability
                         {:errors [{:sink :test.sinks/sentry
                                    :rf.egress/profile :rf.egress/off-box-observability}]}})
-        (rf.frame/swap-runtime-db! :gate/evt
-          (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
+        (rf/reg-classification ::classified {:sensitive [[:auth :token]]})
         (rf/reg-event :gate/login {:frame :gate/evt}
                       (fn [_ _] {:db (throw (ex-info "kaboom" {}))}))
         (rf/dispatch-sync [:gate/login {:auth {:token secret}}] {:frame :gate/evt})

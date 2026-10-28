@@ -15,7 +15,6 @@
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -50,8 +49,8 @@
   "Classify `large` paths on the default frame the way a `reg-event` returning
   `:large` alongside `:db` does."
   [large]
-  (rf.frame/swap-runtime-db! :rf/default
-    (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)}))))
+  (let [decl {:large (mapv vec large)}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (deftest walker-published-marker-carries-utf8-bytes
   (install-large! [[:user :bio]])

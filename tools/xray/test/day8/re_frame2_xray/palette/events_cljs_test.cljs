@@ -2,8 +2,6 @@
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.palette.recents :as recents]
             [day8.re-frame2-xray.palette.sources :as sources]
@@ -263,8 +261,8 @@
 
 (defn- seed-sensitive-host! [db-fn]
   (rf/make-frame {:id host-frame})
-  (rf.frame/swap-runtime-db! host-frame
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+  (let [decl {:sensitive [[:auth :password]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl))
   (rf/with-frame host-frame
     (rf/reg-event :test/seed-host (fn [{:keys [db]} _] {:db (db-fn db)}))
     (rf/dispatch-sync [:test/seed-host])))
@@ -296,8 +294,7 @@
   (let [sinks (capture-snapshot-sinks!)]
     (try
       (rf/make-frame {:id host-frame})
-      (rf.frame/swap-runtime-db! host-frame
-        (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
+      (rf/reg-classification ::classified {:large [[:blob :payload]]})
       (rf/with-frame host-frame
         (rf/reg-event :test/seed-blob
           (fn [{:keys [db]} _] {:db (assoc db :blob {:payload {:big "value"}})}))

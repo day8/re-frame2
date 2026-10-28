@@ -853,7 +853,7 @@
   before delivery, the classification-projection hook walks `:tags` to
   substitute `:rf/redacted` and `:rf.size/large-elided` markers at
   paths declared sensitive / large by the in-scope handler's
-  registration meta or the EP-0025 commit-plane `:sensitive` / `:large` effects. Gated by the same
+  registration meta or the frame's classification policy. Gated by the same
   `rf.interop/debug-enabled?` so production CLJS bundles DCE the entire
   classification machinery.
 

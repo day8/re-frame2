@@ -12,8 +12,6 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas]
@@ -37,11 +35,6 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 
-;; Per-variant classification accumulator: each `declare-sensitive!` /
-;; `declare-large!` adds one path, and the helpers re-apply the FULL
-;; accumulated config every time. Cleared per test by the fixture.
-(def ^:private declared-class (atom {}))
-
 (defn reset-story-and-config
   "A fresh Story registry with both operator gates closed (their documented
   defaults), and re-frame pinned to `plain-atom` so a run lands its
@@ -51,10 +44,10 @@
        (catch clojure.lang.ExceptionInfo _ nil))
   (rf.story/clear-all!)
   (rf.registrar/clear-kind! :app-schema)
+  (rf.registrar/clear-kind! :classification)
   (rf.story/install-canonical-vocabulary!)
   (rf.story-mcp.config/set-allow-writes! false)
   (rf.story-mcp.config/set-allow-sensitive-reads! false)
-  (reset! declared-class {})
   (rf.story/reg-story :story.button
     {:doc       "A clickable button."
      :component :app.ui/button
@@ -84,14 +77,6 @@
      :doc      "Pin http effect to a known response."
      :fx-id    :http
      :response {:status 200 :body "ok"}})
-  ;; `run-variant` resets the variant frame IN PLACE on each run, wiping the
-  ;; frame's elision registry; the privacy tests wire this event into the
-  ;; variant's `:setup` so the classification effects are re-applied on every
-  ;; fresh run and bite at egress.
-  (rf/reg-event
-    ::reapply-frame-class
-    (fn [{:keys [db]} [_ _frame-id classification-config]]
-      (merge {:db db} classification-config)))
   (t))
 
 (use-fixtures :each reset-story-and-config)
@@ -922,14 +907,14 @@
 
 (defn- reg-narrative-secret-variant!
   "A variant whose `:setup` dispatches a token as an event arg, and seeds it
-  at a path it declares sensitive in the same transition. The trace bus
-  already redacts a trace event's db snapshot by that classification, so the
-  copy left for the epoch projector in the trace events is the event arg."
+  at a declared-sensitive path. The trace bus already redacts a trace event's
+  db snapshot by that classification, so the copy left for the epoch
+  projector in the trace events is the event arg."
   []
+  (rf/reg-classification ::narrative-secret {:sensitive [[:auth :token]]})
   (rf/reg-event ::seed-secret
     (fn [{:keys [db]} [_ token]]
-      {:db        (assoc-in db [:auth :token] token)
-       :sensitive [[:auth :token]]}))
+      {:db (assoc-in db [:auth :token] token)}))
   (rf.story/reg-variant :story.button/narrative-secret
     {:doc   "Seeds a declared-sensitive token."
      :setup [[::seed-secret narrative-secret]]}))
@@ -1044,26 +1029,14 @@
   (when (some? (frame-container variant-id))
     ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
 
-(defn- classification-config
-  "`variant-id`'s accumulated classification-effect map
-  `{:sensitive [path ...] :large [path ...]}`, omitting an empty axis."
-  [variant-id]
-  (let [{:keys [sensitive large]} (get @declared-class variant-id)]
-    (cond-> {}
-      (seq sensitive) (assoc :sensitive (mapv vec sensitive))
-      (seq large)     (assoc :large (mapv vec large)))))
-
 (defn- declare-classification!
-  "Classify `path` as `kind` on `variant-id`'s frame now, for readers that do
-  not run the variant, and append a `:setup` step re-applying the full
-  classification, because each fresh run resets the frame's runtime-db."
+  "Classify `path` as `kind` with a `reg-classification`, which every
+  reader of `variant-id`'s frame sees, run or not (Spec 015 §Static app-db
+  classification)."
   [variant-id kind path]
-  (swap! declared-class update-in [variant-id kind] (fnil conj #{}) (vec path))
   (ensure-variant-frame! variant-id)
-  (let [config (classification-config variant-id)]
-    (rf.frame/swap-runtime-db! variant-id (fn [rt] (rf.elision/apply-classification-effects rt config)))
-    (when-let [body (rf.story.registrar/handler-meta :variant variant-id)]
-      (rf.story.registrar/reg-variant* variant-id (update body :setup (fnil conj []) [::reapply-frame-class variant-id config])))))
+  (rf/reg-classification (keyword "classified" (str (hash [kind path])))
+    {kind [(vec path)]}))
 
 (defn- declare-sensitive! [variant-id path]
   (declare-classification! variant-id :sensitive path))
@@ -1569,19 +1542,19 @@
   named checks both expand to the atom it matches — so one source record
   lands in both groups, and a per-group drop count would double-count it."
   []
+  (rf/reg-classification :story-mcp.test/private-record {:sensitive [[:rf.story/assertions]]})
   (rf/reg-event :story-mcp.test/seed-private-record
     (fn [{:keys [db]} _]
-      {:db        (assoc db
-                         :flag :yes
-                         :rf.story/assertions
-                         [{:assertion  :rf.assert/path-equals
-                           :payload    [[:flag] :yes]
-                           :passed?    false
-                           :sensitive? true
-                           :actual     check-private-sentinel
-                           :expected   :yes
-                           :reason     check-private-sentinel}])
-       :sensitive [[:rf.story/assertions]]}))
+      {:db (assoc db
+                  :flag :yes
+                  :rf.story/assertions
+                  [{:assertion  :rf.assert/path-equals
+                    :payload    [[:flag] :yes]
+                    :passed?    false
+                    :sensitive? true
+                    :actual     check-private-sentinel
+                    :expected   :yes
+                    :reason     check-private-sentinel}])}))
   (rf.story/reg-check :check.button/private-a {:assertions [[:rf.assert/path-equals [:flag] :yes]]})
   (rf.story/reg-check :check.button/private-b {:assertions [[:rf.assert/path-equals [:flag] :yes]]})
   (rf.story/reg-variant :story.button/checked-private

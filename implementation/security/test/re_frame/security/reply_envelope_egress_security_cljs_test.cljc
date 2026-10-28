@@ -10,8 +10,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
+            [re-frame.frame]
             ;; Families use the internal reply substrate directly.
             [re-frame.reply :as rf.reply]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -53,11 +52,10 @@
 
 (defn- mk-frame! [frame-id]
   (rf/make-frame {:id frame-id})
-  ;; Install durable classification through the commit-plane path.
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:token] [:partner-key] [:detail :token]]
-                :large     [[:doc]]}))))
+  ;; Durable app-db classification is a reg-classification.
+  (let [decl {:sensitive [[:token] [:partner-key] [:detail :token]]
+              :large     [[:doc]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (deftest framed-trace-summary-elides-declared-slots
   ;; Declared-sensitive leaves redact, the declared-large leaf becomes a

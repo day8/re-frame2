@@ -17,7 +17,7 @@
   (:require [cljs.reader :as reader]
             [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
-            [re-frame.elision :as rf.elision]
+            [re-frame.classification :as rf.classification]
             [re-frame.frame :as rf.frame]
             [re-frame.projection :as rf.projection]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -47,10 +47,9 @@
     (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
   (when-not (rf.frame/frame fid)
     (rf.frame/upsert-frame! fid {:doc "size-override fixture frame"}))
-  (rf.frame/swap-runtime-db! fid
-    (fn [rt] (rf.elision/apply-classification-effects
-               rt {:sensitive [[:docs :token]]
-                   :large     [[:docs :body]]}))))
+  (let [decl {:sensitive [[:docs :token]]
+              :large     [[:docs :body]]}]
+    (rf.classification/reg-classification* (keyword "classified" (str (hash decl))) decl)))
 
 (def ^:private pristine-eval nrepl/cljs-eval-value)
 

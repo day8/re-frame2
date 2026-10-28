@@ -2,7 +2,6 @@
   "Real frame-policy coverage for Xray's on-box local-render egress."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -15,13 +14,19 @@
 (def plain-frame :app/plain)
 (def route-frame :app/routed)
 
+(def ^:private unclassified-image
+  "A frame running this image classifies nothing: classification resolves
+  through the frame's own view (Spec 015 §Static app-db classification), and
+  this image holds one inline event and no classification."
+  (rf/image {:id            ::unclassified
+             :registrations {:reg-event [[::noop {} (fn [{:keys [db]} _] {:db db})]]}}))
+
 (defn- init-fn []
-  (doseq [frame-id [plain-frame secure-frame route-frame]]
+  (rf/make-frame {:id plain-frame :images [unclassified-image]})
+  (doseq [frame-id [secure-frame route-frame]]
     (rf/make-frame {:id frame-id}))
-  (rf.frame/swap-runtime-db! secure-frame
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:auth :token]]
-                :large [[:catalog :rows]]})))
+  (rf/reg-classification ::classified {:sensitive [[:auth :token]]
+                                       :large     [[:catalog :rows]]})
   ;; A real route-owned declaration, classifying the frame's current slice,
   ;; rather than hand-written absolute paths.
   (rf/reg-route :route/user {:sensitive [[:params :token] [:query :token]]} "/user/:token")

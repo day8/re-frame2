@@ -713,7 +713,7 @@
       in)))
 
 (defn- registry-claims
-  "The claims in elision-registry value `registry` on paths `rel` maps to a
+  "The claims in classification value `registry` on paths `rel` maps to a
   relative path (nil for uncovered): `[sensitive-paths large-paths]`."
   [registry rel]
   (let [claims (fn [decls] (into [] (keep #(rel (vec %))) (keys decls)))]
@@ -722,14 +722,13 @@
 (defn- inputs-registry
   "The classification a read sub's value was computed under: the frame's live
   classification for a live value, else the claims `prior-policy` makes on the
-  runtime-db in `prior-inputs`, unioned with that runtime-db's own registry."
+  runtime-db in `prior-inputs`."
   [frame live? prior-inputs prior-policy]
   (if live?
     {:sensitive-declarations (rf.elision/sensitive-declarations frame)
      :declarations           (rf.elision/declarations frame)}
     (let [runtime-db (prior-runtime-db prior-inputs)]
-      (rf.elision/with-runtime-classification
-        (:rf.runtime/elision runtime-db) [prior-policy] runtime-db))))
+      (rf.elision/with-runtime-classification nil [prior-policy] runtime-db))))
 
 (defn- under
   "A `rel` for `registry-claims`: a path under `prefix`, with `prefix` stripped."

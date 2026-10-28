@@ -886,15 +886,13 @@
 ;; would accuse the runtime of ignoring effects it applied.
 
 (deftest side-effects-no-other-tier-test
-  (testing "a handler returning an EP-0025 classification effect (`:sensitive`)
-            beside :db and :fx gets NO ledger row for it: the framework applies
-            it with the :db write. Written against the MAP carrier, the shape an
-            `other` reader would consume."
+  (testing "a committed effect map carries only the closed keys, so a :db +
+            :fx map yields a row for each and nothing else. Written against the
+            MAP carrier, the shape an `other` reader would consume."
     (is (= [:db :http/post]
            (mapv :fx-id (:rows (proj/side-effects-step
-                                 [(do-fx-ev {:db        {:n 1}
-                                             :sensitive [[:creds :password]]
-                                             :fx        [[:http/post {}]]})
+                                 [(do-fx-ev {:db {:n 1}
+                                             :fx [[:http/post {}]]})
                                   (db-changed-ev [])
                                   (fx-handled-ev :http/post {} 1.0)])))))))
 

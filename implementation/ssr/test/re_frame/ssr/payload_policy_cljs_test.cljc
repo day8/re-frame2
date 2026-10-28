@@ -83,11 +83,6 @@
    :rf.runtime/routing  {:current            {:route-id :route/home}
                          :pending-navigation {:id "pn-1" :reason :can-leave}
                          :nav-token-counter  7}
-   ;; The elision registry's keys are classified paths, which can embed a
-   ;; sensitive id, so the registry never crosses the wire.
-   :rf.runtime/elision  {:declarations           {[:auth :token] #{{:source :effect}}}
-                         :sensitive-declarations {[:by-id "user-secret-id" :token]
-                                                  #{{:source :effect}}}}
    :rf.runtime/ssr      {:hydration {:version 1}}})
 
 (deftest project-runtime-db-ships-durable-omits-transient

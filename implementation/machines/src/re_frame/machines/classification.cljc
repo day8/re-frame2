@@ -35,9 +35,8 @@
   "PURE fail-loud-INPUT validator for one machine classification axis
   payload. Returns a human reason string for the FIRST defect, or nil when
   the payload is well-shaped. A payload is well-shaped iff it is a vector of
-  valid concrete `:rf/path` vectors, the same shape accepted by the four
-  commit-plane classification effects
-  (`re-frame.elision/classification-effect-defect`).
+  valid concrete `:rf/path` vectors, the same shape `reg-classification`
+  accepts.
   Value-INDEPENDENT: validates the SHAPE of the declaration, never a runtime
   value."
   [k payload]

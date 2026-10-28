@@ -513,9 +513,7 @@
        "Register a `(fn [coeffects event-vec] effect-map)` event handler
        under `id` — the ONE public event-registration form (EP-0018):
        coeffects in, a closed effects map out. The effect-map is a closed
-       shape of SEVEN top-level keys — `:db` / `:rf.db/runtime` / `:fx`
-       plus the four EP-0025 commit-plane classification effects
-       (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`);
+       shape of three top-level keys — `:db` / `:rf.db/runtime` / `:fx`;
        app handlers return only `:db` / `:fx` day to day, while
        `:rf.db/runtime` (the runtime-db partition) is reserved by
        convention for framework / runtime-extension authority. Any other
@@ -1084,11 +1082,11 @@
 
 ;; ---- data classification (Spec 015 / EP-0025) ---------------------------
 ;;
-;; EP-0025 (data classification, a lightweight hygiene helper). The public
-;; classification surface is (a) the four commit-plane effects (`:sensitive`
-;; / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns
-;; alongside `:db`, plus subsystem projection-relative declarations; and (b)
-;; `project-egress` and the `:rf.egress/*` profiles at trust boundaries.
+;; Data classification is a lightweight hygiene helper. The public
+;; classification surface is (a) `reg-classification` for app-db paths, plus
+;; registration-owned transient and subsystem projection-relative
+;; declarations; and (b) `project-egress` and the `:rf.egress/*` profiles at
+;; trust boundaries.
 ;; There is no imperative `add-marks` / `set-marks` API, no durable
 ;; app-db frame annotation, no durable-state schema-prop classification, and
 ;; NO sensitivity propagation (no derived-output inheritance, no value-match).
@@ -2469,12 +2467,10 @@
   unregister-observability-sink!   rf.observability/unregister-observability-sink!)
 
 ;; EP-0015 §8: no facade export walks `reg-app-schema` `{:large? true}` /
-;; `{:sensitive? true}` slot props into the app-db egress registry — that
+;; `{:sensitive? true}` slot props into the app-db classification — that
 ;; would be a second route to classify a durable app-db path. Schemas describe
 ;; shape, not durable app-db egress policy; durable app-db classification is
-;; declared (EP-0025) by the commit-plane classification effects — a
-;; `reg-event` returns `:sensitive` / `:large` alongside `:db`,
-;; `re-frame.elision/apply-classification-effects`.
+;; declared by `reg-classification`.
 
 ;; EP-0025: there is no derived-tree VALUE-match egress helper, on the
 ;; façade or in `re-frame.elision` — value-match is "propagation/taint by

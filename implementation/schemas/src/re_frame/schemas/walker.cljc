@@ -4,8 +4,8 @@
   `:large?` and `:sensitive?` slot props are projected to
   `{path declaration}` maps with `:source :schema`. Owner-local consumers use
   these declarations for validation-failure and transient egress projection.
-  Schemas do not populate durable app-db classification; commit-plane effects
-  own that policy.
+  Schemas do not populate durable app-db classification; `reg-classification`
+  owns that policy.
 
   The walker does not depend on Malli and does not ask the registered
   validator to interpret a schema. It recognizes vector forms shaped as

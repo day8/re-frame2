@@ -1509,38 +1509,34 @@
 
 (defn- recorded-registry
   "The classification `record`'s `slot` frame-state was recorded under: the
-  elision registry it carries in its runtime-db partition
-  (`:rf.runtime/elision`), unioned with the static policy the record carries
-  (`rf.elision/recorded-policy`) — its app-db declarations, and the subsystem
-  claims it and frame `frame-id`'s current policy make on the instances that
-  recorded runtime-db holds. Spec 015 §Retained values keep their recorded
-  classification."
+  static policy the record carries (`rf.elision/recorded-policy`) — its app-db
+  declarations, and the subsystem claims it and frame `frame-id`'s current
+  policy make on the instances that recorded runtime-db holds. Spec 015
+  §Retained values keep their recorded classification."
   [record slot frame-id]
   (let [policy     (rf.elision/recorded-policy record)
         runtime-db (get-in record [slot :rf.db/runtime])]
-    (-> (get runtime-db :rf.runtime/elision)
-        (rf.elision/with-policy policy)
+    (-> (rf.elision/with-policy nil policy)
         (rf.elision/with-runtime-classification
           [policy (rf.elision/frame-policy frame-id)] runtime-db))))
 
 (defn- redact-by-recorded-registry
   "Redact `v`, a recorded app-db or runtime-db value, at the claims `registry`
-  (the elision registry recorded with it) carried.
+  (the classification recorded with it) carries.
 
-  The live walk classifies by the frame as it stands NOW, and removing an
-  owner drops its claims there — a destroyed machine actor's snapshot leaves
-  the live runtime-db, a flow leaving a frame drops the claims on its output, a
-  declassifying event effect drops its own — while older records still hold
-  the values those claims governed. A record projects under the classification
-  that applied when it was recorded: the registry travels inside the recorded
-  frame-state and the policy rides the record, so a historic value keeps its
-  classification without the live frame retaining a dead owner's entries, and
-  the in-process record stays raw.
+  The live walk classifies by the frame as it stands NOW, and a declaration
+  can leave it — a destroyed machine actor's snapshot leaves the live
+  runtime-db, a cleared flow or `reg-classification` leaves the frame's view —
+  while older records still hold the values it governed. A record projects
+  under the classification that applied when it was recorded: the policy rides
+  the record and the recorded runtime-db names its instances, so a historic
+  value keeps its classification without the live frame retaining a departed
+  declaration, and the in-process record stays raw.
 
   Runs BEFORE the live walk: every recorded `:sensitive` claim becomes the
   sentinel, so a live large marker is never sized over a secret the live
-  registry has forgotten, and a recorded `:large` claim the live registry no
-  longer carries becomes a marker (one it still carries is marked by the live
+  classification has forgotten, and a recorded `:large` claim the live
+  classification no longer carries becomes a marker (one it still carries is marked by the live
   walk, which passes a marker through). Each axis honours its
   `:rf.egress/include-*` opt-in."
   [v registry frame-id {:rf.egress/keys [include-sensitive? include-large?]}]
@@ -1555,7 +1551,7 @@
   "Project one app-db payload slot (`:db-before` / `:db-after`) through
   `project-egress` under the egress profile selected by `opts` (default
   `:rf.egress/off-box-observability`), rooted at the named frame, after
-  `redact-by-recorded-registry` has applied `registry`, the elision registry
+  `redact-by-recorded-registry` has applied `registry`, the classification
   recorded with the payload.
   Off-box defaults (`:rf.egress/include-sensitive? false`, `:rf.egress/include-large? false`)
   hold unless `opts` opts back in. The epoch record is not a

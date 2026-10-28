@@ -5,8 +5,9 @@
   hydration blob raw. A frame destroyed before projection fails closed."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
+            ;; Publishes the route classification hook.
+            [re-frame.routing]
             [re-frame.ssr.ring.payload :as rf.ssr.ring.payload]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
@@ -15,21 +16,20 @@
 (def ^:private server-frame :review/ssr-ring-target)
 
 (defn- setup-frames!
-  "Frame A classifies its route slice (as route activation lowers it); frame
-  B, the would-be ambient, classifies nothing."
+  "Frame A holds the current slice of a classified route; frame B is the
+  would-be ambient."
   []
+  (rf/reg-route :route/oauth-callback
+                {:sensitive [[:query :token]] :large [[:params :payload]]}
+                "/oauth/callback")
   (rf/make-frame {:id server-frame :platform :server})
   (rf/make-frame {:id :review/other-ambient :platform :server})
   (rf.frame/swap-runtime-db! server-frame
     (constantly
-      (-> {}
-          (rf.elision/apply-classification-effects
-            {:sensitive [[:rf.runtime/routing :current :query :token]]
-             :large     [[:rf.runtime/routing :current :params :payload]]})
-          (assoc :rf.runtime/routing
-                 {:current {:route-id :route/oauth-callback
-                            :query    {:token "secret-oauth-token" :return-to "/dashboard"}
-                            :params   {:payload "huge-callback-blob-value"}}})))))
+      {:rf.runtime/routing
+       {:current {:route-id :route/oauth-callback
+                  :query    {:token "secret-oauth-token" :return-to "/dashboard"}
+                  :params   {:payload "huge-callback-blob-value"}}}})))
 
 (defn- build-a [app-db runtime-db]
   (rf.ssr.ring.payload/build-payload server-frame app-db runtime-db

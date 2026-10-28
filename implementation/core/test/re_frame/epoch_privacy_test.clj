@@ -16,9 +16,8 @@
   artefact is off, so that is the design, not a defect."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; Side-effect requires (mirrors epoch_test.clj):
@@ -32,11 +31,9 @@
   (last (rf.epoch/epoch-history frame-id)))
 
 (defn- install-sensitive-paths!
-  "Declare `paths` sensitive against `frame-id` — the registry write a
-  `reg-event` returning `:sensitive` performs."
-  [frame-id paths]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive paths})))
+  "Declare `paths` sensitive."
+  [paths]
+  (rf/reg-classification ::classified {:sensitive paths})
   nil)
 
 (defn- contains-leaf?
@@ -55,7 +52,7 @@
             not enough, and a value the handler clears still counts from the
             pre-cascade snapshot"
     (rf/make-frame {:id :test/main})
-    (install-sensitive-paths! :test/main [[:auth :password]])
+    (install-sensitive-paths! [[:auth :password]])
     (rf/reg-event :unrelated (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (rf/reg-event :seed      (fn [_ _] {:db {:auth {:password "old-secret"}}}))
     (rf/reg-event :clear-pw  (fn [{:keys [db]} _] {:db (update db :auth dissoc :password)}))
@@ -118,7 +115,7 @@
             on-box restore drivers read the raw :db-after; forwarders that egress
             off-box opt INTO projection at the wire boundary"
     (rf/make-frame {:id :test/main})
-    (install-sensitive-paths! :test/main [[:auth :password]])
+    (install-sensitive-paths! [[:auth :password]])
     (let [seen (atom [])]
       (rf/register-listener! :epoch ::raw-listener (fn [r] (swap! seen conj r)))
       (rf/reg-event :login
@@ -132,9 +129,14 @@
             the same sentinel, so it must survive projection. 0 with no
             declarations however much the db changed; nil -> value counts; an
             unchanged declared path does not"
-    (rf/make-frame {:id :test/plain})
+    ;; `:test/plain` runs an image of its own `:seed` alone, so it resolves no
+    ;; classification (Spec 015 §Static app-db classification).
+    (rf/make-frame {:id     :test/plain
+                    :images [(rf.image/image
+                               {:id            ::plain
+                                :registrations {:reg-event [[:seed {} (fn [_ _] {:db {:auth {:password "pw-1" :token "tk-1"}}})]]}})]})
     (rf/make-frame {:id :test/main})
-    (install-sensitive-paths! :test/main [[:auth :password] [:auth :token]])
+    (install-sensitive-paths! [[:auth :password] [:auth :token]])
     (rf/reg-event :seed         (fn [_ _] {:db {:auth {:password "pw-1" :token "tk-1"}}}))
     (rf/reg-event :rotate-token (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "tk-2")}))
     (rf/reg-event :login-both   (fn [_ _] {:db {:auth {:password "pw-2" :token "tk-3"}}}))

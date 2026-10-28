@@ -23,11 +23,12 @@
    :scratch  {:server-only true}})
 
 (defn- make-server-frame!
-  "A server frame whose init event seeds `seed-db` and classifies the CSRF
-  token `:sensitive`. Returns the frame value."
+  "A server frame whose init event seeds `seed-db`, with the CSRF token
+  classified `:sensitive`. Returns the frame value."
   []
+  (rf/reg-classification :rf.hydration-payload-test/session {:sensitive [[:session :csrf]]})
   (rf/reg-event :rf.hydration-payload-test/seed
-    (fn [_ _] {:db seed-db :sensitive [[:session :csrf]]}))
+    (fn [_ _] {:db seed-db}))
   (rf/make-frame {:id sframe :platform :server
                   :initial-events [[:rf.hydration-payload-test/seed]]}))
 

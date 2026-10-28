@@ -18,7 +18,6 @@
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.flows]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
@@ -147,9 +146,8 @@
   (rf/reg-app-schema [:auth :token] [:map [:token :int]])
   (rf/reg-event :auth/write
     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:auth :token] {:token v})}))
-  (testing "a commit-plane :sensitive declaration"
-    (rf/reg-event :auth/classify (fn [_ _] {:sensitive [[:auth :token]]}))
-    (rf/dispatch-sync [:auth/classify])
+  (testing "a reg-classification declaration"
+    (rf/reg-classification :auth/classified {:sensitive [[:auth :token]]})
     (let [trace (dispatch-failure-trace [:auth/write "hunter2-SECRET"])]
       (is (not (str/includes? (pr-str trace) "hunter2-SECRET")))
       (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace)))))
@@ -163,46 +161,12 @@
       (is (not (str/includes? (pr-str trace) "flow-SECRET")))
       (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace))))))
 
-(defn- installed-registry []
-  [(rf.elision/sensitive-declarations :rf/default) (rf.elision/declarations :rf/default)])
-
-(deftest app-db-validation-redacts-a-path-the-same-event-classifies
-  (testing "a :sensitive returned by the event that writes the failing value
-            governs its failure trace exactly as an already-classified path
-            does, and neither rejected write touches the installed db or
-            registry"
-    (rf/reg-app-schema [:vault :key] [:map [:key :int]])
-    (rf/reg-app-schema [:session :key] [:map [:key :int]])
-    (rf/reg-event :vault/classify (fn [_ _] {:sensitive [[:vault :key]]}))
-    (rf/reg-event :secret/write
-      (fn [{:keys [db]} [_ path v classify?]]
-        (cond-> {:db (assoc-in db path {:key v})}
-          classify? (assoc :sensitive [path]))))
-    (rf/dispatch-sync [:vault/classify])
-    (doseq [[case-name path classify?] [["pre-classified" [:vault :key] false]
-                                        ["same-event" [:session :key] true]]]
-      (testing case-name
-        (let [secret   (str case-name "-SECRET")
-              db0      (rf/app-db-value :rf/default)
-              reg0     (installed-registry)
-              failures (with-trace-recorder! [traces]
-                         (rf/dispatch-sync [:secret/write path secret classify?])
-                         (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
-                                        (= :app-db (get-in % [:tags :where])))
-                                  @traces))]
-          (is (= 1 (count failures)) "one app-db failure")
-          (is (not (str/includes? (pr-str failures) secret)) "no raw secret in any slot")
-          (is (= [true :rf/redacted :rf/redacted] (registry-redaction (first failures))))
-          (is (= db0 (rf/app-db-value :rf/default)) "the write is rejected")
-          (is (= reg0 (installed-registry)) "the registry is untouched"))))))
-
 (deftest app-db-validation-size-elides-a-registry-large-path
   (let [blob (apply str (repeat 40 "BLOB-"))]
     (rf/reg-app-schema [:reports :part] [:map [:n :int]])
-    (rf/reg-event :reports/classify (fn [_ _] {:large [[:reports :part :blob]]}))
+    (rf/reg-classification :reports/classified {:large [[:reports :part :blob]]})
     (rf/reg-event :reports/write
       (fn [{:keys [db]} _] {:db (assoc-in db [:reports :part] {:blob blob :n "not-an-int"})}))
-    (rf/dispatch-sync [:reports/classify])
     (let [trace (dispatch-failure-trace [:reports/write])]
       (is (not (str/includes? (pr-str trace) "BLOB-BLOB")))
       (is (= ["not-an-int" true true nil]
@@ -525,7 +489,7 @@
       (let [v (failure-trace @traces)]
         (is (not (contains? v :sensitive?)))
         (is (true? (-> v :tags :large?)))
-        (is (= :effect (-> v :tags :value :rf.size/large-elided :reason))
+        (is (= :classification (-> v :tags :value :rf.size/large-elided :reason))
             "the marker carries the canonical classification provenance")
         (doseq [slot [:received :explain]]
           (is (contains? (-> v :tags slot) :rf.size/large-elided) (str slot)))

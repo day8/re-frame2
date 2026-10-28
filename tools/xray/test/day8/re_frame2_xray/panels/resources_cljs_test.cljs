@@ -6,8 +6,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
+            [re-frame.frame]
             ;; CORE canonical-identity (not the resources artefact) — the routing
             ;; blocking slot is keyed on the CEDN-1 byte id.
             [re-frame.identity :as rf.identity]
@@ -515,10 +514,8 @@
   ;; exactly that coordinate. A resource's scope and params are its identity,
   ;; never a declared slot, so the local operator sees them.
   (rf/make-frame {:id zix-observed-frame})
-  (rf.frame/swap-runtime-db! zix-observed-frame
-    (fn [rt]
-      (rf.elision/apply-classification-effects rt
-        {:sensitive [[:rf.runtime/resources :entries zix-key-id :data]]}))))
+  (let [decl {:sensitive [[:rf.runtime/resources :entries zix-key-id :data]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (defn- zix-instance-row []
   (let [data (:instances @(rf/subscribe [:rf.xray/resources-tab-data]))]

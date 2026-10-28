@@ -3,8 +3,7 @@
   entries a runtime-db holds (Spec 015 §Subsystem projection-relative
   classification): the `:resources/runtime-classification` hook re-roots each
   entry's resource declaration onto its absolute `:data` path, so an entry is
-  classified exactly while it is present and nothing is written into the
-  frame's elision registry."
+  classified exactly while it is present."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -52,16 +51,6 @@
 (defn- evict-all! []
   (rf.frame/swap-runtime-db! :rf/default #(assoc-in % [rf.resources.state/resources-key :entries] {})))
 
-(defn- registry-resource-claims
-  "Every `:source :resource` owner the frame's elision registry itself holds."
-  []
-  (for [[_ decls] (:rf.runtime/elision (:rf.db/runtime (rf/frame-state-value :rf/default)))
-        :when (map? decls)
-        [_ owners] decls
-        owner owners
-        :when (= :resource (:source owner))]
-    owner))
-
 (def ^:private resource-owner #{{:source :resource}})
 
 (deftest each-entry-is-claimed-at-its-absolute-data-path
@@ -86,7 +75,6 @@
     (is (not (contains? (live-sensitive) abs-ssn)) "control: nothing is claimed before the entry lands")
     (hold! (runtime-db-with {k {:data {:ssn "x"}}}))
     (is (= resource-owner (get (live-sensitive) abs-ssn)) "the held entry is claimed, with no classification step")
-    (is (empty? (registry-resource-claims)) "nothing is written into the frame's elision registry")
     (evict-all!)
     (is (not (contains? (live-sensitive) abs-ssn)) "the evicted entry's claim goes with it, with no drop step")))
 
@@ -97,17 +85,3 @@
     (is (not (contains? (get-in (rf.elision/frame-policy :rf/default) [:roots :rf.runtime/resources])
                         :plain/card))
         "the policy collects only the resources that declare a classification")))
-
-(deftest resource-and-effect-claims-union
-  (reg! :acct/card {:sensitive [[:data :ssn]]})
-  (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :acct/card {:slug "x"})
-        abs-ssn [:rf.runtime/resources :entries (rf.resources.state/key-id k) :data :ssn]]
-    ;; an app effect already classifies the same absolute path (Spec 015)
-    (hold! (assoc-in (runtime-db-with {k {:data {:ssn "123-45-6789"}}})
-                     [:rf.runtime/elision :sensitive-declarations abs-ssn]
-                     #{{:source :effect}}))
-    (is (= #{{:source :effect} {:source :resource}} (get (live-sensitive) abs-ssn))
-        "the resource claim unions with the effect claim")
-    (evict-all!)
-    (is (= #{{:source :effect}} (get (live-sensitive) abs-ssn))
-        "the eviction takes the resource claim, and the effect claim survives")))
