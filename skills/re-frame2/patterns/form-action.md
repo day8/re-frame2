@@ -211,7 +211,7 @@ Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`
 
 `enctype="multipart/form-data"` — the host adapter parses files under `:form-params` as `{:filename :content-type :size :tempfile}` maps. The `:tempfile` is host-specific and **opaque**: pass it to a file-storage fx (S3 PUT, disk write); never dereference it in the handler, and write only the resulting URL/storage-id into `app-db`. File **contents** never appear in trace events.
 
-**Marking the POST sensitive — classify the path at the owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). The secret rides the POST `:form-params`, which the action handler is just a `reg-event` over — so name its path in the **registration's** `:sensitive` metadata (a `:form-params` field landing at a durable app-db slot is classified by the writing event's `:sensitive` **commit-plane effect** instead):
+**Marking the POST sensitive — classify the path at the owner** (the three-owner model — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)). The secret rides the POST `:form-params`, which the action handler is just a `reg-event` over — so name its path in the **registration's** `:sensitive` metadata (a `:form-params` field landing at a durable app-db slot is classified by a **`reg-classification`** beside the feature instead):
 
 ```clojure
 (rf/reg-event :upload/submit

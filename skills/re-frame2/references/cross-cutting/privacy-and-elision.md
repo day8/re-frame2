@@ -27,55 +27,44 @@ Classification attaches to **whoever owns the data's shape**, and you always cla
 
 | The data is… | Owner | Declare it on… | Shape |
 |---|---|---|---|
-| Durable `app-db` state (auth tokens, partner keys, big uploads) | the **event** that writes / initialises it | `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` **classification effects** returned alongside `:db` | a vector of paths: `:sensitive [[:auth :token]]` |
-| Subsystem instance data — machine `:data`, resource data/params | the **subsystem definition** | projection-relative `:sensitive` / `:large` on `reg-machine` / `reg-resource`, lowered per instance | a vector of paths relative to the instance: `:sensitive [[:data :token]]` |
+| Durable `app-db` state (auth tokens, partner keys, big uploads) | the **feature** that owns the path | a **`reg-classification`** beside the feature's other registrations | app-db-absolute paths: `(rf/reg-classification :auth {:sensitive [[:auth :token]]})` |
+| Subsystem instance data — machine `:data`, resource data | the **subsystem definition** | projection-relative `:sensitive` / `:large` on `reg-machine` / `reg-resource`, applied at egress to each instance present | a vector of paths relative to the instance: `:sensitive [[:data :token]]` |
 | Transient payloads — event args, fx/cofx args, sub outputs, flow outputs, HTTP bodies | the **registration** (or its `:decode` schema) that introduces the shape | `reg-event` / `reg-sub` / `reg-fx` / `reg-flow` `:sensitive` / `:large` metadata; `:sensitive?` props on a `:decode` schema | a vector of paths: `[[:password]]` |
 
-Hold this one line in your head: *durable app-db → classification effects from the writing event; subsystem instance data → projection-relative declaration on the subsystem; transient payloads → registration metadata.* Three owners, three surfaces, no overlap, and **each classifies a path it owns** — the same secret crossing two surfaces (an HTTP reply *and* its durable app-db copy) is two declarations, because there is no propagation between them.
+Hold this one line in your head: *durable app-db → a `reg-classification` beside the feature; subsystem instance data → projection-relative declaration on the subsystem; transient payloads → registration metadata.* Three owners, three surfaces, no overlap, and **each classifies a path it owns** — the same secret crossing two surfaces (an HTTP reply *and* its durable app-db copy) is two declarations, because there is no propagation between them.
 
-**`:sensitive` (no `?`) vs `:sensitive?` (with `?`).** `:sensitive` names a *collection of paths* (a set → plural, bare) — the classification effects, registration marks, subsystem declaration. `:sensitive?` answers a *yes/no question about one schema slot* (boolean → predicate `?`) and applies **only** to a schema's validation-failure-trace redaction and the schema-owned *transient* products (HTTP `:decode` body, resource params). Same for `:large` / `:large?`. There is no `:sensitive false` and no declassification key — nothing propagates (see [no propagation](#no-propagation-no-taint)).
+**`:sensitive` (no `?`) vs `:sensitive?` (with `?`).** `:sensitive` names a *collection of paths* (a set → plural, bare) — a `reg-classification` declaration, registration marks, a subsystem declaration. `:sensitive?` answers a *yes/no question about one schema slot* (boolean → predicate `?`) and applies **only** to a schema's validation-failure-trace redaction and the schema-owned *transient* products (HTTP `:decode` body, resource params). Same for `:large` / `:large?`. There is no `:sensitive false` and no declassification key — nothing propagates (see [no propagation](#no-propagation-no-taint)).
 
-## 1 — Event-owned: durable app-db state
+## 1 — Feature-owned: durable app-db state
 
-Durable `app-db` classification rides **four commit-plane effects** a handler returns alongside `:db`, in the same event:
-
-```clojure
-:sensitive       [[path] …]   ; classify each path sensitive (redact at egress)
-:large           [[path] …]   ; classify each path large    (size marker at egress)
-:clear-sensitive [[path] …]   ; un-classify sensitive
-:clear-large     [[path] …]   ; un-classify large
-```
-
-Where you return them tracks *when* the path's meaning is fixed — known paths in the frame's init event, discovered ones in the handler that writes them:
+Durable `app-db` classification is a **static registration**. The feature that owns a path declares it once, beside its events and subs, with `reg-classification` (registrar kind `:classification`):
 
 ```clojure
-;; known at authoring — classify in the frame's init event
-(rf/reg-event :app/init
-  (fn [{:keys [db]} _]
-    {:db        (assoc db :auth {})
-     :sensitive [[:auth :token] [:auth :refresh-token] [:tenant :partner-api-key]]
-     :large     [[:documents :csv-upload] [:reports :raw-export]]}))
+(rf/reg-classification :auth
+  {:doc       "Session credentials."
+   :sensitive [[:auth :token] [:auth :refresh-token] [:tenant :partner-api-key]]})
 
-;; discovered at runtime — classify in the handler that writes it
-(rf/reg-event :doc/scanned
-  (fn [{:keys [db]} [_ doc-id raw]]
-    (cond-> {:db (assoc-in db [:docs doc-id] {:body raw})}
-      (contains-pii? raw) (assoc :sensitive [[:docs doc-id :body]]))))
+(rf/reg-classification :documents
+  {:sensitive [[:docs :body]]                       ;; every [:docs <id> :body]
+   :large     [[:documents :csv-upload] [:reports :raw-export]]})
 ```
 
-Wire the init event with `:initial-events [[:app/init]]` so the classification is in force before any off-box egress. Worth knowing:
+The declaration is a closed map: `:sensitive` and `:large`, each a vector of paths **absolute in app-db** (`[]` is the whole of app-db), plus an optional `:doc`. Worth knowing:
 
-- The effects are applied **with the `:db` write** (a frame-state transform at the commit point, recorded in the per-frame elision registry), *not* a later `:fx`. A path classified in an event is redacted from its *first* egress.
-- **Classification is value-independent.** Classify a path before a value lands there — the classification redacts whatever later occupies it; over an absent path it's a harmless no-op.
-- **The two axes are independent.** `:clear-sensitive` never touches the large axis, and vice-versa. Clearing is rarely reached for — when data disappears, its classification is a no-op anyway.
+- **No event, no init step, no frame wiring.** The declaration exists before any event runs, so a declared path is redacted from its *first* egress — the pending-db trace of the very event that writes it included — and nothing is written into runtime-db.
+- **Classification is value-independent.** A declaration over an absent or differently-shaped value is a harmless no-op; it redacts whatever later occupies the path.
+- **A path names slots, not positions.** A map key or a vector index consumes no declared segment, so `[:docs :body]` reaches `[:docs "inv-42" :body]` under every key — an id discovered at runtime needs no runtime classification.
 - **Sensitive wins over large.** A path that's both redacts as sensitive and emits *no* size marker (the marker's `:path` / `:bytes` would themselves leak structure).
-- Malformed effect payloads (a non-vector value, a non-path entry, an unknown axis) **fail loud pre-commit** with `:rf.error/classification-effect-shape` — the transition aborts, no `:db` commits.
+- **Each frame resolves its own.** A frame applies the `:classification` registrations its view resolves — its images' selection for a frame made with `:images`, every loaded namespace's for one made without — so keep the declaration in the feature's namespace, where an image selecting the feature picks it up. `reg-classification` is not an inline image registration kind. Re-registering the id replaces the declaration; `(rf/clear :classification id)` removes it.
+- A malformed declaration (an unknown key, a non-vector axis, a non-path entry) **fails loud at registration** with `:rf.error/bad-classification`.
 
-There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; there is no frame `:sensitive {:http …}` block); observability sink policy *does* live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A frame config carrying `:sensitive` or `:large` fails loud (`:rf.error/bad-frame-classification`).
+**Classification is not an effect.** A handler returning `:sensitive` or `:large` beside its `:db` is refused pre-commit with `:rf.error/effect-map-shape`, its `:reason` naming `reg-classification`: the effect map is closed to `:db`, `:rf.db/runtime` and `:fx`.
+
+There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the feature's `reg-classification` is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; there is no frame `:sensitive {:http …}` block); observability sink policy *does* live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A frame config carrying `:sensitive` or `:large` fails loud (`:rf.error/bad-frame-classification`).
 
 ## 2 — Subsystem-owned: machine and resource instance data
 
-A runtime subsystem owns its storage, so you never name an absolute runtime path. You declare `:sensitive` / `:large` **projection-relative to the instance's shape** on the subsystem definition, and the framework lowers it into the registry per instance (at spawn / fetch) and drops it on teardown:
+A runtime subsystem owns its storage, so you never name an absolute runtime path. You declare `:sensitive` / `:large` **projection-relative to the instance's shape** on the subsystem definition, and egress applies it to every instance present in the runtime-db being projected — through one hook per runtime-db root — so an instance is classified exactly while it exists, with nothing written at spawn or fetch and nothing to drop at teardown ([Spec 015 §Subsystem projection-relative classification](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#subsystem-projection-relative-classification)):
 
 ```clojure
 ;; the [:schemas :data] schema VALIDATES :data; the :sensitive declaration
@@ -99,7 +88,7 @@ A runtime subsystem owns its storage, so you never name an absolute runtime path
 
 The `[:data :payment :token]` declaration redacts that slot everywhere the machine snapshot egresses (every transition's before/after, the Xray Machine Inspector, the pair-MCP wire, the epoch record), for **every spawned actor instance**, with no per-instance author code. Rename the slot in the declaration and the classification moves with it. A malformed declaration is rejected fail-loud at registration.
 
-> **The schema prop is a *different* axis.** A `:sensitive?` / `:large?` prop on a machine `[:schemas :data]` slot (or a resource `:data-schema` / `:params-schema`) redacts that slot **only in the schema's own validation-failure trace** — the validator's egress product, which the schema owns. It does **not** classify the durable `:data` for snapshot egress; the projection-relative `:sensitive` / `:large` declaration above does that. On an **HTTP request's `:decode` schema** the `:sensitive?` prop *is* the right and only route — the response body is a *transient* payload, and the schema is its owner (the registration-owned row). Schemas own *transient* and *validation-failure* products; durable state is the effect (§1) or the subsystem declaration (here).
+> **The schema prop is a *different* axis.** A `:sensitive?` / `:large?` prop on a machine `[:schemas :data]` slot (or a resource `:data-schema` / `:params-schema`) redacts that slot **only in the schema's own validation-failure trace** — the validator's egress product, which the schema owns. It does **not** classify the durable `:data` for snapshot egress; the projection-relative `:sensitive` / `:large` declaration above does that. On an **HTTP request's `:decode` schema** the `:sensitive?` prop *is* the right and only route — the response body is a *transient* payload, and the schema is its owner (the registration-owned row). Schemas own *transient* and *validation-failure* products; durable state is the `reg-classification` (§1) or the subsystem declaration (here).
 
 ## 3 — Registration-owned: transient payloads
 
@@ -174,7 +163,7 @@ The walker's `opts` map is **closed** — `:frame` / `:path` / `:query-v` plus t
 
 ## Direct reads must project, with the frame known
 
-`rf/app-db-value`, `re-frame.subs.tooling/sub-cache-snapshot`, and an MCP `get-path` bypass the trace surface. Any direct read crossing an egress boundary must **project app-side with the frame known**. Egress policy is frame-scoped and inherits the no-default-frame rule: **a projection needing frame policy with no frame known fails closed — it does not synthesize `:rf/default`.** The `:frame` opt is read by key **presence**, not truthiness, so `{:frame nil}` says *no governing frame* and fails closed; only an ABSENT `:frame` key falls through to the carried scope. Pass the explicit `nil` whenever you are projecting one frame's value from inside another — omitting the key there would borrow the frame you happen to be in, and its empty registry would ship the value raw. On-box visibility is **per (tool, frame) pair** — no process-global "show sensitive" toggle; local tools default `:rf.egress/local-redacted`, raw requires explicit `:rf.egress/local-raw` opt-in. The payoff of one projection path: **revealing sensitive data is an operator act, itself trace-visible** — auditable, not silent.
+`rf/app-db-value`, `re-frame.subs.tooling/sub-cache-snapshot`, and an MCP `get-path` bypass the trace surface. Any direct read crossing an egress boundary must **project app-side with the frame known**. Egress policy is frame-scoped and inherits the no-default-frame rule: **a projection needing frame policy with no frame known fails closed — it does not synthesize `:rf/default`.** The `:frame` opt is read by key **presence**, not truthiness, so `{:frame nil}` says *no governing frame* and fails closed; only an ABSENT `:frame` key falls through to the carried scope. Pass the explicit `nil` whenever you are projecting one frame's value from inside another — omitting the key there would borrow the frame you happen to be in, whose classification may not declare the other frame's paths, and the value would ship raw. On-box visibility is **per (tool, frame) pair** — no process-global "show sensitive" toggle; local tools default `:rf.egress/local-redacted`, raw requires explicit `:rf.egress/local-raw` opt-in. The payoff of one projection path: **revealing sensitive data is an operator act, itself trace-visible** — auditable, not silent.
 
 ## No propagation, no taint
 
@@ -214,7 +203,7 @@ Projection substitutes one of three framework-reserved sentinel forms (your app 
   {:rf.size/large-elided {:path   [:reports :2026 :rows]        ; the concrete runtime path
                           :bytes  184320                        ; printed-representation byte count
                           :type   :vector                       ; closed: :map :vector :set :string :scalar
-                          :reason :effect                       ; the declaration source
+                          :reason :classification               ; the declaration source
                           :handle [:rf.elision/at [:reports :2026 :rows]]}}   ; EDN re-fetch form
   ```
 
@@ -229,10 +218,11 @@ These names are not part of the API. Reaching for any of them is a wrong turn �
 
 | Surface that does not exist | Use instead |
 |---|---|
-| `add-marks` / `set-marks` / `clear-app-db-marks!` — imperative post-creation app-db marks | the `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` **classification effects** a handler returns |
-| frame `:sensitive` / `:large` keys (durable `:app-db` annotation + the `:sensitive {:http …}` HTTP carrier block) | the four classification effects + the `:rf.http/managed` `:carriers` block. A frame config carrying either key is rejected fail-loud (the frame still owns `:observability` sink policy — a different surface) |
-| schema-attached `{:sensitive? true}` on an **app-db** `reg-app-schema` slot | the `:sensitive` classification effect. (The same `:sensitive?` prop on an **HTTP `:decode`-body** schema is *correct and live* — the transient-payload route; on a **machine `[:schemas :data]` slot or a resource `:data-schema`** it drives only validation-failure-trace redaction, not snapshot egress — see [the subsystem row](#2--subsystem-owned-machine-and-resource-instance-data).) |
-| schema-prop driving machine `:data` snapshot redaction | projection-relative `:sensitive` / `:large` on the `reg-machine` definition, lowered per actor instance — not its `[:schemas :data]` |
+| `add-marks` / `set-marks` / `clear-app-db-marks!` — imperative post-creation app-db marks | a **`reg-classification`** beside the feature |
+| `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` returned beside `:db` — app-db classification as an effect | a **`reg-classification`** beside the feature. The effect map is closed to `:db` / `:rf.db/runtime` / `:fx`, so any of these keys refuses the event pre-commit with `:rf.error/effect-map-shape` |
+| frame `:sensitive` / `:large` keys (durable `:app-db` annotation + the `:sensitive {:http …}` HTTP carrier block) | `reg-classification` + the `:rf.http/managed` `:carriers` block. A frame config carrying either key is rejected fail-loud (the frame still owns `:observability` sink policy — a different surface) |
+| schema-attached `{:sensitive? true}` on an **app-db** `reg-app-schema` slot | a `reg-classification` naming the path. (The same `:sensitive?` prop on an **HTTP `:decode`-body** schema is *correct and live* — the transient-payload route; on a **machine `[:schemas :data]` slot or a resource `:data-schema`** it drives only validation-failure-trace redaction, not snapshot egress — see [the subsystem row](#2--subsystem-owned-machine-and-resource-instance-data).) |
+| schema-prop driving machine `:data` snapshot redaction | projection-relative `:sensitive` / `:large` on the `reg-machine` definition, applied at egress to each actor present — not its `[:schemas :data]` |
 | **any sensitivity propagation** — input → output inheritance through subs / flows, and an `:rf.egress/output-sensitivity` declassification claim | classify the output path directly. Nothing propagates; a derived secret is just a classified db path (see [no propagation](#no-propagation-no-taint)) |
 | `redact-interceptor` — positional payload scrubber on the handler | registration `:sensitive [[:path]]` metadata — privacy is a property of the value at a path, not of an interceptor's stack position |
 | `declare-sensitive-header!` / `declare-sensitive-query-param!` — process-global carrier mutation (and the frame `:sensitive {:http …}` block) | the `:rf.http/managed` `reg-fx` registration's `:carriers {:headers [...] :query-params [...]}` block, unioning onto the immutable built-in denylists |
