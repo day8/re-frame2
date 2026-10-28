@@ -16,37 +16,40 @@
 ;; No custom findings ship: every entry gives a macro its shape, so kondo's
 ;; ordinary analysis applies.
 {:linters
- {;; `:unresolved-var` exclusions — the framework's reg-* macros are
-  ;; defined under `#?(:clj (defmacro …))` using the `defreg-macro`
-  ;; meta-macro (see `core_reg_macros.cljc`). kondo can't statically
-  ;; trace the macro-defining-macro, so the resulting Vars look
-  ;; unresolved. Excluded by qualified symbol, which is also what lets each
-  ;; reg-* call lint as an ordinary call (see `:lint-as` below).
+ {;; `:unresolved-var` exclusions — exactly the macros `re-frame.core`
+  ;; defines through the `defreg-macro` / `defreg-event-macro` meta-macros
+  ;; (see `core_reg_macros.cljc`). kondo can't trace a macro-defining macro,
+  ;; so in a `.clj` / `.cljc` consumer those Vars read as unresolved; a
+  ;; `.cljs` consumer resolves them through the facade's same-named CLJS
+  ;; value aliases. Every other `re-frame.core` name resolves unlisted —
+  ;; `reg-machine`, `defmachine` and `reg-view` are plain `defmacro`s, the
+  ;; retired `reg-event-db` / `-fx` / `-ctx` are `def`s — and an entry naming
+  ;; a Var that does not exist would hide a real `Unresolved var`.
+  ;; `re-frame.kondo-export-test` pins this list to that macro set.
   :unresolved-var
-  {:exclude [re-frame.core/reg-event-db
-             re-frame.core/reg-event-fx
-             re-frame.core/reg-event-ctx
+  {:exclude [re-frame.core/reg-event
              re-frame.core/reg-sub
-             re-frame.core/reg-sub-raw
              re-frame.core/reg-fx
              re-frame.core/reg-cofx
+             re-frame.core/reg-interceptor
              re-frame.core/reg-flow
              re-frame.core/reg-route
+             re-frame.core/reg-resource
+             re-frame.core/reg-mutation
+             re-frame.core/reg-resource-scope
              re-frame.core/reg-app-schema
              re-frame.core/reg-app-schemas
              re-frame.core/reg-error-projector
              re-frame.core/reg-head
              re-frame.core/reg-http-interceptor
              re-frame.core/reg-classification
-             re-frame.core/reg-machine
-             re-frame.core/defmachine
-             re-frame.core/reg-view]}}
+             re-frame.core/reg-state]}}
 
  :lint-as
  {;; Core registration macros — `(reg-foo :id ... body)` is a
   ;; *registration* call (handler installed in the registrar by side
   ;; effect), NOT a `def` introducing a Var — and they need no entry. With
-  ;; their Vars excluded above, clj-kondo lints each call as an ordinary
+  ;; no entry, clj-kondo lints each call as an ordinary
   ;; call: every argument is an expression, the handler fn gets full
   ;; lexical-binding analysis, and a registration inside a fn body or a
   ;; `let` (a deferred `install!`) draws no finding of its own. A `do` shape, by
