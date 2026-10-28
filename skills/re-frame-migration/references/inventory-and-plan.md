@@ -32,7 +32,7 @@ From that tree, list every **re-frame add-on** — any library that depends on `
 |---|---|
 | `day8.re-frame/http-fx` (`:http-xhrio`) | the de-facto v1 HTTP effect layer |
 | `day8.re-frame/async-flow-fx` (`:async-flow`) | async boot/wizard orchestration |
-| `day8.re-frame/forward-events-fx` | event forwarding (transitive of async-flow-fx) |
+| `day8.re-frame/forward-events-fx` (`:forward-events`) | event forwarding, a direct dep or a dependency of async-flow-fx; app code can return `:forward-events` itself |
 | `day8.re-frame/undo` | undo/redo via app-db snapshots |
 | `day8.re-frame/re-frame-10x` | the v1 devtools panel (dev dep) |
 | `day8.re-frame/test` | the v1 test harness |
