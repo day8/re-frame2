@@ -316,6 +316,10 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 - **Switching to schema-driven decode** (`:decode <MalliSchema>`) for endpoints that don't yet have schemas is a separate modernisation pass — adopting Malli schemas is its own scope ([O-3](README.md#o-3-add-malli-schemas-to-event-handlers-and-app-db-paths) covers the broader schema adoption). The agent SHOULD flag every `:decode :json` site as a candidate for schema-driven decode; the operator decides per endpoint.
 
+## Verification — compare the converted requests with v1
+
+The expectation a converted request is checked against is written by whoever converted it, so it shares the conversion's blind spots: a request that fires twice, not at all or out of order still compiles and boots. Drive the same scenario on the v1 build and the converted one, a failure path included, since `:on-failure` now receives a different payload, and diff the requests issued (method, URL, query, body, order, count) and the app-db slots the success and failure handlers write. A `:retry` the conversion added sends more requests than v1 did on a failure; record those as expected differences. The full procedure is the skill's smoke-loop step that compares with v1 wherever v2 replaced a subsystem ([`runtime-smoke-test.md` §The boot smoke-test phase](../../skills/re-frame-migration/references/runtime-smoke-test.md#the-boot-smoke-test-phase--live-introspection-not-just-it-loads)).
+
 ## Reporting
 
 When the agent applies this rule:
