@@ -13,8 +13,9 @@
 {;; Core and Fresco each ship a clj-kondo export from the artefact, macro
  ;; shapes only:
  ;;   - `implementation/core/resources/clj-kondo.exports/day8/re-frame2/` —
- ;;     the `re-frame.core` reg-* family as `do`, `defmachine` as `def`, and
- ;;     hooks giving `reg-view`, `with-frame`, `with-new-frame` and
+ ;;     the `re-frame.core` reg-* family as ordinary calls (its
+ ;;     `defreg-macro` Vars excluded from `:unresolved-var`), `defmachine` as
+ ;;     `def`, and hooks giving `reg-view`, `with-frame`, `with-new-frame` and
  ;;     `re-frame.test-support/with-trace-recorder!` their `defn` / `do` /
  ;;     `let` shapes;
  ;;   - `implementation/fresco/resources/clj-kondo.exports/day8/re-frame2-fresco/`
