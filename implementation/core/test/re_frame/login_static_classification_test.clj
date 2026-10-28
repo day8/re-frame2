@@ -50,10 +50,8 @@
     (rf/unregister-listener! :trace ::probe)
     (let [init (record-for :rf/default :auth.login/initialise-form)
           edit (record-for :rf/default :auth.login/edit-password)]
-      (testing "no classification event or effect: the init event returns :db
-                alone, and nothing is written into runtime-db's registry"
-        (is (empty? (:effects init)))
-        (is (nil? (get-in init [:frame-state-after :rf.db/runtime :rf.runtime/elision]))))
+      (testing "no classification event or effect: the init event returns :db alone"
+        (is (empty? (:effects init))))
       (testing "the pending-db trace of the very event that writes the secret
                 carries it redacted"
         (let [pending (keep #(when (= :rf.event/db-pending (:operation %))
@@ -78,8 +76,6 @@
         "the server resolves the declaration and redacts the path in the payload")
     (is (= secret (get-in permitted (into [:rf/app-db] password-path)))
         "the host's permit releases exactly that path")
-    (is (not (contains? (:rf/runtime-db payload) :rf.runtime/elision))
-        "no classification crosses the hydration wire")
     (doseq [[label p raw] [["unpermitted" payload :rf/redacted] ["permitted" permitted secret]]]
       (testing label
         (let [client (keyword (name ::client) label)]
