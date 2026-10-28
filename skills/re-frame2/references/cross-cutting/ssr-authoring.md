@@ -110,7 +110,7 @@ If you do override, you take over the shipped handler's safety contract and **MU
 - **merges the runtime metadata** under `[:rf.runtime/ssr :hydration]` (the payload's version) onto the payload's runtime-db slice;
 - **platform-gates the check fxs at the handler level** so server-side `:rf/hydrate` runs (test harness / isomorphic loopback) don't emit `:rf.fx/skipped-on-platform` per check.
 
-Drop any of these and you reintroduce a fail-open hydration path. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
+Drop any of these and you reintroduce a fail-open hydration path. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
 
 ```clojure
 (rf/reg-event :rf/hydrate

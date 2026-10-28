@@ -23,7 +23,7 @@ Verified in `implementation/core/src/re_frame/fx.cljc` (the `reg-fx` fn). Metada
 
 ## The fx-map shape
 
-A `reg-event` handler returns a **closed-shape** map — the next state and what to do. The everyday three top-level keys are `:db`, `:rf.db/runtime` and `:fx`; the closed set also admits the four EP-0025 commit-plane classification effects (`:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` — see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md)), which apply *with* the `:db` write rather than routing through `:fx`:
+A `reg-event` handler returns a **closed-shape** map — the next state and what to do. The closed set is three top-level keys, `:db`, `:rf.db/runtime` and `:fx`. App-db classification is not an effect: a `:sensitive` / `:large` key here is refused like any other foreign key, and the path is declared with `reg-classification` beside the feature (see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md)):
 
 ```clojure
 {:db            <new-app-db>      ;; app-db partition — the everyday key
@@ -84,7 +84,7 @@ Per the `re-frame.fx` ns docstring (Spec 002 §`:fx` ordering and atomicity guar
 
 ## Common gotchas
 
-- **Return shape is closed (`:db`, `:rf.db/runtime`, `:fx`, plus the four EP-0025 classification keys).** Top-level `:dispatch`, `:dispatch-later`, `:http`, etc. are outside the set, and one of them **refuses the whole event** with a `:rf.error/effect-map-shape` trace — the `:db` beside it does not commit either — so wrap them inside `:fx`. `:rf.db/runtime` is inside the set (framework-authority runtime-db write), so it is never a shape error.
+- **Return shape is closed (`:db`, `:rf.db/runtime`, `:fx`).** Top-level `:dispatch`, `:dispatch-later`, `:http`, etc. are outside the set, and one of them **refuses the whole event** with a `:rf.error/effect-map-shape` trace — the `:db` beside it does not commit either — so wrap them inside `:fx`. `:rf.db/runtime` is inside the set (framework-authority runtime-db write), so it is never a shape error.
 - **Fx handlers receive `(ctx, args)`, not just `args`.** The first arg is `{:frame ... :event ...}`. Ignore it with `_ctx` if you don't need it.
 - **Returning a value from an fx handler does nothing.** Side effects are the point. `:rf.fx/handled` is emitted on success so the epoch projection records the run.
 - **`:platforms #{:client}` makes the fx skip silently on server.** A `:rf.fx/skipped-on-platform` warning fires — fine for browser-only side effects, but check this if a fx mysteriously doesn't run under SSR.
