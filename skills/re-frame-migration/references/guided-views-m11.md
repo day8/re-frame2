@@ -14,7 +14,7 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 
 1. **A callback that runs after the render** — an `:on-*` handler, a timer, a promise continuation, a lifecycle method — and a helper such a callback calls.
 2. **The body of a reaction a view creates** — `r/reaction`, `r/track` / `r/track!`, `reagent.ratom/make-reaction` — and a fn the view hands to a helper that runs it inside a reaction of its own. The reaction's first run sits inside the render and resolves; when a source changes, Reagent re-runs it from its own flush, outside every render.
-3. **A `reg-sub` computation fn** — a callback the body builds into the sub's value (an `:on-click` in a returned menu item). A sub body is not a render and runs under no frame binding of its own, so a frame read there resolves only on a run that happens to sit inside a render or a `with-frame`, and the recomputes Reagent's flush runs sit in neither.
+3. **A `reg-sub` computation fn** — an `@(rf/subscribe …)` in the body (a dynamic dependency), and a callback the body builds into the sub's value (an `:on-click` in a returned menu item). A sub body is not a render and runs under no frame binding of its own, so a frame read there resolves only on a run that happens to sit inside a render or a `with-frame`, and the recomputes Reagent's flush runs sit in neither.
 4. **A view under no boundary** — one that reads the frame ambiently but renders outside every `[rf/frame-provider {:frame <id>} …]` / `[rf/frame-root {:id <id>} …]` boundary, with no live `with-frame` around its render. (Two components, one verb each — *roots ensure; providers scope* — so match both component names when sweeping.)
 
 **Risk**: code that runs outside a render has no tree to consult, so only the dynamic scope can answer — which has unwound by the time that code runs. The call carries no frame and raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing); a boundary-less view raises the same way when it renders. Each surfaces at runtime, at its own moment: a callback when it first fires; a boundary-less view when it first renders; a reaction body or a `reg-sub` body on the first change to one of its sources, which a boot smoke that only renders never reaches. A `reg-sub` body fails **silently** besides: the sub machinery recovers the throw to `nil` (`:rf.error/sub-exception`), so the view renders `nil` rather than an error.
@@ -25,6 +25,7 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 2. **Carry the frame explicitly.** A frame api passed in as an argument or a prop — the `(rf/capture-frame)` the caller took at render, which follows that caller's frame, whichever it is; or `(rf/capture-frame frame-id)` locked to a named frame, or a `{:frame <id>}` opt on the call, where the frame is a fixed, known one.
 3. **Scope the render** — for a boundary-less view, mount it under a `frame-provider` / `frame-root`.
 4. **Leave as-is** — when the fn calls `rf/subscribe` / `rf/dispatch` only during its render under a boundary, or establishes / carries a frame explicitly in its own body. Do **not** describe a boundary-less frame-dependent fn as pinning to `:rf/default`: there is no `:rf/default` fall-through (EP-0002), so it raises `:rf.error/no-frame-context`; it does not silently route to a default. To *intentionally* target `:rf/default`, scope or pass that frame explicitly like any other; document why.
+5. **Take the read out of the body** — for a `reg-sub` body that reads another sub: declare the read under `:inputs`, which the runtime resolves in the sub's own frame, or compute it from `db`.
 
 **Which fix, per site:**
 
@@ -34,6 +35,7 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 | A callback (Identify 1) | **1** — call the captured ops from the callback. |
 | A reaction body (Identify 2) | **1**, with the captured `subscribe` called *inside the body* (below). |
 | A helper a callback reaches, whether or not a render reaches it too | **2** — the helper takes the frame api as an argument (below). |
+| A `reg-sub` body that reads a sub (Identify 3) | **5** (below). |
 | A callback a `reg-sub` body builds (Identify 3) | **2** with a named frame, where the app reads the sub under one known frame (below). |
 | A view under no boundary (Identify 4) | **3** — scope the render. |
 
@@ -54,6 +56,18 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 ```
 
 **A helper a callback reaches takes the frame api as an argument.** Every caller passes the `(rf/capture-frame)` it took at render, and the helper calls that api's ops, so it follows each caller's frame. A helper that only dispatches may keep its signature instead: it takes `(rf/capture-frame)` at entry, and each caller in a callback wraps the call in `(rf/with-frame (:frame api) …)` with the api it captured at render. A helper that reads a sub keeps the reactive read on the render path — hoist the read into the render and pass the value in — and gives its callback path a one-shot `(rf/subscribe-once query-v {:frame (:frame api)})`. Wrapping a subscribing helper in `with-frame` stops the raise, but its `@(subscribe …)` then runs with no reactive owner and takes a sub-cache share that nothing releases. In a migration fanned out across units the helper's shape binds every caller's unit, so its owner fixes and publishes it before any caller's unit converts a call site, as Wave 0 publishes ids ([`orchestrating-a-large-migration.md` §2](orchestrating-a-large-migration.md#2-the-wave-0-id-contract--coordinate-without-sharing-files)).
+
+**A `reg-sub` body takes its reads out of the body.** An inner query built from the outer query vector or from constants is declared under `:inputs` — a literal vector, or a producer `(fn [[_ id]] [[:item/by-id id]])` ([M-75](auto-call-site-rewrites.md#m-75--subscription-inputs-move-into-inputs), [M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns)). One built from a value the body computes cannot be, because a producer reads no state (M-71 case 4): thread that value through the outer query vector at the call site, or, in a layer-1 sub, compute the inner value from `db` without subscribing — a plain fn, or `(rf/compute-sub query-v db)`, which is pure and needs no frame.
+
+```clojure
+;; before — resolves only while a render runs the body; nil from the first change
+(rf/reg-sub :cart/lines
+  (fn [db _] (mapv #(deref (rf/subscribe [:product/by-id %])) (:cart/ids db))))
+
+;; after — the ids come from db, so each read computes against the same db
+(rf/reg-sub :cart/lines
+  (fn [db _] (mapv #(rf/compute-sub [:product/by-id %] db) (:cart/ids db))))
+```
 
 **A callback a `reg-sub` body builds carries a named frame.** The body is no capture site: a 0-arity `(rf/capture-frame)` there raises on the first recompute, and the sub yields `nil`. Where the app reads the sub under one known frame, put `{:frame <id>}` on the callback's call, or close the callback over `(rf/capture-frame <id>)`. Under more than one frame only the other fix holds — the sub returns data (the event vector) and the view builds the callback with its render-captured `dispatch` — and it changes the sub's value shape, so hand that site to the author.
 
