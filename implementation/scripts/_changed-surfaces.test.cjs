@@ -3160,12 +3160,16 @@ const SKILLS_ALWAYS_ON = {
 
 const DECLARED_NO_SURFACE_OUTPUT = {
   '.beads': {
-    why: 'the tracker database export and its config; the boundary that keeps it out of a PR is enforced by the always-on beads-pr-boundary job',
+    why: "the tracker's configuration and its database-derived metadata.json; the boundary that keeps the database-derived file out of a PR is enforced by the always-on beads-pr-boundary job",
     coveredBy: ['scripts/check-beads-pr-boundary.sh'],
   },
   '.beads/hooks': {
     why: "bd's own hooks, installed into a developer checkout; the always-on beads-pr-boundary job self-tests the guards they wrap before enforcing",
     coveredBy: ['scripts/git-hooks/test-pre-commit.sh'],
+  },
+  '.beads/tracker': {
+    why: 'the tracker database export as parts (sixteen issue parts by bead-id hash plus memories.jsonl), written only by the mayor checkpoint, which validates each export before installing it; the always-on beads-pr-boundary job keeps it out of a PR',
+    coveredBy: ['scripts/check-beads-pr-boundary.sh', 'scripts/beads-checkpoint.sh'],
   },
   '.claude': {
     why: 'a single settings.json for the agent harness — local configuration, not shipped code and not read by any gate',
