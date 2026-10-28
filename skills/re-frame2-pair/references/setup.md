@@ -1,6 +1,6 @@
 # Setup — wiring the app for a pair session
 
-Read this when `discover-app` reports `:runtime-loaded-but-preload-missing`, when the app fails to compile after adding the preload, when every epoch read comes back `[]`, or when the user asks how to set the skill up. The MCP server's own install and launch flags are in [`mcp-transport.md`](mcp-transport.md#install--configure-one-time).
+Read this when `discover-app` reports `:runtime-loaded-but-preload-missing`, when the app fails to compile after adding the preload, when every epoch read comes back `[]`, when a migration needs the Pair wiring proven before the app compiles, or when the user asks how to set the skill up. The MCP server's own install and launch flags are in [`mcp-transport.md`](mcp-transport.md#install--configure-one-time).
 
 The app's dev build needs two things the MCP server does not supply: the `re-frame2-pair.runtime` preload and the `day8/re-frame2-schemas` artefact the preload requires. Epoch history ships in core.
 
@@ -53,6 +53,24 @@ The MCP server (`@day8/re-frame2-pair-mcp`) does NOT ship `preload/`, so wiring 
 **`day8/re-frame2-schemas` alongside core, in the app's dev dependencies.** The preload directly requires `re-frame.schemas`; core does not bring that artefact. Use the same revision as the app's core dependency (or this clone's `implementation/schemas` as a `:local/root`). Without it compilation fails with a missing `re-frame.schemas` namespace before discovery can run. Add dependencies through the classpath owner above; the MCP server's dependencies do not enter the app's classpath.
 
 **Epoch history needs nothing more.** It ships in core, so every epoch read (`watch-epochs`, `trace-window`, `(rf.epoch/epoch-history …)`), `dispatch-dry-run`, `restore-epoch` and `replay-epoch` work in a dev build — at a positive epoch-history depth; see [errors.md §Tool-envelope refusals](errors.md#tool-envelope-refusals).
+
+## Check the wiring before the app compiles
+
+In a fanned-out v1 → re-frame2 migration the app does not compile until the sweep lands ([re-frame-migration's `orchestrating-a-large-migration.md` §5](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/orchestrating-a-large-migration.md#5-the-all-or-nothing-single-compile-gate)), but the Pair wiring's failures are compile-time and independent of app code: the preload directory off the classpath or filed where its owner ignores it, `day8/re-frame2-schemas` missing, a namespace that does not resolve. Prove them before the sweep converges with a throwaway build whose only entry is the preload:
+
+```clojure
+;; shadow-cljs.edn — a second build beside the app's; any ignored output dir.
+;; Copy the app build's :js-options, if it has any.
+{:builds {:pair-check {:target     :browser
+                       :output-dir "target/pair-check"
+                       :modules    {:main {:entries [re-frame2-pair.runtime]}}}}}
+```
+
+```bash
+npx shadow-cljs compile pair-check   # add -A :dev when shadow-cljs.edn's :deps does not activate the alias carrying the skill
+```
+
+The build needs no classpath entry of its own: `:deps`, `:lein` and `:source-paths` are project-wide in `shadow-cljs.edn`, so it reads the classpath half from wherever the app filed it. Its graph is the preload, re-frame2 core and schemas, and the React the app already installs, never the app's own namespaces, so it compiles green while the app's entry cannot; with the skill's `:local/root` missing it fails on `The required namespace "re-frame2-pair.runtime" is not available.` A green compile proves the wiring resolves, not the session, which [Verify](#verify) checks once the app runs. Remove the build once the post-sweep compile is green. The app's own build cannot stand in for it, because `--config-merge` appends to `:entries` rather than replacing them. An app adding Xray in the same unit lists both preloads in one check build's `:entries`, per re-frame-migration's [`xray-replaces-10x.md` §3a](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/xray-replaces-10x.md#3a-compile-the-devtools-wiring-mid-sweep).
 
 ## Verify
 
