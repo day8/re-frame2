@@ -102,6 +102,8 @@ The migration path: replace `(interop/now-ms)` / `js/Date.now` / `(.now js/Date)
 
 > **No compatibility-cofx shortcut anymore.** EP-0017 removed `inject-cofx` and made `reg-cofx` value-returning, so the v1 trick of wrapping a `:now` cofx that reads the envelope is gone — and unnecessary. A pervasive v1 `:now` cofx migrates by deleting the cofx and declaring `:rf/time-ms` on the consumers. If a consumer-side keyword churn is genuinely undesirable, an **ambient** wrapper supplier may re-expose the time under an app id — but it cannot read another coeffect (suppliers take only their own arg), so it would re-read the host and **break replay** for any durable consumer; do **not** use a wrapper for durable time. Declare `:rf/time-ms` directly.
 
+**A v1 time cofx that returned a date object.** Not every v1 `:now` returned millis: many return a `js/Date`, a `goog.date.DateTime`, or a cljs-time, js-joda, Luxon or moment value, and their consumers call its API — fields, formatting, interval arithmetic. Before deleting such a cofx, grep the consumers of its id for those calls. Each one declares `:rf/time-ms` and builds the object at the read site — `(js/Date. time-ms)`, or the library's from-millis constructor — so the recorded fact stays a number. Keeping the cofx is no shortcut: a supplier returning a library date object fails `:rf.error/cofx-value-invalid`, and a `js/Date` supplier, which records as `#inst`, is a second clock, sampled at processing-start rather than at enqueue like `:rf/time-ms` ([Spec 002 §Recordable coeffects](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#recordable-coeffects)).
+
 `:rf/time-ms` is the durable time contract. The old dev-only `:dispatched-at` envelope field is **gone** — durable code declares `:rf/time-ms`.
 
 ## UUID / random / browser / storage → event payloads or recordable facts
@@ -164,7 +166,7 @@ Do not "fix" these — flagging an allowed ambient read as a violation is itself
 - animation jitter, decorative particle positions, local non-durable retry jitter, performance sampling (host-transient randomness);
 - host-side monotonic allocators (generation counters, work-id high-water marks) — these only move forward and are host-transient by classification; restore does not rewind them.
 
-A `reg-cofx` that supplies one of these registers `{:recordable? false}`. A v2 coeffect is recordable unless it says so, which a v1 cofx never was: an unmarked registration is recorded and replayed, and a supplier returning a host object fails `:rf.error/cofx-value-invalid` the first time it runs.
+A `reg-cofx` that supplies one of these registers `{:recordable? false}`. A v2 coeffect is recordable unless it says so, which a v1 cofx never was: an unmarked registration is recorded and replayed, and a supplier returning a host object fails `:rf.error/cofx-value-invalid` the first time it runs — a library date object included. A `js/Date` is the exception: it records as `#inst`.
 
 ## Reporting
 
