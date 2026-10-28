@@ -480,7 +480,7 @@ Flows are also explicitly *not*:
 | `:path` | `:output-path` |
 | `:live?`, `:live-inputs` | Dropped. A gate is data: the events that flip the predicate write its value into `app-db`, and the flow reads it as one of its `:inputs` (see [§Activation](#activation)). |
 | `:cleanup` | Dropped. Default is `dissoc-in` on `:output-path`; opt-out is not provided. |
-| Per-flow `:fx` | Dropped. Dispatch an event from a handler if you need fx on flow output change. |
+| Per-flow `:fx` | Dropped. v1 (re-frame 1.4.4 and later) fired it on three transitions: an input change while the flow was live, the flow's first live evaluation after registration, and every dead → live flip, the last two whether or not an input or the output changed. Reproduce each firing the app relies on with a follow-up event, dispatched from the handler that changes the input, from whatever writes the gate open (the `:live?` row above), and, for a flow live from the start, from the boot event. A follow-up keyed to output change never fires on the flip, so a re-fetch on re-entry stops without an error. |
 | Lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) | Not applicable. Lifecycle policies are a sub-cache concern; flows have one cache state (registered-or-not). |
 | `flow<-` reified flow-to-flow input | Dropped. Flow B reads flow A by listing A's `:output-path` in its `:inputs`. |
 | `:reg-flow` / `:clear-flow` (unprefixed fx-ids) | Dropped, with no fx form: a flow is registered at the top level and activated by frame config, and a gate is data (the `:live?` row above). The prefixed spellings `:rf.fx/reg-flow` / `:rf.fx/clear-flow` are reserved and never recycled ([Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)). |
