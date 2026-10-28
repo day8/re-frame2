@@ -6,7 +6,7 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or sett
 
 ## Prerequisite
 
-`reg-app-schema` and the validator surface ship in the optional **`day8/re-frame2-schemas`** artefact (the `reg-app-schema` macro + schema-query aliases in `re-frame.core` are late-bound to `re-frame.schemas`). Add it to `deps.edn` and `(:require [re-frame.schemas])` at app boot, otherwise `reg-app-schema` throws `:rf.error/schemas-artefact-missing`.
+`reg-app-schema` and the validator surface ship in the optional **`day8/re-frame2-schemas`** artefact (the `reg-app-schema` / `reg-app-schemas` macros in `re-frame.core` are late-bound to `re-frame.schemas`; the query helpers live on `re-frame.schemas` only). Add it to `deps.edn` and `(:require [re-frame.schemas])` at app boot, otherwise `reg-app-schema` throws `:rf.error/schemas-artefact-missing`.
 
 ## Canonical signatures
 
@@ -22,13 +22,11 @@ The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re
 ;; :frame is REQUIRED on all three (spec/API.md §Schemas) - no ambient default,
 ;; no bare frame-id sugar. The schema value alone is the :schema projection.
 
-(schemas/set-schema-fns! {:validate validate-fn-or-nil   ;; swap in non-Malli validator
-                          :explain  explain-fn})
-(schemas/schema-fns)                                  ;; read what is installed
-schemas/default-schema-fns                            ;; the framework's own bundle
-(schemas/set-schema-fns!  {:validate validate-fn  ;; install the validator/explainer/printer bundle atomically
-                           :explain  explain-fn
-                           :print    print-fn})
+(schemas/set-schema-fns! {:validate validate-fn   ;; swap in a non-Malli validator / explainer / printer,
+                          :explain  explain-fn    ;; written atomically
+                          :print    print-fn})
+(schemas/schema-fns)                              ;; read what is installed
+schemas/default-schema-fns                        ;; the framework's own bundle
 ```
 
 > **An omitted key is not an explicit `nil`.** `set-schema-fns!` writes only the keys the map carries, so `{:validate f}` swaps the validator and leaves the explainer and printer alone — that is how you swap one fn. Passing an explicit `nil` IS a write, and disables that fn.
@@ -67,7 +65,7 @@ The improver skill's [`schemaless-events.md`](https://github.com/day8/re-frame2/
 
 ## What `:schema` does on a handler
 
-Every `reg-*` macro accepts a `:schema` key in its metadata-map:
+A handler registration accepts a `:schema` key in its metadata-map (`reg-flow` refuses one — declare a flow's output shape with `reg-app-schema` at its `:output-path`):
 
 ```clojure
 (rf/reg-event :flight/set-trip-type

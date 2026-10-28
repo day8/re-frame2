@@ -66,7 +66,7 @@ This skill's view surface is the **adapters** — Reagent, UIx. Fresco is re-fra
 4. **Schemas at boundaries.** Schema the paths that cross trust boundaries — HTTP payloads, persisted state, snapshot restores — and do not schema-fence every internal key. Which surface you reach for depends on when you need the check to run. `reg-app-schema` and handler `:schema` are **development-build assertions**: a production build registers them but never checks them, so they are tripwires that catch you in dev, not guards on the deployed bundle. Register them anyway — then, where untrusted data must be rejected in production too, give the handler that ingests it a `:schema` and set `:boundary? true` on the same registration, which is the schema surface that survives the production gate. Details and the full behaviour matrix: [`references/fundamentals/schemas.md`](references/fundamentals/schemas.md).
 5. **Match the canonical shape.** When a pattern has a worked example or reference declaration, match its shape; don't re-derive. (Repo: `examples/**`; consumer app: the relevant pattern/fundamentals leaf plus any reference views your project follows.)
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
-7. **`:rf/*` is reserved.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`).
+7. **`:rf.*` is framework-reserved — never coin a new `:rf.*` id.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`). Use the reserved ids a recipe names, exactly where it names them (`:rf/default`, `:rf.route/not-found`, `[:rf/set-db …]`, `[:rf.scope/session …]`, …).
 8. **`reg-*` macros over the runtime-fn forms.** Macros capture source coordinates that tools rely on; the functional counterparts — the `*`-suffixed twins for `reg-view*` / `reg-machine*`, or the same name in value position for everything else (`reg-event`, `reg-sub`, `reg-interceptor`, …) — are for advanced/programmatic cases only. Naming a machine spec is the one place a plain `def` silently defeats this: `reg-machine` sees a symbol rather than a literal and captures nothing per-element, so use **`rf/defmachine`**, which stamps the value itself and does not register, then pair it with `reg-machine` ([`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md)).
 9. **Assume training knowledge.** Teach and apply the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering — the model already knows those.
 
@@ -141,7 +141,7 @@ Use this index to select references by the task. A task that composes features m
 
 - [ ] Ids do not collide (`grep` the codebase for the chosen id).
 - [ ] Schema registered for any new boundary.
-- [ ] No `:rf.*` application keywords.
+- [ ] No new `:rf.*` id coined — app ids carry a feature prefix; reserved ids appear only where a recipe names them.
 - [ ] Cut-test passed on comments.
 - [ ] Shape matches the canonical declaration in the leaf.
 - [ ] If a worked example exists, the new code's shape matches it.

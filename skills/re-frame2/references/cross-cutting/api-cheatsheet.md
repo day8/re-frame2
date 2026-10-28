@@ -1,202 +1,178 @@
 # API cheatsheet
 
-One-line signatures for the public `re-frame.core` surface. **For full docstrings, design rationale, and gotchas, see `SKILL-REDIRECT.md` → *Definitive API reference*.** This page is a glance, not a manual. Alias conventions: `rf` is `[re-frame.core :as rf]`; `ts` is `[re-frame.test-support :as ts]`. Leaf cross-refs in `SKILL.md`'s loading map.
+One-line signatures for the public `re-frame.core` surface and the owned-namespace surfaces an app reaches for. **This page is a glance, not a manual**: each row is the call shape plus the one fact that bites, and the linked leaf owns the contract. Full docstrings: `SKILL-REDIRECT.md` → *Definitive API reference*. Aliases: `rf` is `[re-frame.core :as rf]`; `ts` is `[re-frame.test-support :as ts]`.
 
 ## Registration
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-event` | `(id meta? (fn [cofx ev] effects-map-or-nil))` — the **one** event form (coeffects in, closed effects map out); `{:db ...}` is the db-write effect. Full-context work → a registered interceptor referenced by id in `meta?`'s `:interceptors` (EP-0022) |
-| `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
-| `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — **value-returning** supplier (EP-0017); returns the coeffect value directly. `arg` is the per-call arg from a `[id arg]` declaration. `meta` may carry `:recordable?` / `:provided?` / `:schema` / `:platforms`. Consumed via `:rf.cofx/requires` (not `inject-cofx`, removed) |
-| `rf/reg-sub` | `(id meta? (fn [db query-v] value))` — dependencies are DECLARED under `:inputs` in `meta?`: omit it for layer-1 (first arg is `db`), give it a literal `[[:q…] …]` for static inputs, or a producer `(fn [query-v] [[:q…] …])` for parametric ones (EP-0004; returns query **vectors**, NOT `subscribe` reactions). Declared inputs always arrive as a **vector** — `(fn [[a b] query-v] value)`, and `[v]` at one input |
-| `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
-| `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
-| `rf/reg-app-schema` | `(path schema)` / `(path {:doc "…"} schema)` — schema is the positional value slot, optional middle metadata map carries `:doc` / `:my/*`; a frame-agnostic top-level registration (kind `:app-schema`, id = the path), resolved by every frame like any other kind — a `:frame` raises `:rf.error/app-schema-frame-target` (vary a schema per frame by shadowing the path in a later image); **dev-build assertion** — registered in production, never checked there, so it is not the production boundary guard (`:boundary? true` on the ingesting `reg-event` is); needs `day8/re-frame2-schemas` |
-| `rf/reg-app-schemas` | `(path->schema)` / `(path->schema opts)` — bulk form, each entry its own `:app-schema` registration; names no frame (a frame-id, frame value or `{:frame …}` second argument raises `:rf.error/app-schema-frame-target`). Returns the vector of paths registered. Same dev-build-assertion posture (registered in production, never checked there); needs `day8/re-frame2-schemas` |
-| `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
-| `rf/reg-flow` | `(flow-id metadata derive-fn)` — 3-slot: id first, pure derive fn last; `metadata` carries `:inputs` / `:output-path` (both REQUIRED) + optional `:doc` / classification keys. A top-level registration naming no frame: a frame runs it when its `:flows` config names it (`(rf/make-frame {:id :rf/default :flows [:cart/total]})`). A `:derive`, `:frame` or `:schema` inside the metadata is rejected (`:rf.error/invalid-flow-metadata`); declare the output's shape with `reg-app-schema` at `:output-path`. Needs `day8/re-frame2-flows` |
-| `rf/reg-route` | `(id metadata-map path)` — path is the third positional arg; needs `day8/re-frame2-routing` |
-| `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr`. A projector-fn returning `nil` defers to the default projector, with no record; a throw or a non-`nil` non-conforming return gets the locked generic-500 and `:rf.error/sanitised-on-projection` |
-| `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / metadata; a frame-agnostic top-level registration (kind `:http-interceptor`) that runs only for a frame naming `id` in its `:http-interceptors` config — a `:frame` raises `:rf.error/http-bad-interceptor`; needs `day8/re-frame2-http` |
-| `:http-interceptors` (frame-config key, no fn) | `[id …]` on `make-frame` / `frame-root` — the frame's ordered HTTP interceptor chain: `:before` in vector order, `:after` in reverse; load order sets nothing. Absent → no HTTP interceptor runs. Ids resolve per request at issue, through the frame's own registrations (a later image's definition shadows the app's); an unregistered id fails that request with `:rf.error/unregistered-interceptor`. Per-frame divergence = different ids |
+| `rf/reg-event` | `(id meta? (fn [cofx ev] effects-map-or-nil))` — the **one** event form; `{:db ...}` is the db write. Full-context work is a registered interceptor referenced by id in `meta?`'s `:interceptors` ([events](../fundamentals/events.md)) |
+| `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot ([fx](../fundamentals/fx.md)) |
+| `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — returns the value; consumed via `:rf.cofx/requires`, not `inject-cofx` ([cofx](../fundamentals/cofx.md)) |
+| `rf/reg-sub` | `(id meta? (fn [db query-v] value))` — inputs are DECLARED under `meta?`'s `:inputs` (a literal `[[:q…] …]` or a producer `(fn [query-v] [[:q…] …])` returning query vectors) and arrive as a vector: `(fn [[a b] query-v] value)` ([subs](../fundamentals/subs.md)) |
+| `rf/reg-view` / `rf/reg-view*` | `(sym [args] body)` — defn-shape, injects `dispatch` / `subscribe` · runtime form `(id metadata? render-fn)` ([views](../fundamentals/views.md)) |
+| `rf/reg-app-schema` / `rf/reg-app-schemas` | `(path schema)` / `(path {:doc "…"} schema)` · bulk `(path->schema)` / `(path->schema opts)` → the paths registered. Names no frame; a **dev-build assertion**, never checked in production ([schemas](../fundamentals/schemas.md)) |
+| `rf/reg-machine` | `(id metadata? machine-spec)` — the plain-fn form is `re-frame.machines/reg-machine*`, not on `rf/` ([reg-machine](../state-machines/reg-machine.md)) |
+| `rf/reg-flow` | `(flow-id metadata derive-fn)` — `:inputs` / `:output-path` required; a frame runs it when its `:flows` names it, e.g. `(rf/make-frame {:id :rf/default :flows [:cart/total]})` ([flows](../fundamentals/flows.md)) |
+| `rf/reg-route` | `(id metadata-map path)` ([routing](../tooling/routing.md)) |
+| `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — `nil` defers to the default projector ([ssr-authoring](ssr-authoring.md)) |
+| `rf/reg-http-interceptor` | `(id interceptor-map)` — runs only for a frame naming it in `:http-interceptors` `[id …]` (`:before` in order, `:after` reversed), resolved per request; an unregistered id fails that request (`:rf.error/unregistered-interceptor`) ([managed-http](../../patterns/managed-http.md)) |
 
-The `reg-event` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key carrying interceptor **references**: `(id {:doc ... :schema ... :interceptors [:auth/required [:rf.interceptor/path [:cart]]]} handler)`. There is no positional interceptor vector — `(reg-event :id [i1 i2] handler)` and `(reg-event :id {:doc ...} [i1 i2] handler)` are registration errors. A malformed metadata value is `:rf.error/reg-event-bad-interceptors`, and an inline interceptor value (not a ref) in the chain is `:rf.error/inline-interceptor-removed` (EP-0022). There is one public event registrar — no `reg-event-db` / `reg-event-fx` / `reg-event-ctx` (EP-0018): a db-only handler returns `{:db ...}`, and full-context work is a registered interceptor (`reg-interceptor`) referenced by id. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
+There is no positional interceptor vector — `(reg-event :id [i1 i2] handler)` and `(reg-event :id {:doc ...} [i1 i2] handler)` are registration errors — and no `reg-event-db` / `reg-event-fx` / `reg-event-ctx`.
 
-## Dispatch, subscribe, frames
+## Dispatch, subscribe, frames ([frames](../fundamentals/frames.md))
 
 | Surface | Shape |
 |---|---|
-| `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.cofx` (EP-0017 recordable coeffects — a flat `fact-name → value` map; pin durable `:rf/time-ms` and other recordable facts; runtime stamps `:rf/time-ms` when omitted). There is no `:rf.world/inputs` opt — a draft-only name, so passing it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx` |
-| `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.cofx` opt |
-| `rf/subscribe` | `(query-v)` / `(query-v opts)` → reaction — `opts` may carry `:frame` (mirrors `dispatch`); there is no frame-first `(frame-id query-v)` public form |
-| `rf/subscribe-once` | `(query-v)` / `(query-v opts)` — one-shot: materialise + deref + unsubscribe; same `:frame` opt |
-| `rf/unsubscribe` | `(r)` — hands back one share of the reaction `subscribe` returned; identity-guarded, so a reaction evicted since is a no-op; no frame, no query |
-| `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
-| `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
-| `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |
-| `rf/frame-provider` / `rf/frame-root` | (CLJS) per-adapter React-context boundary components, one verb each — roots ensure, providers scope (EP-0024 amended). **SCOPE-only** `[frame-provider {:frame ...} & children]`: provides an already-existing frame; creates / refreshes / destroys nothing; fails loud if absent. **ENSURE** `[frame-root {:id ... :images ... :initial-events ...} & children]`: creates the frame if absent, reuses-no-reseed if present, provides its id to descendants; no destroy-on-unmount (same opts as `make-frame`). Pick the component — each fails loud when handed the other's key |
-| `rf/capture-frame` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; frame api captured at creation, survives async |
-| `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
-| `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
-| `rf/frame-state-value` | `(frame-id)` → `{:rf.db/app … :rf.db/runtime …}` — the whole frame (SSR / epoch / tools); the runtime-db-only read is `(:rf.db/runtime (rf/frame-state-value frame-id))` |
-| `rf/make-frame` / `rf/destroy-frame!` | frame lifecycle — `make-frame` is the ONE constructor, `(make-frame {:id … :initial-events … :images …})` (a full reset composes `destroy-frame!` + re-`make-frame` with the same config — no dedicated verb; clears BOTH partitions) |
+| `rf/dispatch` / `rf/dispatch-sync` | `(event)` / `(event opts)` — queued / drained to fixed point. `opts` may carry `:rf.cofx`, a flat `fact-name → value` map of recordable facts (`:rf/time-ms` is stamped when omitted). There is no `:rf.world/inputs` opt |
+| `rf/subscribe` / `rf/subscribe-once` | `(query-v)` / `(query-v opts)` → reaction / one-shot value; `opts` may carry `:frame`. No frame-first `(frame-id query-v)` form |
+| `rf/unsubscribe` | `(r)` — hands back one share of the reaction `subscribe` returned; a reaction evicted since is a no-op |
+| `rf/compute-sub` | `(query-v db)` — pure, bypasses the cache (preferred in tests) |
+| `rf/with-frame` / `rf/with-new-frame` | `(frame-id body)` pins `body` to an existing frame · `([sym expr] body)` creates, owns and destroys one |
+| `rf/frame-provider` / `rf/frame-root` | (CLJS) `[frame-provider {:frame ...} & children]` scopes an existing frame · `[frame-root {:id ... :images ... :initial-events ...} & children]` ensures one; each fails loud on the other's key |
+| `rf/capture-frame` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the carry primitive for async work |
+| `rf/current-frame-id` | `()` — raises `:rf.error/no-frame-context` outside a frame scope |
+| `rf/app-db-value` / `rf/frame-state-value` | `(frame-id)` → the app-db map · `{:rf.db/app … :rf.db/runtime …}` |
+| `rf/make-frame` / `rf/destroy-frame!` | `(make-frame {:id … :initial-events … :images …})` — the one constructor. Re-calling it on a live `:id` with new `:images` swaps the image generation and keeps memory; a reset is destroy + make |
 
-## Machines
+## Machines — `day8/re-frame2-machines` ([reg-machine](../state-machines/reg-machine.md))
 
 | Surface | Shape |
 |---|---|
-| `rf/defmachine` | `(name [doc] spec)` — **macro**, `def`-shape: defines a Var holding the spec value with per-element source stamped at the **definition** site. Does **not** register — pair it with `(reg-machine :id name)`. This is the `def`-then-register shape: `reg-machine` sees only the symbol at its call site, so a plain `(def m {…})` + `(reg-machine :id m)` captures nothing per-element and `(rf/handler-meta {:kind :machine-guard :id [id guard-id]})`, the Xray machine inspector and the Epoch machine-cascade have no source to render. Identical capture to the inline-literal `reg-machine`; the choice is only whether the spec value is named |
-| `[:rf/machine machine-id]` | subscription vector → reaction `{:state :data :tags}` (the canonical machine read) |
-| `[:rf.machine/has-tag? machine-id tag]` | subscription vector → reaction (boolean) |
-| `(keys (into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:kind :event})))` | machine-id list. There is no `machines` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, so enumeration is that filter over the generic registrar query |
-| `(:rf/machine (rf/handler-meta {:kind :event :id id}))` | ONE machine's registered spec. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec rides at the reserved `:rf/machine` key |
-| `re-frame.machines/machine-transition` | `(machine snapshot event)` → `{:status :ok :snapshot snapshot' :fx fx}` / `{:status :error :error {:kind …}}` pure — owned-ns surface, **not** on the `rf/` façade |
+| `rf/defmachine` | `(name [doc] spec)` — macro, `def`-shape, stamps per-element source; does **not** register — pair it with `(reg-machine :id name)`. A plain `(def m {…})` + `(reg-machine :id m)` captures nothing per-element |
+| `[:rf/machine machine-id]` | sub → `{:state :data :tags}` |
+| `[:rf.machine/has-tag? machine-id tag]` | sub → boolean |
+| machine ids · one spec | `(keys (into {} (filter (fn [[_ m]] (:rf/machine? m))) (rf/registrations {:kind :event})))` · `(:rf/machine (rf/handler-meta {:kind :event :id id}))` — there is no `machines` / `machine-meta` accessor |
+| `re-frame.machines/machine-transition` | `(machine snapshot event)` → `{:status :ok :snapshot snapshot' :fx fx}` / `{:status :error :error {:kind …}}` — pure, not on `rf/` |
 
-## Images and frames (EP-0023, `re-frame.core`)
-
-The public composition model is `image → frame → event stream`; there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map is `:kind`, the optional `:frame` and, for `handler-meta`, `:id`: `{:kind k :frame f}` reads a frame's own view (its resolved image generation, or the live store for a frame made without `:images`); `{:kind k}` reads the process registration store. Any other key is an error. Model, grammar detail, and the isolation story: [`../fundamentals/images.md`](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story).
+## Images ([images](../fundamentals/images.md))
 
 | Surface | Shape |
 |---|---|
-| `rf/image` | `({:id … :select-ns {:include [<ns-glob> …] :exclude [<ns-glob> …]} :registrations {…}})` → **inert image value** (pure data, no registrar side effect). `:select-ns :include` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match include pattern fails image assembly; `:exclude` subtracts. Supplied to a frame via the `:images` vector — composition resolves by **image order** (the later image wins; assert on shadows via the `:rf.gen/shadows` report on `rf/frame-generation`). There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud. |
-| re-`make-frame` | frame-targeted; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation while preserving its memory (no separate reload verb — see `spec/002-Frames.md` §Resolved decisions, "Frame-lifecycle facade collapse") |
-| `rf/generation-diff` | `(before after)` → `{:added :changed :removed :retained}` — a pure diff between two `frame-generation` reads |
+| `rf/image` | `({:id … :select-ns {:include [<ns-glob> …] :exclude [<ns-glob> …]} :registrations {…}})` → an inert image value, supplied through a frame's `:images`; the later image wins. No `:include-ns` / `:exclude-ns` / `:replace` keys |
+| `rf/generation-diff` | `(before after)` → `{:added :changed :removed :retained}` over two `frame-generation` reads |
+| registrar-query map | `{:kind k}` reads the process store · `{:kind k :frame f}` that frame's view · plus `:id` for `handler-meta`; any other key is an error |
 
-`make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts in one call and returns the live frame **value** (see the §Dispatch, subscribe, frames row above).
-
-## Routing — `day8/re-frame2-routing`
+## Routing — `day8/re-frame2-routing` ([routing](../tooling/routing.md))
 
 | Surface | Shape |
 |---|---|
-| `re-frame.routing/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` — owned-ns surface, **not** on the `rf/` façade (the `reg-route` registration macro stays on `rf/`) |
-| `re-frame.routing/route-url` | `({:to route-id :params … :query … :fragment …})` → `"/url"` — one address-only map (`:to` required); `:fragment` appends `#frag` (nil/empty omitted, percent-encoded); `:url` / policy / unknown keys reject loud; owned-ns surface, **not** on the `rf/` façade |
-| `rf/route-link` | the registered view at `:route/link` — `[rf/route-link {:to :route-id :params {} :query {} :fragment "" & html-attrs} & children]`. Renders one `<a href>` (built via `route-url`) and intercepts plain primary-button clicks to dispatch `[:rf.route/navigate {:url <href>}]`; modifier-key / middle-clicks defer to the browser. Computes no active state |
+| `re-frame.routing/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` — not on `rf/` |
+| `re-frame.routing/route-url` | `({:to route-id :params … :query … :fragment …})` → `"/url"` — not on `rf/` |
+| `rf/route-link` | `[rf/route-link {:to :route-id :params {} :query {} :fragment "" & html-attrs} & children]` — the view at `:route/link`; one `<a href>` that dispatches `[:rf.route/navigate {:url <href>}]` on a plain click |
 
-## HTTP — `day8/re-frame2-http`
+## HTTP — `day8/re-frame2-http` ([managed-http](../../patterns/managed-http.md))
 
-Production fx surface: `re-frame.http.managed`. Stub transports: `re-frame.http.stub-transport` — a transport answers `:rf.http/managed` in place of the network, so decode, `:accept`, retry, the privacy scrub and the reply envelope still run for real. Tests and demos `:require` it explicitly. None of it is on the `rf/` facade.
-
-| Surface | Shape |
-|---|---|
-| `rf.http.stub-transport/route-transport` | fn: `(routes)` / `(routes {:delay-ms n})` → transport. `routes` is `{[method url] response}` or one `(fn [wire-request] response)`; a response is `{:status :headers :body}` (a non-string `:body` goes out as JSON) or `{:failure {:kind :rf.http/transport}}`. An unmatched request fails as `:rf.http/transport` |
-| `rf.http.stub-transport/pending-transport` | fn: `()` → `{:transport t :exchanges a}` — holds each request until the test calls its exchange's `:respond!` / `:fail!` |
-| `rf.http.stub-transport/with-transport` | fn: `(transport thunk)` — requests issued during `thunk` go through `transport`; the test scope |
-| `rf.http.stub-transport/install-transport!` | fn: `(frame transport)` — the frame's own transport (a demo's fake backend), dropped when the frame is destroyed; `nil` uninstalls. `frame` is an id or a frame value |
-| `(rf/clear :http-interceptor id)` | `(:http-interceptor id)` — production surface, `re-frame.http.managed`. There is **no** `rf/clear-http-interceptor` name: `:http-interceptor` is one of the kinds the one registrar inverse dispatches (full contract on the `rf/clear` row below). Removes the definition for every frame; it takes no frame, so any opts map raises `:rf.error/registrar-clear-bad-request`. A frame still naming the id fails its next request with `:rf.error/unregistered-interceptor`; to drop it from one frame, re-make that frame without the id |
-
-## Resources and mutations — `day8/re-frame2-resources` (see `patterns/resources.md`, `patterns/resources-mutations.md`)
+The fx is `:rf.http/managed` (`re-frame.http.managed`). A stub transport from `re-frame.http.stub-transport`, required explicitly by tests and demos, answers it in place of the network, so decode, retry, the privacy scrub and the reply envelope still run for real. None of it is on `rf/`.
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-resource` | `(resource-id metadata request-fn)` — **macro**, 3-slot: the `:request` handler is the third VALUE slot; `metadata` is the middle map carrying the REQUIRED fail-closed `:scope` (plus optional `:params-schema` / `:doc` / `:data-schema` / `:stale-after-ms` / `:gc-after-ms` / `:tags`) |
-| `rf/reg-resource-scope` | `(scope-id metadata resolve-fn)` — **macro**, a PURE named scope resolver; `metadata` carries the declared `:inputs` map `{name [:db <rf-path>]}` (+ optional `:doc`). ONE arity — `:inputs` is REQUIRED; whole-db is `{:inputs {:db [:db []]}}` |
-| `rf/reg-mutation` | `(mutation-id metadata request-fn)` — **macro**, 3-slot: the `:request` write fn (a Spec 014 managed-HTTP args map) is the third value slot; `metadata` carries the REQUIRED `:params-schema` plus optional `:invalidates` / `:patches` / `:populates` / `:scope` / `:invalidate-timing` / `:retry`. Run one with `[:rf.mutation/execute …]` |
-| `(rf/clear :resource id)` / `(rf/clear :resource-scope id)` / `(rf/clear :mutation id)` | **registration**-lifecycle removal through the one kind-keyed `rf/clear` (there are no `rf/clear-resource` / `-resource-scope` / `-mutation` names), NOT cache invalidation. Clearing a resource also disposes that registration's per-frame runtime state. With the resources artefact absent it raises `:rf.error/resources-artefact-missing`. Data lifecycle is the `:rf.resource/invalidate-tags` / `:rf.resource/remove` / `:rf.resource/clear-scope` fxs; a mutation instance's reset is the `[:rf.mutation/clear …]` event |
-| `(rf/registrations {:kind :resource})` / `{:kind :mutation}` | Registry enumeration — every registered id, no frame. The LIVE tables are separate reads: one entry via `rf.resources/resource-state` / `rf.resources/mutation-state`, the whole table at its reserved runtime-db path (`[:rf.db/runtime :rf.runtime/resources :entries]` · `[:rf.db/runtime :rf.runtime/mutations]`) off `rf/frame-state-value`. There is no bundle returning both halves |
-| `(:rf/resource (rf/handler-meta {:kind :resource :id id}))` / `(:rf/mutation (rf/handler-meta {:kind :mutation :id id}))` | the registered spec map (`:params-schema` `:request` `:scope` `:tags` … · `:invalidates` `:patches` `:populates` …), or `nil`. There is no per-kind `resource-meta` / `mutation-meta` accessor — the generic registrar query plus the documented inner-key projection is the whole read (spec/API.md §Public registrar query API) |
-| `rf.resources/resource-state` | `({:resource :scope :params :frame})` → that scoped instance's durable runtime entry, or `nil`. Frame carried explicitly (EP-0002); an absent/nil `:frame` fails closed with `:rf.error/no-frame-context` |
-| `rf.resources/mutation-state` | `({:instance :frame})` → the instance's durable row `{:status :result :error …}`, or `nil` |
-| `rf/resolve-resource-scope` | `(db scope-id)` — **db first**. Resolves a named resolver against a db *value* → concrete scope or `nil`; a plain fn over the registry, not an effect and a **pure** read — it routes through the trace-free evaluator and emits NO `:rf.resource/scope-resolved` row. Only the causal resolution boundaries (a resource event's `{:from-db …}` scope, route entry, mutation settle) carry that trace. The change-of-user idiom (login, logout, session restore, tenant switch): resolve the departing scopes from the handler's coeffect db and pass them to `[:rf.resource/change-principal {:from [old-scope …] :cause …}]`, which clears them and replans the current route |
-| `:revalidate-on` (frame-config key, no fn) | `#{:focus :reconnect}` on `make-frame` / `frame-root` — window-focus (incl. tab return) / network-reconnect listeners driving active-stale revalidation. The FRAME LIFECYCLE installs, reconciles (replace-don't-stack) and removes them; there is no install/remove fn. Absent key or `#{}` installs nothing; CLJS-only (JVM inert); declaring it without the resources artefact fails loud |
+| `rf.http.stub-transport/route-transport` | `(routes)` / `(routes {:delay-ms n})` — `routes` is `{[method url] response}` or `(fn [wire-request] response)`; a response is `{:status :headers :body}` (a non-string `:body` goes out as JSON) or `{:failure {:kind :rf.http/transport}}`; an unmatched request fails as `:rf.http/transport` |
+| `rf.http.stub-transport/pending-transport` | `()` → `{:transport t :exchanges a}` — holds each request until its exchange's `:respond!` / `:fail!` |
+| `rf.http.stub-transport/with-transport` | `(transport thunk)` — the test scope |
+| `rf.http.stub-transport/install-transport!` | `(frame transport)` — a frame's own transport (a demo backend), dropped with the frame; `nil` uninstalls |
 
-## Test support — `re-frame.test-support` (see `cross-cutting/testing.md`)
+## Resources and mutations — `day8/re-frame2-resources` ([resources](../../patterns/resources.md), [mutations](../../patterns/resources-mutations.md))
 
 | Surface | Shape |
 |---|---|
-| `ts/make-reset-runtime-fixture` | `(opts?)` → fixture-fn for `(use-fixtures :each ...)` |
-| `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore; compose in a `try` / `finally` for an ad-hoc bracket |
-| `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals`; full-db check → `(is (= expected-db (rf/app-db-value f)))` |
-| `ts/poll-until` | `(pred)` / `(pred opts)` — bounded poll; opts `:timeout-ms` (2000) `:interval-ms` (5) `:label`. JVM-sync (throws on timeout) / CLJS-Promise (rejects on timeout) |
-| `with-trace-recorder!` / `with-emit-recorder!` | **macros** `([recs opts?] body+)` — bind an atom of captured trace events / raw `:rf.error/*` (or `:stream :events`) records for the body, unregister on exit. Call as `ts/…` or refer by name; one `:require` serves JVM and CLJS |
-| `ts/with-fx-overrides` | `(overrides-map & body)` — **macro**; binds `:fx-overrides` for `body`'s lexical scope, the block-shaped alternative to passing the opt on every `dispatch`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame. Composes with `with-frame` |
-| fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` — each drains to fixed point before the next |
+| `rf/reg-resource` | `(resource-id metadata request-fn)` — macro; `metadata` carries the REQUIRED fail-closed `:scope` |
+| `rf/reg-resource-scope` | `(scope-id metadata resolve-fn)` — macro, a pure named resolver; `:inputs` `{name [:db <rf-path>]}` is REQUIRED (whole db: `{:inputs {:db [:db []]}}`) |
+| `rf/reg-mutation` | `(mutation-id metadata request-fn)` — macro; `:params-schema` REQUIRED. Run one with `[:rf.mutation/execute …]` |
+| `rf/resolve-resource-scope` | `(db scope-id)` — **db first**; pure, emits no trace. Resolve the departing scopes with it for `[:rf.resource/change-principal {:from [old-scope …] :cause …}]` |
+| `rf.resources/resource-state` · `rf.resources/mutation-state` | `({:resource :scope :params :frame})` · `({:instance :frame})` → the durable entry / row `{:status :result :error …}`, or `nil`; the frame is explicit |
+| enumeration · spec · live tables | `(rf/registrations {:kind :resource})` (or `{:kind :mutation}`) · `(:rf/resource (rf/handler-meta {:kind :resource :id id}))` / `(:rf/mutation (rf/handler-meta {:kind :mutation :id id}))` — no `resource-meta` / `mutation-meta` · `[:rf.db/runtime :rf.runtime/resources :entries]` / `[:rf.db/runtime :rf.runtime/mutations]` off `rf/frame-state-value` |
+| `:revalidate-on` (frame config) | `#{:focus :reconnect}` — the frame lifecycle installs and removes the listeners; CLJS-only |
 
-## View tests — `re-frame.test-helpers` (see `cross-cutting/testing-views.md`)
-
-The view-tree assertion axis (aliased `:as th`, per `spec/008-Testing.md` — **not** `h`, which is Fresco). Walk hiccup by `:data-testid`. The single-frame e2e shape composes `ts/make-reset-runtime-fixture` (`:adapter` + `:init-fn`) with these walkers and `ts/poll-until` — no bespoke fixture macro.
+## Test support — `re-frame.test-support` ([testing](testing.md))
 
 | Surface | Shape |
 |---|---|
-| `th/find-by-testid` / `th/find-all-by-testid` / `th/find-by-testid-prefix` | `(tree testid)` → hiccup node(s) |
-| `th/find-by-attr` / `th/find-all-by-attr` / `th/find-by-attr-prefix` | `(tree attr val)` → hiccup node(s) — any attribute key, for a codebase that does not key on `:data-testid` |
-| `th/text-content` / `th/invoke-handler` | `(node)` → text · `(node event-key & args)` → calls the handler under `event-key` (e.g. `:on-click`) |
-| `th/testid` | `(testid id)` / `(testid id attrs)` — attrs-fragment authoring helper for view call sites |
+| `ts/make-reset-runtime-fixture` | `(opts?)` → fixture for `(use-fixtures :each ...)` |
+| `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level bracket; compose in `try` / `finally` |
+| `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)`; whole db → `(is (= expected-db (rf/app-db-value f)))` |
+| `ts/poll-until` | `(pred)` / `(pred opts)` — `:timeout-ms` (2000) `:interval-ms` (5) `:label`; JVM throws, CLJS rejects on timeout |
+| `ts/with-trace-recorder!` / `ts/with-emit-recorder!` | macros `([recs opts?] body+)` — capture trace events / raw `:rf.error/*` records (or `:stream :events`) for the body |
+| `ts/with-fx-overrides` | `(overrides-map & body)` — macro; per-call opt > lexical > per-frame |
+| fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` |
 
-## SSR — `day8/re-frame2-ssr`
+## View tests — `re-frame.test-helpers` ([testing-views](testing-views.md))
 
-`ssr/` is `[re-frame.ssr :as ssr]`; `head/` is `[re-frame.ssr.head :as head]`. Only the two REGISTRARS (`rf/reg-head`, `rf/reg-error-projector`) ride the `re-frame.core` façade — the query surface has no `rf/` copy, because requiring `re-frame.ssr` is what installs SSR in the first place (spec/API.md §SSR).
-
-| Surface | Shape |
-|---|---|
-| `ssr/render-to-string` | `(tree)` / `(tree opts)` — opts: `:doctype?`. Unknown opts are ignored silently |
-| `ssr/project-error` | `(frame-id trace-event)` → public-error-map |
-| `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — register a head-fragment producer; routes name a head via `:head` route metadata |
-| `ssr/head-model` | `(frame-id)` / `(frame-id {:head-id :route})` → the `:rf/head-model` for a frame. `:head-id` selects a registration outright, else the effective route's `:head`, else the default head; `:route` (present-key test, so an explicit `nil` means *no route*) overrides the frame's active route slice and the head fn runs against that same route. Frame is **carried, not ambient** — the no-arg form was removed (EP-0002); a `nil` frame raises `:rf.error/no-frame-context` |
-| `ssr/head-model->html` | `(head-model)` → inner-head HTML fragment in canonical order |
-
-## Schemas — `day8/re-frame2-schemas`
+Aliased `:as th` — not `h`, which is Fresco.
 
 | Surface | Shape |
 |---|---|
-| `re-frame.schemas/app-schemas` / `app-schema-meta` / `app-schemas-digest` (each takes one map; `:frame` required; answers from what that frame resolves) | read-only schema queries — owned-ns surface, **not** on the `rf/` façade (the `reg-app-schema` registration macro stays on `rf/`) |
-| `re-frame.schemas/set-schema-fns!` / `schema-fns` / `default-schema-fns` | swap-in non-Malli validator port — owned-ns surface, **not** on the `rf/` façade |
-| `:boundary? true` (`reg-event` metadata) | production-side boundary validation — a boolean registration key, not an interceptor. It makes that handler's own `:schema` **ungated in a production build**, checked at the router's resolve step ahead of the chain — the survivor an application author reaches for, not the only one the framework keeps ([`../fundamentals/schemas.md`](../fundamentals/schemas.md#what-survives-is-settled-by-what-the-check-is-for-not-by-who-declared-it) has the full list). No `:schema` key → `:rf.error/at-boundary-missing-schema` at registration |
+| `th/find-by-testid` / `th/find-all-by-testid` / `th/find-by-testid-prefix` | `(tree testid)` → node(s) |
+| `th/find-by-attr` / `th/find-all-by-attr` / `th/find-by-attr-prefix` | `(tree attr val)` → node(s) |
+| `th/text-content` / `th/invoke-handler` | `(node)` → text · `(node event-key & args)` calls the handler |
+| `th/testid` | `(testid id)` / `(testid id attrs)` — the attrs fragment for a view |
 
-## Privacy / egress — `015 Data Classification` (see `cross-cutting/privacy-and-elision.md`)
+## SSR — `day8/re-frame2-ssr` ([ssr-authoring](ssr-authoring.md))
 
-Owner classifies / framework projects / sinks consume. Classification keys are *declarations*, not calls — they live in registration / subsystem / schema maps:
-
-| Surface | Shape |
-|---|---|
-| `rf/reg-classification` | `(reg-classification :auth {:sensitive [[:auth :token]] :large [[:docs :csv]] :doc "…"})` — durable app-db classification, app-db-absolute paths, declared once beside the feature (NOT a frame annotation, NOT an effect). Value-independent; redacted from the first egress; malformed → `:rf.error/bad-classification` at registration; `(clear :classification id)` removes it |
-| `:rf.http/managed` `:carriers` + frame `:observability` | `(reg-fx :rf.http/managed {:carriers {:headers […] :query-params […]}} h)` — app-specific HTTP carrier names (transient-payload case); `(make-frame {:id … :observability {…}})` — production sink policy. (The frame has NO `:sensitive` / `:large` key — durable app-db is `reg-classification` above; HTTP carriers ride `:rf.http/managed`.) |
-| frame `:observability` | `{:handled-events [{:sink <id> :rf.egress/profile :rf.egress/off-box-observability}] :errors [...]}` — production sink policy (fail-closed). The entry is a CLOSED map: those two keys only; vendor config is closed over by the registered sink fn. Says how THIS frame differs from the `rf/configure!` process default; omitting a stream inherits it, `[]` opts out |
-| registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event`/`reg-sub`/`reg-fx`/`reg-flow` — transient-payload paths; `[[]]` = whole shape |
-| subsystem `:sensitive` / `:large` | `(reg-machine id {:sensitive [[:data :token]] …})` / `(reg-resource id {:sensitive [[:data :ssn]] …})` — projection-relative durable classification, applied at egress to each instance present (the machine/resource snapshot-egress route) |
-| schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` Malli prop — HTTP `:decode` body (transient) + validation-FAILURE-trace redaction only. NOT a route for durable app-db OR machine `:data` snapshot egress |
-| `rf/project-egress` | `(record-or-value)` / `(record-or-value opts)` — **the ONE** record-level boundary primitive. Dispatches a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error` / `:rf.observe/derived-tree` / `:rf/epoch-record`) to a never-public per-kind projector; a kindless input is walked whole as a value. `opts` is a **closed** eleven-key map: `{:rf.egress/profile <closed six-member enum> :frame … :path […] :query-v […]}` + the four `:rf.egress/*` overrides + the three epoch-only axes `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?` (each default false, each lifts only its own boundary). Required before any off-box sink; fail-closed when no frame known; an epoch record in a build that elides epoch throws `:rf.error/epoch-elided` |
-| `re-frame.elision/elide-wire-value` *(framework-internal — no façade export; do not call from app or tool code)* | `(value opts)` — low-level tree-shaped-value walker `project-egress` delegates to. `opts` is **closed**: `:frame` / `:path` / `:query-v` + the advanced `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` / `:rf.egress/include-digests?` / `:rf.egress/threshold-bytes` overrides. Any other key (a `:rf.egress/profile`, an unqualified `include-*?`) throws `:rf.error/bad-egress-opts` — profiles belong to `project-egress` |
-| `rf/register-observability-sink!` (+ `rf/unregister-observability-sink!`) | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction). `(sink-id)` drops it again |
-| `rf/register-listener!` `:events` / `:errors` | **retired** — the listener vocabulary is `:trace` / `:epoch` (dev-only, below); any other stream throws `:rf.error/unknown-listener-stream`. Production observation is `rf/register-observability-sink!` (row above) |
-
-Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. Classification is **fail-open** (an unclassified path ships raw; no propagation/taint). **Not part of the API (use instead):** `add-marks` / `set-marks`, the frame `:sensitive {:app-db …}` annotation and a `:sensitive` / `:large` key beside `:db` → `rf/reg-classification` beside the feature; `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` AND the frame `:sensitive {:http …}` block → the `:rf.http/managed` `reg-fx` registration's `:carriers` block; `:rf.egress/output-sensitivity` (propagation/declassification) → classify the output path directly; `projected-record` → `rf/project-egress`, which recognises an epoch record by its stamped `:kind` and carries the three epoch-only opts. (A frame config carrying a `:sensitive` / `:large` key fails loud.)
-
-## Trace and epoch — core, dev-only
+`ssr/` is `[re-frame.ssr :as ssr]`. Only the registrars `rf/reg-head` and `rf/reg-error-projector` are on `rf/`.
 
 | Surface | Shape |
 |---|---|
-| `rf/register-listener!` / `rf/unregister-listener!` / `rf/emit-trace-event!` | trace plumbing |
-| `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring — `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)`, both platforms; the home is `re-frame.trace.tooling` (core trace tooling, not `re-frame.epoch`) |
-| `rf.epoch/epoch-history` | `(frame-id)` → `[epoch-records]` |
-| `rf.epoch/restore-epoch!` | `(frame-id epoch-id)` → bool |
-| `rf/register-listener! :epoch` / `rf/unregister-listener! :epoch` | epoch-record **publication** listener — one `:rf/epoch-record` per event's run-to-completion (not per drain-settle), also re-published on post-settle backfill and for `:rf.epoch/db-replaced` / halt records; reconcile by `[(:frame record) (:epoch-id record)]` and replace, don't count. `:halted-destroy` is listener-only, never retained. (the `:epoch` stream; there is no dedicated `rf/register-epoch-listener!` pair) |
-| `rf.epoch/replace-frame-state!` | `(frame-id frame-state)` → bool — the ONE frame-state write surface; `frame-state` is a PARTIAL map (any subset of `{:rf.db/app … :rf.db/runtime …}`) — a present key replaces that partition, an absent key is preserved. App-db-only injection: `{:rf.db/app v}`; app-db reset: `{:rf.db/app {}}`; runtime-db-only write: `{:rf.db/runtime v}`; full-frame install: both keys. A map with no recognized key, or an unrecognized key, is rejected |
+| `ssr/render-to-string` | `(tree)` / `(tree opts)` — `:doctype?`; unknown opts are ignored |
+| `ssr/project-error` | `(frame-id trace-event)` → public-error map |
+| `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — a route names its head via `:head` |
+| `ssr/head-model` / `ssr/head-model->html` | `(frame-id)` / `(frame-id {:head-id :route})` — the frame is carried, never ambient · `(head-model)` → inner-head HTML |
+
+## Schemas — `day8/re-frame2-schemas` ([schemas](../fundamentals/schemas.md))
+
+| Surface | Shape |
+|---|---|
+| `re-frame.schemas/app-schemas` / `app-schema-meta` / `app-schemas-digest` | one map each, `:frame` required — not on `rf/` |
+| `re-frame.schemas/set-schema-fns!` / `schema-fns` / `default-schema-fns` | the non-Malli validator port — not on `rf/` |
+| `:boundary? true` (`reg-event` metadata) | the handler's own `:schema` is checked in production too; needs a `:schema` (`:rf.error/at-boundary-missing-schema`) |
+
+## Privacy and egress — Spec 015 ([privacy-and-elision](privacy-and-elision.md), [production-observability](production-observability.md))
+
+Classification keys are declarations in registration, subsystem and schema maps, never calls.
+
+| Surface | Shape |
+|---|---|
+| `rf/reg-classification` | `(reg-classification :auth {:sensitive [[:auth :token]] :large [[:docs :csv]] :doc "…"})` — durable app-db paths, declared beside the feature; `(clear :classification id)` removes it |
+| registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event` / `reg-sub` / `reg-fx` / `reg-flow` — transient payload paths; `[[]]` is the whole shape |
+| subsystem `:sensitive` / `:large` | `(reg-machine id {:sensitive [[:data :token]] …})` / `(reg-resource id {:sensitive [[:data :ssn]] …})` — projection-relative, applied to each instance at egress |
+| schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` — an HTTP `:decode` body and validation-failure traces only |
+| `:rf.http/managed` `:carriers` | `(reg-fx :rf.http/managed {:carriers {:headers […] :query-params […]}} h)` — the app's HTTP carrier names |
+| frame `:observability` | `{:handled-events [{:sink <id> :rf.egress/profile :rf.egress/off-box-observability}] :errors [...]}` — a closed entry map; an omitted stream inherits the `rf/configure!` default, `[]` opts out |
+| `rf/project-egress` | `(record-or-value)` / `(record-or-value opts)` — the one record-level boundary primitive, required before any off-box sink. It dispatches on a record's `:kind` (`:rf.observe/handled-event` / `:rf.observe/error` / `:rf.observe/derived-tree` / `:rf/epoch-record`) and walks a kindless input as a value; an epoch record in a build that elides epoch throws `:rf.error/epoch-elided`. `opts` is closed: `:rf.egress/profile`, `:frame`, `:path`, `:query-v`, the `:rf.egress/*` overrides and the epoch-only `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?` |
+| `rf/register-observability-sink!` / `rf/unregister-observability-sink!` | `(sink-id fn)` / `(sink-id)` — the fn receives an already-projected record |
+
+The frame has NO `:sensitive` / `:large` key; a frame config carrying one fails loud. `:rf.egress/profile` is a closed six-member enum: `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` · `ssr-hydration` · `public-error`. **Not the API:** `add-marks` / `set-marks`, `redact-interceptor`, `declare-sensitive-header!` / `declare-sensitive-query-param!`, `:rf.egress/output-sensitivity`, `projected-record`, and `re-frame.elision/elide-wire-value` (framework-internal). The `:events` / `:errors` listener streams are retired; production observation is the sink above.
+
+## Trace and epoch — dev-only
+
+| Surface | Shape |
+|---|---|
+| `rf/register-listener!` / `rf/unregister-listener!` / `rf/emit-trace-event!` | trace plumbing; the streams are `:trace` and `:epoch` |
+| `rf/trace-buffer` / `rf/clear-trace-buffer!` | `(rf/trace-buffer frame-id)` / `(rf/trace-buffer frame-id opts)` — homed in `re-frame.trace.tooling`, not `re-frame.epoch` |
+| `rf.epoch/epoch-history` / `rf.epoch/restore-epoch!` | `(frame-id)` → `[epoch-records]` · `(frame-id epoch-id)` → bool |
+| `rf/register-listener! :epoch` | one `:rf/epoch-record` per event's run-to-completion, re-published on post-settle backfill and for `:rf.epoch/db-replaced` / halt records — reconcile by `[(:frame record) (:epoch-id record)]` and replace, don't count. `:halted-destroy` is listener-only, never retained. There is no `rf/register-epoch-listener!` |
+| `rf.epoch/replace-frame-state!` | `(frame-id frame-state)` → bool — `frame-state` is partial: `{:rf.db/app v}` replaces app-db only (`{:rf.db/app {}}` resets it), `{:rf.db/runtime v}` runtime-db only, both keys the whole frame |
 
 ## Interceptors, boot, introspection
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-interceptor` | `(id ?metadata descriptor)` — the **public** interceptor-authoring form (EP-0022); descriptor one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`. Chains reference it by id; the lowering constructor `->interceptor*` is internal-only |
-| interceptor context (inside `:before` / `:after`) | work the ctx map directly: `(get-in ctx [:coeffects k])` / `(get-in ctx [:effects k])` to read, `assoc-in` to write. There are no façade accessors — `rf/get-coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` do not exist |
-| `:rf.cofx/requires` (metadata) | declare a handler's coeffect dependencies on `reg-event`: `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}`. The declared values arrive **flat** in the coeffects map under their ids. Declared-only delivery; uniformly available to every event handler (EP-0017 / EP-0018) |
-| `:rf.cofx` (envelope field / dispatch opt) | flat `fact-name → value` map of recordable coeffects on every dispatch / reply envelope (EP-0017). `:rf/time-ms` is the framework's one built-in (recordable, provided, stamped at enqueue). Read durable time off it via `:rf.cofx/requires [:rf/time-ms]` → `(fn [{:keys [rf/time-ms]} ev] …)`. There is no `inject-cofx` (`:rf.error/inject-cofx-removed`) |
-| `[:rf.interceptor/path path-vector]` | the **one** framework-standard interceptor ref (EP-0022; `:factory`), e.g. `[:rf.interceptor/path [:cart]]` — focuses `:db` on a slice, preserves the `identical?` no-op. No public `rf/path` constructor; no standard `unwrap` (use handler destructuring, or a project-registered `:app/unwrap`) |
-| `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |
-| `rf/destroy-adapter!` / `rf/current-adapter` | low-level adapter ops; `current-adapter` → the installed spec map (or nil), and `(:kind (rf/current-adapter))` is the discriminator keyword. Seating an adapter is `rf/init!`; the strict primitive `install-adapter!` lives on `re-frame.substrate.adapter`, not the facade |
-| `rf/clear` | `(rf/clear kind id)` — the ONE kind-keyed registrar inverse, mirroring the `(kind, id)` grammar the read side already speaks. There are no per-kind `clear-*` names (`clear-event` / `clear-sub` / `clear-fx` / `clear-flow` / `clear-route` / `clear-http-interceptor` / `clear-resource` / `clear-mutation` / `clear-resource-scope`). Closed kind set: `:event` `:sub` `:fx` `:cofx` `:interceptor` `:view` `:head` `:error-projector` `:app-schema` `:flow` `:http-interceptor` `:route` `:resource` `:mutation` `:resource-scope`; an unknown kind fails closed with a message naming the set. Returns the id. A registration belongs to no frame, so `clear` removes it for every frame and takes NO opts: any trailing opts map raises `:rf.error/registrar-clear-bad-request`. To stop one frame running a flow or an HTTP interceptor, re-make that frame without it. No clear-all arity (bulk clearing is `re-frame.test-support` / `re-frame.registrar/clear-kind!`) |
-| `rf/clear-sub-cache!` | `(frame-id?)` — a DIFFERENT axis: evicts a frame's cached subscriptions (runtime state), not a registration. Keeps its bang, as do the other cache/buffer `clear-*!` names |
-| `rf/configure!` | `({:epoch-history {...} :trace-buffer {...} :elision {...} :observability {...}})` — ONE nested map; include only the subsystems to change (e.g. `{:elision {:rf.egress/threshold-bytes N}}`). `:observability` is the PROCESS DEFAULT for production sinks, same grammar as the frame key, inherited per stream (`[]` on a frame opts out); `{:observability nil}` CLEARS it and a malformed policy throws `:rf.error/bad-frame-classification` at the call |
-| `rf/registrations` / `rf/handler-meta` | registrar reads (ids via `(-> (registrations …) keys set)` — there is no `rf/handler-ids`) |
-| `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. The ONE inventory door — ships to production (not elided). Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:resources` |
-| presence check | `(get-in (rf/features) [:routing :loaded?])` → bool. An UNKNOWN feature keyword has no entry, so it reads `nil` |
-| boot-time guard | `(when-not (get-in (rf/features) [:routing :loaded?]) (throw (ex-info "…" (get (rf/features) :routing))))` — write it yourself, never an elidable `assert`; the entry carries the Maven coord + require ns |
-| `rf/frame-ids` / `rf/view` | registry reads |
-| `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:initial-events` `:on-destroy` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. `:observability` is the sole surviving frame-owned classification key (`:sensitive` / `:large` retired, EP-0025). **No `:on-error` recovery-policy slot** — recovery is framework-owned |
-| `re-frame.subs.tooling/sub-cache-snapshot` / `sub-topology` | dynamic / static sub graph reads — subscription-tooling surfaces, **not** on the `rf/` façade |
+| `rf/reg-interceptor` | `(id ?metadata descriptor)` — descriptor `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`; chains reference it by id |
+| interceptor ctx | `(get-in ctx [:coeffects k])` / `(get-in ctx [:effects k])`, `assoc-in` to write. There is no `rf/get-coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` |
+| `:rf.cofx/requires` | `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}` on `reg-event`; the values arrive flat: `(fn [{:keys [rf/time-ms]} ev] …)` |
+| `[:rf.interceptor/path path-vector]` | the one standard interceptor ref. No `rf/path`, no standard `unwrap` (destructure, or register an `:app/unwrap`) |
+| `rf/init!` | `(adapter-map)` — installs the adapter; creates no frame |
+| `rf/destroy-adapter!` / `rf/current-adapter` | `(:kind (rf/current-adapter))` is the discriminator; `install-adapter!` lives on `re-frame.substrate.adapter` |
+| `rf/clear` | `(rf/clear kind id)` → id — the one registrar inverse, for every registrar kind except `:frame` (an unknown kind's error names the set). It removes the registration for every frame (to stop one frame running a flow or HTTP interceptor, re-make that frame without it) and takes no opts (`:rf.error/registrar-clear-bad-request`). No per-kind names (`rf/clear-http-interceptor`, `rf/clear-resource`, …), no clear-all (tests: `re-frame.registrar/clear-kind!`). On `:resource` / `:mutation` it removes the registration, not cached data — that is the `:rf.resource/invalidate-tags` / `:rf.resource/remove` / `:rf.resource/clear-scope` fxs, and `[:rf.mutation/clear …]` |
+| `rf/clear-sub-cache!` | `(frame-id?)` — evicts a frame's cached subscriptions, not a registration |
+| `rf/configure!` | `({:epoch-history {...} :trace-buffer {...} :elision {...} :observability {...}})` — only the subsystems that change, e.g. `{:elision {:rf.egress/threshold-bytes N}}`; `{:observability nil}` clears the process default |
+| `rf/registrations` / `rf/handler-meta` | registrar reads; ids via `(-> (registrations …) keys set)` — there is no `rf/handler-ids` |
+| `rf/features` | `()` → `{feature {:maven :require :spec :loaded?}}` for `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:resources`. Check with `(get-in (rf/features) [:routing :loaded?])`; a boot guard is `(when-not (get-in (rf/features) [:routing :loaded?]) (throw (ex-info "…" (get (rf/features) :routing))))`, never an elidable `assert` |
+| `rf/frame-ids` / `rf/view` / `rf/frame-meta` | registry reads; `frame-meta` → a flat map (`:id`, the preset expansion, `:observability`, `:created-at` `:destroyed?` `:listeners`) with no `:on-error` slot |
+| `re-frame.subs.tooling/sub-cache-snapshot` / `sub-topology` | dynamic / static sub-graph reads — not on `rf/` |
 
-Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (registrations / writes) or degrade to `nil`/`[]`/`false` (read-only queries) when the artefact is absent.
+An optional-artefact surface raises `:rf.error/<artefact>-artefact-missing` on a registration or write, and degrades to `nil` / `[]` / `false` on a read, when its artefact is absent.
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,resources,ssr,flows}/`, cross-checked against `spec/api-manifest.edn`'s `re-frame.core` rows, @ main. Re-verify when new public surface lands. This is the public-surface glance, not an exhaustive export inventory — for the complete facade see `SKILL-REDIRECT.md` → Definitive API reference.*
+*Derived from `implementation/core/src/re_frame/core.cljc` and the artefact trees under `implementation/`, cross-checked against `spec/api-manifest.edn`. The public-surface glance, not an export inventory.*

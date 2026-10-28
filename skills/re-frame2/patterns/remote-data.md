@@ -156,7 +156,7 @@ Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `commen
 
 - **Optimistic updates.** Commit to `:data` *before* the fetch; capture the prior value as part of the rollback event. Pure rollback handler.
 - **Polling.** `:dispatch-later` schedules the next `:load`. Pause/resume via a `:poll-active?` flag.
-- **Retry with backoff.** Read `:attempt` from the slice; compute backoff as a sub. The framework ships no built-in retry — convention only. (For HTTP-specific retry semantics see `:rf.http/managed`'s `:retry` arg in EP 014.)
+- **Retry with backoff.** Transport retry is built in: `:rf.http/managed`'s `:retry` (`:on` failure categories / statuses, `:max-attempts`, `:backoff`) — never hand-roll backoff timers with `:dispatch-later`. A retry that depends on the body, a token refresh or app state is a machine ([`managed-http.md` §The retry-ownership boundary](managed-http.md#the-retry-ownership-boundary)).
 - **Stale detection.** Carry an epoch on the dispatched reply event; suppress on mismatch. See `SKILL-REDIRECT.md` → *Pattern — Stale detection*.
 
 ## Worked example
@@ -169,7 +169,7 @@ Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `commen
 
 The split exists for one reason: an empty page mid-load shows a spinner; a page that already has data and is refreshing does not. Without it, every revalidation flashes a spinner over loaded content. The `:loading?` / `:fetching?` subs hide the distinction from view code that doesn't care, cheaply expose it to code that does.
 
-`:attempt` increments on **every** fetch (initial `1`, first retry `2`, revalidate `3`). One counter answers two questions: "have we ever tried?" (`> 0`) and "how many retries?" (drives backoff). Don't add a parallel retry-only counter — derive it.
+`:attempt` counts the loads the slice issues (initial `1`, a user-triggered retry `2`, revalidate `3`); transport retries inside one `:rf.http/managed` request do not move it. One counter answers "have we ever tried?" (`> 0`) and "how many loads?". Don't add a parallel retry-only counter — derive it.
 
 ## When a resource fits better
 
