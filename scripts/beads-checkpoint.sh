@@ -4,21 +4,43 @@
 # PRIMARY implementation; scripts/beads-checkpoint.ps1 is the Windows
 # PowerShell sibling with an identical contract.
 #
+# THE TRACKED EXPORT IS A SET OF PARTS
+#
+#   The tracker is committed under `.beads/tracker/`: sixteen issue parts,
+#   `issues-0.jsonl` to `issues-f.jsonl`, each holding the issues whose id
+#   hashes to that hex digit, and `memories.jsonl`, holding every `bd remember`
+#   row. One file holding the whole database grows without bound, and GitHub
+#   refuses a push carrying any file over 100 MiB; split by id hash, each part
+#   grows at a sixteenth of the rate. Concatenated, the parts ARE the export —
+#   the row multiset `bd export --include-memories` writes — so `bd import`
+#   sees the same database either way.
+#
+#   Older commits carry the export as one file, `.beads/issues.jsonl`. A tree
+#   holding any file under `.beads/tracker/` carries the parts and nothing
+#   else; a tree holding none carries that single file. Every read below
+#   applies that one rule, so a single command reads the tracker at any commit
+#   in the history, either side of the split:
+#
+#       sh scripts/beads-checkpoint.sh --cat <rev>
+#
+#   The first checkpoint over a single-file HEAD is the cut-over: it writes
+#   the parts and commits the single file's removal alongside them.
+#
 # THE FAULT THIS EXISTS TO STOP
 #
 #   CLAUDE.md requires `git checkout HEAD -- .beads` before every update, and
-#   rightly: an uncommitted `.beads/issues.jsonl` makes the update abort,
-#   freezing HEAD at a stale base. But the JSONL is a full-database EXPORT. If
-#   a `bd close` or `bd create` happened after the last export-commit, that
+#   rightly: an uncommitted tracker export makes the update abort, freezing
+#   HEAD at a stale base. But the export is a full-database EXPORT. If a
+#   `bd close` or `bd create` happened after the last export-commit, that
 #   checkout reverts the export to its pre-close state — and a checkpoint that
-#   then commits (or re-imports) the working file writes the revert back over
+#   then commits (or re-imports) the working files writes the revert back over
 #   the database. The close simply evaporates, so the rule that prevents one
 #   fault would perform the other.
 #
 # SO IT EXPORTS FIRST. A checkpoint asks the Dolt database what the tracker
 # says (`bd export`) instead of trusting whatever is sitting in the working
 # tree. A reverted file can then never be committed over newer database state,
-# because the file is regenerated before it is read.
+# because the parts are regenerated before anything reads them.
 #
 # EXPORTING FIRST IS NOT ENOUGH ON ITS OWN.
 #
@@ -48,14 +70,18 @@
 #   the row-count SUM is off, which is a well-formedness artefact and not a
 #   deletion.
 #
+# Every guard reads the WHOLE export — the parts concatenated — so none of them
+# sees a part boundary: a row moving between parts is not a loss, and the
+# floor is a floor on the sum.
+#
 # USAGE
 #
 #   sh scripts/beads-checkpoint.sh [-m MESSAGE]
 #       Re-export the tracker from the database, sanity-check the result, and
-#       commit `.beads/issues.jsonl` if it changed. This is the checkpoint —
-#       run it BEFORE `git checkout HEAD -- .beads` and the pull, never after.
-#       The commit carries the rows that changed and nothing else: `bd export`
-#       does not fix the order of the memory rows, so the file is written in
+#       commit the parts if they changed. This is the checkpoint — run it
+#       BEFORE `git checkout HEAD -- .beads` and the pull, never after. The
+#       commit carries the rows that changed and nothing else: `bd export`
+#       does not fix the order of the memory rows, so the rows are put in
 #       minimal-diff order first (`minimal_diff_rewrite` below).
 #
 #   sh scripts/beads-checkpoint.sh --pre-pull
@@ -63,30 +89,62 @@
 #       does not carry. Exit 0 = the checkout is safe; exit 1 = checkpoint
 #       first, and it says so. Cheap enough to run every tick.
 #
+#   sh scripts/beads-checkpoint.sh --cat [REV]
+#       Print the tracker export at commit REV, whichever layout that commit
+#       carries, or as the working tree holds it when REV is omitted. Every
+#       recovery route reads through this, and it is the single JSONL that
+#       `bd import -` and `bd bootstrap` take. Exit 1 when REV carries no
+#       tracker at all.
+#
+#   sh scripts/beads-checkpoint.sh --split FILE
+#       Write FILE's rows into the parts, in FILE's order, and stage them (with
+#       the single file's removal, if the index still carries it). The
+#       checkpoint's own write step, for the hand commit its refusals describe.
+#
 # WHAT IT DELIBERATELY DOES NOT DO: pull, push, import, or touch any beads path
-# other than `.beads/issues.jsonl`. `.beads/metadata.json` is database-derived
-# too, but the mayor pre-commit boundary permits only the tracker
-# and MEMORY.md, so committing it here would be refused; it stays a manual
-# call. This is an operator helper, not a gate: nothing in CI runs it.
+# other than the tracker export. `.beads/metadata.json` is database-derived
+# too, but the mayor pre-commit boundary permits only the tracker export and
+# MEMORY.md, so committing it here would be refused; it stays a manual call.
+# This is an operator helper, not a gate: nothing in CI runs it.
 #
 # Cross-platform: POSIX sh; runs under Git Bash on Windows, macOS, Linux.
 # No bashisms (`[[`, arrays, `<<<`).
 
 set -eu
 
-TRACKER=".beads/issues.jsonl"
+LEGACY=".beads/issues.jsonl"
+PARTS_DIR=".beads/tracker"
+PARTS="issues-0 issues-1 issues-2 issues-3 issues-4 issues-5 issues-6 issues-7
+       issues-8 issues-9 issues-a issues-b issues-c issues-d issues-e issues-f
+       memories"
+PART_PATHS=""
+for _part in $PARTS; do PART_PATHS="$PART_PATHS $PARTS_DIR/$_part.jsonl"; done
 
 MODE="checkpoint"
 MESSAGE="chore(beads): checkpoint"
+CAT_REV=""
+SPLIT_FILE=""
 
 usage() {
   printf 'usage: sh scripts/beads-checkpoint.sh [-m MESSAGE]\n'
   printf '       sh scripts/beads-checkpoint.sh --pre-pull\n'
+  printf '       sh scripts/beads-checkpoint.sh --cat [REV]\n'
+  printf '       sh scripts/beads-checkpoint.sh --split FILE\n'
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --pre-pull)  MODE="pre-pull"; shift ;;
+    --cat)
+      MODE="cat"; shift
+      if [ $# -gt 0 ]; then
+        case "$1" in -*) ;; *) CAT_REV="$1"; shift ;; esac
+      fi
+      ;;
+    --split)
+      MODE="split"
+      if [ $# -lt 2 ]; then usage >&2; exit 2; fi
+      SPLIT_FILE="$2"; shift 2 ;;
     -m|--message) MESSAGE="${2:-}"; shift 2 ;;
     -m=*|--message=*) MESSAGE="${1#*=}"; shift ;;
     -h|--help)   usage; exit 0 ;;
@@ -103,6 +161,11 @@ die() {
   exit 1
 }
 
+# --split's FILE is the caller's path, so it is resolved before the cd below.
+if [ "$MODE" = "split" ]; then
+  case "$SPLIT_FILE" in /*|[A-Za-z]:[\\/]*) ;; *) SPLIT_FILE="$PWD/$SPLIT_FILE" ;; esac
+fi
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$REPO_ROOT"
@@ -114,13 +177,13 @@ cd "$REPO_ROOT"
 # partial checkout), skip the check rather than refuse — the pre-commit hook
 # and the CI arm are the enforcement; this is a convenience.
 #
-# Only the COMMITTING arm is gated. --pre-pull is a read-only question —
-# "would clearing `.beads` discard tracker state?" — that every worktree
-# legitimately asks before its own update, so it answers from worker
-# worktrees too.
+# Only the WRITING arms are gated. --pre-pull and --cat are read-only
+# questions that every worktree legitimately asks — "would clearing `.beads`
+# discard tracker state?" before its own update, "what did the tracker say at
+# this commit?" during a recovery — so they answer from worker worktrees too.
 # ---------------------------------------------------------------------------
 BOUNDARY_LIB="$REPO_ROOT/scripts/git-hooks/lib/check-beads-boundary.sh"
-if [ "$MODE" = "checkpoint" ] && [ -f "$BOUNDARY_LIB" ]; then
+if { [ "$MODE" = "checkpoint" ] || [ "$MODE" = "split" ]; } && [ -f "$BOUNDARY_LIB" ]; then
   # shellcheck source=git-hooks/lib/check-beads-boundary.sh
   . "$BOUNDARY_LIB"
   if ! rf2_beads_in_primary_worktree; then
@@ -135,10 +198,11 @@ fi
 TMP_EXPORT=""
 TMP_HEAD=""
 TMP_ORDERED=""
+TMP_WORK=""
 TMP_A=""
 TMP_B=""
 cleanup() {
-  rm -f "$TMP_EXPORT" "$TMP_HEAD" "$TMP_ORDERED" "$TMP_A" "$TMP_B" 2>/dev/null || true
+  rm -f "$TMP_EXPORT" "$TMP_HEAD" "$TMP_ORDERED" "$TMP_WORK" "$TMP_A" "$TMP_B" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM HUP
 
@@ -148,38 +212,126 @@ rows() {
   awk 'END{print NR}' "$1"
 }
 
-# head_copy PATH [REF] — write REF's copy of the tracker to PATH; REF defaults
-# to HEAD. Empty file if the path does not exist there (a first-ever checkpoint,
-# or an unborn branch).
+# tracker_at OID — print the tracker export at commit OID, whichever layout
+# that commit carries. Returns 2, printing nothing, when the commit carries
+# neither (a commit older than the tracker); returns 1 if a part it lists
+# cannot be read.
 #
-# THE REF ARGUMENT IS LOAD-BEARING, not an ergonomic flourish. The caller below prints a commit oid as a RECOVERY
-# REFERENCE, and a helper that re-resolves `HEAD` for itself makes that oid a
-# SEPARATE READ of a moving branch: a commit landing in the shared checkout
-# between the two reads leaves the guard comparing commit A's bytes while
-# printing commit B's oid, and B never carried the values the operator is told
-# to recover. Adjacent calls are not one snapshot — the drift reproduces
-# deterministically with a single commit in the gap. Pass the resolved oid and
-# the two cannot disagree.
-head_copy() {
-  git show "${2:-HEAD}:$TRACKER" > "$1" 2>/dev/null || : > "$1"
+# TAKES A RESOLVED OID, NEVER A REF NAME, for two reasons. The checkpoint
+# below prints that oid as a RECOVERY REFERENCE, and the parts are SEVERAL
+# reads: given `HEAD`, a commit landing in the shared checkout between two of
+# them would splice two snapshots into one baseline, and between the first
+# read and the printed oid it would leave the guard comparing commit A's bytes
+# while naming commit B, which never carried the values the operator is told
+# to recover. And from Git Bash, `git show <ref>:<path>` is mangled when the
+# ref holds a slash and the path starts with a dot (`origin/main:.beads/…`);
+# a bare oid has no slash.
+tracker_at() {
+  _ta_parts=$(git ls-tree -r --name-only "$1" -- "$PARTS_DIR/" 2>/dev/null) || _ta_parts=""
+  if [ -n "$_ta_parts" ]; then
+    for _ta_p in $_ta_parts; do
+      git show "$1:$_ta_p" 2>/dev/null || return 1
+    done
+    return 0
+  fi
+  git show "$1:$LEGACY" 2>/dev/null || return 2
+}
+
+# tracker_in_worktree — print the tracker export as the working tree holds it,
+# by the same layout rule. Returns 1, printing nothing, when the working tree
+# holds neither layout.
+tracker_in_worktree() {
+  _tw_found=1
+  for _tw_f in "$PARTS_DIR"/*; do
+    [ -f "$_tw_f" ] || continue
+    cat "$_tw_f"
+    _tw_found=0
+  done
+  if [ "$_tw_found" = "1" ] && [ -f "$LEGACY" ]; then
+    cat "$LEGACY"
+    _tw_found=0
+  fi
+  return "$_tw_found"
+}
+
+# write_parts SRC — route SRC's rows into the parts in the working tree,
+# keeping SRC's order within each part. Every part is rewritten, so a part
+# left with no rows is an empty file rather than a stale one.
+#
+# THE ROUTE. A memory row (`"_type":"memory"`) goes to `memories.jsonl`. Every
+# other row goes to the issue part named by its id: h = (h * 31 + byte) mod
+# (2^31 - 1) over the bytes of the row's FIRST `"id":"` value — the bead's own,
+# as `git_only_facts` explains — and the part is h mod 16 as a hex digit. A row
+# carrying no id (a blank line) routes as the empty id does, so no row is ever
+# dropped. The prime modulus mixes the low bits a power-of-two one would leave
+# as a bare checksum, and every intermediate stays below 2^53, so any awk
+# computes it exactly. The .ps1 sibling computes the same digit for every id;
+# if the two ever disagreed, alternating runs would move rows back and forth
+# between parts on every checkpoint.
+#
+# C locale, so `length` and `substr` count bytes and `sprintf("%c")` builds a
+# byte table. Line endings are stripped, as everywhere else in this file: a
+# Windows checkout's copy can carry CRLF, and the parts are written LF.
+write_parts() {
+  mkdir -p "$PARTS_DIR"
+  for _wp_p in $PARTS; do : > "$PARTS_DIR/$_wp_p.jsonl"; done
+  LC_ALL=C awk -v dir="$PARTS_DIR" '
+    BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i; hex = "0123456789abcdef" }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      if (index(line, "\"_type\":\"memory\"") > 0) { print line > (dir "/memories.jsonl"); next }
+      id = ""
+      if (match(line, /"id":"[^"]*"/)) id = substr(line, RSTART + 6, RLENGTH - 7)
+      h = 0
+      n = length(id)
+      for (i = 1; i <= n; i++) h = (h * 31 + ord[substr(id, i, 1)]) % 2147483647
+      print line > (dir "/issues-" substr(hex, h % 16 + 1, 1) ".jsonl")
+    }
+  ' "$1"
+}
+
+# parts_rows — the row total across every part in the working tree.
+parts_rows() {
+  _pr_total=0
+  for _pr_p in $PARTS; do
+    _pr_total=$((_pr_total + $(rows "$PARTS_DIR/$_pr_p.jsonl")))
+  done
+  printf '%s' "$_pr_total"
+}
+
+# stage_parts — stage every part, and the single file's removal when the
+# index still carries it: the cut-over. Sets LEGACY_STAGED when it staged that
+# removal, so the commit names the path. The working copy of the single file
+# goes either way — a reassembled copy left for `bd bootstrap` would otherwise
+# sit beside the parts as a second, staler export.
+LEGACY_STAGED=""
+stage_parts() {
+  # shellcheck disable=SC2086  # fixed part paths, no spaces
+  git add -- $PART_PATHS
+  if git ls-files --error-unmatch -- "$LEGACY" >/dev/null 2>&1; then
+    git rm -q --cached -- "$LEGACY"
+    LEGACY_STAGED=1
+  fi
+  rm -f "$LEGACY"
 }
 
 # minimal_diff_rewrite EXPORT HEAD_COPY OUT — write EXPORT's rows to OUT, but
 # emit every row HEAD already carries in HEAD's order first, and only then the
 # rows that are genuinely new, in export order.
 #
-# WHY. `same_content` below stops a reorder-ONLY export from becoming a
-# commit. It does nothing for the normal case: one real row changed, so the
-# checkpoint commits — and the raw export would carry every unrelated memory
+# WHY. A reorder-ONLY export must not become a commit, and in the normal case —
+# one real row changed — the raw export would carry every unrelated memory
 # reorder along with it, burying a handful of real row changes under a few
-# hundred relocated ones.
+# hundred relocated ones. In HEAD's order, an unchanged database writes parts
+# byte-identical to HEAD's, and a changed one writes a diff that is exactly
+# (rows HEAD had and the export does not) plus (rows the export has and HEAD
+# does not). `write_parts` keeps the order within each part, so each part
+# inherits it.
 #
 # The output is the export's row MULTISET exactly — no row is invented, dropped
 # or edited, so `bd import` sees the same database either way. Only the line
-# ORDER differs, and JSONL row order carries no meaning to the importer. What it
-# buys is a diff that is exactly (rows HEAD had and the export does not) plus
-# (rows the export has and HEAD does not): no relocation lines at all, from the
-# first checkpoint onward.
+# ORDER differs, and JSONL row order carries no meaning to the importer.
 #
 # CRLF is stripped so a Windows checkout's `git checkout HEAD -- .beads` copy
 # still matches the LF rows `bd export` emits — the same reason `same_content`
@@ -203,12 +355,12 @@ minimal_diff_rewrite() {
 # Order matters here because `bd export` does not fix the order of the trailing
 # `_type":"memory"` rows: two exports of an unchanged database can differ by
 # reordering alone, the issue rows byte-identical and the memory rows
-# shuffled. Comparing sorted forms keeps a checkpoint from committing a
-# few-hundred-line diff that says nothing, while still noticing a memory that
-# was added, removed or edited.
+# shuffled. Comparing sorted forms keeps --pre-pull from warning over a
+# reorder that says nothing, while still noticing a memory that was added,
+# removed or edited.
 #
 # Line endings are stripped first. On a Windows checkout (`core.autocrlf=true`)
-# `git checkout HEAD -- .beads` writes the tracker back with CRLF while
+# `git checkout HEAD -- .beads` can write the tracker back with CRLF while
 # `git show HEAD:` and `bd export` both emit LF, so a byte comparison would
 # call every line different and --pre-pull would warn every single time. An
 # advisory that always fires is an advisory nobody reads.
@@ -456,21 +608,60 @@ memory_facts() {
 }
 
 # ---------------------------------------------------------------------------
+# --cat: the tracker export at a commit, or in the working tree.
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "cat" ]; then
+  if [ -z "$CAT_REV" ]; then
+    tracker_in_worktree \
+      || die "the working tree holds no tracker export (neither $PARTS_DIR/ nor $LEGACY)."
+    exit 0
+  fi
+  CAT_OID=$(git rev-parse --verify --quiet "$CAT_REV^{commit}" 2>/dev/null) \
+    || die "'$CAT_REV' does not name a commit."
+  CAT_RC=0
+  tracker_at "$CAT_OID" || CAT_RC=$?
+  case "$CAT_RC" in
+    0) exit 0 ;;
+    2) die "$CAT_REV carries no tracker export (neither $PARTS_DIR/ nor $LEGACY)." ;;
+    *) die "a tracker part at $CAT_REV could not be read." ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
+# --split: write a given export into the parts and stage them.
+# ---------------------------------------------------------------------------
+if [ "$MODE" = "split" ]; then
+  [ -f "$SPLIT_FILE" ] || die "no such file: $SPLIT_FILE"
+  split_rows=$(rows "$SPLIT_FILE")
+  [ "$split_rows" -gt 0 ] || die "$SPLIT_FILE has no rows; refusing to write an empty tracker."
+  write_parts "$SPLIT_FILE"
+  [ "$(parts_rows)" = "$split_rows" ] \
+    || die "the parts hold $(parts_rows) rows for a $split_rows-row file; nothing was staged. \`git checkout HEAD -- .beads\` restores them."
+  stage_parts
+  printf 'beads-checkpoint: wrote %s rows into %s/ and staged them. Commit with:\n' \
+    "$split_rows" "$PARTS_DIR"
+  printf '    git commit -m "chore(beads): ..." -- .beads\n'
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # --pre-pull: would clearing `.beads` throw tracker state away?
 # ---------------------------------------------------------------------------
 if [ "$MODE" = "pre-pull" ]; then
-  if [ ! -f "$TRACKER" ]; then
-    exit 0
-  fi
+  TMP_WORK=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-work-XXXXXX")
+  tracker_in_worktree > "$TMP_WORK" || exit 0
   TMP_HEAD=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-head-XXXXXX")
-  head_copy "$TMP_HEAD"
-  if same_content "$TRACKER" "$TMP_HEAD"; then
+  PRE_OID=$(git rev-parse --verify --quiet HEAD 2>/dev/null || printf '')
+  if [ -n "$PRE_OID" ]; then
+    tracker_at "$PRE_OID" > "$TMP_HEAD" || : > "$TMP_HEAD"
+  fi
+  if same_content "$TMP_WORK" "$TMP_HEAD"; then
     exit 0
   fi
-  work_rows=$(rows "$TRACKER")
+  work_rows=$(rows "$TMP_WORK")
   head_rows=$(rows "$TMP_HEAD")
   printf '\n[re-frame2] the working tracker export is AHEAD of HEAD.\n' >&2
-  printf '  working %s rows, HEAD %s rows, in %s\n\n' "$work_rows" "$head_rows" "$TRACKER" >&2
+  printf '  working %s rows, HEAD %s rows, in the tracker export\n\n' "$work_rows" "$head_rows" >&2
   printf '  `git checkout HEAD -- .beads` here would revert it, and the next\n' >&2
   printf '  checkpoint would write that revert back over the database, which\n' >&2
   printf '  silently reopens closed beads.\n\n' >&2
@@ -502,7 +693,7 @@ TMP_EXPORT=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-export-XXXXXX")
 # the `bd remember` memory rows, so a flagless checkpoint would silently drop
 # every one of them. The tracker commits whole: issues AND memories.
 bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
-  || die "bd export failed; leaving $TRACKER untouched."
+  || die "bd export failed; leaving the tracker export untouched."
 
 # THE BASELINE SNAPSHOT. Resolved ONCE, and resolved FIRST — every read of the
 # tracker-at-HEAD below goes through this one oid, so the bytes this checkpoint
@@ -518,26 +709,33 @@ bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
 # checkpoint commits and after any number of later commits land on top.
 #
 # WHY IT IS RESOLVED BEFORE THE COPY, AND PASSED IN. Capturing the oid
-# immediately AFTER `head_copy "$TMP_HEAD"` would rest on the reasoning that
-# adjacent statements cannot drift. They can: those would be two separate reads
-# of a moving branch, and this is the mayor's SHARED checkout, where a second
+# immediately AFTER reading the tracker would rest on the reasoning that
+# adjacent statements cannot drift. They can: those would be separate reads of
+# a moving branch, and this is the mayor's SHARED checkout, where a second
 # checkpoint or an ordinary commit can land in the gap. When one does, the
 # guard compares commit A's bytes and prints commit B's oid — and B never
 # contained the values the message tells the operator to recover, so the
 # printed lookup exits 0 and prints nothing: the same reassuring failure as
 # printing `HEAD`, one step further along. Resolving the oid first while
-# leaving `head_copy` reading `HEAD` for itself would REVERSE that race, not
-# close it — both reads have to come from this one oid, which is why it is an
-# argument and not a comment.
+# letting the reads resolve `HEAD` for themselves would REVERSE that race, not
+# close it — every read has to come from this one oid, which is why
+# `tracker_at` takes an oid and nothing else.
 #
 # Empty on an unborn branch (a first-ever checkpoint), where there is no
-# baseline to recover from and the recovery paragraph is skipped; `head_copy`
-# then falls back to `HEAD`, which fails the same way and yields the same empty
-# comparison file.
-BASELINE_COMMIT=$(git rev-parse --verify HEAD 2>/dev/null || printf '')
+# baseline to compare against or recover from: the comparison file stays
+# empty and the recovery paragraph is skipped.
+BASELINE_COMMIT=$(git rev-parse --verify --quiet HEAD 2>/dev/null || printf '')
 
 TMP_HEAD=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-head-XXXXXX")
-head_copy "$TMP_HEAD" "${BASELINE_COMMIT:-HEAD}"
+if [ -n "$BASELINE_COMMIT" ]; then
+  HEAD_RC=0
+  tracker_at "$BASELINE_COMMIT" > "$TMP_HEAD" || HEAD_RC=$?
+  case "$HEAD_RC" in
+    0) ;;
+    2) : > "$TMP_HEAD" ;;
+    *) die "a tracker part at HEAD ($BASELINE_COMMIT) could not be read; refusing to checkpoint against a partial baseline." ;;
+  esac
+fi
 
 export_rows=$(rows "$TMP_EXPORT")
 head_rows=$(rows "$TMP_HEAD")
@@ -546,14 +744,18 @@ head_rows=$(rows "$TMP_HEAD")
 # is a bug, not a checkpoint. Refuse and say so; a genuine mass delete is rare
 # enough to commit by hand.
 [ "$export_rows" -gt 0 ] \
-  || die "bd export produced 0 rows; refusing to checkpoint. $TRACKER is untouched."
+  || die "bd export produced 0 rows; refusing to checkpoint. The tracker export is untouched."
 if [ "$head_rows" -gt 0 ] && [ $((export_rows * 10)) -lt $((head_rows * 9)) ]; then
   printf 'beads-checkpoint: export has %s rows, HEAD has %s — more than a tenth of the\n' \
     "$export_rows" "$head_rows" >&2
-  printf '  tracker would disappear. Refusing to checkpoint; %s is untouched.\n' "$TRACKER" >&2
+  printf '  tracker would disappear. Refusing to checkpoint; the tracker export is untouched.\n' >&2
   printf '  Inspect with `bd status`, then commit by hand if the shrink is genuine.\n' >&2
   exit 1
 fi
+
+# The hand commit every refusal below describes: the export taken as it is,
+# written into the parts by --split, committed by the operator.
+HAND_EXPORT="${TMPDIR:-/tmp}/rf2-beads-export.jsonl"
 
 # DIVERGENCE GUARD. The floor above answers "is the export big
 # enough?". It cannot answer "does the export still contain what HEAD contains?"
@@ -575,7 +777,7 @@ if [ -n "$FACTS" ]; then
   fi
   printf '\n%s\n\n' "$FACTS" >&2
   printf '  Committing this export would lose exactly those facts, so it was NOT committed.\n' >&2
-  printf '  %s is UNTOUCHED.\n\n' "$TRACKER" >&2
+  printf '  The tracker export is UNTOUCHED.\n\n' >&2
   if [ -s "$REMEDY" ]; then
     printf '  To teach the database what Git already knows, then checkpoint again:\n\n' >&2
     printf '      bd import %s\n' "$REMEDY" >&2
@@ -588,8 +790,9 @@ if [ -n "$FACTS" ]; then
   fi
   printf '  If the loss is DELIBERATE (a `bd delete`, a `bd gc`, an AMBIG row you have\n' >&2
   printf '  adjudicated), take the export by hand and commit it yourself:\n\n' >&2
-  printf '      bd export --include-memories > %s\n' "$TRACKER" >&2
-  printf '      git add -- %s && git commit -m "chore(beads): ..."\n\n' "$TRACKER" >&2
+  printf '      bd export --include-memories > %s\n' "$HAND_EXPORT" >&2
+  printf '      sh scripts/beads-checkpoint.sh --split %s\n' "$HAND_EXPORT" >&2
+  printf '      git commit -m "chore(beads): ..." -- .beads\n\n' >&2
   exit 1
 fi
 rm -f "$REMEDY"
@@ -638,7 +841,7 @@ if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
   if [ -n "$BASELINE_COMMIT" ]; then
     printf '  lost. The commit this export was compared against still carries every\n' >&2
     printf '  one of them, and this is the lookup:\n' >&2
-    printf '\n      git show %s:%s \\\n' "$BASELINE_COMMIT" "$TRACKER" >&2
+    printf '\n      sh scripts/beads-checkpoint.sh --cat %s \\\n' "$BASELINE_COMMIT" >&2
     printf '        | jq -r --arg k "<key>" '"'"'select(._type=="memory" and .key==$k)|.value'"'"'\n' >&2
     printf '\n  THAT COMMIT IS SPELLED OUT RATHER THAN `HEAD` ON PURPOSE. This checkpoint\n' >&2
     printf '  commits the export a moment from now, so by the time you read this `HEAD`\n' >&2
@@ -647,7 +850,7 @@ if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
     printf '  is immutable, so it stays valid after this commit and every later one.\n' >&2
     printf '\n  Older checkpoints are NOT a general fallback — one made before a key was\n' >&2
     printf '  created does not carry it. To find the commit where any single key changed:\n' >&2
-    printf '\n      git log -S'"'"'"key":"<key>"'"'"' -- %s\n' "$TRACKER" >&2
+    printf '\n      git log -S'"'"'"key":"<key>"'"'"' -- .beads\n' >&2
   else
     printf '  lost — but this is a first-ever checkpoint with no commit behind it, so\n' >&2
     printf '  there is no baseline to recover from. The database is the only copy.\n' >&2
@@ -667,13 +870,11 @@ elif [ -n "$MEMORY_FACTS" ]; then
   printf '  account for every row of the file.\n\n' >&2
   printf '%s\n' "$MEMORY_FACTS" >&2
   printf '\n  A row that is neither an issue nor a memory is USUALLY A BLANK LINE. The\n' >&2
-  printf '  count above names the side that carries it — the tracker this checkpoint is\n' >&2
-  printf '  about to commit, or HEAD'"'"'s copy of it (`git show HEAD:%s`) —\n' "$TRACKER" >&2
-  printf '  and either check settles it in seconds:\n' >&2
-  printf '\n      grep -n -v '"'"'^{'"'"' %s\n' "$TRACKER" >&2
-  printf '      tail -c 3 %s | od -c\n' "$TRACKER" >&2
-  printf '\n  The first names the offending rows; the second shows a trailing blank line\n' >&2
-  printf '  as a doubled newline at the end of the file.\n' >&2
+  printf '  count above names the side that carries it — the parts this checkpoint is\n' >&2
+  printf '  about to commit, or HEAD'"'"'s copy of them — and either check settles it\n' >&2
+  printf '  in seconds, naming each offending row (a blank line prints as an empty one):\n' >&2
+  printf '\n      grep -n -v '"'"'^{'"'"' %s/*\n' "$PARTS_DIR" >&2
+  printf '      sh scripts/beads-checkpoint.sh --cat HEAD | grep -n -v '"'"'^{'"'"'\n' >&2
   printf '\n  A blank line is BENIGN and does not accumulate: `minimal_diff_rewrite` takes\n' >&2
   printf '  its rows from the fresh export, so one that is absent there is not carried\n' >&2
   printf '  over from HEAD. At worst it rides in one commit and the next checkpoint\n' >&2
@@ -681,32 +882,46 @@ elif [ -n "$MEMORY_FACTS" ]; then
 fi
 
 # The export is trustworthy — it is now the working tracker. From here on the
-# working file cannot be a stale revert, whatever it was a moment ago.
+# working parts cannot be a stale revert, whatever they were a moment ago.
 #
 # It is written in MINIMAL-DIFF order rather than raw export
 # order, so the staged ledger shows the rows that changed and nothing else. The
 # row-count check is the safety net: the rewrite must reproduce the export's
 # rows exactly, and if it ever does not, the raw export wins. Losing a row to a
-# cosmetic reordering would be a far worse bug than the churn it removes.
+# cosmetic reordering would be a far worse bug than the churn it removes. The
+# parts are counted again once written, for the same reason: a row the split
+# lost would be a deletion, so it refuses rather than staging one.
 TMP_ORDERED=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-ordered-XXXXXX")
 minimal_diff_rewrite "$TMP_EXPORT" "$TMP_HEAD" "$TMP_ORDERED"
-if [ "$(rows "$TMP_ORDERED")" = "$export_rows" ]; then
-  cp -f "$TMP_ORDERED" "$TRACKER"
-else
+SPLIT_SOURCE="$TMP_ORDERED"
+if [ "$(rows "$TMP_ORDERED")" != "$export_rows" ]; then
   printf 'beads-checkpoint: minimal-diff rewrite produced %s rows for a %s-row export;\n' \
     "$(rows "$TMP_ORDERED")" "$export_rows" >&2
   printf '  committing the raw export instead (order churn, but no lost rows).\n' >&2
-  cp -f "$TMP_EXPORT" "$TRACKER"
+  SPLIT_SOURCE="$TMP_EXPORT"
+fi
+write_parts "$SPLIT_SOURCE"
+if [ "$(parts_rows)" != "$export_rows" ]; then
+  printf 'beads-checkpoint: the parts hold %s rows for a %s-row export; nothing was staged.\n' \
+    "$(parts_rows)" "$export_rows" >&2
+  printf '  `git checkout HEAD -- .beads` restores the parts as HEAD carries them.\n' >&2
+  exit 1
 fi
 
-if same_content "$TRACKER" "$TMP_HEAD"; then
+stage_parts
+if git diff --cached --quiet -- "$PARTS_DIR" "$LEGACY"; then
   printf 'beads-checkpoint: nothing to checkpoint (%s rows, unchanged).\n' "$export_rows"
   exit 0
 fi
 
-# Explicit pathspec, both to `git add` and to `git commit`: anything else the
-# operator had staged stays staged, and nothing else is swept in.
-git add -- "$TRACKER"
-git commit -q -m "$MESSAGE" -- "$TRACKER"
-printf 'beads-checkpoint: committed %s (%s rows, HEAD had %s).\n' \
-  "$TRACKER" "$export_rows" "$head_rows"
+# Explicit pathspec: anything else the operator had staged stays staged, and
+# nothing else is swept in.
+# shellcheck disable=SC2086  # fixed part paths, no spaces
+git commit -q -m "$MESSAGE" -- $PART_PATHS ${LEGACY_STAGED:+"$LEGACY"}
+if [ -n "$LEGACY_STAGED" ]; then
+  printf 'beads-checkpoint: committed the tracker as %s/ (%s rows; HEAD had %s in %s, now removed).\n' \
+    "$PARTS_DIR" "$export_rows" "$head_rows" "$LEGACY"
+else
+  printf 'beads-checkpoint: committed %s/ (%s rows, HEAD had %s).\n' \
+    "$PARTS_DIR" "$export_rows" "$head_rows"
+fi

@@ -64,12 +64,14 @@ bench/fresco/src/re_frame/bench/fresco/data/jsfb-rguy1/*.json text eol=lf
 # platform sees them.
 migration/reagent-to-fresco/codemod/test/corpus/** text eol=lf
 
-# The beads tracker export (rf2-gsjfr). `bd` rewrites .beads/issues.jsonl with
-# LF endings on every invocation, so an unpinned Windows (core.autocrlf=true)
-# checkout CRLF-rewrites it straight back and the file never settles against
+# The beads tracker export: its parts under .beads/tracker/, and the single
+# .beads/issues.jsonl that older commits carry. The checkpoint rewrites them
+# with LF endings on every run, so an unpinned Windows (core.autocrlf=true)
+# checkout CRLF-rewrites them straight back and they never settle against
 # what the next export writes. A perpetually-dirty tracker export is the state
 # CLAUDE.md's beads-durability section documents as aborting `git pull` and
 # silently freezing HEAD at a stale base — and the `git checkout -- .beads` that
 # clears it reverts any `bd close` made in the same tick. Pin LF so the
-# checked-out bytes are the bytes `bd` writes.
+# checked-out bytes are the bytes the export writes.
+.beads/tracker/** text eol=lf
 .beads/issues.jsonl text eol=lf
