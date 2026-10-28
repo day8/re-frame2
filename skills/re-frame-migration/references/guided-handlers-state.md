@@ -216,7 +216,7 @@ What breaks, the Type of each symbol, the mount rewrite — the adapter's own `c
     [:div {:dangerouslySetInnerHTML (r/unsafe-html s)}]    ; re-frame2, on the Reagent bridge
     ```
 
-**Evidence, per preserved raw-HTML producer — the loss reports nothing, so a clean compile and a clean boot console prove nothing.** Assert the real rendered output — the mounted element's markup, or the static string — never the sanitizer's return value, beside two controls: ordinary text that still renders as escaped text, and hostile input (`<img src=x onerror=…>`, a `<script>`) that comes out sanitized or escaped. Remove only the tag and watch exactly that producer's assertions go red, then restore it and watch them go green.
+**Evidence, per preserved raw-HTML producer — the loss reports nothing, so a clean compile and a clean boot console prove nothing.** Assert the real rendered output — the mounted element's markup, or the static string — never the sanitizer's return value, beside two controls: ordinary text that still renders as escaped text, and hostile input (`<img src=x onerror=…>`, a `<script>`) that comes out sanitized or escaped. Remove only the tag and watch exactly that producer's assertions go red, then restore it and watch them go green. In a fan-out sweep, where no unit can compile its files mid-sweep, the unit records the plan for this evidence and the post-sweep gate runs it ([`orchestrating-a-large-migration.md` §5](orchestrating-a-large-migration.md#5-the-all-or-nothing-single-compile-gate)).
 
 Flag the held `dom-node`, `force-update-all` and raw-HTML sites in the end-of-sweep batch and wait for the author.
 
