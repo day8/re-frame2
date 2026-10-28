@@ -125,6 +125,38 @@
                                (if existing (str sentence " " existing) sentence))))
       health)))
 
+(defn- several-runtimes-sentence
+  "The note naming the one tab every op reaches when several runtimes
+  share the build. shadow-cljs sends each eval to the build's default
+  runtime, so the tab that answered the health read — whose browser half
+  rides on `token` — is the tab every later op reaches too."
+  [build-id {:keys [runtime-count runtime-instance-id runtime-loaded-at]}]
+  (str runtime-count " runtimes (browser tabs) are connected to build "
+       (pr-str build-id) ", and every op reaches only one of them: "
+       "shadow-cljs's default runtime, the tab whose :freshness "
+       ":runtime-instance-id is " (pr-str runtime-instance-id)
+       (when (and (number? runtime-loaded-at) (js/isFinite runtime-loaded-at))
+         (str " (loaded at " (.toISOString (js/Date. runtime-loaded-at)) ")"))
+       ". Reads from the other tabs never arrive, and no argument picks one. "
+       "ACTION: close the extra tabs, then re-run discover-app and check "
+       ":runtime-count reads 1."))
+
+(defn- with-several-runtimes
+  "Flag a payload whose token counts more than one runtime on the build:
+  `:warning :several-runtimes` when no other warning holds the slot, and
+  a `:note` sentence naming the answering tab. A read from the wrong tab
+  is still `:ok? true`, so the count is the only tell. No-op at one
+  runtime or an unread count."
+  [m build-id token]
+  (let [n (:runtime-count token)]
+    (if (and (number? n) (> n 1))
+      (let [sentence (several-runtimes-sentence build-id token)]
+        (-> m
+            (update :warning #(or % :several-runtimes))
+            (update :note (fn [existing]
+                            (if existing (str sentence " " existing) sentence)))))
+      m)))
+
 (defn- with-freshness
   "Attach the assembled freshness/liveness token to an `:ok? true`
   health payload. Async — reads the JVM-side build worker
@@ -132,7 +164,8 @@
   payload-shaping fn `shape` takes the freshness-annotated health map
   and returns the final MCP envelope. On a stale-BUILD verdict the
   `:warning` is promoted to `:stale-build` (unless a louder warning is
-  already set) so the alarm rides at the top level too.
+  already set) so the alarm rides at the top level too; several runtimes
+  on the build take the slot next (`with-several-runtimes`).
 
   `opts` carries the optional `:port` (the browser URL port discover-app
   resolved the build from) so a non-fresh hint names the EXACT
@@ -150,7 +183,10 @@
                              ;; are still useful; the token carries the
                              ;; staleness regardless).
                              (and stale? (not (:warning health)))
-                             (assoc :warning :stale-build))]
+                             (assoc :warning :stale-build)
+
+                             true
+                             (with-several-runtimes build-id token))]
             (shape annotated))))))
 
 (defn- port-opts

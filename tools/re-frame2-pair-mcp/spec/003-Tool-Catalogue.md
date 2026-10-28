@@ -594,6 +594,19 @@ capability-and-ownership check; either way, take the `:hint` as the next
 step rather than firing reads that will return blank. A `:stale-build`
 verdict is also promoted to a top-level `:warning :stale-build`.
 
+**Several runtimes on one build.** A `:freshness :runtime-count` above
+1 means several browser tabs share the build. shadow-cljs sends every
+eval to the build's default runtime — the first tab to connect, or the
+newest under `:repl {:runtime-select :latest}` — so every op reaches
+that one tab, and a read from it is `:ok? true` whichever tab the
+agent meant. discover-app flags it: a top-level `:warning
+:several-runtimes` when no other warning holds the slot, and a `:note`
+naming the answering tab by its `:runtime-instance-id` and load time.
+No argument selects a different runtime: shadow-cljs's `cljs-eval`
+takes a `:runtime-id` in its opts, but choosing one would need a
+runtime listing, a session pin and a dead-pin path of its own, so the
+recovery is to close the extra tabs and re-run discover-app.
+
 **Id representation (rf2-cg37y).** Every build/frame id discover-app
 surfaces — `:build-id`, `:frames`, and the diagnostic `:running-builds`
 — is a **full keyword** (`:rf/default`, `:examples/step-deck`) in the
