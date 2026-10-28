@@ -31,7 +31,7 @@
 
 {:fixture/id           :data-classification/derived-tree-fails-closed-no-frame
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/capabilities #{:data-classification/static}
  :fixture/doc          "project-egress of a :rf.observe/derived-tree record with NO live frame fails closed — the whole tree redacts to :rf/redacted (the EP-0025 fail-open is scoped to a re-keyed value under a LIVE frame, not an unresolvable frame; there is no raw-tree carve-out)."
 
  :fixture/calls

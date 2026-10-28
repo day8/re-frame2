@@ -572,37 +572,3 @@
                              (assoc call :call :derivation-graph) nil
                              rf.conformance-runner/reference)))
         (pr-str call))))
-
-;; ---- the classification-op guard ------------------------------------------
-;;
-;; Every live corpus op is a valid single-axis map, so nothing in the corpus
-;; reds if `realise-classification-effects!`'s one-axis check is deleted;
-;; without it the runner's priority-ordered `cond` applies a multi-axis op's
-;; first arm only and an empty or unknown-key op not at all.
-
-(defn- classification-op-fixture [ops]
-  {:fixture/id           :rf.test/classification-op-guard
-   :fixture/spec-version "1.0"
-   :fixture/capabilities #{:core/event-handler}
-   :fixture/handlers     {:event {:dc/store [[:set [:secret] "s"]]}}
-   :fixture/frame-config {}
-   :fixture/classification-effects ops
-   :fixture/dispatches   [[:dc/store]]
-   :fixture/expect       {:final-app-db {:secret "s"}}})
-
-(deftest classification-op-map-guard
-  (doseq [[label ops] [["an empty op-map"        [{}]]
-                       ["a multi-axis op-map"    [{:sensitive [[:secret]] :large [[:secret]]}]]
-                       ["an unknown-axis op-map" [{:rf.test/bogus [[:secret]]}]]
-                       ["a known axis beside an unknown key"
-                        [{:sensitive [[:secret]] :rf.test/bogus [[:secret]]}]]]]
-    ;; `:error` is set only on the failing (catch) path
-    (is (re-find #"unrecognised :fixture/classification-effects op-map"
-                 (str (:error (rf.conformance-runner/run-fixture
-                                (classification-op-fixture ops) host))))
-        (str label " must be refused by the classification-op guard")))
-  ;; Control: the valid single-axis shape still runs the fixture to a pass.
-  (let [result (rf.conformance-runner/run-fixture
-                 (classification-op-fixture [{:sensitive [[:secret]]}]) host)]
-    (is (:passed? result)
-        (pr-str (select-keys result [:error :final-db :expected-db])))))

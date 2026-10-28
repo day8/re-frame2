@@ -22,26 +22,23 @@
 ;; the per-artefact counterpart to this
 ;; storage-invariant pin.
 ;;
-;; Harness note: `:fixture/classification-effects` declares the sensitive path;
-;; the runner loads `re-frame.epoch`, so `:epoch-records` asserts the per-frame
-;; `:rf/epoch-record` ring. Capability `:data-classification/classification-effects`.
+;; Harness note: the `:fixture/registry :classification` entry declares the
+;; sensitive path; the runner loads `re-frame.epoch`, so `:epoch-records`
+;; asserts the per-frame `:rf/epoch-record` ring. Capability
+;; `:data-classification/static`.
 
 {:fixture/id           :data-classification/epoch-export-projects-no-storage-mutation
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
-                         :data-classification/classification-effects}
+                         :data-classification/static}
  :fixture/doc          "With [:auth :token] declared frame-sensitive, the committed epoch record's :db-after carries the RAW token — there is no storage-side redaction (EP-0015 §15 / open-issue 6), so the ring is replay-faithful by construction. The SAME event's t1 pending-db trace egress redacts the token: egress redacts, durable storage stays raw."
 
  :fixture/registry
- {:event {:dc/login {:doc "Writes a secret token into a frame-sensitive app-db path."}}}
+ {:event {:dc/login {:doc "Writes a secret token into a frame-sensitive app-db path."}}
+  :classification {:dc/classification {:sensitive [[:auth :token]]}}}
 
  :fixture/handlers
  {:event {:dc/login [[:set [:auth :token] "super-secret"]]}}
-
- ;; Declare [:auth :token] sensitive — the trace egress redacts it; the epoch
- ;; ring must NOT (there is no storage-side redaction).
- :fixture/classification-effects
- [{:sensitive [[:auth :token]]}]
 
  :fixture/frame-config {}
 

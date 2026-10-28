@@ -22,7 +22,7 @@
 
 {:fixture/id           :data-classification/project-egress-fails-closed-no-frame
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:data-classification/classification-effects}
+ :fixture/capabilities #{:data-classification/static}
  :fixture/doc          "project-egress of a tree value with NO known frame fails closed — it does not synthesise :rf/default; the delegated walker redacts the whole value to :rf/redacted (EP-0002 fail-closed / no-default-frame)."
 
  :fixture/calls

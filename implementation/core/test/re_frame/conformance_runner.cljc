@@ -14,7 +14,7 @@
     - the claimed-capability / claimed-spec-version / known-skipped sets
     - fixture capability classification + spec-version gating
     - handler-body / sub / cofx / fx / route / view / machine / flow /
-      classification-effect / app-schema realisation
+      classification / app-schema realisation
     - the `:fixture/calls` execution (`run-call`)
     - the `:fixture/compute-subs` invocation (each query computed before
       grading)
@@ -78,7 +78,6 @@
        :cljs [cljs.test :refer-macros [is]])
     [clojure.string :as str]
     [re-frame.core :as rf]
-    [re-frame.elision :as rf.elision]
     [re-frame.epoch :as rf.epoch]
     [re-frame.error-emit :as rf.error-emit]
     [re-frame.events :as rf.events]
@@ -187,7 +186,7 @@
     ;; Spec 014 — :rf.http/managed.
     :rf.http/managed
     ;; Spec 015 §Data classification.
-    :data-classification/classification-effects
+    :data-classification/static
     ;; Spec 016 §Resources.
     :resources/ensure
     :resources/dedupe
@@ -462,62 +461,15 @@
           ;; derive-fn). `flow-meta` is the reflection metadata middle slot.
           (rf/reg-flow flow-id flow-meta output-fn))))))
 
-(def classification-effect-axes
-  "The four EP-0025 commit-plane axes a `:fixture/classification-effects`
-  op-map may carry. An op carries EXACTLY ONE of them — see
-  `:conformance/classification-op` in `spec/conformance/fixture-file.edn`
-  and `spec/conformance/README.md` §The `:fixture/classification-effects`
-  harness step."
-  #{:sensitive :large :clear-sensitive :clear-large})
-
-(defn- realise-classification-effects!
-  "Apply a fixture's `:fixture/classification-effects` declarations against
-  the established frame scope.
-
-  EP-0025: durable app-db classification is the four commit-plane effects
-  (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, `:source
-  :effect`). Because pure-EDN fixtures cannot return effects from a handler
-  body, these ops are a TEST-ONLY shorthand writing the frame's durable
-  elision registry EXACTLY as those effects would. `:sensitive` / `:large`
-  are additive; `:clear-*` remove the named paths on their named axis ONLY.
-  Called AFTER `make-frame`.
-
-  Each op carries EXACTLY ONE of the four axes, and that is CHECKED here
-  before anything is applied. The `cond` below is
-  priority-ordered, so without the check a multi-axis op would silently
-  apply only its first arm and an empty or unknown-key op would silently
-  apply nothing — a fixture author writing two axes would get one, with no
-  error, and a setup key the harness ignores changes the scenario without
-  saying so."
-  [fixture scope-frame]
-  (letfn [(slot-for [axis]
-            (case axis :sensitive :sensitive-declarations :large :declarations))
-          ;; Delegate to the SAME core multi-owner ops the real commit-plane
-          ;; effects use, so the seed writes the effect owner exactly as
-          ;; `apply-classification-effects` would.
-          (add-paths [reg axis paths]
-            (rf.elision/add-claims reg (slot-for axis) {:source :effect} (map vec paths)))
-          (clear-paths [reg axis paths]
-            (rf.elision/remove-claims reg (slot-for axis) {:source :effect} (map vec paths)))]
-    (doseq [op (or (:fixture/classification-effects fixture) [])]
-      (let [ks (set (keys op))]
-        (when-not (and (= 1 (count ks))
-                       (contains? classification-effect-axes (first ks)))
-          (throw (ex-info (str "unrecognised :fixture/classification-effects op-map — "
-                               "each op carries EXACTLY ONE of "
-                               (pr-str classification-effect-axes))
-                          {:fixture-id (:fixture/id fixture)
-                           :op         op
-                           :keys       ks}))))
-      (cond
-        (contains? op :sensitive)
-        (rf.elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :sensitive (:sensitive op)))
-        (contains? op :large)
-        (rf.elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :large (:large op)))
-        (contains? op :clear-sensitive)
-        (rf.elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :sensitive (:clear-sensitive op)))
-        (contains? op :clear-large)
-        (rf.elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :large (:clear-large op)))))))
+(defn- realise-classifications!
+  "Register the fixture's `:fixture/registry :classification` declarations,
+  each `{id {:sensitive [path …] :large [path …]}}` entry through
+  `reg-classification`. Called BEFORE `make-frame`, like every other
+  registration: a frame's classification policy resolves through its view at
+  egress (Spec 015 §Static app-db classification)."
+  [fixture]
+  (doseq [[id decl] (get-in fixture [:fixture/registry :classification])]
+    (rf/reg-classification id decl)))
 
 ;; ---- trace / error-emit collection ----------------------------------------
 
@@ -1679,6 +1631,7 @@
           ;; app-schema registrations — BEFORE make-frame (so the
           ;; :initial-events cascade validates the seeded state).
           _            (realise-app-schemas! fixture)
+          _            (realise-classifications! fixture)
           ;; Flows register BEFORE make-frame, whose `:flows` resolve them.
           _            (realise-flows! fixture)
           _            (cond
@@ -1687,8 +1640,6 @@
                            (rf/make-frame f))
                          :else
                          (rf/make-frame (assoc frame-config :id :rf/default)))
-          ;; Data-classification commit-plane effects run AFTER make-frame.
-          _            (realise-classification-effects! fixture scope-frame)
           dispatches   (or (:fixture/dispatches fixture) [])
           registry     (:fixture/registry fixture)
           ;; EP-0017: per-dispatch `:expect-error` assertions.
