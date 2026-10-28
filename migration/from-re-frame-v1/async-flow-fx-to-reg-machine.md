@@ -321,6 +321,10 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 - **Tooling that auto-detects async-flow-fx call sites** is filed as a separate follow-on bead. This rule is the spec text the migration agent reads; a future MCP tool can drive the per-call-site conversion against this spec.
 
+## Verification — compare the converted flow with v1
+
+The expectation a converted flow is checked against is written by whoever converted it, so it shares the conversion's blind spots. Drive the same scenario on the v1 build and the converted one, each restart path the flow has included (logout and login, a retry, a re-init), and diff the requests issued (method, URL, order, count), the app-db slots the flow's handlers write, and the outcome: the v1 rule that halted the flow and what it dispatched, against the state `[:rf/machine <id>]` rests in and what the machine dispatched. The full procedure is the skill's smoke-loop step that compares with v1 wherever v2 replaced a subsystem ([`runtime-smoke-test.md` §The boot smoke-test phase](../../skills/re-frame-migration/references/runtime-smoke-test.md#the-boot-smoke-test-phase--live-introspection-not-just-it-loads)).
+
 ## Reporting
 
 When the agent applies this rule:
