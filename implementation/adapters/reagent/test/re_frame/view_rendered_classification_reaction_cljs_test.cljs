@@ -56,10 +56,13 @@
               runtime-db   (rf.frame/runtime-db-container frame-id)]
           (testing "preconditions: one traced render, carrying its render arg raw
                     (classification ran and found nothing), in a live frame that
-                    declares nothing"
+                    declares nothing at the arg's path. Other loaded namespaces'
+                    `reg-classification`s apply to every frame, so the frame's
+                    declarations are read at that path, not whole."
             (is (= [1 [{:token "first-token"}] true {} {}]
                    [@runs (get-in first-render [:tags :rf.view/render-args]) (some? runtime-db)
-                    (rf.elision/sensitive-declarations frame-id) (rf.elision/declarations frame-id)])))
+                    (select-keys (rf.elision/sensitive-declarations frame-id) [[:token]])
+                    (select-keys (rf.elision/declarations frame-id) [[:token]])])))
 
           (testing "the render reaction watches its input and not the runtime-db projection"
             (is (= [true false] [(watches? driver input) (watches? driver runtime-db)])))
