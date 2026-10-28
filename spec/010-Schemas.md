@@ -419,11 +419,9 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 **One carve-out — `:path` past the declared keys.** The `:path` is structural and unredacted *because its segments are normally locators*. On the `app-db` surface it carries Malli's `:in`, whose segments are not all locators: a `:set` failure reports the failing **element value itself** (a set has no positional index), so it carries every conforming sibling of that element; a `:map-of` failure reports the caller's key; and a closed map's extra-key failure reports the extra key. Any of them can be a secret. So on a sensitive `app-db` failure the runtime keeps the registered root and the longest leading run of `:in` segments that are keys the schema declares on a `:map` (looking through `:maybe`), and replaces every later segment with the `:rf/redacted` sentinel — `[:user :age]` beside a sensitive `[:user :secret]`, `[:members :rf/redacted :rf/redacted]` for a failure inside a `:set` element. That one rule covers a `:set` element, a `:map-of` key, a closed-map extra key, a collection index and a branch tail. `:reason` is built from the same path. A non-sensitive failure keeps its raw `:path`.
 
 ```clojure
-;; [:auth :token] is classified sensitive by the event that first writes it:
-(rf/reg-event :auth/logged-in
-  (fn [{:keys [db]} [_ token]]
-    {:db        (assoc-in db [:auth :token] token)
-     :sensitive [[:auth :token]]}))
+;; [:auth :token] is classified sensitive beside the feature:
+(rf/reg-classification :auth
+  {:sensitive [[:auth :token]]})
 
 (rf/reg-app-schema [:auth] [:map [:token :string]])
 
