@@ -91,18 +91,13 @@
   ;; `frame-provider` wrapper passed to the host below — the
   ;; `:rf/default` frame is already `make-frame`'d above).
   ;;
-  ;; EP-0025: durable app-db size/sensitivity classification rides the
-  ;; commit-plane classification effects (there is no frame annotation).
   ;; The frame is registered plain; the `[:user/avatar-pdf]` slot is classified
-  ;; LARGE by the `:counter/classify-avatar-large` event dispatched in the boot
-  ;; scope below, so the slot elides to the `:rf.size/large-elided` marker at
-  ;; wire egress. (Schemas describe shape only.)
+  ;; LARGE by the `:counter/avatar` `reg-classification` (events.cljs), so the
+  ;; slot elides to the `:rf.size/large-elided` marker at wire egress.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     ;; Seed the live app's `:count` slot.
     (rf/dispatch-sync [:counter/initialise 5])
-    ;; Classify the avatar-pdf slot large (EP-0025 commit-plane effect).
-    (rf/dispatch-sync [:counter/classify-avatar-large])
     ;; Install the always-on event-emit listener. The listener prints
     ;; one record per dispatched event to the browser console,
     ;; without needing the trace surface or Xray attached. The

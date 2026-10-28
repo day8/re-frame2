@@ -74,15 +74,15 @@ README markets as a headline feature:
   with a 20 kB string in the event payload. Path D removed runtime
   size auto-elision, so an unschema'd / unclassified event-vector blob
   rides through the listener unchanged; large-value egress is declared,
-  not auto-detected — classify app-db slots via the commit-plane `:large`
-  effect (a `reg-event` returning `:large` alongside `:db`).
+  not auto-detected — classify app-db slots `:large` with a
+  `reg-classification`.
 - **Set avatar PDF (large)** writes a synthetic blob into
   `[:user/avatar-pdf]` in app-db — a slot classified `:large` on the
-  testbed's `:rf/default` frame by the `:counter/classify-avatar-large`
-  event (the EP-0025 commit-plane `:large` effect — durable app-db egress
-  rides the effects, not a schema prop, not a frame annotation). Walking
-  app-db through `re-frame.elision/elide-wire-value` substitutes the slot with a marker
-  map carrying `:reason :effect` (the commit-plane classification provenance).
+  testbed's `:counter/avatar` `reg-classification` (durable app-db egress
+  classification is a registration, not a schema prop, not a frame
+  annotation). Walking app-db through `re-frame.elision/elide-wire-value`
+  substitutes the slot with a marker map carrying `:reason :classification`
+  (the declaration's provenance).
 - **Walk app-db through elision** runs the live frame's app-db
   through `re-frame.elision/elide-wire-value` and logs the result. The
   `:user/avatar-pdf` slot shows up as the marker map; everything
@@ -105,8 +105,8 @@ the projected record — see
 [Consuming production telemetry](../../../../docs/core/observability.md#consuming-production-telemetry-declare-a-sink).
 
 Tests at [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs)
-assert every branch — commit-plane-classified `:large` app-db elision
-(`:reason :effect`), unschema'd inline payloads riding through raw, the
+assert every branch — `reg-classification`-classified `:large` app-db
+elision (`:reason :classification`), unschema'd inline payloads riding through raw, the
 registration classification redacting the sign-in `:password`, and the
 event-emit listener firing per dispatch.
 

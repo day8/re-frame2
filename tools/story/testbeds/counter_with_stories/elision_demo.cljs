@@ -19,9 +19,9 @@
      would not redact anything — it plays no part in privacy (Spec 009
      §Privacy).
 
-  2. **Path-level redaction rides the commit-plane effect** — a
-     handler returning `:sensitive [[…path]]` alongside `:db` classifies
-     an app-db path sensitive (EP-0025). A schema's per-slot
+  2. **Path-level redaction is a `reg-classification`** — declaring
+     `:sensitive [[…path]]` beside the feature classifies an app-db path
+     sensitive (Spec 015 §Static app-db classification). A schema's per-slot
      `{:sensitive? true}` prop is not a route into that registry: it
      redacts only that schema's own validation-failure traces (see the
      SCHEMAS block below). The sign-in payload is classified on its
@@ -29,16 +29,15 @@
      write.
 
   3. **`:large` classified app-db slot** — the `:user/avatar-pdf`
-     slot is classified durable-large on the testbed's `:rf/default`
-     frame by the `:counter/classify-avatar-large` event, which returns
-     the EP-0025 commit-plane `:large [[:user/avatar-pdf]]` effect
-     alongside `:db` (durable app-db egress classification rides the
-     effects, not a schema prop, not a frame annotation). When
+     slot is classified durable-large by the `:counter/avatar`
+     `reg-classification` (`:large [[:user/avatar-pdf]]`; durable app-db
+     egress classification is a registration, not a schema prop, not a
+     frame annotation). When
      `rf.elision/elide-wire-value` walks an app-db payload that includes this
      slot at its classified path, the value is replaced with a
-     `{:rf.size/large-elided {:bytes … :path … :reason :effect}}`
-     marker. The marker's `:reason :effect` records the commit-plane
-     classification provenance; there is no schema-attached `:hint` to
+     `{:rf.size/large-elided {:bytes … :path … :reason :classification}}`
+     marker. The marker's `:reason :classification` records the
+     declaration's provenance; there is no schema-attached `:hint` to
      propagate (the schema describes shape only).
 
   4. **Always-on `event-emit` listener** — the demo registers a
@@ -75,8 +74,8 @@
   - **Click 'Walk app-db through elision'** — runs
     `rf.elision/elide-wire-value` over a snapshot of the live frame's
     app-db. The console shows the `:user/avatar-pdf` slot replaced
-    by the `:rf.size/large-elided` marker, carrying `:reason :effect`
-    (the commit-plane classification provenance). This is the
+    by the `:rf.size/large-elided` marker, carrying `:reason
+    :classification` (the declaration's provenance). This is the
     classification-driven branch — the same substitution Xray applies
     when it renders `app-db` in its inspector panel.
 
@@ -94,22 +93,16 @@
 ;; SCHEMAS  (Spec 010 §`:large?` per-slot meta)
 ;; ============================================================================
 ;;
-;; The `:user/avatar-pdf` slot is classified durable-large on the
-;; testbed's `:rf/default` frame by the `:counter/classify-avatar-large`
-;; event (the EP-0025 commit-plane `:large` effect, dispatched in
-;; `core/run`), so the wire-walker substitutes its value with the
-;; `:rf.size/large-elided` marker (carrying byte-count + path +
-;; `:reason :effect`) whenever any wire consumer walks app-db through
-;; `rf.elision/elide-wire-value`. EP-0025: durable app-db egress classification
-;; rides the commit-plane effects, not a schema prop — the schema below
+;; The `:user/avatar-pdf` slot is classified durable-large by the
+;; `:counter/avatar` `reg-classification` (events.cljs), so the wire-walker
+;; substitutes its value with the `:rf.size/large-elided` marker (carrying
+;; byte-count + path + `:reason :classification`) whenever any wire consumer
+;; walks app-db through `rf.elision/elide-wire-value`. The schema below
 ;; describes SHAPE only.
 
 ;; Schema describes SHAPE only (EP-0015 §8): `:user/avatar-pdf` is an
-;; optional string. Durable app-db egress classification rides the EP-0025
-;; commit-plane effects — the `:counter/classify-avatar-large` event returns
-;; `:large [[:user/avatar-pdf]]` alongside `:db` (see `core/run`) and that is
-;; what makes this slot elide to the `:rf.size/large-elided` marker at wire
-;; egress. Schemas carry no `:large?` / `:sensitive?` app-db egress
+;; optional string. The `:counter/avatar` `reg-classification` is what makes
+;; this slot elide to the `:rf.size/large-elided` marker at wire egress. Schemas carry no `:large?` / `:sensitive?` app-db egress
 ;; markers.
 ;;
 ;; The runtime ROLLS BACK on a post-commit app-db schema failure — the slot
@@ -157,7 +150,7 @@
   {:doc "Demo: write a synthetic large blob into the classified
          `:large` app-db slot. Walking app-db through `rf.elision/elide-wire-value`
          substitutes the slot value with a `:rf.size/large-elided`
-         marker carrying `:reason :effect` (the commit-plane classification
+         marker carrying `:reason :classification` (the declaration's
          provenance)."}
   (fn [{:keys [db]} [_ {:keys [bytes]}]]
     {:db (assoc db :user/avatar-pdf (str/join (repeat (or bytes 5000) "A")))}))
@@ -176,10 +169,9 @@
          runtime size auto-elision, so an unschema'd / unnominated
          inline payload rides through the event-emit listener UNCHANGED
          (no `:rf.size/large-elided` substitution). Large-value egress
-         is declared, not auto-detected: classify app-db slots via the
-         commit-plane `:large` effect (a reg-event returning `:large`
-         alongside `:db`), the contrast to the classification-driven
-         branch above."}
+         is declared, not auto-detected: classify app-db slots `:large`
+         with a `reg-classification`, the contrast to the
+         classification-driven branch above."}
   (fn [{:keys [db]} [_ {:keys [_blob]}]]
     ;; We don't keep the blob; the point is the elision at the wire
     ;; boundary. Bump a counter so the UI has something to render.
@@ -241,11 +233,8 @@
   "Register the demo console listener. Idempotent — re-registering
   under the same id replaces.
 
-  EP-0025: no schema→elision population step — durable app-db
-  classification rides the commit-plane `:large` effect, dispatched at boot
-  (see `core/run`'s `[:counter/classify-avatar-large]` dispatch), so the
-  `[:rf.runtime/elision :declarations]` registry is already live before any
-  wire consumer asks for it."
+  There is no schema→elision population step: the `:counter/avatar`
+  `reg-classification` governs every egress from the first one."
   []
   (rf.event-emit/register-event-listener! listener-id log-record!))
 
@@ -349,4 +338,4 @@
            "Walk app-db through elision"]
           [:span {:style {:font-size "12px" :color "#595959"}}
            "console.log app-db after rf.elision/elide-wire-value — :user/avatar-pdf "
-           "becomes the marker map carrying :reason :effect"]]]))))
+           "becomes the marker map carrying :reason :classification"]]]))))

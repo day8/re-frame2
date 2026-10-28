@@ -115,7 +115,7 @@
 ;;
 ;;   - The DRAFT, while the user types, lives in app-db
 ;;     ([:auth :login-form :draft :password] / [:auth :register-form :draft
-;;     :password], both classified :sensitive at slice-init in auth.cljs) or
+;;     :password], both classified :sensitive by `:auth.forms` in auth.cljs) or
 ;;     the settings machine's :data ([:data :draft :password], classified on
 ;;     the machine SPEC in settings.cljs).
 ;;   - The per-keystroke EDIT rides its own map-payload event
@@ -146,11 +146,9 @@
 ;; `Authorization` Bearer header: it is already on the framework's built-in HTTP
 ;; carrier denylist, so it is redacted off-box with zero config — over-declaring
 ;; a built-in would only teach a redundant ritual.
-(rf/reg-event :auth/classify-token
-  {:doc "Mark the durable JWT path [:auth :token] sensitive, at frame
-         creation."}
-  (fn handler-auth-classify-token [{:keys [db]} _]
-    {:db db :sensitive [[:auth :token]]}))
+(rf/reg-classification :auth
+  {:doc       "The durable JWT."
+   :sensitive [[:auth :token]]})
 
 ;; ============================================================================
 ;; APP-SHELL VIEWS
@@ -395,9 +393,6 @@
     ;;
     ;; `:initial-events` fire in order at frame creation, and the order is
     ;; load-bearing:
-    ;;   - `:auth/classify-token` — mark [:auth :token] sensitive BEFORE the
-    ;;     token is ever written, so it's redacted off-box from the very first
-    ;;     write. Lock the door before anyone's home.
     ;;   - `:auth/initialise` — session restore. It asks the
     ;;     `:auth.session/load` effect to read localStorage, and the classified
     ;;     `:auth/session-read` reply folds the saved JWT in, inside this same
@@ -428,8 +423,7 @@
                       :doc               "Realworld demo frame."
                       :url-bound?        true
                       :http-interceptors [:realworld/bearer-auth]
-                      :initial-events    [[:auth/classify-token]
-                                          [:auth/initialise]
+                      :initial-events    [[:auth/initialise]
                                           [:app/initialise]]}
        [root-view]]
       el)))

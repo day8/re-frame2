@@ -5,10 +5,10 @@
   the `:rf.size/large-elided` marker (per [spec/009 §Size elision in
   traces] / [API.md §Size-elision wire-boundary walker]).
 
-  Elision is classification-driven (EP-0025): the `:large` commit-plane
-  classification effect (a `reg-event` returns it alongside `:db`) is the
-  durable app-db declaration path. Unclassified large values deliberately
-  warn but do not auto-elide (fail-open).
+  Elision is classification-driven: a `reg-classification` declares the
+  durable app-db `:large` paths (Spec 015 §Static app-db classification).
+  Unclassified large values deliberately warn but do not auto-elide
+  (fail-open).
 
   This surface exercises one warning-only control and three
   `:large`-classified marker paths:
@@ -21,7 +21,7 @@
     Button B · Classified flat path
       — handler writes a small (200 byte) value to
         `[:declared-large-value]`. Elision fires regardless of size
-        because the boot event classified the path `:large`.
+        because the path is classified `:large`.
 
     Button C · Second classified flat path
       — same outcome as Button B on `[:fx-declared-value]`; it keeps a
@@ -29,8 +29,8 @@
         marker rows.
 
     Button D · Classified nested path
-      — the boot event classifies `[:schema-bag :schema-large-value]`
-        `:large`. Any write to that path triggers elision on emit.
+      — `[:schema-bag :schema-large-value]` is classified `:large`. Any
+        write to that path triggers elision on emit.
         Button D writes a 200-byte value to it.
 
   This is NOT a tutorial. The bodies are minimal. The point is to
@@ -40,9 +40,8 @@
             [re-frame.core :as rf]
             ;; Loads the schemas artefact's late-bind hooks.
             [re-frame.schemas]
-            ;; Public reader for the per-frame elision registry (EP-0025):
-            ;; `re-frame.elision/declarations` returns the `:large` `:app-db`
-            ;; declarations the commit-plane effects recorded.
+            ;; `re-frame.elision/declarations` is the public reader for the
+            ;; frame's `:large` declarations.
             [re-frame.elision :as rf.elision]
             [re-frame.views]
             [re-frame.adapter.reagent :as rf.adapter.reagent])
@@ -54,7 +53,7 @@
 ;;
 ;; `pr-str` of this string exceeds the framework's warning threshold.
 ;; Button A leaves it inline and emits a warning so users can classify
-;; the path `:large` via the commit-plane effect (fail-open until then).
+;; the path `:large` with a `reg-classification` (fail-open until then).
 
 (def kib-20-string
   ;; 20480 chars = 20 KiB. pr-str adds 2 quote chars; effective size
@@ -69,19 +68,19 @@
 
 ;; ----------------------------------------------------------------------------
 ;; Malli app-schema validating the nested slot's SHAPE — the `:large`
-;; classification rides the commit-plane effect, not this schema
+;; classification is the `reg-classification` below, not this schema
 ;; ----------------------------------------------------------------------------
 
 (def SchemaLarge
   ;; Spec 015: a schema describes SHAPE only and does NOT classify a durable
-  ;; app-db path. The `:large` egress classification for these paths rides the
-  ;; commit-plane classification effect the `::initialise` event returns (below).
+  ;; app-db path. The `:large` egress classification for these paths is the
+  ;; `::large-slots` `reg-classification` (below).
   [:map
    [:schema-large-value [:maybe :string]]])
 
 ;; A schema is a program registration, so these name no frame. They validate
-;; SHAPE; the `:large` egress markers ride the EP-0025 commit-plane
-;; classification effect, NOT the schema.
+;; SHAPE; the `:large` egress markers come from the `reg-classification`,
+;; NOT the schema.
 (rf/reg-app-schemas
   ;; `:maybe` on the two flat slots: `::initialise` writes nil to both.
   {[:declared-large-value] [:maybe :string]
@@ -91,6 +90,13 @@
 ;; ----------------------------------------------------------------------------
 ;; App-db
 ;; ----------------------------------------------------------------------------
+
+;; The three declared-large slots elide to the `:rf.size/large-elided` marker
+;; regardless of value size.
+(rf/reg-classification ::large-slots
+  {:large [[:declared-large-value]
+           [:fx-declared-value]
+           [:schema-bag :schema-large-value]]})
 
 (rf/reg-event ::initialise
   (fn [_cofx _ev]
@@ -105,14 +111,7 @@
       ;; clicked. Allows a Playwright spec to confirm the handler
       ;; body actually ran (the elision is wire-boundary; the
       ;; handler always sees the unredacted value).
-      :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}
-     ;; EP-0025: durable app-db `:large` egress classification rides the
-     ;; commit-plane classification effect — return `:large` alongside `:db`
-     ;; (there is no frame annotation). The three declared-large slots
-     ;; elide to the `:rf.size/large-elided` marker regardless of value size.
-     :large [[:declared-large-value]
-             [:fx-declared-value]
-             [:schema-bag :schema-large-value]]}))
+      :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button A — unclassified warning-only path
@@ -131,8 +130,8 @@
 ;; Button B — classified flat path
 ;; ----------------------------------------------------------------------------
 ;;
-;; The boot event classified `[:declared-large-value]` `:large`; the
-;; small payload proves classification, not byte size, drives elision.
+;; `[:declared-large-value]` is classified `:large`; the small payload
+;; proves classification, not byte size, drives elision.
 
 (rf/reg-event ::write-declared-large
   (fn [{:keys [db]} _ev]
@@ -151,16 +150,14 @@
              (update-in [:click-count :fx] inc))}))
 
 ;; ----------------------------------------------------------------------------
-;; Button D — classification-effect-driven (boot-time `:large` effect decl)
+;; Button D — classified nested path
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event ::write-schema-large
   (fn [{:keys [db]} _ev]
-    ;; HOT PATH — writes a small payload to a path the boot event classified
-    ;; `:large` (EP-0025 commit-plane effect). The runtime recorded
-    ;; [:rf.runtime/elision :declarations [:schema-bag :schema-large-value]]
-    ;; with :source :effect at commit (see `::initialise`). Elision fires
-    ;; on this path regardless of value size.
+    ;; HOT PATH — writes a small payload to a path `::large-slots`
+    ;; classifies `:large`. Elision fires on this path regardless of value
+    ;; size.
     {:db (-> db
              (assoc-in [:schema-bag :schema-large-value] chars-200-string)
              (update-in [:click-count :schema] inc))}))
@@ -186,14 +183,11 @@
 (rf/reg-sub :fx-count      (fn [db _] (get-in db [:click-count :fx])))
 (rf/reg-sub :schema-count  (fn [db _] (get-in db [:click-count :schema])))
 
-;; Surface the per-frame elision registry's `:large` `:app-db` declarations so
-;; the view shows what's been classified. The registry lives in runtime-db at
-;; `[:rf.runtime/elision :declarations]` (NOT app-db), so this reads it through
-;; the public `re-frame.elision/declarations` reader for the frame rather than
-;; through app-db. `declarations` returns a snapshot, so this recomputes when
-;; app-db changes rather than when the registry does; the declarations land in
-;; the same boot event as the :db they classify. (A debug-introspection
-;; convenience; the load-bearing assert is the wire-marker on the trace.)
+;; Surface the frame's `:large` declarations so the view shows what's been
+;; classified, through the public `re-frame.elision/declarations` reader.
+;; `declarations` returns a snapshot, so this recomputes when app-db changes.
+;; (A debug-introspection convenience; the load-bearing assert is the
+;; wire-marker on the trace.)
 (rf/reg-sub :elision-decls
   (fn [db _] (rf.elision/declarations :rf/default)))
 
@@ -229,7 +223,7 @@
        "C · second classified flat path"]
       [:button {:data-testid "write-schema"
                 :on-click    #(dispatch [::write-schema-large])}
-       "D · classified nested path (:large effect)"]
+       "D · classified nested path"]
       [:button {:data-testid "reset"
                 :on-click    #(dispatch [::reset])}
        "Reset"]]
@@ -270,12 +264,6 @@
   ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the app frame, scope the boot
   ;; dispatch, and wrap the render in a frame-provider.
-  ;;
-  ;; EP-0025: durable app-db `:large` egress classification rides the
-  ;; commit-plane classification effect — the `::initialise` event returns
-  ;; `:large` alongside `:db` (dispatched below), so the three declared-large
-  ;; slots elide to the `:rf.size/large-elided` marker regardless of value
-  ;; size. No frame annotation, no schema→elision population step.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [::initialise]))

@@ -58,6 +58,12 @@
 ;; DRAFT (app-db) + EVENTS
 ;; ============================================================================
 
+(rf/reg-classification :settings
+  {:doc       "The new password the user types: :rf/redacted at every app-db
+               egress while the submit handler still reads the live value. See
+               keep-secrets: ../../../docs/core/how-to/keep-secrets-out-of-traces.md"
+   :sensitive [[:settings-form :draft :password]]})
+
 (rf/reg-event :settings/load
   {:doc "Seed the settings draft from the authenticated user. Dispatched once, on
          route entry, via the settings route's `:on-match` — the page is
@@ -68,12 +74,6 @@
          schema (schema.cljs) requires both, so a slice with only `:draft`
          would fail its own schema until the first field edit.
 
-         Also classifies the draft-password path :sensitive in this same seed
-         write (classify-before-write, mirroring :auth/classify-token), so the
-         new-password the user types reads :rf/redacted at every app-db egress
-         while the submit handler still reads the live value. See keep-secrets:
-         ../../../docs/core/how-to/keep-secrets-out-of-traces.md
-
          This seed deliberately records NO session ownership. The draft slice is
          page state — it is rebuilt from scratch on every route entry, by
          whoever is signed in at the time — so an owner recorded here is a
@@ -83,9 +83,8 @@
          `:settings/replied`."}
   (fn [{:keys [db]} _]
     (let [user (get-in db [:auth :user])]
-      {:db        (assoc-in db [:settings-form] {:draft   (draft-from-user user)
-                                                 :touched #{}})
-       :sensitive [[:settings-form :draft :password]]})))
+      {:db (assoc-in db [:settings-form] {:draft   (draft-from-user user)
+                                          :touched #{}})})))
 
 (rf/reg-event :settings/edit-field
   {:doc    "Controlled-input edit for a NON-SECRET field (image / username /
