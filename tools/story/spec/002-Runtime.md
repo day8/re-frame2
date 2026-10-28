@@ -739,7 +739,7 @@ sensitive-path values:
 **ex-data passes through `re-frame.core/project-egress` before
 landing in `:assertions`.** The wire-elision walker (per
 [spec/API.md §project-egress](../../../spec/API.md))
-substitutes sentinels at any path the elision registry resolves on the
+substitutes sentinels at any path the frame's classification resolves on the
 `ex-data` map — so an author who DID populate `ex-data` with values
 sourced from path-marked app-db slots gets transitive redaction at
 record-build time. The residual leak surface is therefore narrowed to

@@ -1969,7 +1969,7 @@
                            ;; :sensitive/:large classification (carried
                            ;; through `:world` by `plan.cljc`'s
                            ;; `context-keys`) into `allocate-inline!` so it
-                           ;; applies to the frame's elision registry.
+                           ;; registers as the frame's `reg-classification`.
                            (select-keys (:world plan) [:sensitive :large]))
   (swap! rf.story.play/pending-exceptions assoc variant-id [])
   (rf.story.play/install-trace-listener! variant-id)

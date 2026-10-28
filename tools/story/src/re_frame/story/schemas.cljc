@@ -931,7 +931,7 @@
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]
     [:background            {:optional true} BackgroundSlot]
-    ;; EP-0025 frame-owned durable classification. A variant declares which
+    ;; Frame-owned durable classification. A variant declares which
     ;; of ITS app-db paths are sensitive / large at frame creation, in the
     ;; carrier-keyed `{:app-db [[:auth :token]]}` form. There is no durable
     ;; frame annotation: the runtime does not thread these onto the

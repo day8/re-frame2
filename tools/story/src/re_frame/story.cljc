@@ -65,7 +65,7 @@
   Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
   the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
-  ;; EP-0025: there is no imperative classification API to re-export. Durable
+  ;; There is no imperative classification API to re-export. Durable
   ;; app-db classification is a frame-creation concern — a variant declares
   ;; `:sensitive` / `:large` on its body and the runtime registers them for
   ;; the variant frame at allocation, BEFORE its lifecycle / init events
@@ -679,7 +679,7 @@
 ;; helpers only). A Story re-export would open an imperative post-creation
 ;; mark-mutation escape hatch that bypasses the frame owner.
 ;;
-;; The EP-0025-compliant Story surface is FRAME-CREATION classification: a
+;; Story's classification surface is FRAME-CREATION classification: a
 ;; variant declares its sensitive / large app-db paths at registration via
 ;; the `:sensitive` / `:large` slots on the variant body. Each slot is a MAP
 ;; with the app-db paths under `:app-db` (a vector of `:rf/path`s)

@@ -248,7 +248,7 @@
   is the variant-chain merge and the story is ambient, exactly like
   `:decorators` and `:tags`.
 
-  `:sensitive` / `:large` carry the EP-0025 durable
+  `:sensitive` / `:large` carry the durable
   app-db classification (`{:app-db [[path]…]}`) — a plain map, so they
   merge exactly like every other context key (a child re-declaring the axis
   replaces the parent's `:app-db` vector; a child that omits it inherits the
@@ -1750,14 +1750,13 @@
                        (contains? ctx :background)  (assoc :background (:background ctx))
                        (contains? ctx :xray)        (assoc :xray (:xray ctx))
                        (some? component-id)         (assoc :component component-id)
-                       ;; The EP-0025 durable app-db
-                       ;; classification, carried through `:extends` like
-                       ;; every other context key. Read by
-                       ;; `run-inline-phase-0!` (`runtime.cljc`) and threaded
-                       ;; into `allocate-inline!` (`frames.cljc`) so an inline
-                       ;; plan's `:sensitive` / `:large` declaration is
-                       ;; applied to the elision registry rather than
-                       ;; discarded.
+                       ;; The durable app-db classification, carried
+                       ;; through `:extends` like every other context key.
+                       ;; Read by `run-inline-phase-0!` (`runtime.cljc`) and
+                       ;; threaded into `allocate-inline!` (`frames.cljc`) so
+                       ;; an inline plan's `:sensitive` / `:large`
+                       ;; declaration registers as the frame's own
+                       ;; `reg-classification` rather than being discarded.
                        (contains? ctx :sensitive)   (assoc :sensitive (:sensitive ctx))
                        (contains? ctx :large)       (assoc :large (:large ctx)))
         resolved-conflicts (vec (mapcat :resolved (vals strict-res)))
