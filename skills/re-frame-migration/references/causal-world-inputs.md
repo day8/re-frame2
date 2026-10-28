@@ -71,7 +71,7 @@ For each hit: if the value flows into a durable write → it migrates (below). I
       {})))
 ```
 
-So follow the calls each handler, reducer, machine action and guard makes back to their source. A deref of an atom the host owns, or a host API reached through a helper, is a host read: classify it like a direct hit. Here the boolean selects the durable write, so it is durable although nothing stores it. Record the minimal normalized fact and leave the handle with its owner — a recordable coeffect whose supplier reduces the handle to EDN:
+So walk the calls from each host read back up to the handlers that reach it (the procedure follows the fix below). A deref of an atom the host owns, or a host API reached through a helper, is a host read: classify it like a direct hit. Here the boolean selects the durable write, so it is durable although nothing stores it. Record the minimal normalized fact and leave the handle with its owner — a recordable coeffect whose supplier reduces the handle to EDN:
 
 ```clojure
 (rf/reg-cofx :editor/ready? {:recordable? true} (fn [] (editor-ready?)))
@@ -83,6 +83,14 @@ So follow the calls each handler, reducer, machine action and guard makes back t
 ```
 
 Live, the supplier runs at processing-start and `{:editor/ready? true}` is recorded in the token's `:rf.cofx`; replay re-presents it and takes the same branch whatever the editor is doing by then. Where the code that owns the editor also dispatches the event, the event payload (below) is the simpler route, at the cost of publishing the value with the event.
+
+**Run the walk bottom-up, so it ends.** Seed it with every accepted hit that is not a recorded generator, and with every atom the host owns — a `defonce` holding a live JS object, as `host-editor` does. For each seed, name the top-level form that encloses it:
+
+- a `reg-event*` body, or a machine's action or guard: a site, in the unit that owns that handler;
+- a recordable supplier: a recorded generator, which ends that branch;
+- a `defn`: search its name as a bare token across the project, which reaches an aliased call, a `:refer` and the fn passed as a value, and make each hit that resolves to it through its file's `ns` form a new seed.
+
+Stop when no new fn appears. The walk is more than one command, so record it with the plan as [Step 5](inventory-and-plan.md#step-5--the-per-rule-completeness-gate) item 5 requires; a unit's check then re-runs it over that unit's files.
 
 The walk does not mean recording every atom read. Leave these alone:
 
