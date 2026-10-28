@@ -27,8 +27,9 @@
 #                 above; it derives the primary worktree from
 #                 `git worktree list` rather than a marker file.
 #   - pre-commit  refuses a commit from ANY worktree that would
-#                 empty `.beads/issues.jsonl` or lose more than a tenth of
-#                 it. Neither of the two blocks above can see that failure:
+#                 empty the tracker export or lose more than a tenth of its
+#                 rows, summed across its parts. Neither of the two blocks
+#                 above can see that failure:
 #                 an empty export committed from the MAYOR checkout by
 #                 plain `git add` passes both.
 #   - commit-msg  refuses a commit MESSAGE carrying AI attribution
