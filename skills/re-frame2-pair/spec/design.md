@@ -115,6 +115,7 @@ skills/re-frame2-pair/
 ├── RELEASING.md                        (npm + plugin release notes)
 ├── STATUS.md                           (development status)
 ├── package.json                        (npm metadata)
+├── deps.edn                            (`{:paths ["preload"]}` — a `:deps` app takes the preload as a `:local/root`)
 ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
 ├── agents/openai.yaml                  (agent-host interface metadata)
 ├── preload/re_frame2_pair/

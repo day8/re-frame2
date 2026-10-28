@@ -1,0 +1,4 @@
+;; The skill directory as a tools.deps library: a `:deps` app adds it as a
+;; `:local/root` dependency to put `preload/` on its classpath
+;; (references/setup.md §The preload).
+{:paths ["preload"]}
