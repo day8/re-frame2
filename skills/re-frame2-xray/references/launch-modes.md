@@ -108,7 +108,7 @@ selector: `[data-rf-xray-host]`. Minimal markup (DOM order matters —
 right):
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
  <main id="app"></main>
  <aside data-rf-xray-host></aside>
 </div>
@@ -117,7 +117,7 @@ right):
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var */
 body { margin: 0; }
-.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+.rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
  flex: 0 0 var(--rf-xray-inline-width, 560px);
  min-width: 320px;
@@ -130,6 +130,7 @@ body { margin: 0; }
  border-left: 1px solid #2a2a2a;
 }
 #app { flex: 1; min-width: 0; }
+@media print { [data-rf-xray-host] { display: none; } }
 ```
 
 The host owns sizing and layout; Xray owns the shell rendered inside
@@ -144,6 +145,16 @@ on the window, so an `#app` that scrolls on its own opens every new page
 at the previous page's depth. The host's width must come from `var(--rf-xray-inline-width, …)`:
 Xray's drag handle writes that variable, so a literal basis such as
 `flex: 0 0 420px` leaves the splitter unable to move.
+
+The wrapper class is namespaced (`rf-xray-layout`) so the pasted rule
+cannot meet a class the app or its CSS framework already styles, and the
+print rule hides the host, so a printed page is the app alone at full
+width. An app that already scrolls an inner pane, with
+`html, body, #app` at `height: 100%`, gives the wrapper
+`height: 100vh` in place of `min-height: 100vh`, so that chain resolves
+against a fixed height and the pane keeps scrolling. The window then does
+not scroll, so use that variant only where the app's own router, not
+re-frame2 routing, manages the pane.
 
 Override the selector before Xray opens:
 

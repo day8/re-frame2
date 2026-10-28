@@ -21,7 +21,7 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
 ```
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
   <main id="app"></main>
   <aside data-rf-xray-host></aside>
 </div>
@@ -29,7 +29,8 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
 
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var */
-.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+body { margin: 0; }
+.rf-xray-layout { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
@@ -42,9 +43,12 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
   border-left: 1px solid #2a2a2a;
 }
 #app { flex: 1; min-width: 0; }
+@media print { [data-rf-xray-host] { display: none; } }
 ```
 
 Keep the scroll rules when adapting this. The window scrolls the app, because routing's scroll-to-top and Back restoration act on the window, so do not give `#app` a scrollbar of its own. The host is sticky at the viewport's top and right edges and exactly the viewport's height, and it clips, so scrolling the page never moves Xray and nothing inside Xray can widen the page; the row's `width: fit-content; min-width: 100%` keeps the host pinned when an app wider than its column scrolls the page sideways. Keep the host's width in `var(--rf-xray-inline-width, …)` too: Xray's drag handle writes that variable, so a literal basis such as `flex: 0 0 420px` leaves the splitter unable to move.
+
+The wrapper class is namespaced (`rf-xray-layout`) so the pasted rule cannot meet a class the app or its CSS framework already styles, and the print rule hides the host, so a printed page is the app alone at full width. An app that already scrolls an inner pane, with `html, body, #app` at `height: 100%`, gives the wrapper `height: 100vh` in place of `min-height: 100vh`, so that chain resolves against a fixed height and the pane keeps scrolling. The window then does not scroll, so use that variant only where the app's own router, not re-frame2 routing, manages the pane.
 
 That's it. The preload installs Xray's trace + epoch listeners, mounts the shell into the host once the substrate adapter is ready, and auto-opens after `rf/init!`. Production builds (`goog.DEBUG=false`) elide every Xray surface.
 

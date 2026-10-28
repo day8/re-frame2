@@ -52,17 +52,17 @@ Xray renders into a host element your page reserves, marked
 `data-rf-xray-host`:
 
 ```html
-<div class="app-shell">
+<div class="rf-xray-layout">
   <main id="app"></main>
   <aside data-rf-xray-host></aside>
 </div>
 ```
 
-That is the whole setup. The preload opens Xray into the host once the adapter
-is ready, so you do not call `init!` yourself. `Ctrl+Shift+C` hides and shows
-the panel. [Xray's installation chapter](../../xray/01-installation.md) covers
-styling the host, a different selector, jump-to-source, and popping out to a
-second window.
+Style the host with the CSS in
+[Xray's installation chapter](../../xray/01-installation.md#reserve-the-host),
+which also covers a different selector, jump-to-source, and popping out to a
+second window. The preload opens Xray into the host once the adapter is ready,
+so you do not call `init!` yourself. `Ctrl+Shift+C` hides and shows the panel.
 
 ## Why did this view run?
 
