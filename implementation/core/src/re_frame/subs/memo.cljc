@@ -305,7 +305,7 @@
         ;; the `re-frame.classification/project-sub-tags` chokepoint
         ;; (run by `rf.trace/emit!`) redacts them from the sub's
         ;; registration classification and, for the machine and route
-        ;; read-subs, the frame's elision registry, read untracked so this
+        ;; read-subs, the runtime-db their hooks classify, read untracked so this
         ;; compute gains no input. See the `validate-and-trace` docstring §Privacy.
         (if rf.interop/debug-enabled?
           ;; `cascade?` here = REACTIVE-GRAPH propagation: true iff this

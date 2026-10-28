@@ -68,7 +68,7 @@
            (redaction trace :received :value :explain)))))
 
 (deftest app-db-validation-redacts-conforming-sensitive-sibling
-  ;; A live frame: the trace is also projected through its elision registry,
+  ;; A live frame: the trace is also projected through its classification policy,
   ;; and a frame the walker cannot resolve redacts the whole value.
   (rf/init! rf.substrate.plain-atom/adapter)
   (rf.frame/ensure-default-frame!)

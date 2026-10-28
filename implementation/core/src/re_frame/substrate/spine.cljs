@@ -4263,8 +4263,8 @@
    ;; The untracked read `rf.substrate.adapter/read-container-untracked`
    ;; resolves. A ratom read inside a reactive context registers the
    ;; container on the reaction being computed, so a read the core makes
-   ;; while DESCRIBING that computation (trace classification reading the
-   ;; elision registry) would otherwise become one of its inputs. An
+   ;; while DESCRIBING that computation (trace classification reading
+   ;; runtime-db) would otherwise become one of its inputs. An
    ;; adapter carrying none gets `read-container` itself from the core
    ;; reader — exact for the React-hook spine and plain-atom, whose reads
    ;; capture nothing.

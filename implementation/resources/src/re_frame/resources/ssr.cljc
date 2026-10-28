@@ -221,7 +221,7 @@
 (defn- project-entry
   "Returns `[wire-entry metadata]` for one durable `entry`, projected by its
   classification against the SSR `frame-id`. The wire entry ships `:data`
-  through the frame's elision registry (`:serialize`), the redaction sentinel
+  through the frame's classification (`:serialize`), the redaction sentinel
   (`:redact`) or no `:data` (`:omit`); `:refresh-error` rides only with
   serialized data, and transient work pointers never ride. The metadata
   carries the raw `:resource/key`, `:projected-key`, `:disposition`,

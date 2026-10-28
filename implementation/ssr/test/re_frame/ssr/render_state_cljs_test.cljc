@@ -197,7 +197,7 @@
                  (rf.ssr.render-state/restore! cfid read-back)))
           (is (= [(:rf/app-db projected) (:rf/runtime-db projected)]
                  [(rf.frame/frame-app-db-value cfid) (rf.frame/frame-runtime-db-value cfid)])
-              "EXACTLY the projection: no hydration metadata, no elision registry, no re-arm"))
+              "EXACTLY the projection: no hydration metadata, no re-arm"))
         (testing "a runtime sub and an app sub on the fresh frame read the restored state"
           (let [machine-state (fresh-id "machine-state")
                 todo-count    (fresh-id "todo-count")]

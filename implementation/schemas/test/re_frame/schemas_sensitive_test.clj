@@ -12,7 +12,7 @@
   A schema the walker cannot see into fails closed; a `:large?` slot elides
   to a size marker unless sensitivity already redacted it.
 
-  An `app-db` failure is also projected through the frame's elision registry,
+  An `app-db` failure is also projected through the frame's classification policy,
   so a path classified there needs no second `:sensitive?` on its schema."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
@@ -125,7 +125,7 @@
 ;; map's extra key can be the caller's data, and an index or a branch tail sits
 ;; where the schema cannot name what follows.
 
-;; ---- the frame's elision registry ------------------------------------------
+;; ---- the frame's classification policy --------------------------------------
 ;;
 ;; A path the frame's registry classifies is projected through it, as
 ;; `:rf.sub/run` and `:rf.flow/computed` are at emit: `:value` is walked at its

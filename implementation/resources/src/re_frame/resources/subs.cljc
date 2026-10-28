@@ -172,7 +172,8 @@
   "The focused subs, `[sub-id view-model-key doc]`, each projecting one key of
   `state-sub-fn`. They are frame-state subs rather than layered over
   `[:rf/resource …]` because off-box egress classifies a value against its
-  inputs, which must be the frame-state carrying the elision registry."
+  inputs, which must be the frame-state whose runtime-db holds the instances
+  the resources classification hook claims."
   [[:rf.resource/data :data
     "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."]
    [:rf.resource/status :status

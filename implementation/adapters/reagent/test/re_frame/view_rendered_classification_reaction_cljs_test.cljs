@@ -4,16 +4,16 @@
 
   With tracing on, a view that takes render args emits `:rf.view/rendered`
   INSIDE its render, and the classification chokepoint projects those args
-  against the frame's elision registry. It reads that registry out of the
-  frame's runtime-db projection even in a frame that declares nothing, because
-  the read is how it learns there is nothing to redact. On a ratom substrate a
+  against the frame's classification. It reads the frame's runtime-db
+  projection even in a frame that declares nothing, because the subsystem
+  hooks classify what that projection holds. On a ratom substrate a
   capturing read there would make the whole runtime-db projection an input of
   the view's render reaction, so every unrelated runtime-db write would
   re-render the view.
 
   An auto-running Reagent reaction stands in for the component's render
   reaction, in the fixture's `:rf/default` frame, which starts with no
-  elision declarations. A declaration added after the first render must
+  declarations. A declaration added after the first render must
   govern the next render's trace, so the registry is read fresh each render."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.ratom :as ratom]
