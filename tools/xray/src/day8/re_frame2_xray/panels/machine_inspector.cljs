@@ -192,10 +192,10 @@
   synthetic `:rf.machine/snapshot-updated` trace event — stamped with the
   TARGET `frame-id` — and runs `rf.classification/project-trace-event`, which calls
   `project-machine-tags` to redact `:snapshot.data` against the frame's
-  classified snapshot-path declarations in the per-frame elision registry.
-  EP-0025: machine `:data` classification rides the projection-relative
-  machine declaration (lowered per actor under `:source :effect`) / the
-  commit-plane classification effects — there is no frame `:sensitive` /
+  classification policy, where the `:machines/runtime-classification` hook
+  re-roots each machine's projection-relative `:data` declaration onto its
+  actors' snapshot paths (`:source :machine`, Spec 015 §Subsystem
+  projection-relative classification) — there is no frame `:sensitive` /
   `:large {:app-db …}` annotation. A frame that classifies no matching
   `:data` path leaves the snapshot unchanged. Returns the redacted snapshot
   (or the input verbatim when it is not a map, or when redaction is
@@ -1075,7 +1075,7 @@
   ;; both inputs on `:rf.xray/observed-frame` makes them structurally
   ;; incapable of diverging. The sibling `:rf.xray/current-route-slice`
   ;; does the same with this same runtime-db (`panels/routing.cljs`), for
-  ;; the same reason: the elision registry is per-frame, so any other axis
+  ;; the same reason: classification is per-frame, so any other axis
   ;; ships the value under a BORROWED policy. Focus-first with the
   ;; collector-target fallback is `:rf.xray/observed-frame`'s own
   ;; definition, so an unselected focus classifies against the target.

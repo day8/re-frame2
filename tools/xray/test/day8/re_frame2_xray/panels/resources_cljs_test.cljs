@@ -509,7 +509,8 @@
 
 (defn- install-zix-observed-frame! []
   ;; Declare the data SLOT `:sensitive` at the ABSOLUTE runtime-db path the
-  ;; resources registry lowers per-instance declarations to,
+  ;; `:resources/runtime-classification` hook re-roots a resource's
+  ;; declarations to,
   ;; `[…entries <key-id> :data]`. The on-box egress re-roots the slot to
   ;; exactly that coordinate. A resource's scope and params are its identity,
   ;; never a declared slot, so the local operator sees them.

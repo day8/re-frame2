@@ -13,7 +13,7 @@
       areas (`:rf/machines`, `:rf/spawned`) FAN OUT to one named
       sub-section per instance — section title = the instance id (e.g.
       `:title/flow`). Singleton slices (`:rf/route`,
-      `:rf/pending-navigation`, `:rf/elision`) render as one section
+      `:rf/pending-navigation`) render as one section
       each.
 
   Empty / absent reserved areas are FILTERED at projection
@@ -577,7 +577,7 @@
 
 (defn singleton-area
   "Render a singleton-slice reserved area (`:rf/route`,
-  `:rf/pending-navigation`, `:rf/elision`) as ONE
+  `:rf/pending-navigation`) as ONE
   section.
 
   Empty/absent slices are filtered at projection time

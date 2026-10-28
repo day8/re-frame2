@@ -932,7 +932,7 @@
   no-change epoch — the common one — pays nothing for the seam.
 
   Pure data → data; the 2-arity reads the named frame's classification
-  registry through the egress seam and mutates nothing."
+  policy through the egress seam and mutates nothing."
   ([{:keys [db-before db-after] :as _epoch-record}]
    (diff-h/diff-paths db-before db-after))
   ([{:keys [db-before db-after] :as _epoch-record} observed-frame]
@@ -1043,7 +1043,7 @@
   values must supply the observed frame.
 
   Pure data → data (the 3-arity reads the named frame's classification
-  registry through the egress seam; it mutates nothing)."
+  policy through the egress seam; it mutates nothing)."
   ([epoch-record focus-status]
    (project-feed-from-epoch* epoch-record focus-status
                              db-changed-diff-triples))

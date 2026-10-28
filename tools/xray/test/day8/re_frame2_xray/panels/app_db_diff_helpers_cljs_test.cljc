@@ -108,10 +108,17 @@
     (let [runtime-db {:rf.runtime/machines {:snapshots  {:auth {:state :idle}}
                                             :spawned    {:parent {:invoke :child}}}
                       :rf.runtime/routing  {:current             {:route-id :home}
-                                            :pending-navigation  {:to :next}}
-                      :rf.runtime/elision  {:declarations {}}}]
+                                            :pending-navigation  {:to :next}}}]
       (is (= h/reserved-area-order
              (mapv :area (:areas (h/current-state-sections {} runtime-db))))))))
+
+(deftest classification-is-not-a-runtime-area
+  (testing "the reserved areas are the four subsystem slices — classification
+            is the frame's policy, not runtime-db state, so no section shows
+            it (spec/004 §Reserved-keys group)"
+    (is (= [:rf/machines :rf/spawned :rf/route :rf/pending-navigation]
+           h/reserved-area-order))
+    (is (= (set h/reserved-area-order) (set (keys h/runtime-areas))))))
 
 ;; ---- inline-diff section model (spec/021 §4.3) ---------------------------
 ;;

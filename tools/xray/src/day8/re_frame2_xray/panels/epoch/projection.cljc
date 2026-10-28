@@ -667,32 +667,20 @@
 ;;
 ;; A diagnostic reporting `:other-effects` — the return map MINUS a
 ;; hand-copied closed key set — as ":skipped, an effect the runtime
-;; ignored" has an EMPTY TRUE-POSITIVE POPULATION, in both directions:
+;; ignored" has an EMPTY TRUE-POSITIVE POPULATION: a FOREIGN top-level key
+;; (`{:db … :legacy/persist {…}}`) — the population such a diagnostic would
+;; target, a classification key returned beside `:db` included — is REFUSED
+;; pre-commit. Its ops run `:rf.event/dispatched → :rf.event/run-start →
+;; :rf.event/db-pending → :rf.error/effect-map-shape → :rf.event/run-end`:
+;; NO `:rf.fx/do-fx` at all, nothing committed. So it never reaches a do-fx
+;; reader, and nothing is left such a diagnostic could truthfully report.
 ;;
-;;   - A LEGAL classification return (`{:db … :sensitive [[:creds :password]]
-;;     :fx [[…]]}`) COMMITS, emits do-fx, and the framework applies the
-;;     declaration (the frame's `:sensitive-declarations` gains the path).
-;;     Yet `(apply dissoc effects #{:db :fx :rf.db/runtime})` yields
-;;     `{:sensitive …}` — which would be reported to the operator as an
-;;     ignored effect: a FALSE ACCUSATION against correct framework
-;;     behaviour, because the four EP-0025 commit-plane keys are legal and
-;;     absent from such a copy.
-;;
-;;   - A genuinely FOREIGN top-level key (`{:db … :legacy/persist {…}}`) —
-;;     the population such a diagnostic would target — is REFUSED
-;;     pre-commit. Its ops run `:rf.event/dispatched → :rf.event/run-start
-;;     → :rf.event/db-pending → :rf.error/effect-map-shape →
-;;     :rf.event/run-end`: NO `:rf.fx/do-fx` at all, nothing committed. So it
-;;     never reaches a do-fx reader.
-;;
-;; The two together leave nothing such a diagnostic could truthfully
-;; report. The refusal IS surfaced, in band and by the framework:
+;; The refusal IS surfaced, in band and by the framework:
 ;; `attach-unclassified-errors` routes `:rf.error/effect-map-shape` onto the
 ;; SIDE EFFECTS step. And nothing here hand-copies the framework's closed
 ;; effect-key set — the authority is
-;; `re-frame.events/closed-effect-map-keys` (seven keys: `:db`,
-;; `:rf.db/runtime`, `:fx` plus the four EP-0025 classification effects),
-;; and a copy of it that nothing keeps in step drifts.
+;; `re-frame.events/closed-effect-map-keys` (`:db`, `:rf.db/runtime`,
+;; `:fx`), and a copy of it that nothing keeps in step drifts.
 
 (defn- handler-fx-vec
   "The canonical `:fx` vector-of-vectors the handler returned, read off the
@@ -1853,7 +1841,7 @@
 ;;   validates the FINAL effects map's top level, and the router's
 ;;   FINAL-effects boundary emits `:rf.error/effect-map-shape` in-band
 ;;   and ABORTS the event pre-commit: `restore!`, outcome `:error`, no
-;;   `:db`, no `:rf.db/runtime`, no classification commit, no `:fx`.
+;;   `:db`, no `:rf.db/runtime`, no `:fx`.
 ;;   `reg-event`'s own docstring puts it flatly — "Any other top-level
 ;;   key REFUSES the event pre-commit … nothing is committed, and
 ;;   nothing is silently dropped."
@@ -1863,14 +1851,13 @@
 ;;   `cascade-exception-ops` names, so without it the trace would be read
 ;;   and discarded.
 ;;
-;;   The legal top level is SEVEN keys, not three —
-;;   `events/closed-effect-map-keys` is `{:db :rf.db/runtime :fx}` plus
-;;   the four EP-0025 commit-plane classification effects (`:sensitive` /
-;;   `:large` / `:clear-sensitive` / `:clear-large`), which are applied
-;;   WITH the `:db` write rather than routed through do-fx. It is the
-;;   AUTHORITY, and this panel keeps no copy of it and no `other`
-;;   diagnostic, which could only ever accuse those four legal effects of
-;;   not running. The reasoning is recorded above `handler-fx-vec`.
+;;   The legal top level is `events/closed-effect-map-keys`,
+;;   `#{:db :rf.db/runtime :fx}`; a classification key returned beside
+;;   `:db` is foreign like any other, refused with a `:reason` naming
+;;   `reg-classification`. The set is the AUTHORITY, and this panel keeps
+;;   no copy of it and no `other` diagnostic, which could only report a key
+;;   the router already refused. The reasoning is recorded above
+;;   `handler-fx-vec`.
 
 (def ^:private fx-outcome-op->status
   "Map a per-fx trace op → the fx-row `:status`. Closed set — a
@@ -2197,10 +2184,8 @@
 
   There is NO fourth `other` tier:
   a top-level key outside `re-frame.events/closed-effect-map-keys` is
-  REFUSED pre-commit and never reaches do-fx, while every key
-  INSIDE that set is legal — so such a tier has no truthful population,
-  and a partial copy of the closed set would accuse the four EP-0025
-  classification effects of not running. The refusal surfaces instead as
+  REFUSED pre-commit and never reaches do-fx, so such a tier has no
+  truthful population. The refusal surfaces instead as
   the `:rf.error/effect-map-shape` row `attach-unclassified-errors` lands
   on this step.
 
@@ -2510,8 +2495,8 @@
   passed to THIS render, off the `:rf.view/render-args` trace slot.
   The value is ALREADY ELIDED at the substrate emit
   chokepoint (PRIVACY — `re-frame.classification/project-trace-event` routes it
-  through `project-egress` against the frame's app-db elision
-  registry before delivery, the identical treatment `:rf.event/db`
+  through `project-egress` against the frame's classification
+  policy before delivery, the identical treatment `:rf.event/db`
   gets); we consume the elided value as-is — NO re-elision.
 
   `:prev-render-args` is the render-args from the SAME view INSTANCE's

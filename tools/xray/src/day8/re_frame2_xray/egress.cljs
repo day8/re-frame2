@@ -51,8 +51,8 @@
   read in the `:rf.egress/*` spelling — the ONE egress vocabulary.
 
   Optional `:path` — the ABSOLUTE app-db path the value sits at. The
-  framework's `:sensitive` / `:large` declarations (EP-0025 commit-plane
-  classification effects; Spec 015 §Data classification) are keyed by
+  framework's app-db `:sensitive` / `:large` declarations
+  (`reg-classification`; Spec 015 §Static app-db classification) are keyed by
   absolute path, so a SLICE egress'd in isolation must tell the walker where
   it lives or the declaration will not match. Defaults to `[]` — the value IS
   the walked root, which is what the whole-db snapshot passes.

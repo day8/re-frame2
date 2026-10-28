@@ -498,14 +498,13 @@ operator narrows it.
 
 ## Reserved-keys group
 
-EP-0001 (rf2-vzld77 / rf2-tj6w9l): the framework's durable subsystem
-state — machine snapshots, the route slice, the spawn registry, the
-elision registry — moved OUT of app-db's `:rf/runtime` container into a
-SEPARATE **runtime-db partition** keyed by the reserved `:rf.runtime/*`
+The framework's durable subsystem state — machine snapshots, the spawn
+registry, the route slice — lives OUTSIDE app-db, in a SEPARATE
+**runtime-db partition** keyed by the reserved `:rf.runtime/*`
 namespace, catalogued in
 [Conventions §Reserved runtime-db keys](../../../spec/Conventions.md#reserved-runtime-db-keys)
 and [002-Frames §The two-partition frame contract](../../../spec/002-Frames.md).
-Xray's `[runtime]` group surfaces these **five** as operator-facing
+Xray's `[runtime]` group surfaces these **four** as operator-facing
 section labels — the whole of `app_db_diff_helpers/runtime-areas` — and
 the underlying paths live under the runtime-db partition's
 `:rf.runtime/*` roots (NOT app-db):
@@ -516,7 +515,6 @@ the underlying paths live under the runtime-db partition's
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :fragment :transition :error :nav-token}`, schema `:rf/route-slice` (Spec 012 §The `:rf/route` slice). |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
-| `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Written by the EP-0025 commit-plane `:sensitive` / `:large` classification effects (a `reg-event` returns them alongside `:db`, installed by `re-frame.elision/apply-classification-effects` under `:source :effect`, Spec 015 §Data classification); also fed by `reg-flow` outputs (`:source :flow`) and subsystem projection-relative declarations (routing / machines). Consulted by `rf/project-egress` at every wire-boundary emit. Durable app-db classification rides the commit-plane effects, NOT a schema-slot route — per [Spec 015 §Schemas describe shape](../../../spec/015-Data-Classification.md), a `reg-app-schema` `{:sensitive? true}` slot prop is no longer a nomination path into this registry (machine `[:schemas :data]` props and schema-validation-failure redaction are separate, schema-owned surfaces). |
 
 Conventions is the canonical home; this table is the panel-facing
 projection. The `runtime-areas` lookup in `app_db_diff_helpers.cljc`
@@ -532,6 +530,21 @@ diff triple is never runtime-owned; `reserved-namespace-key?` /
 framework-internal slot a host might stash at the app-db root). If a new
 subsystem lands in Conventions, the `runtime-areas` table and this
 section are updated in lockstep.
+
+**Classification is not a section.** A frame's data classification is
+not state in either partition: it is the frame's classification policy,
+built from the `reg-classification` registrations its view resolves, the
+outputs of the flows it runs, and the subsystem declarations applied to
+its runtime-db
+([Spec 015 §Static app-db classification](../../../spec/015-Data-Classification.md#static-app-db-classification)).
+It has no current value to inspect and nothing an epoch changes, so this
+panel — an inspector of the two partitions' state — shows its effect
+instead: a classified slot renders as its sentinel in place (§On-box
+local-render egress policy), and the redacted-paths chip counts the
+classified paths an epoch changed (§Redacted-paths-modified hint chip).
+The registrations themselves are `[:classification <id>]` descriptors,
+listed with the rest of a frame's resolved image on the Module-view tab
+([026 §8](026-Module-View-Panel.md)).
 
 ```
 ┌─ [runtime] ───────────────────────────────────────┐
@@ -604,11 +617,9 @@ projection happens only at egress / render) — parallel to
 the `:rf.epoch/sensitive?` rollup. A path `P` counts in the framework's
 figure when:
 
-1. `P` is classified sensitive (`[:rf.runtime/elision :sensitive-declarations]`
-   in the runtime-db partition, EP-0001 rf2-vzld77,
-   written by the EP-0025 commit-plane `:sensitive` classification effect — a
-   `reg-event` returns `:sensitive` alongside `:db` — under `:source :effect` per
-   [Spec 015 §Data classification](../../../spec/015-Data-Classification.md)).
+1. `P` is classified sensitive by the frame's classification policy (a
+   `reg-classification`, a flow output or a subsystem declaration, per
+   [Spec 015 §Static app-db classification](../../../spec/015-Data-Classification.md#static-app-db-classification)).
 2. `(not= (get-in db-before P) (get-in db-after P))` — value-equality
    on the raw (unprojected) in-process dbs.
 
@@ -687,7 +698,7 @@ the picker / focus selects). The contract — the shared seam
 `day8.re-frame2-xray.panels.local-render/local-render-value`:
 
 - **Suppress sensitive display by default.** A slot the observed frame
-  declared `:sensitive` (Spec 015's commit-plane effects) is replaced by
+  declared `:sensitive` (Spec 015 §Static app-db classification) is replaced by
   the `:rf/redacted` sentinel — which the edn-inspector already renders as
   a first-class muted chip (the R8 redaction type). A shoulder-surfer,
   screen-share, or recorded debugging session never sees the secret.

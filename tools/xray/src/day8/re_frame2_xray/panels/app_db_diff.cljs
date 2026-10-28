@@ -18,8 +18,8 @@
       any `:rf/*` / `:rf.<subns>/*` key the framework stashes at the
       app-db root is hidden from TOP.
     - one section per operator-facing runtime area (per the
-      `runtime-areas` table — machines, routing, spawned,
-      pending-navigation, elision), sourced from the SEPARATE runtime-db
+      `runtime-areas` table — machines, spawned, route,
+      pending-navigation), sourced from the SEPARATE runtime-db
       partition (the framework's durable subsystem state lives in the
       `:rf.runtime/*` runtime-db roots, not in app-db; this panel reads it via
       `:rf.xray/target-frame-runtime-db` + each focused epoch's runtime-db

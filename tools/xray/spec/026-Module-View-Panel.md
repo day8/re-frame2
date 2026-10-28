@@ -92,11 +92,13 @@ per-descriptor fact carried on the resolved image generation (a source namespace
 or inline coordinate), surfaced per descriptor in the FRAMES section (§8), not
 projected off a module-owned `:registrations` table.
 
-**EP-0015 classification is not module-owned.** Durable data classification
-is declared by the commit-plane effects an event handler returns (Spec 015
-§Durable app-db) and recorded per frame — it was never a module fact. The classification dimension lives on the frame
-side; this tab shows the image (the instruction set), and frame state /
-classification lives on the App-db tab.
+**Classification is an image fact.** Durable app-db classification is a
+`reg-classification` (Spec 015 §Static app-db classification), so a frame's
+classification registrations are `[:classification <id>]` descriptors in its
+resolved image and list here with the rest. The frame's full classification
+policy also unions the outputs of the flows it runs and the subsystem
+declarations applied to its runtime-db; the App-db tab shows the policy's
+effect — classified slots render as their sentinels.
 
 ## §5 Tab registration
 

@@ -186,7 +186,7 @@
             record   (when epoch-id (find-epoch-in-history history epoch-id))
             before   (when record (:db-before record))
             ;; The reserved AREAS read the runtime-db
-            ;; PARTITION (machines / routing / elision live there), so the
+            ;; PARTITION (machines / routing live there), so the
             ;; section model needs the focused epoch's runtime-db value +
             ;; pre-image too. The epoch record stores the WHOLE frame-state
             ;; (`:frame-state-before` / `-after`), each carrying
@@ -254,7 +254,7 @@
   ;; The TWO partitions feed two halves of the
   ;; model: the app-db `:value` / `:before` drives the user-domain TOP
   ;; section; the runtime-db `:runtime-value` / `:runtime-before` drives
-  ;; the reserved areas (machines / routing / elision live in the
+  ;; the reserved areas (machines / routing live in the
   ;; runtime-db partition). Both move per focused-epoch in lockstep.
   ;;
   ;; The focused epoch's pre-images are threaded as the diff PRE-IMAGE
