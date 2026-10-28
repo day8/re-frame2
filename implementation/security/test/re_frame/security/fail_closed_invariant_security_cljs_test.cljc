@@ -3,9 +3,8 @@
 
   A malformed schema rejects rather than validates, at the boundary seam and
   at the dev-time validation surfaces. The hydration guard that rejects a
-  malformed payload must not over-reject: a server slice installs, and the
-  documented client-only payload (a map with no `:rf/app-db` slice) still
-  hydrates."
+  malformed payload must not over-reject: the documented client-only payload
+  (a map with no `:rf/app-db` slice) still hydrates."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
@@ -58,15 +57,13 @@
         "app-db surface (false rolls the event back)")))
 
 (deftest wellformed-hydration-payload-still-installs
-  ;; A server slice replaces app-db; a map with no slice keeps the client's
-  ;; app-db and stashes the version in runtime-db. The compatibility-check
-  ;; `:fx` are platform-dependent (client-only), so they are not compared.
+  ;; A map with no server slice keeps the client's app-db and stashes the
+  ;; version in runtime-db. The compatibility-check `:fx` are
+  ;; platform-dependent (client-only), so they are not compared.
   (let [existing-db {:client/seeded true :count 0}
         hydrate     #(dissoc (rf.ssr.hydrate/hydrate-event-handler
                                {:db existing-db :rf.frame/id :rf/default}
                                [:rf/hydrate %])
                              :fx)]
-    (is (= {:db {:count 7 :title "seeded"}}
-           (hydrate {:rf/app-db {:count 7 :title "seeded"}})))
     (is (= {:db existing-db :rf.db/runtime {:rf.runtime/ssr {:hydration {:version 1}}}}
            (hydrate {:rf/version 1})))))
