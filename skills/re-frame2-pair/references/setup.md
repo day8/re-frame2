@@ -31,7 +31,7 @@ The `:preloads` half is always a `shadow-cljs.edn` line, whatever the app looks 
  {:dev {:extra-deps {day8/re-frame2-pair {:local/root "<path-to-re-frame2>/skills/re-frame2-pair"}}}}}  ;; add this
 ```
 
-Not `:extra-paths ["…/preload"]`: tools.deps prints `WARNING: Use of :paths external to the project has been deprecated` for every `:paths` or `:extra-paths` entry outside the project, relative and absolute alike, while a `:local/root` dependency's own `:paths` draw no warning.
+Not `:extra-paths ["…/preload"]`: tools.deps prints `WARNING: Use of :paths external to the project has been deprecated` for every `:paths` or `:extra-paths` entry outside the project, relative and absolute alike, while a `:local/root` dependency's own `:paths` draw no warning. It prints only when it computes the classpath — a cold `.cpcache`, a changed `deps.edn`, or `-Sforce` — so a watch that reuses the cached classpath prints nothing with the entry still in place, and a missing warning does not show the entry is gone.
 
 **A standalone shadow app** (no `:deps` / `:lein` key) — here `:source-paths` is the right home, and the whole change is two lines in the one file:
 
