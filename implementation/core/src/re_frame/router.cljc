@@ -73,10 +73,14 @@
   `frame-provider` (SCOPE) or a `frame-root` (ENSURE) boundary, or a captured
   `*current-frame*` binding. With none it throws `:rf.error/no-frame-context`
   before any registry lookup, as there is no `:rf/default` floor (Spec 002
-  §Frame target resolution — the carried invariant). Throws on a malformed
-  `:rf.cofx` before the clock is read. `:dispatch-id`, `:parent-dispatch-id`
-  and `:call-site` are dev-only."
+  §Frame target resolution — the carried invariant). Throws
+  `:rf.error/invalid-event` on a value that is not an event vector before
+  anything else reads it, and on a malformed `:rf.cofx` before the clock is
+  read. `:dispatch-id`, `:parent-dispatch-id` and `:call-site` are dev-only."
   [event opts]
+  ;; Every dispatch path funnels through here, `:dispatch` children and reply
+  ;; completions included.
+  (rf.router.diagnostics/validate-event-vector! event)
   (let [dispatch-id        (when rf.interop/debug-enabled? (next-dispatch-id))
         parent-dispatch-id (when rf.interop/debug-enabled?
                              (some-> rf.trace/*handler-scope* :dispatch-id))
@@ -90,28 +94,28 @@
         ;; Retired draft opts get no dedicated error (Conventions §The
         ;; tombstone rule); the unknown-opt warning below names their
         ;; replacement.
-         _                  (rf.router.diagnostics/validate-cofx! opts event)
-         cofx               (ensure-cofx (:rf.cofx opts))
+        _                  (rf.router.diagnostics/validate-cofx! opts event)
+        cofx               (ensure-cofx (:rf.cofx opts))
         ;; Before frame resolution, so a `:fram` typo still gets its warning
         ;; even though the dispatch then fails with `:rf.error/no-frame-context`.
-        ;; Every dispatch path funnels through here. Dev-only and warn-only.
-         _                  (when-let [unknown (rf.router.diagnostics/unknown-dispatch-opts opts)]
-                              (rf.router.diagnostics/emit-unknown-dispatch-opts-warning! unknown event))
+        ;; Dev-only and warn-only.
+        _                  (when-let [unknown (rf.router.diagnostics/unknown-dispatch-opts opts)]
+                             (rf.router.diagnostics/emit-unknown-dispatch-opts-warning! unknown event))
         ;; A SHOULD, so a dev-only warning rather than a throw (Conventions
         ;; §Event payloads SHOULD be serialisable data).
-         _                  (when rf.interop/debug-enabled?
-                              (when-let [bad-path (rf.router.diagnostics/find-non-serialisable-payload-path event)]
-                                (rf.router.diagnostics/emit-non-serialisable-event-payload-warning! event bad-path)))
+        _                  (when rf.interop/debug-enabled?
+                             (when-let [bad-path (rf.router.diagnostics/find-non-serialisable-payload-path event)]
+                               (rf.router.diagnostics/emit-non-serialisable-event-payload-warning! event bad-path)))
         ;; An explicit `:frame` wins even when unregistered; that fails later
         ;; as `:rf.error/frame-destroyed`, a different category from absence.
         ;; A frame object normalises to its id, so every downstream cascade op
         ;; keys on a keyword.
-         frame              (rf.frame/frame-value->id
-                               (or (:frame opts)
-                                   (rf.frame/require-current-frame!
-                                     :dispatch
-                                     {:where    're-frame.router/build-envelope
-                                      :event-id (first event)})))
+        frame              (rf.frame/frame-value->id
+                             (or (:frame opts)
+                                 (rf.frame/require-current-frame!
+                                   :dispatch
+                                   {:where    're-frame.router/build-envelope
+                                    :event-id (first event)})))
         ;; Per-call mint policy (Spec 002 §Mint policies). A correctness
         ;; lever, so never debug-gated; carried only when supplied.
         mint-policy        (:rf.cofx/mint-policy opts)
@@ -167,44 +171,16 @@
       (resolve! event frame)
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
-(def ^:private empty-fx-overrides
-  "Shared sentinel for the override-free hot path, so no dispatch allocates a
-  fresh empty map."
-  {})
-
-(def ^:private empty-extra-interceptors
-  "Shared sentinel for the no-extra-interceptors hot path."
-  [])
-
-(def ^:private empty-icpt-overrides
-  "Shared sentinel for the no-interceptor-overrides hot path."
-  {})
-
 (defn- apply-overrides
   "Merge per-frame and per-call overrides, per-call winning (Spec 002
   §Per-frame and per-call overrides). Returns `{:fx-overrides
-  :icpt-overrides :extra-interceptors}`.
-
-  Hot path: the override-free case returns shared empty sentinels rather than
-  merging empty maps."
+  :icpt-overrides :extra-interceptors}`."
   [envelope frame-record]
-  (let [frame-cfg            (:config frame-record)
-        per-call-fx          (:fx-overrides envelope)
-        per-frame-fx         (:fx-overrides frame-cfg)
-        per-call-icpt        (:interceptor-overrides envelope)
-        per-frame-icpt       (:interceptor-overrides frame-cfg)
-        frame-interceptors   (:interceptors frame-cfg)]
-    (if (and (nil? per-call-fx)
-             (nil? per-frame-fx)
-             (nil? per-call-icpt)
-             (nil? per-frame-icpt)
-             (nil? frame-interceptors))
-      {:fx-overrides       empty-fx-overrides
-       :icpt-overrides     empty-icpt-overrides
-       :extra-interceptors empty-extra-interceptors}
-      {:fx-overrides       (merge per-frame-fx per-call-fx)
-       :icpt-overrides     (merge per-frame-icpt per-call-icpt)
-       :extra-interceptors (vec frame-interceptors)})))
+  (let [frame-cfg (:config frame-record)]
+    {:fx-overrides       (merge (:fx-overrides frame-cfg) (:fx-overrides envelope))
+     :icpt-overrides     (merge (:interceptor-overrides frame-cfg)
+                                (:interceptor-overrides envelope))
+     :extra-interceptors (vec (:interceptors frame-cfg))}))
 
 (defn- throw-override-invalid!
   "Throw `:rf.error/interceptor-override-invalid` for a malformed override key
@@ -1043,36 +1019,36 @@
         after-deltas (when rf.interop/debug-enabled?
                        (not-empty (:rf/interceptor-after-deltas final-ctx)))]
     (rf.trace/emit! :rf.event :rf.event/run-end
-                 (cond-> {:rf.trace/event-id event-id
-                          :rf.event/v        event
-                          :frame             frame
-                          :rf.trace/phase    :run-end}
-                   (some? handler-elapsed-ms)
-                   (assoc :rf.event/elapsed-ms handler-elapsed-ms)
-                   (some? user-cofx)
-                   (assoc :rf.event/coeffects user-cofx)
-                   (some? after-deltas)
-                   (assoc :rf.event/after-deltas after-deltas)))
-    (let [emit-event!     (rf.late-bind/get-fn :event-emit/dispatch-on-event)
-      route-handled! (rf.late-bind/get-fn :observability/route-handled-event)]
-  (when (or emit-event! route-handled!)
-    (let [end-ms     (rf.interop/now-ms)
-          elapsed-ms (elapsed-ms-from start-ms end-ms)]
-      (when emit-event!
-        (emit-event! event event-id frame end-ms outcome elapsed-ms))
-      (when route-handled!
-        ;; The dispatch-id is dev-only, so production omits `:correlation`.
-        (let [effects     (some-> (:effects final-ctx) keys vec)
-              dispatch-id (some-> rf.trace/*handler-scope* :dispatch-id)
-              correlation (when dispatch-id {:dispatch-id dispatch-id})]
-          (route-handled! event
-                           event-id
-                           frame
-                           end-ms
-                           outcome
-                           elapsed-ms
-                           effects
-                           correlation))))))))
+                    (cond-> {:rf.trace/event-id event-id
+                             :rf.event/v        event
+                             :frame             frame
+                             :rf.trace/phase    :run-end}
+                      (some? handler-elapsed-ms)
+                      (assoc :rf.event/elapsed-ms handler-elapsed-ms)
+                      (some? user-cofx)
+                      (assoc :rf.event/coeffects user-cofx)
+                      (some? after-deltas)
+                      (assoc :rf.event/after-deltas after-deltas)))
+    (let [emit-event!    (rf.late-bind/get-fn :event-emit/dispatch-on-event)
+          route-handled! (rf.late-bind/get-fn :observability/route-handled-event)]
+      (when (or emit-event! route-handled!)
+        (let [end-ms     (rf.interop/now-ms)
+              elapsed-ms (elapsed-ms-from start-ms end-ms)]
+          (when emit-event!
+            (emit-event! event event-id frame end-ms outcome elapsed-ms))
+          (when route-handled!
+            ;; The dispatch-id is dev-only, so production omits `:correlation`.
+            (let [effects     (some-> (:effects final-ctx) keys vec)
+                  dispatch-id (some-> rf.trace/*handler-scope* :dispatch-id)
+                  correlation (when dispatch-id {:dispatch-id dispatch-id})]
+              (route-handled! event
+                              event-id
+                              frame
+                              end-ms
+                              outcome
+                              elapsed-ms
+                              effects
+                              correlation))))))))
 
 (defn- run-handler-pipeline!
   "Run the pipeline phases for one resolved event under the handler's trace
@@ -1087,63 +1063,63 @@
     envelope
     (fn []
       (let [{:keys [full-chain initial-ctx fx-overrides override-summary]}
-        (prepare-handler-ctx envelope frame frame-record handler-meta)
-        ;; Marks a machine handler's children `:source :machine-action`
-        ;; (Spec 009 §Dispatch source as the functional-origin axis). Trace
-        ;; provenance only: never copied to a child and never read by
-        ;; `insert-envelope`.
-        envelope   (cond-> envelope
-                     (:rf/machine? handler-meta)
-                     (assoc ::rf.fx/machine-emitter? true))]
-    (rf.trace/with-handler-scope
-      (rf.trace/handler-scope-from-meta :event event-id handler-meta)
-      (let [start-ms  (rf.interop/now-ms)
-            ;; The post-delivery `:rf.cofx`, generated facts included. The
-            ;; epoch record pins it so a strict replay re-presents exactly
-            ;; what this run consumed. Dev-only.
-            run-cofx  (when rf.interop/debug-enabled?
-                        (-> initial-ctx :coeffects :rf.cofx))
-            ;; The envelope's own overrides, never the per-frame tier. Fns are
-            ;; replaced by the sentinel here, so none reaches the trace or the
-            ;; epoch record.
-            override-fx   (when rf.interop/debug-enabled?
-                            (serializable-fx-overrides (:fx-overrides envelope)))
-            override-icpt (when rf.interop/debug-enabled?
-                            (not-empty (:interceptor-overrides envelope)))
-            _         (rf.trace/emit! :rf.event :rf.event/run-start
-                                   ;; Keyed on the runtime value: a
-                                   ;; keyword-literal test would not fold away
-                                   ;; under Closure.
-                                   (cond-> {:rf.trace/event-id event-id
-                                            :rf.event/v        event
-                                            :frame             frame
-                                            :source            (:source envelope)
-                                            :rf.trace/trace-id (:trace-id envelope)
-                                            :rf.trace/phase    :run-start}
-                                     override-summary
-                                     (assoc :rf.interceptor/override-summary
-                                            override-summary)
-                                     (some? run-cofx)
-                                     (assoc :rf.event/cofx run-cofx)
-                                     (some? override-fx)
-                                     (assoc :rf.event/fx-overrides override-fx)
-                                     (some? override-icpt)
-                                     (assoc :rf.event/interceptor-overrides override-icpt)))
-            event-ok? (validate-event! event-id event handler-meta frame)
-            final-ctx (run-chain event-id full-chain initial-ctx event-ok?
-                                 handler-meta)
-            ;; The chain alone, before commit and the `:fx` walk. Dev-only.
-            handler-elapsed-ms (when rf.interop/debug-enabled?
-                                 (- (rf.interop/now-ms) start-ms))
-            outcome   (commit-and-flow! final-ctx event-id event frame
-                                        frame-record fx-overrides envelope start-ms)]
-        ;; The cause leads the trailers, which carry only its consequence.
-        ;; Keyed on the rejection fact rather than the outcome, so a refusal
-        ;; whose unwind then threw reports both.
-        (when (:rf/boundary-rejected? final-ctx)
-          (emit-boundary-rejection-record! event-id frame))
-        (emit-pipeline-trailers! event-id event frame outcome
-                                start-ms handler-elapsed-ms final-ctx)))))))
+            (prepare-handler-ctx envelope frame frame-record handler-meta)
+            ;; Marks a machine handler's children `:source :machine-action`
+            ;; (Spec 009 §Dispatch source as the functional-origin axis). Trace
+            ;; provenance only: never copied to a child and never read by
+            ;; `insert-envelope`.
+            envelope (cond-> envelope
+                       (:rf/machine? handler-meta)
+                       (assoc ::rf.fx/machine-emitter? true))]
+        (rf.trace/with-handler-scope
+          (rf.trace/handler-scope-from-meta :event event-id handler-meta)
+          (let [start-ms           (rf.interop/now-ms)
+                ;; The post-delivery `:rf.cofx`, generated facts included. The
+                ;; epoch record pins it so a strict replay re-presents exactly
+                ;; what this run consumed. Dev-only.
+                run-cofx           (when rf.interop/debug-enabled?
+                                     (-> initial-ctx :coeffects :rf.cofx))
+                ;; The envelope's own overrides, never the per-frame tier. Fns are
+                ;; replaced by the sentinel here, so none reaches the trace or the
+                ;; epoch record.
+                override-fx        (when rf.interop/debug-enabled?
+                                     (serializable-fx-overrides (:fx-overrides envelope)))
+                override-icpt      (when rf.interop/debug-enabled?
+                                     (not-empty (:interceptor-overrides envelope)))
+                _                  (rf.trace/emit! :rf.event :rf.event/run-start
+                                                   ;; Keyed on the runtime value: a
+                                                   ;; keyword-literal test would not fold away
+                                                   ;; under Closure.
+                                                   (cond-> {:rf.trace/event-id event-id
+                                                            :rf.event/v        event
+                                                            :frame             frame
+                                                            :source            (:source envelope)
+                                                            :rf.trace/trace-id (:trace-id envelope)
+                                                            :rf.trace/phase    :run-start}
+                                                     override-summary
+                                                     (assoc :rf.interceptor/override-summary
+                                                            override-summary)
+                                                     (some? run-cofx)
+                                                     (assoc :rf.event/cofx run-cofx)
+                                                     (some? override-fx)
+                                                     (assoc :rf.event/fx-overrides override-fx)
+                                                     (some? override-icpt)
+                                                     (assoc :rf.event/interceptor-overrides override-icpt)))
+                event-ok?          (validate-event! event-id event handler-meta frame)
+                final-ctx          (run-chain event-id full-chain initial-ctx event-ok?
+                                              handler-meta)
+                ;; The chain alone, before commit and the `:fx` walk. Dev-only.
+                handler-elapsed-ms (when rf.interop/debug-enabled?
+                                     (- (rf.interop/now-ms) start-ms))
+                outcome            (commit-and-flow! final-ctx event-id event frame
+                                                     frame-record fx-overrides envelope start-ms)]
+            ;; The cause leads the trailers, which carry only its consequence.
+            ;; Keyed on the rejection fact rather than the outcome, so a refusal
+            ;; whose unwind then threw reports both.
+            (when (:rf/boundary-rejected? final-ctx)
+              (emit-boundary-rejection-record! event-id frame))
+            (emit-pipeline-trailers! event-id event frame outcome
+                                     start-ms handler-elapsed-ms final-ctx)))))))
 
 (defn- process-event*
   "Resolve the event's handler and run its pipeline. A destroyed frame, a
@@ -1729,52 +1705,44 @@
   `:origin`, `:source` and `:rf.trace/call-site` (Spec 009 §Dispatch
   correlation). Suppressed when the target handler is marked
   `:rf.trace/no-emit?`, read from its registration because no handler scope
-  exists yet at enqueue. Dev-only."
+  exists yet at enqueue. Dev-only: the whole body sits behind the
+  Closure-foldable `rf.interop/debug-enabled?` gate, because the handler
+  lookup goes through a dynamic binding and a try/catch that Closure cannot
+  elide on its own."
   [envelope sync?]
-  (let [event        (:event envelope)
-        event-id     (when (vector? event) (first event))
-        ;; Resolve through the target frame's own view, not a bare lookup:
-        ;; an image-loaded frame's inline handler exists only in its
-        ;; generation, and a generation-blind lookup would miss its
-        ;; `:rf.trace/no-emit?`.
-         handler-meta (when event-id
-                        (try
-                          (rf.live-frame/call-with-frame-resolution
-                            (:frame envelope)
-                            (fn [] (rf.registrar/lookup :event event-id)))
-                          (catch #?(:clj Throwable :cljs :default) e
-                            ;; An ambiguous id has no meta to gate on: it is
-                            ;; reported once, where the event is processed.
-                            (when-not (rf.registrar/ambiguous-registration? e)
-                              (throw e)))))
-         no-emit?     (rf.trace/no-emit?-from-meta handler-meta)]
-    (when-not no-emit?
-      (rf.trace/with-call-site (:call-site envelope)
-        (rf.trace/emit! :rf.event :rf.event/dispatched
-                     ;; The outermost `if` is the Closure-foldable gate: a
-                     ;; `cond->` test on a keyword does not fold, so the
-                     ;; `:rf.cofx` slot would survive `:advanced` +
-                     ;; `goog.DEBUG=false`.
-                     (cond-> (if rf.interop/debug-enabled?
-                               {:rf.event/v         event
-                                :frame              (:frame envelope)
-                                :rf.event/origin    (:origin envelope)
-                                :source             (:source envelope)
-                                :rf.event/sync?     sync?
-                                :rf.cofx            (:rf.cofx envelope)}
-                               {:rf.event/v         event
-                                :frame              (:frame envelope)
-                                :rf.event/origin    (:origin envelope)
-                                :source             (:source envelope)
-                                :rf.event/sync?     sync?})
-                       (:dispatch-id envelope)
-                       (assoc :rf.trace/dispatch-id (:dispatch-id envelope))
-                       (:parent-dispatch-id envelope)
-                       (assoc :rf.trace/parent-dispatch-id (:parent-dispatch-id envelope))
-                       (:source-detail envelope)
-                       (assoc :rf.event/source-detail (:source-detail envelope))
-                       (:step-index envelope)
-                       (assoc :rf.frame/init-step-index (:step-index envelope))))))))
+  (when rf.interop/debug-enabled?
+    (let [event        (:event envelope)
+          event-id     (first event)
+          ;; Resolve through the target frame's own view, not a bare lookup:
+          ;; an image-loaded frame's inline handler exists only in its
+          ;; generation, and a generation-blind lookup would miss its
+          ;; `:rf.trace/no-emit?`.
+          handler-meta (try
+                         (rf.live-frame/call-with-frame-resolution
+                           (:frame envelope)
+                           (fn [] (rf.registrar/lookup :event event-id)))
+                         (catch #?(:clj Throwable :cljs :default) e
+                           ;; An ambiguous id has no meta to gate on: it is
+                           ;; reported once, where the event is processed.
+                           (when-not (rf.registrar/ambiguous-registration? e)
+                             (throw e))))]
+      (when-not (rf.trace/no-emit?-from-meta handler-meta)
+        (rf.trace/with-call-site (:call-site envelope)
+          (rf.trace/emit! :rf.event :rf.event/dispatched
+                          (cond-> {:rf.event/v      event
+                                   :frame           (:frame envelope)
+                                   :rf.event/origin (:origin envelope)
+                                   :source          (:source envelope)
+                                   :rf.event/sync?  sync?
+                                   :rf.cofx         (:rf.cofx envelope)}
+                            (:dispatch-id envelope)
+                            (assoc :rf.trace/dispatch-id (:dispatch-id envelope))
+                            (:parent-dispatch-id envelope)
+                            (assoc :rf.trace/parent-dispatch-id (:parent-dispatch-id envelope))
+                            (:source-detail envelope)
+                            (assoc :rf.event/source-detail (:source-detail envelope))
+                            (:step-index envelope)
+                            (assoc :rf.frame/init-step-index (:step-index envelope)))))))))
 
 (defn- head-insert
   "`q` (a PersistentQueue of envelopes, or nil) with `envelope` at its head,
@@ -1848,56 +1816,55 @@
   shape see Conventions §Canonical event-vector shape."
   ([event] (dispatch! event {}))
   ([event opts]
-   (when-let [envelope  (build-envelope event opts)]
-    (let [
-         frame-id       (:frame envelope)
-         frame-record   (rf.frame/frame frame-id)
-         target-token   (:drain-lock frame-record)
-         ;; nil for every ordinary dispatch, which leaves the fence below
-         ;; inert.
-         expected-incarnation (:rf.frame/expected-incarnation envelope)
-         ;; A captured op's pinned incarnation is dead on every rejection
-         ;; below, so its emit withholds the frame route; an ordinary
-         ;; address-directed dispatch names its frame by id and routes.
-         captured?      (some? expected-incarnation)
-         cascade-router (frame-destroy-cascade-router frame-id)]
-     (cond
-   (nil? frame-record)
-   ;; Recover-but-emit. The bound call-site serves the dev trace; the
-   ;; always-on record takes its coord from the registration.
-   (rf.trace/with-call-site (:call-site envelope)
-     (emit-frame-destroyed! (first event) event (:frame envelope)
-                            :dispatch (not captured?)))
+   (when-let [envelope (build-envelope event opts)]
+     (let [frame-id             (:frame envelope)
+           frame-record         (rf.frame/frame frame-id)
+           target-token         (:drain-lock frame-record)
+           ;; nil for every ordinary dispatch, which leaves the fence below
+           ;; inert.
+           expected-incarnation (:rf.frame/expected-incarnation envelope)
+           ;; A captured op's pinned incarnation is dead on every rejection
+           ;; below, so its emit withholds the frame route; an ordinary
+           ;; address-directed dispatch names its frame by id and routes.
+           captured?            (some? expected-incarnation)
+           cascade-router       (frame-destroy-cascade-router frame-id)]
+       (cond
+         (nil? frame-record)
+         ;; Recover-but-emit. The bound call-site serves the dev trace; the
+         ;; always-on record takes its coord from the registration.
+         (rf.trace/with-call-site (:call-site envelope)
+           (emit-frame-destroyed! (first event) event (:frame envelope)
+                                  :dispatch (not captured?)))
 
-   ;; A captured op pinned to incarnation A resolved a same-id successor B.
-   ;; `target-token` comes off the record we would enqueue into, so the
-   ;; check is fused with target consumption and A's authority never
-   ;; reaches B.
-   (and (some? expected-incarnation)
-        (not (identical? expected-incarnation target-token)))
-   (rf.trace/with-call-site (:call-site envelope)
-     (emit-frame-destroyed! (first event) event (:frame envelope) :dispatch false))
+         ;; A captured op pinned to incarnation A resolved a same-id successor B.
+         ;; `target-token` comes off the record we would enqueue into, so the
+         ;; check is fused with target consumption and A's authority never
+         ;; reaches B.
+         (and (some? expected-incarnation)
+              (not (identical? expected-incarnation target-token)))
+         (rf.trace/with-call-site (:call-site envelope)
+           (emit-frame-destroyed! (first event) event (:frame envelope) :dispatch false))
 
-   cascade-router
-   ;; Cleanup descendants stay on the private teardown queue. No scheduler
-   ;; is involved, and no ordinary/racing envelope can join this cascade.
-   (do (emit-dispatched-trace! envelope false)
-       (enqueue-envelope! cascade-router envelope))
+         cascade-router
+         ;; Cleanup descendants stay on the private teardown queue. No scheduler
+         ;; is involved, and no ordinary/racing envelope can join this cascade.
+         (do (emit-dispatched-trace! envelope false)
+             (enqueue-envelope! cascade-router envelope))
 
-   :else
-   (let [router    (:router frame-record)
-         enqueued? (do (emit-dispatched-trace! envelope false)
-                       (ensure-drain-scheduled! frame-id frame-record router
-                                                envelope))]
-     ;; A captured dispatch that lost its incarnation between the token check
-     ;; and the enqueue: nothing was enqueued, so this is the one emit. An
-     ;; ordinary dispatch stays silent on that benign race.
-     (when (and captured?
-                (not enqueued?)
-                (not (rf.frame/frame-incarnation-live? frame-id target-token)))
-       (rf.trace/with-call-site (:call-site envelope)
-         (emit-frame-destroyed! (first event) event (:frame envelope)
-                                :dispatch false)))))))
+         :else
+         (let [router    (:router frame-record)
+               enqueued? (do (emit-dispatched-trace! envelope false)
+                             (ensure-drain-scheduled! frame-id frame-record router
+                                                      envelope))]
+           ;; A captured dispatch that lost its incarnation between the token check
+           ;; and the enqueue: nothing was enqueued, so this is the one emit. An
+           ;; ordinary dispatch stays silent on that benign race.
+           (when (and captured?
+                      (not enqueued?)
+                      (not (rf.frame/frame-incarnation-live? frame-id target-token)))
+             (rf.trace/with-call-site (:call-site envelope)
+               (emit-frame-destroyed! (first event) event (:frame envelope)
+                                      :dispatch false)))))))
    nil))
 
 (defn ^:no-doc dispatch-sync-with-id!
@@ -1908,101 +1875,101 @@
   `dispatch-sync!` discards it, so the public return value stays nil."
   ([event opts]
    (when-let [envelope (build-envelope event opts)]
-    (let [frame-record (rf.frame/frame (:frame envelope))
-       target-token (:drain-lock frame-record)
-       target-live? #(rf.frame/frame-incarnation-live?
-                        (:frame envelope) target-token)
-       ;; Already debug-gated in `build-envelope`, so the keyword is not
-       ;; read a second time.
-       call-site    (:call-site envelope)
-       expected-incarnation (:rf.frame/expected-incarnation envelope)
-       captured?    (some? expected-incarnation)
-       ;; Reentry into the SAME frame's running drain: the sync flag, or this
-       ;; thread is the drainer. A different thread mid-drain is a concurrent
-       ;; caller, which `drain-block!` waits out.
-       nested-sync?
-       (when frame-record
-         (let [router-state @(:router frame-record)
-               same-thread-drain?
-               #?(:clj  (identical? (:in-drain? router-state) (Thread/currentThread))
-                  :cljs (true? (:in-drain? router-state)))]
-           (or (:in-sync-drain? router-state) same-thread-drain?)))
-       ;; This thread owns the drain serialization through a cold
-       ;; `call-serialized-with-drain!` section without being the drainer,
-       ;; e.g. a Tool-Pair state write. It must re-enter the drain directly,
-       ;; since `drain-block!` would deadlock on its own lock. Checked only
-       ;; when not `nested-sync?`, so the drainer axis wins.
-       reentrant-cold?
-       (when (and frame-record (not nested-sync?))
-         (let [holder @(:serialized-holder frame-record)]
-           #?(:clj  (identical? holder (Thread/currentThread))
-              :cljs (true? holder))))]
-   (cond
-     (nil? frame-record)
-     ;; Recover-but-emit; a dispatch-sync shares the dispatch event realm.
-     (rf.trace/with-call-site call-site
-       (emit-frame-destroyed! (first event) event (:frame envelope)
-                              :dispatch-sync (not captured?))
-       nil)
+     (let [frame-record         (rf.frame/frame (:frame envelope))
+           target-token         (:drain-lock frame-record)
+           target-live?         #(rf.frame/frame-incarnation-live?
+                                   (:frame envelope) target-token)
+           ;; Already debug-gated in `build-envelope`, so the keyword is not
+           ;; read a second time.
+           call-site            (:call-site envelope)
+           expected-incarnation (:rf.frame/expected-incarnation envelope)
+           captured?            (some? expected-incarnation)
+           ;; Reentry into the SAME frame's running drain: the sync flag, or this
+           ;; thread is the drainer. A different thread mid-drain is a concurrent
+           ;; caller, which `drain-block!` waits out.
+           nested-sync?
+           (when frame-record
+             (let [router-state @(:router frame-record)
+                   same-thread-drain?
+                   #?(:clj  (identical? (:in-drain? router-state) (Thread/currentThread))
+                      :cljs (true? (:in-drain? router-state)))]
+               (or (:in-sync-drain? router-state) same-thread-drain?)))
+           ;; This thread owns the drain serialization through a cold
+           ;; `call-serialized-with-drain!` section without being the drainer,
+           ;; e.g. a Tool-Pair state write. It must re-enter the drain directly,
+           ;; since `drain-block!` would deadlock on its own lock. Checked only
+           ;; when not `nested-sync?`, so the drainer axis wins.
+           reentrant-cold?
+           (when (and frame-record (not nested-sync?))
+             (let [holder @(:serialized-holder frame-record)]
+               #?(:clj  (identical? holder (Thread/currentThread))
+                  :cljs (true? holder))))]
+       (cond
+         (nil? frame-record)
+         ;; Recover-but-emit; a dispatch-sync shares the dispatch event realm.
+         (rf.trace/with-call-site call-site
+           (emit-frame-destroyed! (first event) event (:frame envelope)
+                                  :dispatch-sync (not captured?))
+           nil)
 
-     ;; As in `dispatch!`, and ahead of the drain clauses so a superseded
-     ;; capture never enters the successor's drain.
-     (and (some? expected-incarnation)
-          (not (identical? expected-incarnation target-token)))
-     (rf.trace/with-call-site call-site
-       (emit-frame-destroyed! (first event) event (:frame envelope) :dispatch-sync false)
-       nil)
+         ;; As in `dispatch!`, and ahead of the drain clauses so a superseded
+         ;; capture never enters the successor's drain.
+         (and (some? expected-incarnation)
+              (not (identical? expected-incarnation target-token)))
+         (rf.trace/with-call-site call-site
+           (emit-frame-destroyed! (first event) event (:frame envelope) :dispatch-sync false)
+           nil)
 
-     nested-sync?
-     ;; The event would interleave with the outer handler's run (Spec 002
-     ;; §Calling `dispatch-sync` *inside* a handler is an error).
-     (rf.trace/with-call-site call-site
-       ;; `:rf.event/v` is the schema-required key, not a bare `:event`.
-       (rf.trace/emit-error! :rf.error/dispatch-sync-in-handler
-                          {:frame      (:frame envelope)
-                           :rf.event/v event
-                           :reason     "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
-                           :recovery   :no-recovery})
-       nil)
+         nested-sync?
+         ;; The event would interleave with the outer handler's run (Spec 002
+         ;; §Calling `dispatch-sync` *inside* a handler is an error).
+         (rf.trace/with-call-site call-site
+           ;; `:rf.event/v` is the schema-required key, not a bare `:event`.
+           (rf.trace/emit-error! :rf.error/dispatch-sync-in-handler
+                                 {:frame      (:frame envelope)
+                                  :rf.event/v event
+                                  :reason     "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
+                                  :recovery   :no-recovery})
+           nil)
 
-     :else
-     (let [router (:router frame-record)]
-       ;; Another frame mid-drain: warn but proceed (Spec 002 §Cross-frame
-       ;; `dispatch-sync` during a sibling drain warns but proceeds). Dev-only.
-       (when rf.interop/debug-enabled?
-         (when-let [other-frame-id (rf.router.diagnostics/find-other-draining-frame-id (:frame envelope))]
-           (rf.router.diagnostics/emit-cross-frame-warning! (:frame envelope) other-frame-id event)))
-       (let [drained?
-       (do (emit-dispatched-trace! envelope true)
-        (when (target-live?)
-         (try
-         ;; The seed push runs inside `drain-block!`'s lock window, so it
-         ;; cannot interleave with another drainer's peek and pop.
-         ;; `:in-sync-drain?` blocks a concurrent dispatch-sync, and
-         ;; `:scheduled?` suppresses async scheduling until the finally. A
-         ;; cold serialization holder re-enters through `drain-reentrant!`,
-         ;; which neither acquires nor releases the lock.
-         (let [seed-push (fn []
-                           (swap! router (fn [{:keys [internal] :as r}]
-                                           (assoc r
-                                                  :internal       (head-insert internal envelope)
-                                                  :scheduled?     true
-                                                  :in-sync-drain? true))))]
-           (if reentrant-cold?
-             (drain-reentrant! (:frame envelope) frame-record seed-push)
-             (drain-block!     (:frame envelope) frame-record seed-push)))
-          (finally
-            (swap! router assoc :in-sync-drain? false)))))]
-         ;; A captured dispatch-sync that lost its incarnation before the lock
-         ;; was acquired: the seed never ran, so this is the one emit.
-         (when (and captured?
-                    (not drained?)
-                    (not (rf.frame/frame-incarnation-live?
-                           (:frame envelope) target-token)))
-           (rf.trace/with-call-site call-site
-             (emit-frame-destroyed! (first event) event (:frame envelope)
-                                    :dispatch-sync false)))
-         (when drained? (:dispatch-id envelope)))))))))
+         :else
+         (let [router (:router frame-record)]
+           ;; Another frame mid-drain: warn but proceed (Spec 002 §Cross-frame
+           ;; `dispatch-sync` during a sibling drain warns but proceeds). Dev-only.
+           (when rf.interop/debug-enabled?
+             (when-let [other-frame-id (rf.router.diagnostics/find-other-draining-frame-id (:frame envelope))]
+               (rf.router.diagnostics/emit-cross-frame-warning! (:frame envelope) other-frame-id event)))
+           (let [drained?
+                 (do (emit-dispatched-trace! envelope true)
+                     (when (target-live?)
+                       (try
+                         ;; The seed push runs inside `drain-block!`'s lock window, so it
+                         ;; cannot interleave with another drainer's peek and pop.
+                         ;; `:in-sync-drain?` blocks a concurrent dispatch-sync, and
+                         ;; `:scheduled?` suppresses async scheduling until the finally. A
+                         ;; cold serialization holder re-enters through `drain-reentrant!`,
+                         ;; which neither acquires nor releases the lock.
+                         (let [seed-push (fn []
+                                           (swap! router (fn [{:keys [internal] :as r}]
+                                                           (assoc r
+                                                                  :internal       (head-insert internal envelope)
+                                                                  :scheduled?     true
+                                                                  :in-sync-drain? true))))]
+                           (if reentrant-cold?
+                             (drain-reentrant! (:frame envelope) frame-record seed-push)
+                             (drain-block!     (:frame envelope) frame-record seed-push)))
+                         (finally
+                           (swap! router assoc :in-sync-drain? false)))))]
+             ;; A captured dispatch-sync that lost its incarnation before the lock
+             ;; was acquired: the seed never ran, so this is the one emit.
+             (when (and captured?
+                        (not drained?)
+                        (not (rf.frame/frame-incarnation-live?
+                               (:frame envelope) target-token)))
+               (rf.trace/with-call-site call-site
+                 (emit-frame-destroyed! (first event) event (:frame envelope)
+                                        :dispatch-sync false)))
+             (when drained? (:dispatch-id envelope)))))))))
 
 (defn dispatch-sync!
   "Process `event` now and drain to fixed point before returning, for

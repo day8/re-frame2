@@ -224,6 +224,26 @@
             (is (contains? #{:dispatch :http}
                            (get-in (first shape) [:tags :offending-key])))))))))
 
+(deftest a-returned-app-db-is-refused-with-advice-to-return-it-under-db
+  (testing "a map carrying none of the closed keys is most likely the new
+            app-db, so the reason offers `{:db …}` before the `:fx` move"
+    (rf/reg-event :fx-test/returns-app-db
+      (fn [{:keys [db]} _] (assoc db :todos [1])))
+    (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/returns-app-db]))]
+      (is (nil? (:todos (rf/app-db-value :rf/default))) "the event was refused")
+      (when rf.interop/debug-enabled?
+        (let [[t] (of-op :rf.error/effect-map-shape traces)]
+          (is (= :todos (get-in t [:tags :offending-key])))
+          (is (re-find #"return it as `\{:db <new-db>\}`" (get-in t [:tags :reason])))))))
+  (testing "beside a closed key the reason keeps the `:fx` move alone"
+    (rf/reg-event :fx-test/db-and-dispatch
+      (fn [{:keys [db]} _] {:db db :dispatch [:fx-test/db-and-dispatch]}))
+    (let [{:keys [traces]} (observe #(rf/dispatch-sync [:fx-test/db-and-dispatch]))]
+      (when rf.interop/debug-enabled?
+        (let [reason (get-in (first (of-op :rf.error/effect-map-shape traces)) [:tags :reason])]
+          (is (re-find #"Move `:dispatch` into `:fx`" reason))
+          (is (not (re-find #":db <new-db>" reason))))))))
+
 ;; ---- 6c. Per-entry :fx shape policing -------------------------------------
 
 (deftest malformed-fx-entry-is-policed-and-skipped

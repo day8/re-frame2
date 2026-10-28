@@ -377,7 +377,14 @@
                             (str "Effect-map for `" event-id "` returned top-level key `" k
                                  "`; the effect-map is closed — `:db`, `:rf.db/runtime`"
                                  " and `:fx` are the only top-level keys."
-                                 " Move `" k "` into `:fx` (e.g. `{:fx [[" k " …]]}`)."
+                                 ;; A map carrying none of them is most likely
+                                 ;; the new app-db itself, returned in the v1
+                                 ;; `reg-event-db` shape.
+                                 (if (some closed-effect-map-keys (keys effects))
+                                   (str " Move `" k "` into `:fx` (e.g. `{:fx [[" k " …]]}`).")
+                                   (str " If this map is the new app-db, return it as"
+                                        " `{:db <new-db>}`; if `" k "` is an effect, move it"
+                                        " into `:fx` (e.g. `{:fx [[" k " …]]}`)."))
                                  " The event is refused until corrected — nothing"
                                  " committed."))})
         ;; (b) — the whole-`:fx` value.
@@ -447,7 +454,7 @@
                          "subscriptions and effects, and write application data via `:db`.")}))))
 
 (defn- commit-fx-effects
-  "fx-kind commit: project the handler's returned effect map into the context.
+  "Project the handler's returned effect map into the context.
   Bad-return / nil-return policy lives here — `nil` is the documented legal
   no-op; any non-map return emits :rf.error/effect-handler-bad-return with
   :no-recovery and the dispatch becomes a no-op.
@@ -536,9 +543,8 @@
   actor's handler-meta on demand from its app-db snapshot rather than from
   a per-instance registrar entry), the inline `:reg-event` lowering
   (`lower-inline-event`), and the framework-standard `:rf/set-db` and
-  install-frame-state descriptors. `register-event!`
-  does NOT call it — it builds the same `:interceptors` chain inline — so a
-  change to the shape here must be made there too. The cascade in
+  install-frame-state descriptors; `register-event!` and `lower-inline-event`
+  build their descriptors with it too. The cascade in
   `re-frame.router/process-event*` drives whatever it is handed, registered
   or lazily-resolved.
 
@@ -716,7 +722,7 @@
         m))))
 
 (defn- split-meta-interceptors
-  "The SHAPE half of `resolve-interceptors`: validate the metadata-map
+  "The `:interceptors` step of `checked-event-meta`: validate the metadata-map
   `:interceptors` superset form and split it out, returning
   `[clean-meta interceptor-refs]`. A non-vector / non-interceptor value raises
   `:rf.error/reg-event-bad-interceptors`. Checks no reference's EXISTENCE — that
@@ -740,20 +746,35 @@
     [(dissoc meta :interceptors)
      (validate-meta-interceptors! reg-fn-name id (:interceptors meta))]))
 
-(defn- resolve-interceptors
-  "Resolve the metadata-map `:interceptors` superset form into the effective
-  user-supplied interceptor chain, returning `[clean-meta effective-interceptors]`:
-  the shape half (`split-meta-interceptors`), then every reference checked
-  against the registrar."
-  [reg-fn-name id meta]
-  (let [[_ meta-interceptors :as split] (split-meta-interceptors reg-fn-name id meta)]
-    ;; Per Spec 002 §Validation and resolution timing: validate that every
-    ;; REFERENCE resolves at registration (typos die before dispatch), but
-    ;; store the chain UNRESOLVED — the router resolves refs at chain
-    ;; assembly so a hot-reloaded interceptor descriptor is picked up on the
-    ;; next dispatch (EP-0022).
-    (validate-refs-registered! meta-interceptors)
+(defn- checked-event-meta
+  "Run the registration-time checks `register-event!` and `lower-inline-event`
+  share, so the registrar path and an image's inline path accept exactly the
+  same registrations (EP-0026 §Inline Registration Grammar), and return
+  `[meta refs]`: `meta` with its `:interceptors` split out as `refs`.
+
+  The metadata keys are checked on `raw-meta`, while it still carries the
+  known `:interceptors` key; then the `:interceptors` shape; then `:boundary?`
+  without `:schema`, which boundary validation needs (Spec 010 §Production
+  builds); then any `:sensitive` / `:large` classification, fail-loud before
+  anything is stored (Spec 015 §1. Event handlers). Each caller checks that the
+  refs exist, against the registry it trusts."
+  [id raw-meta]
+  (rf.reg-meta/validate-registration-metadata! :event 'rf/reg-event id raw-meta)
+  (let [[meta :as split] (split-meta-interceptors "reg-event" id raw-meta)]
+    (reject-at-boundary-without-schema! "reg-event" id meta)
+    (rf.classification/validate-classification! :event meta)
     split))
+
+(defn- event-registration-meta
+  "The registrar-shaped descriptor for a checked registration: the
+  `event-handler-meta` shape, plus `:rf.cofx/requires-parsed` when `meta`
+  declares `:rf.cofx/requires`, which the satisfaction step reads (EP-0017
+  §4). The parse throws `:rf.error/cofx-request-invalid` /
+  `:rf.error/cofx-name-collision` on a malformed or duplicate declaration."
+  [id meta refs handler-fn]
+  (let [requires-parsed (rf.cofx/parse-requires id (:rf.cofx/requires meta))]
+    (cond-> (event-handler-meta meta refs handler-fn)
+      (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed))))
 
 ;; ---- reserved framework-standard event ids (EP-0027) ----------------------
 ;;
@@ -827,60 +848,22 @@
   nil)
 
 (defn- register-event!
-  "Registration body for `reg-event` — the one public event form (EP-0018).
-
-  Steps:
-    0. reject a RESERVED framework-standard event id (EP-0027 — e.g.
-       `:rf/set-db`): the `:rf/*` single-root is framework-owned, so an app
-       `reg-event` over one is a loud reserved-id collision;
-    1. parse the variadic tail into [metadata handler];
-    2. resolve the interceptor chain from metadata `:interceptors` via
-       `resolve-interceptors`: validates the map value and strips
-       the raw key from the stored meta;
-    3. wrap the user handler into the `:rf/event-handler` interceptor via
-       `wrap-event-handler`;
-    4. register under `:event` with `:handler-fn` retained for tooling
-       introspection and `:rf.handler/source` carrying the macro-captured
-       form-source string when present (Spec 009);
-    5. return the event id. Schema-first privacy has no
-       user-facing redaction interceptor to police at registration time.
-
-  Returns the event id."
+  "Registration body for `reg-event`, the one public event form (EP-0018).
+  Refuses a reserved framework-standard id (EP-0027), runs the checks it shares
+  with an image's inline `:reg-event` (`checked-event-meta`), checks every
+  interceptor reference against the registrar, and registers the
+  `event-registration-meta` descriptor with its source coordinates and
+  `:rf.handler/source` form source (Spec 009). Returns the event id."
   [reg-fn-name id args]
   (reject-reserved-event-id! reg-fn-name id)
   (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
-        ;; No-silent-swallow on the registration metadata KEYS:
-        ;; a retired bare key (`:spec`) hard-errors, an unknown bare key warns,
-        ;; namespaced/known keys pass. Runs on the raw user meta (which still
-        ;; carries `:interceptors`, a known `:event` key) BEFORE `:interceptors`
-        ;; is stripped by `resolve-interceptors`.
-        _ (rf.reg-meta/validate-registration-metadata! :event 'rf/reg-event id raw-meta)
-        [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
-        wrapped (wrap-event-handler handler-fn)]
-    ;; Per Spec 010 §Production builds: reject the registration when
-    ;; `:boundary? true` is declared but no `:schema` is. Boundary validation
-    ;; re-uses the handler's own schema and is structurally meaningless
-    ;; without one, so surface the misconfiguration at the moment of
-    ;; registration (always — both dev and prod) rather than waiting for the
-    ;; first dispatch in production.
-    (reject-at-boundary-without-schema! reg-fn-name id meta)
-    ;; EP-0017 §4: parse + validate `:rf.cofx/requires` into the normalised
-    ;; entry vector the satisfaction step consumes (`rf.cofx/deliver-declared-cofx`,
-    ;; via `assemble-initial-ctx`), raising `:rf.error/cofx-request-invalid` /
-    ;; `:rf.error/cofx-name-collision` on a malformed / duplicate declaration.
-    ;; EP-0018: `:rf.cofx/requires` is uniformly available — the one form is
-    ;; coeffects-in.
-    ;; Per Spec 015 §1. Event handlers: VALIDATE any declared `:sensitive` /
-    ;; `:large` classification fail-loud BEFORE the registrar write; the
-    ;; classification itself is DERIVED from the registrar meta at
-    ;; `registration-classification` read time, no imperative stash. DIRECT
-    ;; REQUIRE: `classification` is core-owned, same-artefact, pinned into the
-    ;; prod bundle, and always-on, so the require needs no late-bind hop and is
-    ;; cycle-free. Runs for MACHINE registrations too: a machine's author
-    ;; classification rides its `:event` reg meta (via `reg-machine` opts);
-    ;; `registration-classification :event <id>` returns those registrar-derived
-    ;; author paths (app-db paths are `reg-classification`'s).
-    (rf.classification/validate-classification! :event meta)
+        [meta refs]           (checked-event-meta id raw-meta)]
+    ;; Per Spec 002 §Validation and resolution timing: every reference must
+    ;; resolve at registration, so typos die before dispatch, but the chain is
+    ;; stored UNRESOLVED — the router resolves refs at chain assembly, so a
+    ;; hot-reloaded interceptor descriptor is picked up on the next dispatch
+    ;; (EP-0022).
+    (validate-refs-registered! refs)
     ;; Replacing a framework REPLACEABLE DEFAULT
     ;; (`:rf.route/entry-denied` / `:rf.route/navigation-blocked`) replaces
     ;; BEHAVIOUR — not the framework's own payload shape. The carriers the
@@ -890,26 +873,25 @@
     ;; override, unioned with anything this registration declared. Runs AFTER
     ;; `validate-classification!` so a malformed app declaration still fails on
     ;; its own terms; a no-op for every id that is not a framework default.
-    (let [meta            (rf.image-assembly/retain-framework-default-classification
-                            :event id meta)
-          requires-parsed (rf.cofx/parse-requires id (:rf.cofx/requires meta))]
-      (rf.registrar/register! :event id
-        (cond-> (assoc (-> meta rf.source-coords/merge-coords merge-form-source)
-                       :handler-fn   handler-fn
-                       :interceptors (-> [] (into interceptors) (conj wrapped)))
-          (seq requires-parsed)
-          (assoc :rf.cofx/requires-parsed requires-parsed)))
-      ;; The INVERSE half of the retention above: namespace load
-      ;; order must not decide the effective classification. When THIS
-      ;; registration is the framework seeding its replaceable default, an
-      ;; application override for the same id may ALREADY be in the source store
-      ;; (an app namespace that registers `:rf.route/entry-denied` and never
-      ;; requires `re-frame.routing` loads first whenever something else requires
-      ;; the facade later) — and that descriptor, recorded before the framework's
-      ;; own existed, carries none of the framework's carriers. Reconcile it here
-      ;; so BOTH orders converge; a no-op (one source-store read) for every id
-      ;; that is not a framework replaceable default.
-      (rf.image-assembly/reconcile-framework-default-classification! :event id))
+    (rf.registrar/register! :event id
+      (event-registration-meta
+        id
+        (-> (rf.image-assembly/retain-framework-default-classification :event id meta)
+            rf.source-coords/merge-coords
+            merge-form-source)
+        refs
+        handler-fn))
+    ;; The INVERSE half of the retention above: namespace load
+    ;; order must not decide the effective classification. When THIS
+    ;; registration is the framework seeding its replaceable default, an
+    ;; application override for the same id may ALREADY be in the source store
+    ;; (an app namespace that registers `:rf.route/entry-denied` and never
+    ;; requires `re-frame.routing` loads first whenever something else requires
+    ;; the facade later) — and that descriptor, recorded before the framework's
+    ;; own existed, carries none of the framework's carriers. Reconcile it here
+    ;; so BOTH orders converge; a no-op (one source-store read) for every id
+    ;; that is not a framework replaceable default.
+    (rf.image-assembly/reconcile-framework-default-classification! :event id)
     id))
 
 (defn reg-event
@@ -1460,12 +1442,7 @@
   Image-assembly merges the result UNDER the descriptor, preserving `:impl` +
   provenance for replacement-winner coordinates and dedupe."
   [id meta impl]
-  (rf.reg-meta/validate-registration-metadata! :event 'rf/reg-event id meta)
-  (let [[meta refs] (split-meta-interceptors "reg-event" id meta)]
-    (reject-at-boundary-without-schema! "reg-event" id meta)
-    (rf.classification/validate-classification! :event meta)
-    (let [requires-parsed (rf.cofx/parse-requires id (:rf.cofx/requires meta))]
-      (cond-> (event-handler-meta meta refs impl)
-        (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed)))))
+  (let [[meta refs] (checked-event-meta id meta)]
+    (event-registration-meta id meta refs impl)))
 
 (rf.late-bind/set-fn! :image/lower-inline-event lower-inline-event)

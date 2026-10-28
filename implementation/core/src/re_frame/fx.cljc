@@ -10,6 +10,7 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.reg-meta :as rf.reg-meta]
+            [re-frame.router.diagnostics :as rf.router.diagnostics]
             [re-frame.classification :as rf.classification]
             [re-frame.performance :as rf.performance
              #?@(:cljs [:include-macros true])]
@@ -381,8 +382,11 @@
                (some? rf-cofx)       (assoc :rf.cofx rf-cofx))]
     (if (number? ms)
       ;; A timer callback, dispatched after the emitting event returned, so it
-      ;; joins the external lane even at 0 ms.
-      (arm-dispatch-later! frame-id ms event opts id)
+      ;; joins the external lane even at 0 ms. The event is checked before the
+      ;; timer is armed, so a malformed one is refused here, where the fx walk
+      ;; reports it, rather than thrown later from the timer.
+      (do (rf.router.diagnostics/validate-event-vector! event)
+          (arm-dispatch-later! frame-id ms event opts id))
       (when-let [f (rf.late-bind/get-fn :router/dispatch!)]
         (f event opts)))))
 
