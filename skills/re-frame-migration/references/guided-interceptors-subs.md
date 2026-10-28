@@ -151,9 +151,24 @@ The per-event-id mechanics and the four cases the agent **flags rather than gues
 
 1. **Computing derived state** → Spec 013 flow. Same rewrite as `on-changes`.
 2. **Post-handler validation** → registered `:schema` per Spec 010 (Malli schema on the registration's metadata map; `:spec` is no longer accepted — see M-54).
-3. **Imperative escape hatch** → register the original body with `reg-interceptor` (the public `context -> context` authoring form; `->interceptor` is internal-only under EP-0022) and reference it by id from the event's `:interceptors` chain.
+3. **Imperative escape hatch** → register the original body with `reg-interceptor` (the public `context -> context` authoring form; `->interceptor` is internal-only under EP-0022) and reference it by id from the event's `:interceptors` chain, with the body ported as below.
 
 Read the `enrich` body and propose the path; author confirms.
+
+**The escape hatch writes out v1's context protocol.** v1's `f` takes `(db event)`, and `enrich` adapted it to the context, so `{:after f}` would call `f` with the context as its db and no event, and its return would replace the context. The adapter read the handler's `:db` effect when there was one and the coeffect db otherwise, always wrote the `:db` effect, and from 1.3.0 kept the previous db when `f` returned `nil`. The façade has no `get-effect` / `assoc-effect`, so read the context map directly:
+
+```clojure
+;; (rf/enrich f), v1 1.3.0 and later
+(rf/reg-interceptor :app/enrich-totals
+  {:after (fn [ctx]
+            (let [event   (get-in ctx [:coeffects :event])
+                  prev-db (if (contains? (:effects ctx) :db)
+                            (get-in ctx [:effects :db])
+                            (get-in ctx [:coeffects :db]))]
+              (assoc-in ctx [:effects :db] (or (f prev-db event) prev-db))))})
+```
+
+Before 1.3.0, `enrich` wrote `f`'s result through with no `nil` guard, so a `nil` cleared app-db. Port the 1.3.0 body unless the app relied on that, and then return an explicit `{}`, because v2 coerces `{:db nil}` to `{}` with a dev warning. The unconditional `:db` write costs nothing when `f` changes nothing, since an `identical?` db commits nothing. Register one id per distinct `f`: a ref's argument stays data ([M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile)), so `f` cannot be one.
 
 ### `after`
 
@@ -163,6 +178,23 @@ Read the `enrich` body and propose the path; author confirms.
 2. **Must run for every event of a kind**: register the behaviour with `(rf/reg-interceptor :my/thing {:after (fn [ctx] ...)})` and reference `:my/thing` from each affected event's (or the frame's) `:interceptors` chain. Named, addressable, queryable — `reg-interceptor` is the public authoring form (EP-0022), not `->interceptor`. (There is no vendor path: `re-frame.std-interceptors` is off-contract and `->interceptor` is internal-only, so the registered interceptor IS the named replacement — per the corpus M-21 `after` guidance.)
 
 Read the body and propose; author confirms.
+
+**Path 2 contributes the side effect rather than performing it.** `after` called `(f db event)`, with the db picked as `enrich` picks it, ignored the result and returned the context unchanged. The chain is part of the pipeline that replay re-runs, so `f`'s I/O moves into a registered fx that the interceptor appends; the fx handler's context carries the event:
+
+```clojure
+;; (rf/after f)
+(rf/reg-fx :app/audit
+  (fn [{:keys [event]} db] (f db event)))
+
+(rf/reg-interceptor :app/audit-after
+  {:after (fn [ctx]
+            (let [db (if (contains? (:effects ctx) :db)
+                       (get-in ctx [:effects :db])
+                       (get-in ctx [:coeffects :db]))]
+              (update-in ctx [:effects :fx] (fnil conj []) [:app/audit db])))})
+```
+
+`f` now runs in the effect walk after the commit, not inside the chain. A body that only logs to the console can call `f` in place and return `ctx`, because repeating it on replay is harmless.
 
 ---
 
