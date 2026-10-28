@@ -7,7 +7,7 @@ The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-fra
 **"Not an M-rule" ≠ "optional."** No *application code* triggers this swap (M-rules key off application-code surfaces), so it carries no `M-N` id — a *taxonomy* fact, not a priority signal. It runs as a **two-stage swap straddling the M-rule sweep**:
 
 1. **M-0 — neutralize the dead preload (now).** Excluding v1 `re-frame` at M-0 makes `day8.re-frame-10x.preload` uncompilable, so the dead preload blocks the post-M-0 "stop and compile" gate. Remove the 10x dep coord + its `:preloads` entry (+ any 10x `closure-defines` flag) in the same M-0 dep-file edit so the gate is reachable. → [`setup.md` §Neutralize the re-frame-10x preload as part of M-0](setup.md#neutralize-the-re-frame-10x-preload-as-part-of-m-0).
-2. **Post-M-40 — mount Xray (the restore).** The Xray preload auto-opens *after* `(rf/init!)` runs, so it can't mount until boot wiring is in place. Once the M-rule sweep reaches M-40 and a clean reload is verified, add the Xray dep + preload + `[data-rf-xray-host]` layout host — completing the swap and landing the app on Xray.
+2. **Post-M-40 — mount Xray (the restore).** The Xray preload auto-opens *after* `(rf/init!)` runs, so it can't mount until boot wiring is in place. Once the M-rule sweep reaches M-40 and a clean reload is verified, add the Xray dep + preload + `[data-rf-xray-host]` layout host — completing the swap and landing the app on Xray. A fanned-out sweep can land the dep and npm peers earlier and prove them with the [mid-sweep check build](#3a-compile-the-devtools-wiring-mid-sweep).
 
 Stage 1 unblocks the compile gate; stage 2 is the point of the whole swap.
 
@@ -99,6 +99,24 @@ Take the versions from the re-frame2 checkout, because Xray ships no npm manifes
 ```
 
 The preload registers Xray's listeners under `register-listener!` (across the streams it needs, including `:epoch`), attaches the global keydown listener (`Ctrl+Shift+C` and the rest — see [Keybindings](#keybindings-whats-actually-wired)), and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-xray.core])`. No `init!` call. The preload plus the host element are the full integration surface.
+
+### 3a. Compile the devtools wiring mid-sweep
+
+In a fanned-out migration the app does not compile until the sweep lands ([`orchestrating-a-large-migration.md` §5](orchestrating-a-large-migration.md#5-the-all-or-nothing-single-compile-gate)), but this unit's failures — a wrong `:local/root`, a missing npm peer (§2a), a preload namespace that does not resolve — are compile-time and independent of app code. Prove them before the sweep converges with a throwaway build whose only entry is the preload:
+
+```clojure
+;; shadow-cljs.edn — a second build beside the app's; any ignored output dir.
+;; Copy the app build's :js-options, if it has any.
+{:builds {:xray-check {:target     :browser
+                       :output-dir "target/xray-check"
+                       :modules    {:main {:entries [day8.re-frame2-xray.preload]}}}}}
+```
+
+```bash
+npx shadow-cljs compile xray-check   # add -A :dev when shadow-cljs.edn's :deps does not name the Xray alias
+```
+
+Its graph is Xray, re-frame2 and the npm peers, never the app, so it compiles green while the app's own entry cannot. A green compile proves the dep, the npm peers and the preload namespace, not the mount, which still waits for M-40; remove the build once the post-sweep gate is green. The app's own build cannot stand in for it: `npx shadow-cljs compile app --config-merge '{:modules {:main {:entries [day8.re-frame2-xray.preload]}}}'` still compiles the app's entry namespace, because shadow-cljs deep-merges the override into the build config and concatenates vectors, so `:entries` only grows. The same build with `re-frame2-pair.runtime` as its entry checks the Pair preload.
 
 ### 4. Set your editor for clickable jump-to-source
 
