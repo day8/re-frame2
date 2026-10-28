@@ -51,7 +51,7 @@ The classification drives the rewrite path. Sites flagged "observer (off-box egr
 
 ## 2. Sensitive-key checklist
 
-re-frame2's framework defense for sensitive data is the owner-classification model ([015-Data-Classification.md](../../spec/015-Data-Classification.md), EP-0025) — durable `app-db` paths declared via the **four commit-plane classification effects** (a `reg-event` returns `:sensitive` / `:large` alongside `:db`; a `reg-app-schema` slot's `:sensitive?` prop does **not** classify durable app-db — [015 §Schemas describe shape](../../spec/015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)), machine `:data` and resource / mutation params and data via the owner's projection-relative `:sensitive` / `:large` declarations ([015 §Subsystem projection-relative classification](../../spec/015-Data-Classification.md#subsystem-projection-relative-classification)), HTTP `:decode` bodies via per-slot `{:sensitive? true}` Malli props on the decode schema, and transient payloads (event args, sub/flow outputs) via `:sensitive` path-collections in registration metadata. The framework redacts at emit-site (always-on substrates) and at off-box egress (`project-egress` / the wire-elision walker). **But the framework only redacts what's declared.** v1 observability sites usually pre-date the declaration discipline, so the rewrite must inspect each site's payload and either (a) propose classification declarations on the owner of each path the site walks, or (b) compose an explicit drop in the listener body for the keys it must filter even when undeclared.
+re-frame2's framework defense for sensitive data is the owner-classification model ([015-Data-Classification.md](../../spec/015-Data-Classification.md), EP-0025) — durable `app-db` paths declared via a **`reg-classification`** beside the feature (a `reg-app-schema` slot's `:sensitive?` prop does **not** classify durable app-db — [015 §Schemas describe shape](../../spec/015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)), machine `:data` and resource / mutation params and data via the owner's projection-relative `:sensitive` / `:large` declarations ([015 §Subsystem projection-relative classification](../../spec/015-Data-Classification.md#subsystem-projection-relative-classification)), HTTP `:decode` bodies via per-slot `{:sensitive? true}` Malli props on the decode schema, and transient payloads (event args, sub/flow outputs) via `:sensitive` path-collections in registration metadata. The framework redacts at emit-site (always-on substrates) and at off-box egress (`project-egress` / the wire-elision walker). **But the framework only redacts what's declared.** v1 observability sites usually pre-date the declaration discipline, so the rewrite must inspect each site's payload and either (a) propose classification declarations on the owner of each path the site walks, or (b) compose an explicit drop in the listener body for the keys it must filter even when undeclared.
 
 ### Closed set of sensitive-key substring matches
 
@@ -77,7 +77,7 @@ The match is **case-insensitive substring** (`(re-find #"(?i)password|token|...|
 
 ### Recursive walk discipline
 
-Observability payloads are typically nested: an event vector carries a payload map carrying a `:user` sub-map carrying `:credentials` carrying `:password`. The agent's rewrite MUST walk the payload **recursively** — top-level redaction misses nested credentials. The framework's wire-elision walker ([API.md §wire-elision walker](../../spec/API.md#size-elision-wire-boundary-walker)) does this correctly for the paths declared `:sensitive` in the frame's elision registry; the explicit-drop fallback (for undeclared sensitive keys) MUST also recurse. The canonical body:
+Observability payloads are typically nested: an event vector carries a payload map carrying a `:user` sub-map carrying `:credentials` carrying `:password`. The agent's rewrite MUST walk the payload **recursively** — top-level redaction misses nested credentials. The framework's wire-elision walker ([API.md §wire-elision walker](../../spec/API.md#size-elision-wire-boundary-walker)) does this correctly for the paths the frame's classification declares `:sensitive`; the explicit-drop fallback (for undeclared sensitive keys) MUST also recurse. The canonical body:
 
 ```clojure
 (defn redact-sensitive
@@ -98,13 +98,13 @@ Observability payloads are typically nested: an event vector carries a payload m
 
 `postwalk` ensures the walker visits leaves before parents — every nested map is rebuilt with redaction applied at its own level. **`:rf/redacted` is the canonical sensitive-substitution sentinel** (per [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)); listener bodies that produce a different sentinel ("REDACTED", `nil`, the empty string) defeat downstream consumers that filter on `:rf/redacted` and MUST be normalised in this pass.
 
-The agent SHOULD prefer the framework wire-elision walker over a hand-rolled `redact-sensitive` whenever the payload walks a value whose paths an owner has declared `:sensitive` — the walker reads the frame's elision registry, applies sensitive drop, AND composes the size-cap from §3 in one pass. Use the hand-rolled `redact-sensitive` only as a fallback for sites whose payload is **entirely undeclared** (transient telemetry that never lands in `app-db`, headers from an external SDK, raw failure responses with no schema). The reference mediation interceptor in §4 shows both paths composed.
+The agent SHOULD prefer the framework wire-elision walker over a hand-rolled `redact-sensitive` whenever the payload walks a value whose paths an owner has declared `:sensitive` — the walker reads the frame's classification, applies sensitive drop, AND composes the size-cap from §3 in one pass. Use the hand-rolled `redact-sensitive` only as a fallback for sites whose payload is **entirely undeclared** (transient telemetry that never lands in `app-db`, headers from an external SDK, raw failure responses with no schema). The reference mediation interceptor in §4 shows both paths composed.
 
 ### Owner-classification proposal as a follow-on
 
 For every sensitive key the agent finds in an observability payload, the agent proposes a follow-on classification declaration on the key's **owner**, per [015-Data-Classification.md](../../spec/015-Data-Classification.md) (EP-0025). It never proposes `{:sensitive? true}` on an app-db schema: schemas describe shape, and a `reg-app-schema` slot's props do **not** classify durable app-db ([015 §Schemas describe shape](../../spec/015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)). The route follows the owner:
 
-- durable `app-db` paths — the handler that writes the path returns the commit-plane `:sensitive` / `:large` effect alongside `:db`;
+- durable `app-db` paths — a `reg-classification` beside the feature that writes the path;
 - machine `:data` and resource / mutation params and data — the owner's projection-relative `:sensitive` / `:large` declaration ([015 §Subsystem projection-relative classification](../../spec/015-Data-Classification.md#subsystem-projection-relative-classification));
 - HTTP `:decode` bodies — per-slot `{:sensitive? true}` props on the decode schema;
 - transient payloads (event args, sub / fx / cofx values) — `:sensitive` registration metadata.
@@ -115,11 +115,9 @@ For every sensitive key the agent finds in an observability payload, the agent p
  [:email :string]
  [:auth/token :string]]
 
-;; Follow-on — the handler that writes the slots classifies them
-(rf/reg-event :user/signed-in
-  (fn [{:keys [db]} [_ user]]
-    {:db        (assoc db :user user)
-     :sensitive [[:user :email] [:user :auth/token]]}))
+;; Follow-on — a reg-classification beside the feature classifies them
+(rf/reg-classification :user
+  {:sensitive [[:user :email] [:user :auth/token]]})
 ```
 
 An owner declaration is **strictly better** than per-listener explicit drops: the declaration covers every consumer (trace listeners, error monitors, MCP servers, hosted dashboards) uniformly, and the framework's always-on error / event substrates honour it before fan-out (per [009 §Privacy / sensitive data in traces](../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The agent flags every key it can attribute to an owner in the report and surfaces "consider declaring `<path>` `:sensitive` on `<owner>`" as a separate operator decision per key — the rewrite of the observability site is independent of the declaration, but the declaration eliminates the need for the explicit drop on every future consumer.
@@ -173,7 +171,7 @@ Every listener body that walks a payload bounded by user input or by app-db size
       [elided dropped false])))
 ```
 
-`16384` is the framework's default **advisory** threshold per [API.md §wire-elision walker](../../spec/API.md#size-elision-wire-boundary-walker) configure key — the size above which the walker nudges an *undeclared* large string. It is **not** a wire cap; only paths you *declared* `:large` (via the commit-plane `:large` effect, EP-0025) elide to a marker, independent of the threshold. The genuine per-listener bound is `cap-or-elide`'s `:budget-bytes` backstop — the operator sets it to the destination's payload budget (Sentry's 100KB event-payload soft cap suggests ~32-64KB per listener; a self-hosted log file can be larger). Passing the same number as the advisory threshold is deliberate: an undeclared value over budget both nudges you to declare it `:large` and trips the backstop that keeps it off the wire.
+`16384` is the framework's default **advisory** threshold per [API.md §wire-elision walker](../../spec/API.md#size-elision-wire-boundary-walker) configure key — the size above which the walker nudges an *undeclared* large string. It is **not** a wire cap; only paths you *declared* `:large` (via `reg-classification`) elide to a marker, independent of the threshold. The genuine per-listener bound is `cap-or-elide`'s `:budget-bytes` backstop — the operator sets it to the destination's payload budget (Sentry's 100KB event-payload soft cap suggests ~32-64KB per listener; a self-hosted log file can be larger). Passing the same number as the advisory threshold is deliberate: an undeclared value over budget both nudges you to declare it `:large` and trips the backstop that keeps it off the wire.
 
 ### Surfacing the dropped count via `register-listener!`
 
@@ -243,8 +241,7 @@ A forwarder classified "observer (off-box egress)" that must run in production l
             [datadog.core :as datadog]))
 
 ;; 1. Declare the sink policy on the frame. (Durable app-db classification
-;;    is NOT a frame key — a handler returns the :sensitive / :large
-;;    commit-plane effects alongside its :db write, EP-0025.)
+;;    is NOT a frame key — it is a reg-classification beside the feature.)
 (rf/make-frame
   {:id :app/main
    :observability {:handled-events [{:sink :my-app.sinks/datadog
@@ -261,7 +258,7 @@ A forwarder classified "observer (off-box egress)" that must run in production l
   (fn [record] (sentry/capture! record)))
 ```
 
-This is the v2-canonical target for the **majority** of "observer (off-box egress)" hits — anything that worked in v1 by hooking the dispatch envelope to ship telemetry to a hosted backend. The privacy + oversize machinery §2–§3 build by hand exists for the cases that *can't* use Shape 0 (Shapes A/B's dev surface, and bespoke pre-projection transforms); the frame sink composes that machinery for you. Where the v1 site's payload walked sensitive keys, propose the commit-plane classification-effect (`:sensitive` / `:large` returned by a `reg-event` alongside `:db`) / registration `:sensitive` declarations (per §"Owner-classification follow-on per site") so the projection covers them — the declaration is strictly better than a per-site explicit drop, exactly as §2 already notes.
+This is the v2-canonical target for the **majority** of "observer (off-box egress)" hits — anything that worked in v1 by hooking the dispatch envelope to ship telemetry to a hosted backend. The privacy + oversize machinery §2–§3 build by hand exists for the cases that *can't* use Shape 0 (Shapes A/B's dev surface, and bespoke pre-projection transforms); the frame sink composes that machinery for you. Where the v1 site's payload walked sensitive keys, propose `reg-classification` / registration `:sensitive` declarations (per §"Owner-classification follow-on per site") so the projection covers them — the declaration is strictly better than a per-site explicit drop, exactly as §2 already notes.
 
 ### Shape A — `register-listener!` for *dev-only* cross-frame observers (the M-13 / M-17 cross-frame-observer replacement)
 
@@ -407,7 +404,7 @@ When the v1 observer assembled a per-cascade summary (an audit-log entry per dra
 
 Two epoch-specific notes:
 
-- **`(:rf.epoch/sensitive? epoch-record)`** is the framework-computed rollup over the sensitive paths declared in the frame's elision registry, as they appear in `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` (per [Security.md §Sensitive rollup at the record level](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The shipper MUST default-drop sensitive epochs; the rollup is exactly the signal to gate on.
+- **`(:rf.epoch/sensitive? epoch-record)`** is the framework-computed rollup over the sensitive paths the frame's classification declares, as they appear in `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` (per [Security.md §Sensitive rollup at the record level](../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)). The shipper MUST default-drop sensitive epochs; the rollup is exactly the signal to gate on.
 - **Every off-box epoch forwarder MUST project at the egress boundary.** The listener receives the **raw** record, so a forwarder that ships `epoch-record` straight off-box leaks whatever the raw record holds. Route it through `(rf/project-egress record)` first (or `(mapv rf/project-egress (rf.epoch/epoch-history frame-id))` for the whole ring) — the single off-box egress projection door, which recognises an epoch record by its stamped `:kind`: it applies the frame/profile classification and strips the raw `:db-before` / `:db-after`. Do **not** assume the record was scrubbed at storage; it was not.
 - **A further scrub is composition at the forwarder, not a config hook.** There is no `:redact-fn` configure key (retired 2026-09-08, rf2-kuky.7). Where the payload carries sensitive material no declaration covers, write `(-> record rf/project-egress my-scrub)` at the sink; where an owner already classifies those slots, `project-egress` alone suffices. Nothing you compose there can mutate stored records: the in-process ring buffer and every `:epoch`-stream listener still deliver the **raw** record (epoch records are causal replay material — mutating them at rest would corrupt `restore-epoch!` fidelity).
 
