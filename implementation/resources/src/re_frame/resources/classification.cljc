@@ -1,10 +1,12 @@
 (ns re-frame.resources.classification
   "Owner classification for resource entries and mutation instances. A
   `reg-resource` / `reg-mutation` spec declares projection-relative
-  `:sensitive` / `:large` paths; the runtime lowers them per instance into the
-  frame elision registry, and every egress boundary reads that registry
-  through the shared `re-frame.projection/project-egress` walker, never a
-  resource-private elider. Coarse whole-entry `:sensitive?` / `:large?` claims
+  `:sensitive` / `:large` paths; egress applies them to the entries and
+  instances present in the runtime-db being projected, through the two root
+  hooks published here (`runtime-classification`,
+  `mutation-runtime-classification`), and every egress boundary reads the
+  result through the shared `re-frame.projection/project-egress` walker, never
+  a resource-private elider. Coarse whole-entry `:sensitive?` / `:large?` claims
   are the root case. Schema props redact validation failures only; they do not
   classify durable state. Sensitive wins over large, enforced once by the
   shared elision walker's ordering.
@@ -16,6 +18,7 @@
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
             [re-frame.projection :as rf.projection]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
             [re-frame.resources.state :as rf.resources.state]))
 
@@ -184,13 +187,13 @@
         args))))
 
 ;; ---- egress projection ----------------------------------------------------
-;; The registry is the single source at egress: declarations are lowered by
-;; `reconcile-registry` and read back here, never re-derived from the spec.
-;; A frame-less read rides verbatim; the coarse whole-entry disposition is the
-;; separate frame-independent authority.
+;; The frame's live classification is the single source at egress: the
+;; resources hook claims each entry's declared slots, and they are read back
+;; here, never re-derived from the spec. A frame-less read rides verbatim; the
+;; coarse whole-entry disposition is the separate frame-independent authority.
 
 (defn- registry-classifies-under?
-  "True when `frame-id`'s elision registry holds any declaration under
+  "True when `frame-id`'s live classification holds any declaration under
   `prefix`. It gates the egress walk, because the walker rebuilds collections
   and would break the list/vector byte-identity of an unclassified value.
   Spec 016 §Resource identity."
@@ -206,7 +209,7 @@
 (defn project-entry-data
   "Projects an entry's `data` for egress under `boundary-profile`, walking it
   through `project-egress` seeded at the entry's absolute `:data` offset so
-  the lowered declarations match. Infinite feeds need no special case: the
+  the claimed declarations match. Infinite feeds need no special case: the
   index-free walker matches every page. Rides `data` verbatim when `frame-id`
   is nil or nothing is declared under the offset. Spec 016 §SSR and hydration."
   [data key-id frame-id boundary-profile]
@@ -265,18 +268,12 @@
 
       :else params)))
 
-;; ---- per-instance lowering into the elision registry ----------------------
-;; Pure runtime-db transforms, so the handler that writes or evicts an entry
-;; folds the registry update into the same `:rf.db/runtime` commit. Each
-;; rebuilds its owner's whole claim set from the live instances, so an evicted
-;; instance's claims drop with no separate hook, and other owners' claims are
-;; untouched. Spec 015 §Subsystem projection-relative classification.
-
-(def ^:private resource-source
-  "The elision-registry `:source` tag of resource-lowered declarations."
-  :resource)
-
-(def ^:private elision-registry-key :rf.runtime/elision)
+;; ---- the two runtime-db root hooks ----------------------------------------
+;; Each collects its registrations' declarations through the bound frame view,
+;; and applies them, purely, to the instances under its root, so an entry or an
+;; instance is classified exactly while it is present. Core claims what apply
+;; returns under `:source :resource` / `:source :mutation`. Spec 015 §Subsystem
+;; projection-relative classification.
 
 (defn- entry-data-prefix
   "`[:rf.runtime/resources :entries <key-id> :data]`."
@@ -292,48 +289,8 @@
     {:sensitive (->abs :sensitive)
      :large     (->abs :large)}))
 
-(def ^:private resource-owner
-  "The registry owner identity every resource entry's claims share."
-  {:source resource-source})
-
-(defn reconcile-registry
-  "`runtime-db` with the elision registry's resource-owned claims replaced by
-  the declarations of every current cache entry. `spec-of` maps a resource id
-  to its spec (injected: a static require would cycle). Emits an explicit,
-  possibly empty, `:rf.runtime/elision` key once the registry existed, so a
-  whole-value runtime-db commit honours an eviction's drop instead of
-  resurrecting the prior registry; never-classified state gets no key."
-  [runtime-db spec-of]
-  (let [base    (or runtime-db {})
-        entries (get-in base (rf.resources.state/entries-path))
-        reg     (get base elision-registry-key)
-        {:keys [sensitive large]}
-        (reduce-kv
-          (fn [acc key-id entry]
-            (let [resource-id (second (:resource/key entry))
-                  spec        (when resource-id (spec-of resource-id))]
-              (if-not spec
-                acc
-                (let [{:keys [sensitive large]} (instance-declaration-paths key-id spec)]
-                  (-> acc
-                      (update :sensitive into sensitive)
-                      (update :large into large))))))
-          {:sensitive [] :large []}
-          (or entries {}))
-        new-reg (-> (or reg {})
-                    (rf.elision/replace-owner-claims :sensitive-declarations resource-owner sensitive)
-                    (rf.elision/replace-owner-claims :declarations resource-owner large))]
-    (cond
-      (seq new-reg)
-      (assoc base elision-registry-key new-reg)
-
-      (contains? base elision-registry-key)
-      (assoc base elision-registry-key {})
-
-      :else base)))
-
 ;; A mutation instance keeps the raw values (success-path `:invalidates` /
-;; `:patches` / `:populates` read them); only registry-reading egress redacts.
+;; `:patches` / `:populates` read them); only egress redacts.
 
 (defn- mutation-instance-declaration-paths
   "The absolute `{:sensitive [paths] :large [paths]}` one mutation instance
@@ -356,43 +313,47 @@
     {:sensitive (->abs s)
      :large     (->abs l)}))
 
-(def ^:private mutation-source
-  "The elision-registry `:source` tag of mutation-lowered declarations."
-  :mutation)
+(defn- collect
+  "Each `kind` registration whose spec, under `spec-key`, declares either
+  axis — `{id {:sensitive … :large …}}`, through the bound frame view."
+  [kind spec-key]
+  (into {}
+        (keep (fn [[id desc]]
+                (let [spec (get desc spec-key)]
+                  (when (or (seq (:sensitive spec)) (seq (:large spec)))
+                    [id (select-keys spec [:sensitive :large])]))))
+        (rf.registrar/registrations kind)))
 
-(def ^:private mutation-owner
-  "The registry owner identity every mutation instance's claims share."
-  {:source mutation-source})
+(defn runtime-classification
+  "The `:resources/runtime-classification` hook for the
+  `:rf.runtime/resources` root. Collect, `[]`: each registered resource's
+  declaration, keyed by resource id. Apply, `[resources decls]`: every cache
+  entry under `resources` (the root's value) names its resource by
+  `:resource/key`, and that resource's `:data` declaration is re-rooted onto
+  the entry's `:data` (`instance-declaration-paths`). Pure."
+  ([] (collect :resource :rf/resource))
+  ([resources decls]
+   (reduce-kv (fn [acc key-id entry]
+                (if-let [decl (get decls (second (:resource/key entry)))]
+                  (merge-with into acc (instance-declaration-paths key-id decl))
+                  acc))
+              {:sensitive [] :large []}
+              (or (:entries resources) {}))))
 
-(defn reconcile-mutation-registry
-  "The mutation peer of `reconcile-registry`: replaces the `:source :mutation`
-  claims with the declarations of every current mutation instance. `spec-of`
-  maps a mutation id to its spec."
-  [runtime-db spec-of]
-  (let [base      (or runtime-db {})
-        instances (get-in base (rf.resources.mutation-runtime/instances-path))
-        reg       (get base elision-registry-key)
-        {:keys [sensitive large]}
-        (reduce-kv
-          (fn [acc key-id inst]
-            (let [mid  (:mutation/id inst)
-                  spec (when mid (spec-of mid))]
-              (if-not spec
-                acc
-                (let [{:keys [sensitive large]} (mutation-instance-declaration-paths key-id spec)]
-                  (-> acc
-                      (update :sensitive into sensitive)
-                      (update :large into large))))))
-          {:sensitive [] :large []}
-          (or instances {}))
-        new-reg   (-> (or reg {})
-                      (rf.elision/replace-owner-claims :sensitive-declarations mutation-owner sensitive)
-                      (rf.elision/replace-owner-claims :declarations mutation-owner large))]
-    (cond
-      (seq new-reg)
-      (assoc base elision-registry-key new-reg)
+(defn mutation-runtime-classification
+  "The `:resources/mutation-runtime-classification` hook for the
+  `:rf.runtime/mutations` root. Collect, `[]`: each registered mutation's
+  declaration, keyed by mutation id. Apply, `[mutations decls]`: every
+  instance under `mutations` (the root's value) names its mutation by
+  `:mutation/id`, and that mutation's declaration is re-rooted onto the
+  instance's `:params`, `:scope` and `:result`
+  (`mutation-instance-declaration-paths`). Pure."
+  ([] (collect :mutation :rf/mutation))
+  ([mutations decls]
+   (reduce-kv (fn [acc key-id inst]
+                (if-let [decl (when (map? inst) (get decls (:mutation/id inst)))]
+                  (merge-with into acc (mutation-instance-declaration-paths key-id decl))
+                  acc))
+              {:sensitive [] :large []}
+              (or mutations {}))))
 
-      (contains? base elision-registry-key)
-      (assoc base elision-registry-key {})
-
-      :else base)))

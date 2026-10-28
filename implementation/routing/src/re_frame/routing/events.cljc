@@ -22,7 +22,6 @@
   Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.readiness :as rf.routing.readiness]
             [re-frame.trace :as rf.trace]))
@@ -310,19 +309,7 @@
                        ;; kept/added/removed for attach-before-release handoff.
                        (cond-> (seq (:identities plan))
                          (assoc-in [:rf.runtime/routing :resource-plan token]
-                                   (:identities plan))))
-        ;; Lower the activating route's projection-relative `:sensitive` /
-        ;; `:large` classification into the
-        ;; per-frame elision registry, RE-ROOTED under `[:rf.runtime/routing
-        ;; :current …]`, ATOMICALLY with the slice publish (the same runtime-db
-        ;; partition). Routes are a SINGLETON current-route, so this REPLACES the
-        ;; prior route's `:source :route` entries — a route change drops the
-        ;; leaving route's classification, and a route that declares none (incl.
-        ;; `:rf.route/not-found`, whose `route-meta` may be nil) clears the
-        ;; route-sourced entries. The declared query/params paths redact those
-        ;; projections at egress for as long as the route is active;
-        ;; frame teardown drops the whole runtime-db elision slot with the frame.
-        committed (rf.routing.classification/lower-for-route committed route-id route-meta)]
+                                   (:identities plan))))]
     ;; Stamp the carried `:frame` so the nav-token-allocated
     ;; trace enters epoch capture + obeys the frame trace-disable gate
     ;; (the lifecycle pair below carries it via `emit-activation-traces!`).

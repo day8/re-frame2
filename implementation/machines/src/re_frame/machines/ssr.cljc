@@ -13,8 +13,7 @@
   consults this hook so a snapshot whose frame classifies a `:data` path
   `:sensitive` has that field redacted in the hydration blob (a `:large` one
   rides whole — no size elision on this wire) — the frame's
-  classification registry governs machine `:data`
-  egress. Like resources (which has `:ssr/extend-runtime-db-projection`),
+  classification governs machine `:data` egress. Like resources (which has `:ssr/extend-runtime-db-projection`),
   machines provides this SSR projection hook.
 
   ## What this does
@@ -26,13 +25,12 @@
   projection uses SHARED frame-independent primitives — NEVER a
   family-private elider.
 
-  Machine `:data` egress classification lives in the per-frame elision
-  registry like every other app-db / runtime-db path. A machine definition
-  declares its sensitive / large `:data` slots projection-relative
-  (`re-frame.machines.classification`), lowered per actor instance into the
-  registry under `:source :machine`; the commit-plane `:sensitive` / `:large`
-  effects are the general classification mechanism. The `[:schemas :data]` schema
-  VALIDATES `:data`; it does not classify it for egress.
+  A machine definition declares its sensitive / large `:data` slots
+  projection-relative (`re-frame.machines.classification`), and egress claims
+  them on every snapshot present under `:source :machine`, unioned with any
+  commit-plane `:sensitive` / `:large` effect on the same path. The
+  `[:schemas :data]` schema VALIDATES `:data`; it does not classify it for
+  egress.
 
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
   projection is precise, not a blanket scrub. The sibling registry slots
@@ -64,11 +62,10 @@
   snapshot classification governs the projection (nil means no frame walk, so `:data`
   rides verbatim).
 
-  Machine `:data` egress classification lives in the per-frame elision
-  registry. A machine definition declares its sensitive / large
-  `:data` slots projection-relative (`re-frame.machines.classification`),
-  lowered per actor instance into the registry as the absolute runtime-db
-  path `[:rf.runtime/machines :snapshots <actor-id> :data …]` under
+  A machine definition declares its sensitive / large `:data` slots
+  projection-relative (`re-frame.machines.classification`), claimed at egress
+  on the absolute runtime-db path
+  `[:rf.runtime/machines :snapshots <actor-id> :data …]` under
   `:source :machine`. `re-frame.classification/frame-snapshot-classification`
   re-roots those declarations snapshot-relative (`[:data …]`), and the
   projector walks `{:data <the snapshot's :data>}` against them, `:data`
@@ -81,7 +78,7 @@
   of `:data` ride: the walker never lets a declaration's first segment float
   past a key. `:large` slots ride whole: the hydration wire applies no
   size elision. Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
-  schema marks; the frame classification registry is the egress source of truth.
+  schema marks; the frame's classification is the egress source of truth.
 
   The snapshot's NON-`:data` slots (`:state`, `:tags`, the `:rf/runtime`
   map with its TYPE keyword and counters, …) are durable structural
@@ -111,7 +108,7 @@
   hydration `:rf/runtime-db` payload (the body behind the
   `:machines/project-ssr-runtime-db` late-bind hook). Returns the
   `:rf.runtime/machines` value with every snapshot's `:data` projected per its
-  frame registry's `:sensitive` / `:large` classification (`project-snapshot-data`);
+  frame's `:sensitive` / `:large` classification (`project-snapshot-data`);
   or `runtime-db`'s `:rf.runtime/machines` value unchanged when it carries no
   snapshots.
 

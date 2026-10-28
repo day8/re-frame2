@@ -1021,17 +1021,7 @@
       ;; coeffect (a fresh frame's runtime-db is `nil` until first write —
       ;; default it to `{}` so the snapshot lookup / install paths see a map)
       ;; and returns its snapshot write under `:rf.db/runtime`.
-      ;;
-      ;; The elision registry is written only OUT OF BAND, so a machine's
-      ;; runtime-db effect never re-asserts it: `:rf.runtime/elision` is dropped
-      ;; from the coeffect base here, once, for EVERY return. The router then
-      ;; carries the LIVE registry forward (`elision/reconcile-runtime-db-effect`
-      ;; honours an effect-carried registry VERBATIM, so a stale coeffect copy
-      ;; would clobber any claim written live during this handler). Two such
-      ;; live writes exist: the singleton first-boot `lower-at-spawn!` below
-      ;; and the `:final?` auto-destroy's `drop-at-destroy!`, whose dropped
-      ;; claims a stale copy would re-install on the finalize commit.
-      (let [runtime-db  (dissoc (or rt {}) :rf.runtime/elision)
+      (let [runtime-db  (or rt {})
             ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
             ;; THE CHILD-COMPLETION BOUNDARY (Spec 005 §Child completion
             ;; protocol). A child completes by reaching a `:final?` state;
@@ -1105,110 +1095,85 @@
               (handle-step-failure! ctx [rf.machines.transition/start-marker]
                                     "Machine initial-entry action threw."
                                     boot-result)
-              (let [;; Singleton first-boot: a singleton's actor-id IS its
-                    ;; machine-id, installed lazily on first dispatch rather than
-                    ;; via `spawn-fx` (which lowers spawned actors). The birth
-                    ;; case is `:needs-bootstrap?` AND NOT `:existing-snap?` (a
-                    ;; spawned actor carries a pre-seeded snapshot ⇒
-                    ;; `:existing-snap? true`, already lowered at spawn).
-                    boot? (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))]
-                ;; DURABLE-CLAIM guard: the boot commit below omits
-                ;; `:rf.runtime/elision` (dropped at the handler's top), so the
-                ;; claim `lower-at-spawn!` writes LIVE here survives it and unions
-                ;; with any effect owner that pre-classified the same path
-                ;; (the multi-owner union contract).
-                ;;
-                ;; Value-independent + idempotent, dropped at destroy / finalize.
-                ;; A spec declaring no classification is a no-op. The
-                ;; singleton first-boot classification lowering rides the EXACT
-                ;; elision write under the event's owner token. The
-                ;; initial-entry `:entry` actions `maybe-boot` fired above may
-                ;; request a destroy of A, but no destroy can finish before this
-                ;; event ends, so the write still lands on A. nil token (no
-                ;; event owner) falls back to the bare write.
-                (when boot?
-                  (rf.machines.classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
-                                                  (:machine ctx)
-                                                  (rf.frame/current-event-owner-token)))
               (rf.machines.result/with-ok [post-boot-snap boot-fx] boot-result
-                ;; PURE init-kick: when the routed inner event IS the
-                ;; reserved `:rf.machine/start` marker, `maybe-boot` has
-                ;; already run the INITIAL MACROSTEP — the initial-entry
-                ;; cascade AND the birth-time `:always` + raise settle,
-                ;; via `rf.machines.parallel/apply-initial-entry-cascade`
-                ;; — and emitted `:rf.machine/started`. STOP here — never
-                ;; feed the synthetic marker into `run-step` as a trigger.
-                ;; This avoids a misleading `before == after` self-
-                ;; transition for quiet states and a `:*`-wildcard throw
-                ;; for `:fuse/box`-shaped initial states; the marker
-                ;; means exactly "create + run the initial macrostep," like
-                ;; `xstate.init`. (`commit-or-finalize` is bypassed: a pure
-                ;; start emits no `:rf.machine/transition`;
-                ;; `:rf.machine/started` is the sole birth signal.)
-                ;;
-                ;; The birth settle CAN land the machine in whole-machine
-                ;; finality at start (a `:final?` initial leaf, an initial
-                ;; leaf whose `:always` targets a final state, or every
-                ;; region born final) — XState v5 treats such an actor as
-                ;; done immediately. So a birth that lands final routes as
-                ;; `commit-or-finalize` routes any entry into finality: a
-                ;; spawned actor to `finalize-machine`, a singleton to
-                ;; `rest-machine`. `whole-machine-final?` carries the
-                ;; embedded-vs-top-level reconciliation: a parallel root WITH
-                ;; `:on-done` rests in the all-final config (its `:on-done`
-                ;; fired once at birth), and an embedded compound born final
-                ;; already raised `[:rf.machine/done …]` through the birth
-                ;; settle's queue. A redundant start on an already-booted
-                ;; machine boots nothing, so it is no entry and commits
-                ;; unchanged.
-                (if (= rf.machines.transition/start-marker (first (:inner-event ctx)))
-                  (let [m              (:machine ctx)
-                        new-runtime-db (assoc-in runtime-db (:path ctx) post-boot-snap)
-                        fx             (vec boot-fx)]
-                    (cond
-                      (not (and (:needs-bootstrap? ctx) (whole-machine-final? m post-boot-snap)))
-                      {:rf.db/runtime new-runtime-db
-                       :fx            fx}
+              ;; PURE init-kick: when the routed inner event IS the
+              ;; reserved `:rf.machine/start` marker, `maybe-boot` has
+              ;; already run the INITIAL MACROSTEP — the initial-entry
+              ;; cascade AND the birth-time `:always` + raise settle,
+              ;; via `rf.machines.parallel/apply-initial-entry-cascade`
+              ;; — and emitted `:rf.machine/started`. STOP here — never
+              ;; feed the synthetic marker into `run-step` as a trigger.
+              ;; This avoids a misleading `before == after` self-
+              ;; transition for quiet states and a `:*`-wildcard throw
+              ;; for `:fuse/box`-shaped initial states; the marker
+              ;; means exactly "create + run the initial macrostep," like
+              ;; `xstate.init`. (`commit-or-finalize` is bypassed: a pure
+              ;; start emits no `:rf.machine/transition`;
+              ;; `:rf.machine/started` is the sole birth signal.)
+              ;;
+              ;; The birth settle CAN land the machine in whole-machine
+              ;; finality at start (a `:final?` initial leaf, an initial
+              ;; leaf whose `:always` targets a final state, or every
+              ;; region born final) — XState v5 treats such an actor as
+              ;; done immediately. So a birth that lands final routes as
+              ;; `commit-or-finalize` routes any entry into finality: a
+              ;; spawned actor to `finalize-machine`, a singleton to
+              ;; `rest-machine`. `whole-machine-final?` carries the
+              ;; embedded-vs-top-level reconciliation: a parallel root WITH
+              ;; `:on-done` rests in the all-final config (its `:on-done`
+              ;; fired once at birth), and an embedded compound born final
+              ;; already raised `[:rf.machine/done …]` through the birth
+              ;; settle's queue. A redundant start on an already-booted
+              ;; machine boots nothing, so it is no entry and commits
+              ;; unchanged.
+              (if (= rf.machines.transition/start-marker (first (:inner-event ctx)))
+                (let [m              (:machine ctx)
+                      new-runtime-db (assoc-in runtime-db (:path ctx) post-boot-snap)
+                      fx             (vec boot-fx)]
+                  (cond
+                    (not (and (:needs-bootstrap? ctx) (whole-machine-final? m post-boot-snap)))
+                    {:rf.db/runtime new-runtime-db
+                     :fx            fx}
 
-                      (some? (get-in post-boot-snap [:rf/runtime :machine-type]))
-                      (rf.machines.lifecycle-fx.finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
-                                                 new-runtime-db post-boot-snap (:inner-event ctx) fx)
+                    (some? (get-in post-boot-snap [:rf/runtime :machine-type]))
+                    (rf.machines.lifecycle-fx.finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
+                                               new-runtime-db post-boot-snap (:inner-event ctx) fx)
 
-                      :else
-                      (rf.machines.lifecycle-fx.finalize/rest-machine m (:machine-id ctx) (:frame-id ctx)
-                                                 new-runtime-db post-boot-snap fx)))
-                  ;; Ensure the derived
-                  ;; per-(state × event-type) cofx ensure-set onto the
-                  ;; in-flight `:rf.cofx` record BEFORE transition selection
-                  ;; (`run-step`) runs. A guard-consumed fact MUST be present
-                  ;; when guards execute during selection, so a mid-selection
-                  ;; host read can never put nondeterminism in the fold's most
-                  ;; sensitive spot (replay selecting a DIFFERENT transition).
-                  ;; Generated values are written back into the record the
-                  ;; epoch captures (so replay re-presents them); the augmented
-                  ;; record is re-stamped onto the machine def under `:rf/cofx`
-                  ;; so `callback-ctx` surfaces it to guards / actions / entry /
-                  ;; exit. A no-requires machine no-ops (returns the record
-                  ;; unchanged) and `ctx` is untouched.
-                  (let [ctx (ensure-ctx-cofx ctx post-boot-snap)
-                        step-result (run-step ctx post-boot-snap)]
-                    (if (rf.machines.result/fail? step-result)
-                      ;; Route both a thrown transition action AND
-                      ;; a bounded-depth abort (the runaway `:always` / `:raise`
-                      ;; cycle, XState-v5-throws case) through the shared
-                      ;; failure handler. A depth-abort surfaces as a FAILED
-                      ;; macrostep (atomic rollback, the precise depth-exceeded
-                      ;; category already emitted in-engine), so a runaway
-                      ;; settle never silently swallows the event as a no-op.
-                      (handle-step-failure! ctx (:inner-event ctx)
-                                            "Machine action threw."
-                                            step-result)
-                      ;; Pass the full `boot-result` (fx +
-                      ;; bootstrap-entry cascade), not just `boot-fx`, so a
-                      ;; same-call bootstrap's entry cascade prepends the
-                      ;; event-driven cascade on the `:rf.machine/transition`
-                      ;; trace.
-                      (commit-or-finalize ctx step-result boot-result)))))))))))))))
+                    :else
+                    (rf.machines.lifecycle-fx.finalize/rest-machine m (:machine-id ctx) (:frame-id ctx)
+                                               new-runtime-db post-boot-snap fx)))
+                ;; Ensure the derived
+                ;; per-(state × event-type) cofx ensure-set onto the
+                ;; in-flight `:rf.cofx` record BEFORE transition selection
+                ;; (`run-step`) runs. A guard-consumed fact MUST be present
+                ;; when guards execute during selection, so a mid-selection
+                ;; host read can never put nondeterminism in the fold's most
+                ;; sensitive spot (replay selecting a DIFFERENT transition).
+                ;; Generated values are written back into the record the
+                ;; epoch captures (so replay re-presents them); the augmented
+                ;; record is re-stamped onto the machine def under `:rf/cofx`
+                ;; so `callback-ctx` surfaces it to guards / actions / entry /
+                ;; exit. A no-requires machine no-ops (returns the record
+                ;; unchanged) and `ctx` is untouched.
+                (let [ctx (ensure-ctx-cofx ctx post-boot-snap)
+                      step-result (run-step ctx post-boot-snap)]
+                  (if (rf.machines.result/fail? step-result)
+                    ;; Route both a thrown transition action AND
+                    ;; a bounded-depth abort (the runaway `:always` / `:raise`
+                    ;; cycle, XState-v5-throws case) through the shared
+                    ;; failure handler. A depth-abort surfaces as a FAILED
+                    ;; macrostep (atomic rollback, the precise depth-exceeded
+                    ;; category already emitted in-engine), so a runaway
+                    ;; settle never silently swallows the event as a no-op.
+                    (handle-step-failure! ctx (:inner-event ctx)
+                                          "Machine action threw."
+                                          step-result)
+                    ;; Pass the full `boot-result` (fx +
+                    ;; bootstrap-entry cascade), not just `boot-fx`, so a
+                    ;; same-call bootstrap's entry cascade prepends the
+                    ;; event-driven cascade on the `:rf.machine/transition`
+                    ;; trace.
+                    (commit-or-finalize ctx step-result boot-result))))))))))))))
 
 ;; ---- [:schemas :data] is validation-only; classification is machine-owned --
 ;;
@@ -1223,9 +1188,8 @@
 ;; large `:data` slots via top-level `:sensitive` / `:large` keys on the spec
 ;; (rooted at one actor snapshot's `:data`), validated for shape at registration
 ;; (`re-frame.machines.classification/validate-machine-classification!`, above)
-;; and LOWERED per actor instance into the per-frame elision registry at spawn /
-;; first-boot (dropped at destroy). The `[:schemas :data]` schema is for
-;; validation only.
+;; and applied at egress to every snapshot of the machine the runtime-db holds.
+;; The `[:schemas :data]` schema is for validation only.
 
 ;; ---- the single registration home -----------------------------------------
 
@@ -1275,7 +1239,7 @@
   `[:schemas :data]` schema is validation-only — its per-slot props do not
   classify durable `:data` for egress; the machine's top-level `:sensitive` /
   `:large` projection-relative declarations are the classification surface
-  (lowered per actor instance at spawn / first-boot)."
+  (applied at egress to each of the machine's snapshots)."
   [machine-id machine opts]
   ;; The MIDDLE `opts` slot must be a map BEFORE
   ;; any `contains?`/`assoc` runs against it. The 2-arity passes `nil` (the
@@ -1311,9 +1275,9 @@
                   :opts       opts}}))
    ;; Fail at registration on malformed projection-relative `:sensitive` / `:large`
    ;; `:data`-classification declaration (a non-vector axis, a non-path
-   ;; entry). The declaration travels with the machine def and is lowered
-   ;; per actor instance at spawn / first-boot — so a shape fault must be
-   ;; caught at definition, like every other registration-shape fault.
+   ;; entry). The declaration travels with the machine def and applies to
+   ;; every actor of it at egress — so a shape fault must be caught at
+   ;; definition, like every other registration-shape fault.
    (rf.machines.classification/validate-machine-classification! machine-id machine)
    ;; The handler closes over the registered definition and the registrar
    ;; publishes it, so both hold one value, region-machine cache included.
@@ -1332,8 +1296,8 @@
     ;; `:where :machine-data` pre-commit walker, resolved through the
     ;; `:rf/machine` meta stamped above); its per-slot props do not classify the
     ;; machine's durable `:data` for trace / SSR egress. Egress classification
-    ;; comes from the frame's merged classification registry, including
-    ;; per-actor `:source :machine` entries.
+    ;; comes from the machine's own `:sensitive` / `:large` declaration,
+    ;; claimed at egress under `:source :machine`.
     ;; The dev-only consumer-attachment
     ;; lints (consume-without-declaring + ambient-durable). Run here in the
     ;; home (with the machine-id known) over a locally-indexed copy so the

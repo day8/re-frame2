@@ -4,14 +4,14 @@
 ;; and EP-0025 §Subsystem matrix (reg-route row) — the SINGLETON-DROP invariant
 ;; that has NO machine analogue and therefore no other conformance coverage.
 ;; A route is effectively a SINGLETON current-route: only one
-;; route is active in a frame at a time, so route activation REPLACES the whole
-;; :source :route declaration set. A route change to a route that declares NO
-;; classification clears the leaving route's route-sourced entries entirely —
-;; the leaving route's classification drops on every route change.
+;; route is active in a frame at a time, and only the route the current slice
+;; names is classified. After a route change to a route that declares NO
+;; classification, the slice carries no route claims — the leaving route's
+;; classification goes with its slice on every route change.
 ;;
 ;; OBSERVABLE SEAM — project-egress (EP-0015 §10/§11). After navigating to the
 ;; :sensitive route AND THEN to a route declaring none, the leaving route's
-;; classification is gone from :rf/default's elision registry. Projecting the
+;; classification no longer applies in :rf/default. Projecting the
 ;; (now-current, plain) route-slice value against that frame shows the token
 ;; field RIDES RAW — there is no classification to redact it. This is the
 ;; positive, observable proof of the drop: were the leaving route's entry to
@@ -29,7 +29,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler
                          :data-classification/classification-effects}
- :fixture/doc          "The route SINGLETON-DROP: navigating from a :sensitive route to a route declaring NO classification clears the leaving route's :source :route entries. project-egress of the now-current (plain) route-slice value against the navigated frame shows the token field RIDES RAW — the leaving route's classification was dropped (no leak forward). Pairs with route-query-declared-redacts.edn (the redact-while-active leg)."
+ :fixture/doc          "The route SINGLETON-DROP: navigating from a :sensitive route to a route declaring NO classification leaves the slice with no :source :route claims. project-egress of the now-current (plain) route-slice value against the navigated frame shows the token field RIDES RAW — the leaving route's classification was dropped (no leak forward). Pairs with route-query-declared-redacts.edn (the redact-while-active leg)."
 
  ;; route/oauth declares :sensitive; route/plain declares none. Both are
  ;; registered from the route registry by the conformance runner.
@@ -41,15 +41,15 @@
 
  :fixture/frame-config {}
 
- ;; Navigate to the :sensitive route (installs its classification), then to a
- ;; route declaring none (drops it — the singleton replacement).
+ ;; Navigate to the :sensitive route (its classification applies), then to a
+ ;; route declaring none (the slice no longer names it).
  :fixture/dispatches
  [[:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}]
   [:rf.route/handle-url-change "/plain" {:rf.route/cause :link}]]
 
- ;; project-egress runs AFTER both dispatches, so the leaving route's
- ;; classification has already dropped. Projecting a slice value carrying a
- ;; token field shows it RIDES RAW — nothing redacts it (the drop is proven).
+ ;; project-egress runs AFTER both dispatches, so the slice names the plain
+ ;; route. Projecting a slice value carrying a token field shows it RIDES RAW
+ ;; — nothing redacts it (no leak forward is proven).
  :fixture/calls
  [{:call              :project-egress
    :frame             :rf/default
@@ -62,9 +62,6 @@
                                   :query    {:token "secret123" :other "ok"}}}}}]
 
  :fixture/expect
- ;; The current slice is the plain route; the runtime-db carries no
- ;; route-sourced classification (the registry cleared to {} on the leave).
- ;; Submap-matched.
+ ;; The current slice is the plain route. Submap-matched.
  {:final-runtime-db
-  {:rf.runtime/routing {:current {:route-id :route/plain}}
-   :rf.runtime/elision {}}}}
+  {:rf.runtime/routing {:current {:route-id :route/plain}}}}}

@@ -1,21 +1,21 @@
 (ns re-frame.routing.sub-egress
-  "Route-sub egress projection, complementing the route-classification
-  lowering in `re-frame.routing.classification`.
+  "Route-sub egress projection, complementing the route classification hook
+  in `re-frame.routing.classification`.
 
   ## The problem
 
   A route declares `:sensitive` / `:large` paths PROJECTION-RELATIVE to its
-  `{:query … :params …}` current-state projection. At route activation those
+  `{:query … :params …}` current-state projection. At egress those
   declarations are RE-ROOTED to runtime-db-absolute paths under
-  `[:rf.runtime/routing :current …]` and lowered into the per-frame elision
-  registry (`:source :route`). SSR hydration honours that re-rooting by
-  seeding its routing projection at `:path [:rf.runtime/routing]`.
+  `[:rf.runtime/routing :current …]` and claimed under `:source :route`. SSR
+  hydration honours that re-rooting by seeding its routing projection at
+  `:path [:rf.runtime/routing]`.
 
   But the DIRECT-READ egress surfaces of the bare route slice do NOT. The
   `:rf/route` sub returns the BARE slice (`{:route-id :params :query …}`) read
   from `[:rf.runtime/routing :current]`, and the trace / off-box egress walks
-  the sub value seeded at the WHOLE-VALUE root (`#{[]}`), where the registry's
-  absolute `[:rf.runtime/routing :current :query :token]` declaration can never
+  the sub value seeded at the WHOLE-VALUE root (`#{[]}`), where the frame's
+  absolute `[:rf.runtime/routing :current :query :token]` claim can never
   match. `re-frame.classification/project-sub-tags` only consults the SUB
   REGISTRATION's own declared classification (the `:rf/route` registration
   declares none — it is the route DECLARATION that owns the durable runtime-db
@@ -30,7 +30,7 @@
 
   Apply the route classification at the direct-read egress of the route's read
   surfaces, by re-seeding the egress walk at the route slice's runtime-db
-  storage position so the registry's re-rooted absolute declarations match. This
+  storage position so the frame's re-rooted absolute claims match. This
   is the direct-read sibling of the SSR `project-routing-egress` projection.
 
   NARROW: this is NOT generic sub-output propagation. ONLY the framework-owned
@@ -67,23 +67,21 @@
 
   ## Prior values
 
-  A navigation REPLACES the registry's route claims with the entering route's,
-  so a held route sub's `:rf.sub/prev-value` — the leaving route's slice — can
-  no longer be classified from the registry alone. It belongs to the route its
-  slice names, and is additionally classified by the declaration activation
-  recorded on that slice (`re-frame.routing.classification/slice-classification`),
-  unioned with the route's current registration and re-rooted onto the value
+  A navigation REPLACES the current slice with the entering route's, so a held
+  route sub's `:rf.sub/prev-value` — the leaving route's slice — can no longer
+  be classified from the live frame alone. It belongs to the route its slice
+  names, and is additionally classified by that route's declaration in the
+  policy the value was computed under, unioned with the frame's current
+  policy's and re-rooted onto the value
   (`re-frame.routing.classification/classification-at`). So a route
   re-registered without its declaration before the navigation still redacts the
   value it governed. `:rf/route`'s value IS the slice; the `:rf.route/query` /
   `:rf.route/params` leaves read theirs from their one input, the prior
-  `[:rf/route]` value the memo path carries as the prior inputs. The registry
-  keeps no entry for the leaving route.
+  `[:rf/route]` value the memo path carries as the prior inputs.
 
   Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.classification :as rf.classification]
             [re-frame.elision :as rf.elision]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.routing.classification :as rf.routing.classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -91,7 +89,7 @@
 (def ^:const route-sub-seed-table
   "Map of framework route read sub-id → the runtime-db storage position the
   sub's VALUE projects onto. Walking a route sub's value seeded at this path
-  lets the per-frame elision registry's re-rooted absolute route declarations
+  lets the frame's re-rooted absolute route claims
   (`[:rf.runtime/routing :current …]`, `:source :route`) match the bare slice /
   query / params value the sub returns. See the ns docstring's seed-table
   table."
@@ -114,34 +112,32 @@
   "The classification of the route a route read sub's PRIOR `value` was
   computed under, re-rooted onto that value, or nil. The route is the one its
   slice names: `:rf/route`'s value is the slice, and a leaf's is its one input
-  in `prior-inputs`. The declaration recorded on that slice when the route
-  activated governs it, unioned with the route's current registration, so
+  in `prior-inputs`. Its declaration is the one `policies` collected for it —
+  the policy the value was computed under, then the frame's current one — so
   re-registering the route between the compute and the trace declassifies
   nothing."
-  [sub-id value prior-inputs seed]
+  [sub-id value prior-inputs seed policies]
   (let [slice    (if (= :rf/route sub-id) value (first prior-inputs))
-        route-id (when (map? slice) (:route-id slice))]
-    (when (some? route-id)
+        route-id (when (map? slice) (:route-id slice))
+        decls    (when (some? route-id)
+                   (keep #(get-in % [:roots :rf.runtime/routing route-id]) policies))]
+    (when (seq decls)
       (rf.routing.classification/classification-at
-        (merge-with (comp vec distinct concat)
-                    (rf.routing.classification/slice-classification slice)
-                    (rf.routing.classification/validate+extract
-                      route-id (rf.registrar/lookup :route route-id)))
+        (apply merge-with (comp vec distinct concat) decls)
         seed))))
 
 (defn project-route-sub-egress
   "Project a route read sub's `value` for egress, applying the route's
-  projection-relative `:sensitive` / `:large` classification (lowered into the
-  per-frame elision registry under `[:rf.runtime/routing :current …]` at route
-  activation) by re-seeding the wire walk at the slice's runtime-db storage
-  position. A no-op pass-through when `sub-id` is not a framework route read sub
+  projection-relative `:sensitive` / `:large` classification (claimed under
+  `[:rf.runtime/routing :current …]` while the route is current) by
+  re-seeding the wire walk at the slice's runtime-db storage position. A no-op pass-through when `sub-id` is not a framework route read sub
   (the common case) — NARROW: NO generic sub-output propagation.
 
   `sub-id` is the sub's query-id (the head of `:rf.sub/id` / the query-vector);
   `opts` is the `elide-wire-value` opt-map (`:frame` + any `:rf.egress/*`
   overrides). The route seed path is OVERLAID onto `opts` as `:path` so the
   walk's candidate declaration-coordinate set starts at the slice's storage
-  position and the registry's re-rooted absolute route paths match exactly
+  position and the frame's re-rooted absolute route claims match exactly
   (mirroring the SSR `project-routing-egress` offset). Defers to
   `re-frame.elision/elide-wire-value` — never a private elider.
 
@@ -155,20 +151,24 @@
 
   Fail-closed posture is inherited from `elide-wire-value`: a route sub value
   walked under a nil / unresolvable `:frame` redacts whole (no live frame ⇒ no
-  reachable registry). A live frame with no route classification rides verbatim
-  (the walk is path-precise, not a blanket scrub).
+  reachable classification). A live frame with no route classification rides
+  verbatim (the walk is path-precise, not a blanket scrub).
 
-  The four-argument arity projects a PRIOR value (`:rf.sub/prev-value`), and
-  `prior-inputs` are the inputs it was computed from. Beside the registry walk
-  it is redacted by the declaration of the route it was computed under — see
-  the ns docstring's §Prior values."
+  The five-argument arity projects a PRIOR value (`:rf.sub/prev-value`):
+  `prior-inputs` are the inputs it was computed from, and `prior-policy` the
+  classification policy it was computed under. Beside the live walk it is
+  redacted by the declaration of the route it was computed under — see the
+  ns docstring's §Prior values."
   ([sub-id value opts]
    (if-let [seed (route-sub-seed-path sub-id)]
      (rf.elision/elide-wire-value value (assoc opts :path seed))
      value))
-  ([sub-id value opts prior-inputs]
+  ([sub-id value opts prior-inputs prior-policy]
    (if-let [seed (route-sub-seed-path sub-id)]
-     (let [{:keys [sensitive large]} (prior-route-classification sub-id value prior-inputs seed)]
+     (let [{:keys [sensitive large]}
+           (prior-route-classification
+             sub-id value prior-inputs seed
+             [prior-policy (rf.elision/frame-policy (:frame opts))])]
        (rf.elision/elide-wire-value
          (rf.classification/redact-with-paths value (or sensitive []) (or large []))
          (assoc opts :path seed)))

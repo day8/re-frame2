@@ -2,9 +2,10 @@
   "Projection-relative classification for durable machine `:data`.
 
   A machine definition declares `:sensitive` and `:large` paths relative to
-  one actor snapshot. The runtime lowers them to absolute runtime-db paths for
-  each singleton or spawned actor, and removes the machine-owned declarations
-  when that actor is destroyed:
+  one actor snapshot. Egress applies them to every actor snapshot present in
+  the runtime-db being projected, re-rooted onto that actor's absolute
+  snapshot path, so an actor is classified exactly while its snapshot is
+  there:
 
   ```clojure
   (rf/reg-machine :checkout/payment
@@ -13,14 +14,16 @@
      :schemas {:data …}, :initial …, :states …})
   ```
 
-  Lowered declarations use `:source :machine` in the frame's elision registry,
-  so existing trace, SSR, and projection readers need no machine-specific path.
-  A malformed declaration fails at registration. Omitting classification leaves
-  the data unclassified."
-  (:require [re-frame.elision :as rf.elision]
-            [re-frame.error :as rf.error]
+  This namespace publishes the `:machines/runtime-classification` hook for
+  the `:rf.runtime/machines` root (`runtime-classification`); core claims what
+  it returns under `:source :machine`, so the trace, SSR, and projection
+  readers need no machine-specific path. A malformed declaration fails at
+  registration. Omitting classification leaves the data unclassified. Spec 015
+  §Subsystem projection-relative classification."
+  (:require [re-frame.error :as rf.error]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.path :as rf.path]))
+            [re-frame.path :as rf.path]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -77,7 +80,7 @@
                " data-classification: " reason ". Per EP-0025 a machine "
                "declares :sensitive / :large as a vector of snapshot-relative "
                ":data-rooted `:rf/path` vectors (e.g. {:sensitive [[:data "
-               ":token]]}), lowered per actor instance at spawn.")
+               ":token]]}), applied to each actor snapshot at egress.")
           {:recovery :fix-registration
            :extra    {:machine-id machine-id
                       :axis       k
@@ -102,108 +105,38 @@
 
 (defn- absolute-snapshot-path
   "Re-root a snapshot-relative `:data`-rooted declaration `path` to the
-  ABSOLUTE per-frame elision-registry path for the actor snapshot keyed
-  under `actor-id` — `[:rf.runtime/machines :snapshots <actor-id> :data …]`
-  — the exact shape `re-frame.classification/frame-snapshot-classification` re-roots back
-  snapshot-relative at egress. Pure."
+  ABSOLUTE runtime-db path of the actor snapshot keyed under `actor-id` —
+  `[:rf.runtime/machines :snapshots <actor-id> :data …]` — the exact shape
+  `re-frame.classification/frame-snapshot-classification` re-roots back
+  snapshot-relative. Pure."
   [actor-id path]
   (into (rf.machines.paths/snapshot-path actor-id) path))
 
-(defn- machine-owner
-  "The multi-owner elision-registry owner identity a machine actor's lowered
-  `:data` classification claims under. The `:actor-id` is carried so an actor's
-  spawn / destroy scopes to THAT instance — removing one actor's claims never
-  disturbs a sibling actor's or another source's claim on the same absolute
-  path."
-  [actor-id]
-  {:source :machine :actor-id actor-id})
+(defn runtime-classification
+  "The `:machines/runtime-classification` hook for the `:rf.runtime/machines`
+  root. Collect, `[]`: each registered machine's declarations
+  (`machine-declarations`), keyed by machine id, through the bound frame
+  view. Apply, `[machines decls]`: every actor snapshot under `machines` (the
+  root's value) names its machine — its `[:rf/runtime :machine-type]`, or its
+  own id for a singleton — and that machine's declaration is re-rooted onto
+  the actor's absolute snapshot path. Pure. Spec 015 §Subsystem
+  projection-relative classification."
+  ([]
+   (into {}
+         (keep (fn [[id desc]]
+                 (when (:rf/machine? desc)
+                   (when-let [decl (machine-declarations (:rf/machine desc))]
+                     [id decl]))))
+         (rf.registrar/registrations :event)))
+  ([machines decls]
+   (reduce-kv
+     (fn [acc actor-id snapshot]
+       (let [decl (when (map? snapshot)
+                    (get decls (or (get-in snapshot [:rf/runtime :machine-type]) actor-id)))
+             abs  (fn [axis] (map #(absolute-snapshot-path actor-id %) (get decl axis)))]
+         (-> acc
+             (update :sensitive into (abs :sensitive))
+             (update :large into (abs :large)))))
+     {:sensitive [] :large []}
+     (or (:snapshots machines) {}))))
 
-(defn- apply-declarations
-  "Pure registry transform: ADD (`add?` true) or DROP (`add?` false) the
-  absolute snapshot-rooted declarations for `actor-id`'s `declarations`
-  (`{:sensitive [paths] :large [paths]}`) on a base elision-registry value
-  `registry`, delegating to the core multi-owner ops. SET UNIONS this actor's owner
-  (`{:source :machine :actor-id …}`) into each axis slot
-  (`:sensitive-declarations` / `:declarations` — the SAME slots the four
-  commit-plane effects and `reg-flow` outputs populate) ALONGSIDE any foreign
-  owner on the same absolute path (Spec 015 L149 explicitly permits an app to
-  additionally classify a subsystem absolute path from a handler effect,
-  `:source :effect`); DROP removes ONLY this actor's own owner
-  (`rf.elision/remove-claims`) at the named absolute paths — a path ALSO claimed
-  by another owner is LEFT INTACT, so an actor teardown never silently
-  un-redacts a path another owner still classifies (a privacy fail-open).
-  An emptied axis slot is pruned by the core ops. Returns the new
-  registry value."
-  [registry actor-id declarations add?]
-  (let [owner (machine-owner actor-id)]
-    (reduce
-      (fn [registry [axis slot]]
-        (let [paths (get declarations axis)]
-          (if-not (seq paths)
-            registry
-            (let [absolute-paths (map #(absolute-snapshot-path actor-id %) paths)]
-              (if add?
-                (rf.elision/add-claims registry slot owner absolute-paths)
-                (rf.elision/remove-claims registry slot owner absolute-paths))))))
-      (or registry {})
-      {:sensitive :sensitive-declarations
-       :large     :declarations})))
-
-(defn lower-at-spawn!
-  "LOWER the machine `spec`'s projection-relative `:sensitive` / `:large`
-  declarations into `frame-id`'s per-frame elision registry, PER ACTOR
-  INSTANCE — re-rooting each snapshot-relative `:data` path to the absolute
-  snapshot path for `actor-id` and writing it `{:source :machine}` into the
-  registry. A no-op when the spec declares no
-  classification (the common fail-open case) or `actor-id` is nil. Runs at
-  spawn / singleton first-boot, the instance-birth point — so a
-  `:spawn`-generated `<type>#n` is classified the moment its snapshot
-  lands, with no per-instance author code — and again for every actor an
-  installer brings back (`re-frame.machines.hydrate`), whose snapshot lands
-  without a birth.
-
-  Writes through `re-frame.elision/swap-elision-slot!` — the SAME registry
-  write surface the four commit-plane effects and the marks API share — so
-  the lowered declaration unions with every other source at egress-lookup
-  time and the existing readers (`frame-snapshot-classification`, the SSR / trace
-  boundaries) redact with no change. Returns nil.
-
-  The 4-arity threads the event's exact-incarnation `owner-token` through
-  `swap-elision-slot!`'s EXACT arity, which writes only while that token names
-  the frame's live incarnation. The 3-arity is the bare-id write (no event
-  owner — conformance / pure-fn callers)."
-  ([frame-id actor-id spec] (lower-at-spawn! frame-id actor-id spec nil))
-  ([frame-id actor-id spec owner-token]
-   (when actor-id
-     (when-let [declarations (machine-declarations spec)]
-       (let [transform (fn [registry]
-                         (apply-declarations registry actor-id declarations true))]
-         (if owner-token
-           (rf.elision/swap-elision-slot! frame-id owner-token transform)
-           (rf.elision/swap-elision-slot! frame-id transform)))))
-   nil))
-
-(defn drop-at-destroy!
-  "DROP the machine `spec`'s per-instance classification declarations for
-  `actor-id` from `frame-id`'s elision registry — the teardown half of
-  `lower-at-spawn!`. Dissocs exactly the
-  absolute snapshot-rooted paths the spawn lowered (other-sourced entries
-  for the same path survive); an emptied axis slot is pruned so a frame that
-  destroys its last classified actor is left without a stray registry
-  sub-tree (no leak). A no-op when the spec declared no classification or
-  `actor-id` is nil. Returns nil.
-
-  The 4-arity threads the event's exact-incarnation `owner-token` through
-  `swap-elision-slot!`'s EXACT arity, which writes only while that token names
-  the frame's live incarnation. The 3-arity is the bare-id write (no event
-  owner)."
-  ([frame-id actor-id spec] (drop-at-destroy! frame-id actor-id spec nil))
-  ([frame-id actor-id spec owner-token]
-   (when actor-id
-     (when-let [declarations (machine-declarations spec)]
-       (let [transform (fn [registry]
-                         (apply-declarations registry actor-id declarations false))]
-         (if owner-token
-           (rf.elision/swap-elision-slot! frame-id owner-token transform)
-           (rf.elision/swap-elision-slot! frame-id transform)))))
-   nil))

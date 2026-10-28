@@ -47,6 +47,7 @@
             #?(:clj [re-frame.registrar :as rf.registrar])
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.subs :as rf.subs]
+            [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.decisions :as rf.routing.decisions]
             [re-frame.routing.events :as rf.routing.events]
             [re-frame.routing.history :as rf.routing.history]
@@ -480,6 +481,10 @@
 ;; the same declarations apply to trace, tool, and off-box reads.
 (rf.late-bind/set-fn! :routing/route-sub-egress-path    rf.routing.sub-egress/route-sub-seed-path)
 (rf.late-bind/set-fn! :routing/project-route-sub-egress rf.routing.sub-egress/project-route-sub-egress)
+;; The `:rf.runtime/routing` root's classification hook: core's egress applies
+;; the current route's `:sensitive` / `:large` declaration to the slice
+;; (Spec 015 §Subsystem projection-relative classification).
+(rf.late-bind/set-fn! :routing/runtime-classification   rf.routing.classification/runtime-classification)
 
 ;; A navigation event carries the route's params and query values in its first
 ;; argument — as URL text, or in a request map — which no slice path reaches.

@@ -5,12 +5,13 @@
 
     1. VALIDATED fail-loud at `reg-route`
        (`:rf.error/invalid-route-classification`, before any state mutates);
-    2. LOWERED into the per-frame elision registry at route activation,
-       re-rooted under `[:rf.runtime/routing :current …]` and owned by
-       `{:source :route}`, so the slice redacts at egress while the in-process
-       slice stays raw;
-    3. DROPPED on route change, route miss and frame teardown, leaving any
-       other owner's claim on the same path in place.
+    2. APPLIED at egress to the current slice through the
+       `:routing/runtime-classification` hook, re-rooted under
+       `[:rf.runtime/routing :current …]` and claimed `{:source :route}`, so
+       the slice redacts at egress while the in-process slice stays raw;
+    3. GONE once the slice no longer names the route — route change, route
+       miss, frame teardown — leaving any other owner's claim on the same
+       path in place.
 
   ## Posture split
 
@@ -41,8 +42,11 @@
 (def ^:private sentinel rf.privacy/redacted-sentinel)
 
 (defn- elision-reg
+  "`frame-id`'s live classification, in the registry's two-axis shape: what
+  egress reads, the route hook's claims on the current slice included."
   [frame-id]
-  (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/elision]))
+  {:sensitive-declarations (rf.elision/sensitive-declarations frame-id)
+   :declarations           (rf.elision/declarations frame-id)})
 
 (defn- route-paths
   "The paths a `:source :route` owner claims on `axis`
@@ -82,7 +86,35 @@
           clojure.lang.ExceptionInfo #"\[:rf.error/invalid-route-classification\]"
           (rf/reg-route :route/bad3 {:large [[:params (fn [] :opaque)]]} "/bad3")))))
 
-;; ---- lowering and the singleton drop ----------------------------------------
+;; ---- the current route's classification ------------------------------------
+
+(deftest the-hook-re-roots-the-current-routes-declaration
+  (rf/reg-route :route/a {:sensitive [[:query :a-secret]] :large [[:params :blob]]} "/a/:blob")
+  (rf/reg-route :route/plain {} "/plain")
+  (let [decls (rf.routing.classification/runtime-classification)]
+    (is (= {:sensitive [[:query :a-secret]] :large [[:params :blob]]} (get decls :route/a))
+        "collect gathers each declaring route's validated classification by id")
+    (is (not (contains? decls :route/plain)) "a route that declares nothing is not collected")
+    (is (= {:sensitive [[:rf.runtime/routing :current :query :a-secret]]
+            :large     [[:rf.runtime/routing :current :params :blob]]}
+           (rf.routing.classification/runtime-classification
+             {:current {:route-id :route/a}} decls))
+        "apply re-roots the declaration of the route the current slice names")
+    (is (= {:sensitive [] :large []}
+           (rf.routing.classification/runtime-classification
+             {:current {:route-id :route/plain}} decls)))))
+
+(deftest a-route-is-classified-exactly-while-it-is-current
+  (rf/reg-route :route/oauth {:sensitive [[:query :token]]} "/oauth")
+  (rf/reg-route :route/home {} "/home")
+  (visit! "/oauth?token=secret")
+  (is (= #{[:rf.runtime/routing :current :query :token]} (route-paths :sensitive-declarations))
+      "the current route's declaration is claimed, with no activation step")
+  (is (nil? (get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/elision]))
+      "nothing is written into the frame's elision registry")
+  (visit! "/home")
+  (is (= #{} (route-paths :sensitive-declarations))
+      "the leaving route's claim goes with its slice, with nothing replaced"))
 
 (deftest route-change-and-route-miss-replace-the-classification
   ;; Only the entering route's classification survives a swap, and a miss
@@ -103,7 +135,7 @@
   (is (nil? (:rf.db/runtime (rf/frame-state-value :rf/default)))
       "the frame's runtime-db, elision registry included, goes with it"))
 
-(deftest sensitive-wins-over-large-at-lowering
+(deftest sensitive-wins-over-large-at-extraction
   (rf/reg-route :route/both
                 {:sensitive [[:query :secret]]
                  :large     [[:query :secret] [:params :big]]}
@@ -112,7 +144,7 @@
   (is (= [#{[:rf.runtime/routing :current :query :secret]}
           #{[:rf.runtime/routing :current :params :big]}]
          [(route-paths :sensitive-declarations) (route-paths :declarations)])
-      "the co-declared path lowers as sensitive only; the large-only path still lowers"))
+      "the co-declared path classifies as sensitive only; the large-only path stays large"))
 
 (deftest cross-frame-route-classification-is-isolated
   (rf/make-frame {:id :frame/b :doc "second app frame"})

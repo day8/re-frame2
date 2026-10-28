@@ -408,26 +408,24 @@
 ;; EP-0025 §Subsystem matrix (`reg-route` row) + Spec 012 §Route data
 ;; classification + Spec 015 §SSR: a route declares `:sensitive` / `:large`
 ;; paths PROJECTION-RELATIVE to its `{:query … :params …}` current-state
-;; projection (`(rf/reg-route … {:sensitive [[:query :token]]} …)`). At route
-;; activation those declarations are RE-ROOTED under
-;; `[:rf.runtime/routing :current …]` and lowered into the per-frame elision
-;; registry (`re-frame.routing.classification/apply-route-classification`,
-;; `:source :route`) — the SAME `[:rf.runtime/elision …]` slot the
-;; `:rf.egress/ssr-hydration` egress walk reads. Shipping the routing
-;; `:current` slice via a bare
-;; `select-keys` would let a route declaring `:sensitive [[:query :token]]` install
-;; the registry decl yet serialise the raw `:query` / `:params` value into the
-;; hydration `:rf/runtime-db` payload. It is the
+;; projection (`(rf/reg-route … {:sensitive [[:query :token]]} …)`). At egress
+;; those declarations are RE-ROOTED under `[:rf.runtime/routing :current …]`
+;; and claimed under `:source :route`
+;; (`re-frame.routing.classification/runtime-classification`) — the frame
+;; classification the `:rf.egress/ssr-hydration` egress walk reads. Shipping the
+;; routing `:current` slice via a bare `select-keys` would serialise the raw
+;; `:query` / `:params` value of a route declaring `:sensitive [[:query :token]]`
+;; into the hydration `:rf/runtime-db` payload. It is the
 ;; IDENTICAL leak class the machines snapshot hook
 ;; (`:machines/project-ssr-runtime-db`) and the app-db slice projection
 ;; (`project-app-db-egress` above) close.
 ;;
-;; The routing decls are stored as ABSOLUTE runtime-db paths
+;; The routing claims are ABSOLUTE runtime-db paths
 ;; (`[:rf.runtime/routing :current :query :token]`), so the slice is walked
 ;; through `project-egress` seeded at the offset `:path [:rf.runtime/routing]`:
 ;; `elide-wire-value`'s `:path` opt seeds the candidate declaration-coordinate
-;; set, so a value walked under that offset matches the registry's re-rooted
-;; route paths exactly. A `:sensitive` route path redacts to `:rf/redacted`; a
+;; set, so a value walked under that offset matches the re-rooted route paths
+;; exactly. A `:sensitive` route path redacts to `:rf/redacted`; a
 ;; `:large` one elides to the size marker; an unclassified route slice rides
 ;; verbatim (the projection is precise, not a blanket scrub) — only the
 ;; classified paths are touched.
@@ -437,18 +435,18 @@
   map, the `durable-routing-keys` projection of `:rf.runtime/routing`) through
   the centralized `:rf.egress/ssr-hydration` egress projection seeded at
   `frame-id`, so a route's projection-relative `:sensitive` / `:large`
-  classification — lowered into the per-frame elision registry under
-  `[:rf.runtime/routing :current …]` at route activation — redacts / elides the
+  classification — claimed under `[:rf.runtime/routing :current …]` while the
+  route is current — redacts / elides the
   classified `:query` / `:params` value before it serialises into the hydration
   `:rf/runtime-db` (Spec 012 §Route data classification, Spec 015 §SSR,
   EP-0025). Mirrors `project-app-db-egress` (app-db slice) and the
   machines `:machines/project-ssr-runtime-db` hook (snapshot `:data`).
 
-  The route decls are stored as ABSOLUTE runtime-db paths
+  The route claims are ABSOLUTE runtime-db paths
   (`[:rf.runtime/routing :current :query :token]`), so the walk is seeded at the
   offset `:path [:rf.runtime/routing]` — `elide-wire-value` seeds the candidate
   declaration-coordinate set with the offset, so the slice value matches the
-  registry's re-rooted route paths exactly. Defers to
+  re-rooted route paths exactly. Defers to
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
@@ -551,10 +549,11 @@
 
   The `:rf.runtime/machines` slice is NOT shipped raw: each
   durable machine snapshot's `:data` is projected per the owning FRAME's
-  elision-registry `:sensitive` / `:large` classification for that actor —
+  `:sensitive` / `:large` classification for that actor —
   declared projection-relative by top-level `:sensitive` / `:large` on the
-  `reg-machine` spec and lowered per actor instance under `:source :machine`
-  (Spec 015 §State machines), NOT by the machine's `[:schemas :data]` per-slot
+  `reg-machine` spec and claimed at egress under `:source :machine`
+  (Spec 015 §Subsystem projection-relative classification), NOT by the
+  machine's `[:schemas :data]` per-slot
   `:sensitive?` / `:large?` props, which VALIDATE `:data` and redact only the
   schema's own validation-failure trace — under the
   `:rf.egress/ssr-hydration` boundary (via the late-bound machines-owned
@@ -569,8 +568,8 @@
   allowlisted durable `:current` route slice is run through
   `project-routing-egress` under the `:rf.egress/ssr-hydration` boundary, so a
   route's projection-relative `:sensitive` / `:large` `:query` / `:params`
-  classification (re-rooted under `[:rf.runtime/routing :current …]` into the
-  per-frame elision registry at route activation) redacts / elides before it
+  classification (re-rooted under `[:rf.runtime/routing :current …]` while the
+  route is current) redacts / elides before it
   rides the hydration blob raw — symmetric with the machines snapshot
   projection and the app-db slice projection. An unclassified route slice rides
   verbatim (the walk is path-precise).
@@ -584,10 +583,10 @@
   exact leak EP-0025 / Spec 015 §SSR forbids (\"the per-frame registry is itself
   projected before any view of it crosses the hydration wire\"). Omitting is the
   strongest form of that projection. It is also sufficient: SSR and the client
-  run the SAME app image, so the client rebuilds its own identical registry from
-  its `reg-event` classification effects / `reg-flow` / `reg-route` /
-  `reg-machine` as they re-run on mount, and the egress walk consults the LIVE
-  per-frame registry, never the wire copy. The classified app-db / route /
+  run the SAME app image, so the client resolves the same declarations from its
+  own registrations, rebuilds its registry from its `reg-event` classification
+  effects / `reg-flow` as they re-run on mount, and the egress walk consults the
+  LIVE frame classification, never the wire copy. The classified app-db / route /
   machine slices above were ALREADY projected against this registry server-side,
   so their redaction is baked into the wire value and does not need the
   declarations to re-derive it.

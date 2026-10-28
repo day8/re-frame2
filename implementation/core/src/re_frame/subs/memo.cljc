@@ -32,7 +32,8 @@
   Per-recompute hot path is the closure body (in-process) — unaffected
   by the ns boundary. Per-miss constructor call (from
   `re-frame.subs/compute-and-cache!`) crosses the ns boundary once."
-  (:require [re-frame.epoch.capture :as rf.epoch.capture]
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.epoch.capture :as rf.epoch.capture]
             [re-frame.error :as rf.error]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -207,9 +208,9 @@
   own egress classification; and the resource and mutation read subs
   (`:rf/resource` / `:rf.resource/*`, `:rf/mutation` / `:rf.mutation/*`)
   through the slots their owner's `reg-resource` / `reg-mutation`
-  declaration names. The machine and route classifications are read from the
-  frame's elision registry in runtime-db, the resource and mutation ones from
-  the owner spec.
+  declaration names. The machine and route classifications are the frame's
+  policy applied to the instances its runtime-db holds, the resource and
+  mutation ones the owner spec.
 
   The projection runs synchronously INSIDE this reaction's compute fn, so
   none of its reads may record a reactive dependency. A capturing read of a
@@ -219,23 +220,26 @@
   just its own input's). The registration classification is the captured
   declaration and the process-scoped registrar, neither of them reactive;
   the machine, route and mutation projections read the frame's runtime-db
-  (its elision registry, or a mutation's instance) through
+  (its instances, or a mutation's instance) through
   `re-frame.substrate.adapter/read-container-untracked`, a snapshot that
   records no dependency. A sub whose registration declares `:sensitive`
   output paths egresses those paths of `:prev-value` / `:value` as
   `:rf/redacted`; `:value-changed?` stays a plain boolean.
 
   `:prev-value` is classified by what governed it when it was computed, not
-  only by the registry as it stands now: destroying a machine actor drops its
-  lowered claims while a held `[:rf/machine <id>]` sub still carries the dead
-  actor's snapshot as its prior value, and a navigation replaces the route's
-  claims while a held route read sub still carries the leaving slice. So the
-  emit also carries, under the private `:re-frame.classification/prev-inputs`
-  tag, the input value(s) the prior value was computed from — for a
-  runtime-db reader, the runtime-db whose elision registry classified it; for
-  a `:rf.route/query` / `:rf.route/params` leaf, the prior `[:rf/route]`
-  slice, which carries the declaration its route activated with. The
-  chokepoint reads it and strips it; it never egresses.
+  only by the frame as it stands now: destroying a machine actor removes its
+  snapshot while a held `[:rf/machine <id>]` sub still carries it as its prior
+  value, a navigation replaces the current route while a held route read sub
+  still carries the leaving slice, and a re-registration can replace the
+  declaration either was computed under. So each wrapper keeps, beside its
+  last value, the classification policy that value was computed under
+  (`value-policy`), and the emit carries it under the private
+  `:re-frame.classification/prev-policy` tag, with the input value(s) the
+  prior value was computed from under `:re-frame.classification/prev-inputs`
+  — for a `:rf.route/query` / `:rf.route/params` leaf, the prior
+  `[:rf/route]` slice, which names the route. The chokepoint reads both and
+  strips them; neither egresses (Spec 015 §Retained values keep their
+  recorded classification).
 
   The whole attribution branch (the enriched tag map) sits inside
   `(if rf.interop/debug-enabled? ...)` so Closure DCE folds it out under
@@ -245,11 +249,12 @@
   wrapper's volatile cells — no extra cache read.
 
   Callers (the memo wrappers) pass `prev-value` (the wrapper's
-  `last-result` cell, `::unset` on first recompute) and `prev-in-vals`
+  `last-result` cell, `::unset` on first recompute), `prev-in-vals`
   (the wrapper's last-seen input value(s), `::unset` on first recompute,
-  else a coll parallel to `in-vals`)."
+  else a coll parallel to `in-vals`) and `prev-policy` (the policy
+  `prev-value` was computed under, nil on first recompute)."
   [body-fn body-arg in-vals query-id query-v frame-id input-signals sub-meta sub-scope
-   prev-value prev-in-vals]
+   prev-value prev-in-vals prev-policy]
   ;; Publish the sub's HandlerScope for the duration of body-fn
   ;; invocation + validation + the `:rf.sub/run` emit. Per Spec 009
   ;; §:rf.trace/trigger-handler the sub's source-coord rides every emit
@@ -391,6 +396,10 @@
                            ;; Private: the projector strips it.
                            (not= unset prev-in-vals)
                            (assoc :re-frame.classification/prev-inputs prev-in-vals)
+                           ;; The policy the PRIOR value was computed under.
+                           ;; Private: the projector strips it.
+                           (some? prev-policy)
+                           (assoc :re-frame.classification/prev-policy prev-policy)
                            reader-rk (assoc :rf.sub/reader-render-key reader-rk)
                            (some? cause-event-id)
                            (assoc :rf.sub/cause-event-id cause-event-id))))
@@ -574,6 +583,16 @@
 
 ;; ---- memoisation wrappers ------------------------------------------------
 
+(defn- value-policy
+  "The classification policy `frame-id` stands under as a value is computed.
+  Each wrapper keeps it beside its last value, so that value's later trace as
+  a `:rf.sub/prev-value` projects under it. Dev-only, because only that trace
+  reads it, so production allocates nothing. Spec 015 §Retained values keep
+  their recorded classification."
+  [frame-id]
+  (when rf.interop/debug-enabled?
+    (rf.elision/frame-policy frame-id)))
+
 (defn make-layer-1-memoised-body
   "Specialised memo wrapper for layer-1 subs (which read app-db
   directly). Fixed-arity-1 — avoids the varargs-seq allocation that a
@@ -594,6 +613,7 @@
   [body-fn query-id query-v frame-id sub-meta source-container]
   (let [last-db     (volatile! ::unset)
         last-result (volatile! nil)
+        last-policy (volatile! nil)
         sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
         witness-src (witnessing-source source-container)]
     (fn [db]
@@ -643,9 +663,11 @@
                               frame-id [] sub-meta sub-scope
                               prev-result (if (or first-run? (not rf.interop/debug-enabled?))
                                             unset
-                                            (list seen)))]
+                                            (list seen))
+                              @last-policy)]
             (vreset! last-db db)
             (vreset! last-result computed)
+            (vreset! last-policy (value-policy frame-id))
             computed))))))
 
 (defn make-layer-n-single-input-memoised-body
@@ -676,6 +698,7 @@
   [body-fn query-id query-v frame-id input-signals sub-meta source-container]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)
+        last-policy (volatile! nil)
         sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
         witness-src (witnessing-source source-container)]
     (fn [v0]
@@ -714,9 +737,10 @@
                 computed     (validate-and-trace
                                body-fn [v0] (list v0) query-id query-v
                                frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals)]
+                               prev-result prev-in-vals @last-policy)]
             (vreset! last-v0 v0)
             (vreset! last-result computed)
+            (vreset! last-policy (value-policy frame-id))
             computed))))))
 
 (defn make-layer-n-memoised-body
@@ -740,6 +764,7 @@
   [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-in-vals (volatile! ::unset)
         last-result  (volatile! nil)
+        last-policy  (volatile! nil)
         sub-scope    (rf.trace/handler-scope-from-meta :sub query-id sub-meta)]
     (fn [& in-vals]
       (when body-fn
@@ -768,7 +793,8 @@
                 computed     (validate-and-trace
                                body-fn (vec in-vals) in-vals query-id query-v
                                frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals)]
+                               prev-result prev-in-vals @last-policy)]
             (vreset! last-in-vals in-vals)
             (vreset! last-result computed)
+            (vreset! last-policy (value-policy frame-id))
             computed))))))

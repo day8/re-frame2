@@ -187,7 +187,8 @@
     :tags :parent :on-match :scroll :can-leave :can-enter
     ;; route-owned data classification (EP-0025 — the
     ;; `reg-route` subsystem-matrix row; projection-relative `:sensitive` /
-    ;; `:large`, lowered into the per-frame elision registry at activation).
+    ;; `:large`, applied at egress to the current slice — Spec 012 §Route
+    ;; data classification).
     :sensitive :large
     ;; cross-feature: SSR head selection (Spec 011 §Head/meta contract)
     :head
@@ -541,10 +542,11 @@
         ;; projection-relative classification declaration is validated FAIL-LOUD
         ;; at the authoring boundary (a malformed path / wrong shape / non-EDN
         ;; segment throws `:rf.error/invalid-route-classification`), so it never
-        ;; reaches activation. The result is discarded here — lowering re-derives
-        ;; it from the stored route-meta at activation (`re-frame.routing.
-        ;; classification/lower-for-route`), keeping the stored meta a pure
-        ;; reflection map. Runs only when the route declares a classification key.
+        ;; reaches activation. The result is discarded here — the classification
+        ;; hook re-derives it from the stored route-meta (`re-frame.routing.
+        ;; classification/runtime-classification`), keeping the stored meta a
+        ;; pure reflection map. Runs only when the route declares a
+        ;; classification key.
         _            (rf.routing.classification/validate+extract id metadata)
         ;; Reject a :double / decimal-typed :params or :query key
         ;; at the authoring boundary. A float has no canonical-EDN identity, so

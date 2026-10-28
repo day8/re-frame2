@@ -5,27 +5,24 @@
   ## The subsystem-declaration rule
 
   Each runtime subsystem classifies its own instance data projection-relative,
-  applied per-instance at creation and dropped at
-  teardown, lowered into the per-frame elision registry. The route arm is
-  a PURE-OVER-VALUE lowering (`apply-route-classification` / `lower-for-route`
-  below): given a base runtime-db value it returns the runtime-db with the
-  `[:rf.runtime/elision …]` registry replaced, which the router folds into the
-  atomic route-slice commit — it does NOT imperatively `swap!` a live slot (the
-  imperative `re-frame.elision/swap-elision-slot!` seam is the `:source :flow`
-  path, not the route path). The `reg-route` row of the subsystem matrix:
+  and egress applies the declaration to the instances present in the
+  runtime-db being projected, through one late-bound hook per runtime-db root.
+  The route arm is `runtime-classification` below, the
+  `:routing/runtime-classification` hook for `:rf.runtime/routing`: its
+  collect gathers every route's declaration, and its pure apply re-roots the
+  declaration of the route the current slice names. The `reg-route` row of the
+  subsystem matrix:
 
-  | Projection root | Applied at | Dropped at | Generated key |
-  |---|---|---|---|
-  | the current route's `:query` / `:params` | route activation | route change / deactivation | current route (effectively a singleton) |
+  | Projection root | Classified while | Named by |
+  |---|---|---|
+  | the current route's `:query` / `:params` | the route is current | the slice's `:route-id` |
 
   A route is effectively a SINGLETON current-route — only one route is active
-  in a frame at a time, sitting at `[:rf.runtime/routing :current]`. So unlike
-  the machines / resources / mutations cases (one registry entry per spawned
-  instance), the route's lowered classification is the WHOLE `:source :route`
-  declaration set: route activation REPLACES it (dropping the previous route's
-  entries), so a route change drops the leaving route's classification and a
-  navigation to a route that declares none clears the registry of route-sourced
-  entries entirely.
+  in a frame at a time, sitting at `[:rf.runtime/routing :current]`. So a
+  navigation needs no classification step: the entering slice names the
+  entering route, whose declaration then classifies it, and the leaving
+  route's classification goes with its slice. Spec 015 §Subsystem
+  projection-relative classification.
 
   ## Projection-relative authoring
 
@@ -38,13 +35,12 @@
          :large     [[:params :payload]]}
         \"/oauth/callback\")
 
-  At route activation the projection-relative paths are RE-ROOTED to wherever
-  the route's current state lives in runtime-db — under
+  At egress the projection-relative paths are RE-ROOTED to wherever the
+  route's current state lives in runtime-db — under
   `[:rf.runtime/routing :current …]` — so the declared `[:query :token]`
   classifies the runtime path `[:rf.runtime/routing :current :query :token]`.
   The author never names the absolute runtime-db storage position; they name
-  the path
-  inside the route's own projection, and lowering re-roots it.
+  the path inside the route's own projection, and the hook re-roots it.
 
   ## Validation is fail-loud at registration
 
@@ -59,22 +55,12 @@
 
   ## Sensitive wins over large
 
-  A path declared BOTH `:sensitive` and `:large` lowers as sensitive ONLY — its
-  large entry is dropped at lowering time, so no `:rf.size/large-elided` marker
-  (which would leak path / byte size / digest) is ever emitted for it. This is
-  the lowering-time complement of the elision walker's sensitive-before-large
-  ordering (`re-frame.elision/walk`), the final egress enforcement point.
-
-  ## Lowering writes a runtime-db VALUE (not a live container swap)
-
-  Lowering is PURE over a runtime-db value (`apply-route-classification`) so the
-  navigation commit (`re-frame.routing.events/commit-navigation`) can fold the
-  registry update into the SAME atomic `:rf.db/runtime` transition that
-  publishes the route slice — the classification lands WITH the slice, exactly
-  the way the commit-plane effects land with the `:db` write (EP-0025 §How it
-  works §Same-event ordering). At frame teardown the whole runtime-db partition
-  (including `[:rf.runtime/elision]`) is dropped, so the route-sourced entries
-  vanish with the frame with no separate teardown hook.
+  A path declared BOTH `:sensitive` and `:large` classifies as sensitive ONLY —
+  its large entry is dropped when the declaration is extracted, so no
+  `:rf.size/large-elided` marker (which would leak path / byte size / digest)
+  is ever emitted for it. This is the declaration-time complement of the
+  elision walker's sensitive-before-large ordering (`re-frame.elision/walk`),
+  the final egress enforcement point.
 
   ## The query-key promotion advisory
 
@@ -99,9 +85,9 @@
   HEAD (the head key is what must promote).
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.elision :as rf.elision]
-            [re-frame.error :as rf.error]
+  (:require [re-frame.error :as rf.error]
             [re-frame.path :as rf.path]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -110,9 +96,9 @@
 
 (def ^:const classification-keys
   "The two route-owned classification metadata keys. A `reg-route` metadata
-  map carrying either triggers
-  classification validation + lowering at activation; both are projection-
-  relative `[[path] …]` declarations. Joined onto the routing-owned reserved
+  map carrying either triggers classification validation at registration;
+  both are projection-relative `[[path] …]` declarations. Joined onto the
+  routing-owned reserved
   metadata keys (`re-frame.routing.registry/reserved-route-keys`)."
   #{:sensitive :large})
 
@@ -146,7 +132,7 @@
 ;; paths; each path is a sequential collection of CONCRETE EDN segments (the
 ;; empty path `[]` is legal — it marks the whole route projection). The author
 ;; declares them relative to the route's `{:query … :params …}` projection;
-;; lowering re-roots them under `current-route-root`. `rf.path/normalize-concrete`
+;; the hook re-roots them under `current-route-root`. `rf.path/normalize-concrete`
 ;; is the EP-0012 VALIDATED concrete boundary: it canonicalises a sequential
 ;; path to a vector AND fails closed with `:rf.error/bad-path` on a
 ;; non-sequential path OR any segment outside the concrete EDN domain. This is
@@ -216,8 +202,8 @@
   shape) on ANY defect — malformed path, wrong shape, non-EDN segment — so the
   failure fires at `reg-route` time, before any state mutates and before the
   route can ever activate. Paths are PROJECTION-RELATIVE (rooted at the route's
-  `{:query … :params …}` projection); lowering re-roots them under
-  `[:rf.runtime/routing :current …]`.
+  `{:query … :params …}` projection); `runtime-classification` re-roots them
+  under `[:rf.runtime/routing :current …]`.
 
   Returns nil when `metadata` carries no classification key (the common case —
   no work, no allocation)."
@@ -227,124 +213,38 @@
           large-paths (normalize-axis-paths route-id :large     (:large metadata))
           sens-set    (set sens-paths)
           ;; Sensitive wins over large: a path that is
-          ;; BOTH lowers as sensitive ONLY — drop it from large so no
+          ;; BOTH classifies as sensitive ONLY — drop it from large so no
           ;; `:rf.size/large-elided` marker (path / bytes / digest) can ever
           ;; leak for it. The walker's sensitive-before-large ordering is the
-          ;; authoritative runtime enforcement; this lowering-time
+          ;; authoritative runtime enforcement; this declaration-time
           ;; drop is a belt-and-braces complement for route declarations.
           large-only  (into [] (remove sens-set) large-paths)]
       {:sensitive sens-paths
        :large     large-only})))
 
-;; ---- lowering into the per-frame elision registry ------------------------
-;;
-;; A route is a SINGLETON current-route, so lowering REPLACES the whole
-;; `:source :route` declaration set: route activation drops the leaving route's
-;; route-sourced entries and installs the entering route's. Other sources
-;; (`:source :effect` commit-plane classification effects / `:source :flow`
-;; flow outputs) survive untouched and union at egress-lookup time
-;; (`re-frame.elision/elide-against-frame` reads both `:sensitive-declarations`
-;; / `:declarations` sub-maps verbatim). This mirrors how the commit-plane
-;; classification effects (`re-frame.elision/apply-classification-effects`)
-;; touch only their own `:source :effect` entries.
+;; ---- the `:rf.runtime/routing` root hook ---------------------------------
 
-(def ^:private route-owner
-  "The multi-owner elision-registry owner identity route activation claims
-  under. A route is a SINGLETON current-route (only one active per frame), so
-  the owner needs no instance id — `rf.elision/replace-owner-claims` under this
-  owner drops the leaving route's claims and installs the entering route's in
-  one reconcile."
-  {:source :route})
-
-(defn apply-route-classification
-  "PURE lowering: given a base `runtime-db` value and a route's validated
-  projection-relative `classification` (the `validate+extract` result, or
-  nil), return the new runtime-db with the `[:rf.runtime/elision …]` registry's
-  route-owner claims REPLACED by this route's (re-rooted under
-  `[:rf.runtime/routing :current …]`), delegating to the core multi-owner op
-  `re-frame.elision/replace-owner-claims`.
-
-  Operates on a VALUE (not a live container) so the navigation commit can fold
-  it into the atomic `:rf.db/runtime` transition that publishes the slice — the
-  classification lands WITH the slice (EP-0025 §Same-event ordering).
-
-  Singleton semantics: a nil / empty `classification` (a route that declares no
-  classification) still runs, clearing the prior route's route-owner claims —
-  the leaving route's classification drops on every route change. The two axes
-  write the elision registry's `:sensitive-declarations` (sensitive) and
-  `:declarations` (large) sub-maps. A path ALSO claimed by another owner
-  (`{:source :effect}` commit-plane effects / `{:source :flow …}` flow outputs /
-  `{:source :machine …}` / `{:source :resource}`) survives untouched and unions
-  at egress-lookup time; an emptied axis slot is pruned by the core
-  ops.
-
-  Reconcile-aware (router `re-frame.elision/reconcile-runtime-db-effect`): a
-  whole-value `:rf.db/runtime` commit that OMITS the `:rf.runtime/elision` key
-  has the prior registry CARRIED FORWARD (so an unrelated runtime-db write does
-  not drop the durable registry). But a route change that clears the LAST
-  route-owner claim must DROP it — the leaving route's classification has to
-  go. So whenever this lowering touched the registry (the base carried one, or
-  this route declares some), it emits an EXPLICIT `:rf.runtime/elision` key
-  (possibly `{}`) so reconcile honours the clear VERBATIM rather than resurrecting
-  the leaving route's entries. The common no-classification-ever case (no prior
-  slot, no new entries) emits no key — nothing to clear, no stray sub-tree."
-  [runtime-db classification]
-  (let [base    (or runtime-db {})
-        sens    (mapv #(into current-route-root %) (:sensitive classification))
-        large   (mapv #(into current-route-root %) (:large classification))
-        reg     (get base :rf.runtime/elision)
-        new-reg (-> (or reg {})
-                    (rf.elision/replace-owner-claims :sensitive-declarations route-owner sens)
-                    (rf.elision/replace-owner-claims :declarations route-owner large))]
-    (cond
-      ;; The lowering produced declarations → install the registry verbatim.
-      (seq new-reg)
-      (assoc base :rf.runtime/elision new-reg)
-
-      ;; Empty result, but the base carried a registry → this is a CLEAR (the
-      ;; leaving route's last route-owner claim, or another owner's claim that
-      ;; resolved away). Emit the explicit key so the router's reconcile honours
-      ;; the drop rather than carrying the prior registry forward. `{}` is
-      ;; honoured verbatim and read as no declarations.
-      (contains? base :rf.runtime/elision)
-      (assoc base :rf.runtime/elision {})
-
-      ;; No prior slot, no new entries → nothing to express; leave it absent
-      ;; (the common route-without-classification case allocates no sub-tree).
-      :else base)))
-
-(defn lower-for-route
-  "Resolve `route-meta`'s validated classification (`validate+extract`) and
-  lower it onto `runtime-db` (`apply-route-classification`). This is the single
-  route-activation entry point the navigation commit calls. Registration has
-  already validated ordinary metadata; re-validation keeps this function safe
-  when called with metadata supplied outside that path. `route-meta` nil (an
-  unregistered / not-found route) lowers an empty
-  classification, which clears the prior route's `:source :route` entries — the
-  leaving route's classification drops on a route-miss / not-found transition
-  too. Pure over the runtime-db value.
-
-  The same classification is also recorded on the route slice it governs, as
-  metadata (see `slice-classification`), so a value computed from the slice
-  keeps the declaration that governed it after the registry has moved on."
-  [runtime-db route-id route-meta]
-  (let [classification (validate+extract route-id route-meta)
-        lowered        (apply-route-classification runtime-db classification)]
-    (if (map? (get-in lowered current-route-root))
-      (update-in lowered current-route-root vary-meta assoc ::declared classification)
-      lowered)))
-
-(defn slice-classification
-  "The projection-relative classification `lower-for-route` recorded on the
-  route `slice` when its route activated, or nil. It is metadata, so the
-  in-process slice is unchanged and no registry entry outlives the route.
-
-  A navigation replaces the registry's route claims, and a re-registration can
-  replace the route's declaration, while a held route read sub's prior value —
-  the leaving slice, or a projection of it — still needs the classification
-  that governed it. That value carries its slice, and the slice carries this."
-  [slice]
-  (::declared (meta slice)))
+(defn runtime-classification
+  "The `:routing/runtime-classification` hook for the `:rf.runtime/routing`
+  root. Collect, `[]`: each registered route's validated classification
+  (`validate+extract`), keyed by route id, through the bound frame view.
+  Apply, `[routing decls]`: the current slice under `routing` (the root's
+  value) names its route by `:route-id`, and that route's declaration is
+  re-rooted under `[:rf.runtime/routing :current …]`. Pure. Spec 015
+  §Subsystem projection-relative classification."
+  ([]
+   (into {}
+         (keep (fn [[route-id route-meta]]
+                 (when-let [{:keys [sensitive large] :as decl}
+                            (validate+extract route-id route-meta)]
+                   (when (or (seq sensitive) (seq large))
+                     [route-id decl]))))
+         (rf.registrar/registrations :route)))
+  ([routing decls]
+   (let [{:keys [sensitive large]} (get decls (get-in routing [:current :route-id]))
+         re-root (fn [paths] (mapv #(into current-route-root %) paths))]
+     {:sensitive (re-root sensitive)
+      :large     (re-root large)})))
 
 ;; ---- re-rooting onto a route read sub's value -----------------------------
 
@@ -370,8 +270,8 @@
   governs the whole value.
 
   The route-sub egress projector classifies a sub's PRIOR value with it: a
-  navigation replaces the registry's route claims with the entering route's,
-  so the leaving route's slice is classified by its own route's declaration."
+  navigation replaces the current slice with the entering route's, so the
+  leaving route's slice is classified by its own route's declaration."
   [classification seed]
   (when-some [{:keys [sensitive large]} classification]
     (let [rebase (fn [paths]
