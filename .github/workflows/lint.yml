@@ -813,6 +813,14 @@ jobs:
   # checker's `assert_usable` exits 2 on a shallow clone), but a red that says
   # nothing about the corpus is still a red nobody can act on.
   #
+  # BLOBLESS, for the reason docs.yml's `provenance-pins` job gives: the gate
+  # reads commits, trees and the pages at HEAD, so the checkout takes every
+  # commit and tree but only HEAD's blobs (`filter: blob:none`).  The audit step
+  # sets `GIT_NO_LAZY_FETCH` so the partial clone answers exactly as a full one
+  # does, rather than fetching each authored head GitHub still holds under a
+  # pull-request ref; it runs no `git diff`, so docs.yml's `diff.renames=false`
+  # has nothing to do here.
+  #
   # NO FLAG = FULL CORPUS, and the run is unswallowed on purpose: no
   # `continue-on-error`, no `|| true`. The checker carries its own coverage
   # floor — an absent corpus root, a root with no markdown, or a repository it
@@ -829,9 +837,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          # Full history: see the note above — a truncated one makes every
-          # landed pin look stranded.
+          # Every commit and tree, HEAD's blobs only: see the note above — a
+          # truncated history makes every landed pin look stranded.
           fetch-depth: 0
+          filter: blob:none
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
@@ -839,6 +848,9 @@ jobs:
           python-version: '3.12'
 
       - name: Audit provenance pins across the whole corpus
+        # Answer exactly as a full clone would: see the note above.
+        env:
+          GIT_NO_LAZY_FETCH: '1'
         run: python scripts/check_provenance_pins.py
 
   # ---------------------------------------------------------------------------
