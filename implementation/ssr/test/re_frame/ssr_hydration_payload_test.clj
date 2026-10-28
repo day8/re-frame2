@@ -53,10 +53,9 @@
           :rf/app-db        {:session {:csrf "csrf-abc-123" :user "alice"}}
           :rf/frame-id      :rf/default
           :rf/schema-digest "digest-1"}
-         (rf.ssr/hydration-payload sframe {:payload                   [:session]
-                                           :payload-include-sensitive [[:session :csrf]]
-                                           :client-frame-id           :rf/default
-                                           :schema-digest             "digest-1"}))))
+         (rf.ssr/hydration-payload sframe {:payload         [:session [:session :csrf]]
+                                           :client-frame-id :rf/default
+                                           :schema-digest   "digest-1"}))))
 
 (deftest a-frame-value-and-its-id-build-the-same-payload
   (let [f (make-server-frame!)]

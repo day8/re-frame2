@@ -851,13 +851,12 @@
                                (IOException. (if @closed?
                                                "the renderer was closed"
                                                "it is down, and being relaunched"))))
-              ;; The HANDLER's `:payload-include-sensitive`, so the
+              ;; The HANDLER's `:payload`, whose paths permit, so the
               ;; markup the sidecar prints and the payload agree on a
               ;; permitted value.
               partitions   (rf.ssr.render-state/project
                              frame-id
-                             (assoc validated-opts :payload-include-sensitive
-                                    (:payload-include-sensitive handler-opts)))
+                             (assoc validated-opts :payload (:payload handler-opts)))
               request-json (json/write-str
                              (request-body validated-opts frame-id partitions)
                              :escape-slash false)

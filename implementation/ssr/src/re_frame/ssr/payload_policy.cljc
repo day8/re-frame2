@@ -25,19 +25,22 @@
 
   A single handler opt, `:payload`, carries one of two policy shapes:
 
-    `:payload [<kw> <kw> ...]`
-      An **allowlist** of top-level `app-db` keys to ship (a **sequential**
-      of KEYWORDS — a vector is the canonical spelling, and a list or lazy
-      seq is accepted too). Other keys are dropped — including any keys
-      added later as the app evolves. The recommended primary mechanism.
-      An empty allowlist ships nothing. A sequential carrying a non-keyword
-      element (a string typo, a stray `nil`, a nested coll) fails loud at
-      boot with `:rf.error/ssr-malformed-payload-allowlist` rather than
-      silently shipping a wrong or empty slice. The collection-vs-keyword
-      distinction IS the allowlist-vs-whole-app-db policy selector, so a
-      sequential of keywords can never be mistaken for the opt-in and the
-      fail-closed security boundary stays unambiguous. A set is not
-      sequential and is not an allowlist.
+    `:payload [<entry> <entry> ...]`
+      An **allowlist** (a **sequential** — a vector is the canonical
+      spelling, and a list or lazy seq is accepted too) whose entries are
+      KEYWORD top-level `app-db` keys or PATHS, each a non-empty vector of
+      map keys: `[:articles [:session :csrf]]`. A keyword ships that key's
+      value; a path ships the value it reaches inside its containing maps.
+      Everything else is dropped — including any keys added later as the
+      app evolves. The recommended primary mechanism. An empty allowlist
+      ships nothing. An entry that is neither (a string typo, a stray `nil`,
+      a list, an empty vector) fails loud at boot with
+      `:rf.error/ssr-malformed-payload-allowlist` rather than silently
+      shipping a wrong or empty slice. The collection-vs-keyword
+      distinction IS the allowlist-vs-whole-app-db policy selector, so an
+      allowlist can never be mistaken for the opt-in and the fail-closed
+      security boundary stays unambiguous. A set is not sequential and is
+      not an allowlist.
 
     `:payload :rf.ssr.payload/whole-app-db`
       An explicit opt-in to ship the whole `app-db`. Use only when the
@@ -57,6 +60,21 @@
   as `{}` however full the server's `app-db` is. That is the policy for a
   page whose state rides elsewhere (a resource in `:rf/runtime-db`), and
   what an allowlist computed to nothing means.
+
+  ---- Classification, and the path permit ----
+
+  What the policy selects is then projected under the request frame's
+  classification (`project-app-db-egress`), so a value the frame classifies
+  `:sensitive` arrives as `:rf/redacted`. A PATH entry is also the permit for
+  the one value it names: when that value is a classified LEAF — anything but
+  a map, vector, set or sequence — it crosses raw, because only the host knows
+  whether this user's browser may hold it. It releases nothing else: a
+  classified sibling stays redacted, a classified descendant of a named map
+  stays redacted, and a path never reaches through a classified ancestor. A
+  keyword never permits, and the whole-app-db opt-in permits nothing. The
+  permit lives in `:payload` alone, so a `:payload-include-sensitive` opt is
+  refused loudly rather than read: a second permit list would be a second way
+  to misdeclare one boundary.
 
   ---- Where this is consumed ----
 
@@ -104,54 +122,54 @@
 
 ;; ---- policy resolution ---------------------------------------------------
 
+(defn- payload-path?
+  "A path entry: a non-empty VECTOR of map keys. Only a vector is a path, so
+  a list inside an allowlist is a malformed entry rather than a second path
+  spelling."
+  [x]
+  (and (vector? x) (pos? (count x))))
+
+(defn- payload-entry?
+  "An allowlist entry: a keyword top-level app-db key, or a path."
+  [x]
+  (or (keyword? x) (payload-path? x)))
+
 (defn- valid-allowlist?
-  "An allowlist is a **sequential** of top-level app-db keys —
-  the collection shape of the `:payload` opt. Per Spec 011 §`:rf/app-db`
-  projection the elements are *top-level app-db keys*, which in re-frame2
-  are keywords; this validator therefore requires EVERY element to be a
-  keyword.
+  "An allowlist is a **sequential** of entries — keyword top-level keys and
+  paths (Spec 011 §`:rf/app-db` projection).
 
   A check of `(sequential? x)` alone verifies only the OUTER shape, so a
   malformed allowlist — a string typo for a keyword (`[\"public/articles\"]`),
-  a stray `nil` (`[:a nil]`), or a nested coll (`[[:a :b]]`) — would pass
-  construction-time validation and be caught only later by `select-keys`,
+  a stray `nil` (`[:a nil]`), an empty path (`[[]]`) — would pass
+  construction-time validation and select nothing at the first request,
   silently shipping an empty or wrong hydration slice instead of failing
-  closed at boot. Validating each element to a keyword closes that gap.
+  closed at boot. Validating each entry closes that gap.
 
-  Outer shape — a SEQUENTIAL of keywords: a vector (the
-  documented canonical spelling) OR a list / lazy-seq (`'(:a :b)`, or a
-  computed `(mapv ...)` / `(keep ...)` / `(filterv ...)` result). The real
-  policy selector is COLLECTION-vs-KEYWORD, not vector-vs-keyword — a
-  sequential of keywords can never be confused with the whole-app-db keyword
-  opt-in (`:rf.ssr.payload/whole-app-db`), so admitting any sequential
-  spelling does not weaken the shape-selected fail-closed boundary. A SET is
-  NOT sequential, so it still falls into the missing-policy bucket — the
-  allowlist is an ORDERED key selection. An empty `[]` / `'()` names no keys
-  and projects `{}`; the `(every? keyword?)` element guard still catches a
-  `\"public/articles\"` string typo as a malformed allowlist."
+  Outer shape — a SEQUENTIAL: a vector (the documented canonical spelling)
+  OR a list / lazy-seq (`'(:a :b)`, or a computed `(mapv ...)` /
+  `(keep ...)` / `(filterv ...)` result). The real policy selector is
+  COLLECTION-vs-KEYWORD — a sequential can never be confused with the
+  whole-app-db keyword opt-in (`:rf.ssr.payload/whole-app-db`), so admitting
+  any sequential spelling does not weaken the shape-selected fail-closed
+  boundary. A SET is NOT sequential, so it still falls into the
+  missing-policy bucket — the allowlist is an ORDERED selection. An empty
+  `[]` / `'()` names nothing and projects `{}`."
   [x]
   (and (sequential? x)
-       (every? keyword? x)))
+       (every? payload-entry? x)))
 
 (defn- malformed-allowlist?
-  "A `:payload` that LOOKS like an allowlist attempt — a
-  **sequential** — but carries a non-keyword element (a string typo, a stray
-  `nil`, a nested coll, …). Distinguished from `valid-allowlist?` so the
-  construction-time validator can surface a diagnostic
-  `:rf.error/ssr-malformed-payload-allowlist` (which element is bad)
-  rather than dumping the caller into the generic missing-policy bucket
-  — the developer clearly INTENDED an allowlist; telling them which entry
-  is wrong is the fail-loud, masterpiece outcome.
-  An empty `[]` / `'()` is NOT malformed — it is a valid allowlist naming no
-  keys.
-
-  Gated on `sequential?` to match `valid-allowlist?`'s outer shape: a
-  list / lazy-seq with a bad element is an allowlist ATTEMPT and earns the
-  same malformed diagnostic a vector does (so a `'(\"public/articles\")`
-  list typo fails loud, not silent)."
+  "A `:payload` that LOOKS like an allowlist attempt — a **sequential** — but
+  carries an entry that is neither a keyword nor a path (a string typo, a
+  stray `nil`, a list, an empty vector, …). Distinguished from
+  `valid-allowlist?` so the validator can surface
+  `:rf.error/ssr-malformed-payload-allowlist` naming the bad entries, rather
+  than dumping the caller into the generic missing-policy bucket — the
+  developer clearly INTENDED an allowlist. An empty `[]` / `'()` is NOT
+  malformed — it is a valid allowlist naming nothing."
   [x]
   (and (sequential? x)
-       (not (every? keyword? x))))
+       (not (every? payload-entry? x))))
 
 (defn- valid-policy-keyword?
   "The only explicit-policy keyword recognised is the
@@ -160,61 +178,52 @@
   [x]
   (= x whole-app-db-policy))
 
-;; ---- the sensitive permit ------------------------------------------------
+;; ---- the retired permit list ---------------------------------------------
 ;;
-;; `:payload-include-sensitive` — an optional vector of concrete app-db PATHS
-;; whose RAW value may cross to the hydrating browser although the frame
-;; classifies it `:sensitive` (a CSRF synchronizer token the page sends back,
-;; the user's own email). Classification answers "keep it out of the logs and
-;; the tools"; the permit answers "may this user's browser hold it", which only
-;; the host knows. Absent or `[]` means no permits, so the default stays redact.
+;; The permit is a path entry in `:payload` (see the namespace docstring). An
+;; opts map still carrying the separate permit list is refused at every arm
+;; that reads the policy, so a configuration written for it fails at boot
+;; instead of shipping its classified values redacted without a word.
 
-(defn- permit-bad-entries
-  "The entries of `permits` that are not a non-empty path vector, or nil when
-  `permits` is a well-formed permit list (nil, or a sequential of non-empty
-  vectors). A non-sequential `permits` is bad as a whole."
-  [permits]
-  (cond
-    (nil? permits)              nil
-    (not (sequential? permits)) [permits]
-    :else (seq (remove #(and (vector? %) (seq %)) permits))))
-
-(defn- check-include-sensitive!
+(defn- refuse-retired-permit-list!
   "Throw `:rf.error/ssr-malformed-payload-allowlist` (`:opt
-  :payload-include-sensitive` in ex-data) when `permits` is not a vector of
-  non-empty path vectors; return `permits`. The commonest slip is one path
-  written unwrapped, `[:session :csrf]` for `[[:session :csrf]]`."
-  [permits]
-  (when-let [bad (permit-bad-entries permits)]
-    (rf.error/throw-error!
-      :rf.error/ssr-malformed-payload-allowlist
-      're-frame.ssr.payload-policy
-      (str "ssr-handler :payload-include-sensitive must be a vector of app-db "
-           "PATHS, each a non-empty vector — e.g. [[:session :csrf]]; got "
-           (pr-str permits) " — these entries are not paths: " (pr-str (vec bad))
-           " (a single path is still wrapped: [[:session :csrf]], not "
-           "[:session :csrf]).")
-      {:recovery :declare-payload-policy
-       :extra    {:opt         :payload-include-sensitive
-                  :got         permits
-                  :bad-entries (vec bad)}}))
-  permits)
+  :payload-include-sensitive`) when `opts` carries that key at all — any
+  value, `nil` included — naming the path form that replaces it."
+  [{:keys [payload] :as opts}]
+  (when (contains? opts :payload-include-sensitive)
+    (let [permits (get opts :payload-include-sensitive)
+          merged  (when (and (sequential? payload) (sequential? permits))
+                    (into (vec payload) permits))]
+      (rf.error/throw-error!
+        :rf.error/ssr-malformed-payload-allowlist
+        're-frame.ssr.payload-policy
+        (str "ssr-handler takes no :payload-include-sensitive: a classified "
+             "value the browser may hold is named by its PATH in :payload "
+             "itself, beside the top-level keys — "
+             (if merged
+               (str ":payload " (pr-str merged))
+               ":payload [:articles [:session :csrf]]")
+             ". A path permits exactly the classified leaf it names.")
+        {:recovery :declare-payload-policy
+         :extra    {:opt         :payload-include-sensitive
+                    :got         permits
+                    :replacement :payload}}))))
 
 (defn validate-policy-opts!
   "Throw a structured error when the caller's `:payload` opt is absent or
   malformed. Called at handler-construction time by the Ring host adapter
   so misconfigured deployments fail at boot, not at first request.
 
-    - `:payload [<kws>]` (a SEQUENTIAL of keywords — a vector, the
-      canonical spelling, or a list / lazy-seq) → OK (allowlist); an
-      empty one is OK too and ships nothing
+    - `:payload [<entries>]` (a SEQUENTIAL of keywords and paths — a
+      vector, the canonical spelling, or a list / lazy-seq) → OK
+      (allowlist); an empty one is OK too and ships nothing
     - `:payload :rf.ssr.payload/whole-app-db`   → OK (whole-app-db opt-in)
-    - `:payload [<… non-keyword element …>]` (a SEQUENTIAL with a
-      string/nil/nested entry) → `:rf.error/ssr-malformed-payload-allowlist`
-      (a clear allowlist attempt with a bad element, surfaced
-      distinctly with the offending entries so a `\"public/articles\"`
-      string-typo fails loud at boot instead of silently shipping an empty
-      slice)
+    - `:payload [<… an entry neither keyword nor path …>]` (a SEQUENTIAL
+      with a string / nil / list / empty-vector entry) →
+      `:rf.error/ssr-malformed-payload-allowlist` (a clear allowlist
+      attempt with a bad entry, surfaced distinctly with the offending
+      entries so a `\"public/articles\"` string-typo fails loud at boot
+      instead of silently shipping an empty slice)
     - `:payload <other keyword>`  → `:rf.error/ssr-unknown-payload-policy`
       (a typo'd policy keyword, e.g. `:rf.ssr.payload/whole-db`, surfaced
       distinctly so it doesn't silently land in the missing bucket)
@@ -223,42 +232,44 @@
       (fail-closed; the selector is collection-vs-keyword, so a SET is
       rejected — the allowlist is an ORDERED key selection)
 
-  With a valid `:payload`, the optional `:payload-include-sensitive` permit
-  must be a vector of non-empty path vectors, or
-  `:rf.error/ssr-malformed-payload-allowlist` names it (`:opt
-  :payload-include-sensitive`).
+  Before any of these, an opts map carrying `:payload-include-sensitive`
+  throws `:rf.error/ssr-malformed-payload-allowlist` (`:opt
+  :payload-include-sensitive`), naming the path form in `:payload` that
+  carries the permit.
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
-  [{:keys [payload payload-include-sensitive] :as opts}]
+  [{:keys [payload] :as opts}]
+  (refuse-retired-permit-list! opts)
   (cond
     (valid-allowlist? payload)
-    (do (check-include-sensitive! payload-include-sensitive) opts)
+    opts
 
     (valid-policy-keyword? payload)
-    (do (check-include-sensitive! payload-include-sensitive) opts)
+    opts
 
-    ;; Caller passed a sequential coll that ISN'T an all-keyword
-    ;; allowlist — a clear allowlist attempt with a malformed element
-    ;; (string typo, stray nil, nested coll). Surface the offending entries
-    ;; so the fix is obvious; do NOT let it slide into the generic
-    ;; missing-policy bucket where a `select-keys` would otherwise ship a
-    ;; wrong/empty slice.
+    ;; Caller passed a sequential coll that ISN'T a well-formed allowlist
+    ;; — a clear allowlist attempt with a malformed entry (string typo,
+    ;; stray nil, a list, an empty path). Surface the offending entries so
+    ;; the fix is obvious; do NOT let it slide into the generic
+    ;; missing-policy bucket.
     (malformed-allowlist? payload)
-    (rf.error/throw-error!
-      :rf.error/ssr-malformed-payload-allowlist
-      're-frame.ssr.payload-policy
-      (str "ssr-handler :payload allowlist must be a "
-           "sequential (a vector, list or seq) of KEYWORD "
-           "top-level app-db keys; got "
-           (pr-str payload)
-           " — these entries are not keywords: "
-           (pr-str (vec (remove keyword? payload)))
-           " (a string key like \"public/articles\" "
-           "should be the keyword :public/articles).")
-      {:recovery :declare-payload-policy
-       :extra    {:got         payload
-                  :bad-entries (vec (remove keyword? payload))}})
+    (let [bad (vec (remove payload-entry? payload))]
+      (rf.error/throw-error!
+        :rf.error/ssr-malformed-payload-allowlist
+        're-frame.ssr.payload-policy
+        (str "ssr-handler :payload allowlist must be a "
+             "sequential (a vector, list or seq) whose entries are KEYWORD "
+             "top-level app-db keys or PATHS, each a non-empty vector of map "
+             "keys — e.g. [:articles [:session :csrf]]; got "
+             (pr-str payload)
+             " — these entries are neither: "
+             (pr-str bad)
+             " (a string key like \"public/articles\" "
+             "should be the keyword :public/articles).")
+        {:recovery :declare-payload-policy
+         :extra    {:got         payload
+                    :bad-entries bad}}))
 
     ;; Caller passed a keyword that isn't the recognised whole-app-db
     ;; opt-in — surface as a distinct error so a typo (e.g.
@@ -282,12 +293,31 @@
       're-frame.ssr.payload-policy
       (str "ssr-handler requires an explicit hydration-"
            "payload policy: pass :payload "
-           "[<top-level-app-db-keys>] (allowlist, "
+           "[<top-level app-db keys and paths>] (allowlist, "
            "preferred) OR :payload "
            (pr-str whole-app-db-policy)
            " to opt-in to shipping the whole app-db.")
       {:recovery :declare-payload-policy
        :extra    {:got payload}})))
+
+(defn- select-entry
+  "`out` with the value `entry` names in `app-db` added at its own position.
+  A keyword selects that top-level key. A path selects only while every
+  coordinate steps into a MAP holding it — through a vector, a scalar or an
+  absent key it selects nothing, so a path never creates a key. Entries
+  overlap freely: every value comes from the same `app-db`, so a path inside
+  a key already selected re-asserts what is there, and a key selected after
+  a path inside it widens the partial map to the whole value."
+  [app-db out entry]
+  (if (keyword? entry)
+    (if (contains? app-db entry) (assoc out entry (get app-db entry)) out)
+    (let [v (reduce (fn [node k]
+                      (if (and (map? node) (contains? node k))
+                        (get node k)
+                        (reduced ::absent)))
+                    app-db
+                    entry)]
+      (if (= ::absent v) out (assoc-in out entry v)))))
 
 (defn apply-policy
   "Project `app-db` to the wire slice per the caller's declared `:payload`
@@ -296,20 +326,24 @@
 
   Per the contract:
 
-    - `:payload [<kws>]` (allowlist, a SEQUENTIAL of keywords —
-      vector / list / lazy-seq) → `select-keys`; an empty one → `{}`.
+    - `:payload [<entries>]` (allowlist, a SEQUENTIAL of keywords and paths
+      — vector / list / lazy-seq) → each entry's value at its own position
+      (`select-entry`); an empty one → `{}`.
     - `:payload :rf.ssr.payload/whole-app-db` → ships `app-db` verbatim.
-    - Absence / malformed → throws (`:rf.error/ssr-missing-payload-policy`,
+    - Absence / malformed / a `:payload-include-sensitive` opt → throws
+      (`:rf.error/ssr-missing-payload-policy`,
       `:rf.error/ssr-malformed-payload-allowlist`, or
       `:rf.error/ssr-unknown-payload-policy`) — the fail-closed default.
 
   This is the runtime arm of the contract; the construction-time arm
   is `validate-policy-opts!` (called by the Ring host adapter so
-  misconfigured deployments fail at boot)."
+  misconfigured deployments fail at boot). The slice is not yet classified:
+  `project-app-db-egress` takes it from here."
   [app-db {:keys [payload] :as opts}]
+  (refuse-retired-permit-list! opts)
   (cond
     (valid-allowlist? payload)
-    (select-keys app-db payload)
+    (reduce (partial select-entry app-db) {} payload)
 
     (valid-policy-keyword? payload)
     app-db
@@ -340,28 +374,22 @@
 ;; frame policy fails CLOSED here too (a server render always carries the live
 ;; request frame, so the projection runs against real declarations).
 
-(defn- descendable?
-  "Both nodes can be stepped into at coordinate `k`: each is a map or a vector
-  holding `k`. `map?` / `vector?` come BEFORE `contains?`, which throws on a
-  list."
-  [projected raw k]
-  (and (or (map? projected) (vector? projected))
-       (or (map? raw) (vector? raw))
-       (contains? projected k)
-       (contains? raw k)))
-
 (defn- restore-permitted
-  "Put the RAW value at `path` back into the `projected` slice, descending only
-  while both the projected node and the raw node hold the next coordinate.
-  Anything else — an absent coordinate, a scalar in the way, a `:rf/redacted`
-  ancestor, a dead frame's whole-slice sentinel — leaves the projection
-  untouched: a permit never creates a key or a container, and never pierces a
-  classified ancestor."
+  "Put the RAW leaf at `path` back into the `projected` slice, descending only
+  while both the projected node and the raw node are MAPS holding the next
+  coordinate, and restoring only a LEAF — a value that is not a collection.
+  Anything else leaves the projection untouched: an absent coordinate, a
+  vector or a scalar in the way, a `:rf/redacted` ancestor, a dead frame's
+  whole-slice sentinel, a map or vector at the path. So a permit never
+  creates a key or a container, never pierces a classified ancestor, and
+  never releases a classified descendant of the value it names."
   [projected raw [k & more]]
-  (if (descendable? projected raw k)
-    (assoc projected k (if more
-                         (restore-permitted (get projected k) (get raw k) more)
-                         (get raw k)))
+  (if (and (map? projected) (map? raw) (contains? projected k) (contains? raw k))
+    (let [v (get raw k)]
+      (cond
+        more       (assoc projected k (restore-permitted (get projected k) v more))
+        (coll? v)  projected
+        :else      (assoc projected k v)))
     projected))
 
 (defn project-app-db-egress
@@ -380,28 +408,26 @@
   runs against that frame's real declarations; a nil `frame-id` is the same
   fail-closed case (no frame policy ⇒ whole-value redaction).
 
-  The 3-arity also takes the host's `:payload-include-sensitive` `permits` — a
-  vector of concrete app-db paths whose raw value may cross. After
-  the projection, each permitted path gets its raw value back from `db-slice`
-  (the allowlisted slice, never the frame, so a permit off the allowlist does
-  nothing), per `restore-permitted`: it never pierces a classified ancestor, and
-  permitting a collection releases its whole subtree. A dead frame's
+  The 3-arity also takes the `:payload` policy, whose PATH entries are the
+  permits (Spec 011 §`:rf/app-db` projection). After the projection, each path
+  that names a classified leaf gets that leaf's raw value back from `db-slice`
+  — the slice handed in, never the frame, so a path the slice does not hold
+  permits nothing — per `restore-permitted`. A keyword entry, a malformed
+  entry and the whole-app-db keyword permit nothing, and a dead frame's
   whole-slice `:rf/redacted` has nothing to descend, so every permit is inert
-  there. nil / `[]` permits give the 2-arity result. This is the ONE rule every
-  hydration site shares — the payload builder, Fresco's
-  server render and the node render state — so the restored values still pass
-  each caller's numeric / wire-domain checks. A malformed `permits` throws
-  `:rf.error/ssr-malformed-payload-allowlist` (the runtime arm of
-  `validate-policy-opts!`'s check)."
+  there. This is the ONE rule every hydration site shares — the payload
+  builder, Fresco's server render and the node render state, which applies the
+  handler's `:payload` inside its own allowlist — so the restored values still
+  pass each caller's numeric / wire-domain checks."
   ([db-slice frame-id]
    (rf.projection/project-egress
      db-slice
      {:frame             frame-id
       :rf.egress/profile :rf.egress/ssr-hydration}))
-  ([db-slice frame-id permits]
+  ([db-slice frame-id payload]
    (reduce (fn [projected path] (restore-permitted projected db-slice path))
            (project-app-db-egress db-slice frame-id)
-           (check-include-sensitive! permits))))
+           (when (sequential? payload) (filter payload-path? payload)))))
 
 ;; ---- routing hydration egress projection ----------------------------------
 ;;

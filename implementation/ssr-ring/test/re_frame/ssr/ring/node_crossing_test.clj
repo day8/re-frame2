@@ -529,7 +529,7 @@
     (is (= carried (sort @#'rf.ssr.ring.node/sidecar-files)))))
 
 ;; ===========================================================================
-;; The handler's `:payload-include-sensitive` reaches the render state, so the
+;; The handler's `:payload` paths permit in the render state too, so the
 ;; markup the renderer prints and the payload agree on a permitted value. A
 ;; capturing stub stands in for the sidecar, so this runs in the default lane.
 ;; ===========================================================================
@@ -565,10 +565,9 @@
     (with-capturing-stub-sidecar seen "crossing-build-1"
       (fn [url]
         ((rf.ssr.ring/ssr-handler
-           {:frame {:initial-events            [[:rf.test.crossing/seed-session]]}
-            :payload                   [:heading :session]
-            :payload-include-sensitive [[:session :csrf]]
-            :renderer                  (node-renderer url :render-state {:app-db [:session]})})
+           {:frame    {:initial-events [[:rf.test.crossing/seed-session]]}
+            :payload  [:heading :session [:session :csrf]]
+            :renderer (node-renderer url :render-state {:app-db [:session]})})
          request)
         (is (= {:csrf "csrf-abc-123" :upstream-key :rf/redacted :user "alice"}
                (some-> @seen json/read-str (get "state") (get ":session") edn/read-string)))

@@ -123,22 +123,21 @@
                       `[(rf/view :app/root)]` and
                       `(fn [] ((rf/view :app/root)))` emit byte-identical
                       HTML.
-    :payload        — allowlist of top-level app-db keys (an empty `[]`
-                      ships nothing), or the explicit
-                      `:rf.ssr.payload/whole-app-db` opt-in. Missing and
-                      unknown policies fail at handler construction.
+    :payload        — allowlist of top-level app-db keys and app-db PATHS
+                      (an empty `[]` ships nothing), or the explicit
+                      `:rf.ssr.payload/whole-app-db` opt-in. A path ships
+                      the value it reaches, and when the frame classifies
+                      that value `:sensitive` and it is a leaf, ships it
+                      raw: `[:articles [:session :csrf]]` for a CSRF token
+                      the page sends back. Everything else the frame
+                      classifies arrives as `:rf/redacted`, and a path
+                      never reaches through a classified ancestor. Missing,
+                      unknown and malformed policies — and a
+                      `:payload-include-sensitive` opt — fail at handler
+                      construction.
 
   Optional opts:
 
-    :payload-include-sensitive
-                    — a vector of app-db PATHS the frame classifies
-                      `:sensitive` whose raw value may ride the payload
-                      anyway, e.g. `[[:session :csrf]]` for a CSRF token the
-                      page sends back. Paths inside the
-                      `:payload` allowlist only; a permit never reaches
-                      through a classified ancestor. Absent, every
-                      classified value arrives as `:rf/redacted`. A
-                      malformed value fails at handler construction.
     :ssr-blocking-timeout-ms
                     — how long, in ms, the request waits for the route's
                       blocking resources to settle before it renders;

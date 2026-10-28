@@ -301,13 +301,13 @@
        `:platform` the handler owns, via `validate-frame-opt!`.
     1. required-opt presence (`:initial-events` inside `:frame`,
        `:root-view`) via `validate-required-opts!`.
-    2. hydration-payload policy (the single `:payload` opt — vector
-       allowlist or whole-app-db keyword — and its optional
-       `:payload-include-sensitive` permit) via
+    2. hydration-payload policy (the single `:payload` opt — an allowlist
+       of keys and paths, or the whole-app-db keyword) via
        `payload-policy/validate-policy-opts!` — throws
        `:rf.error/ssr-missing-payload-policy` (or
        `:rf.error/ssr-unknown-payload-policy` on an unknown policy, or
-       `:rf.error/ssr-malformed-payload-allowlist` on a malformed permit).
+       `:rf.error/ssr-malformed-payload-allowlist` on a malformed entry or
+       a `:payload-include-sensitive` opt).
     3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
        `:app-element-id` are strings or nil; `:script-src` may also be
        `false`) via

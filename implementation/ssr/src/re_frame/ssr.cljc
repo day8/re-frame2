@@ -187,26 +187,24 @@
   same policy and projections as `re-frame.ssr.ring/ssr-handler`, under this
   frame's classification:
 
-    :rf/app-db     — the app-db keys the `:payload` policy allows, with any
-                     path the frame classifies `:sensitive` redacted;
+    :rf/app-db     — the app-db keys and paths the `:payload` policy allows,
+                     with any path the frame classifies `:sensitive`
+                     redacted unless a `:payload` path names it as a leaf;
     :rf/runtime-db — only the durable slices (route, machine snapshots,
-                     resource entries), classified values redacted and the
-                     classification registry left out; absent when there is
-                     nothing durable to ship;
+                     resource entries), classified values redacted; absent
+                     when there is nothing durable to ship;
     :rf/version    — the SSR pattern-protocol version.
 
   `opts` are `ssr-handler`'s payload options:
-    :payload                   — REQUIRED. A vector of top-level app-db keys
-                                 (`[]` ships nothing), or
-                                 `:rf.ssr.payload/whole-app-db`. Absent, it
-                                 throws `:rf.error/ssr-missing-payload-policy`.
-    :payload-include-sensitive — app-db paths whose raw value may ship even
-                                 though the frame classifies it `:sensitive`.
-    :client-frame-id           — the stable client frame id to stamp as
-                                 `:rf/frame-id`. Leave it out for a
-                                 per-request frame: its id would fail the
-                                 client's frame-id check.
-    :schema-digest             — stamped as `:rf/schema-digest`.
+    :payload         — REQUIRED. A vector of top-level app-db keys and paths
+                       (`[]` ships nothing), e.g. `[:articles [:session :csrf]]`
+                       — a path that names a classified leaf ships it raw —
+                       or `:rf.ssr.payload/whole-app-db`. Absent, it throws
+                       `:rf.error/ssr-missing-payload-policy`.
+    :client-frame-id — the stable client frame id to stamp as
+                       `:rf/frame-id`. Leave it out for a per-request frame:
+                       its id would fail the client's frame-id check.
+    :schema-digest   — stamped as `:rf/schema-digest`.
 
   Call it once the frame has settled and before `destroy-frame!`: a frame that
   is not live projects as fully redacted."
@@ -218,7 +216,7 @@
       (rf.ssr.payload-policy/project-app-db-egress
         (rf.ssr.payload-policy/apply-policy app opts)
         frame-id
-        (:payload-include-sensitive opts))
+        (:payload opts))
       (assoc opts :runtime-db (rf.ssr.payload-policy/project-runtime-db runtime frame-id)))))
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------

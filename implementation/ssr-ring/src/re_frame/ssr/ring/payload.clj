@@ -30,8 +30,8 @@
 
   The `:rf/app-db` slice is projected per the explicit, fail-closed
   policy in `re-frame.ssr.payload-policy/apply-policy`: callers MUST declare `:payload`
-  as either a vector allowlist of top-level keys (recommended) or the
-  keyword `:rf.ssr.payload/whole-app-db` (explicit opt-in to shipping
+  as either a vector allowlist of top-level keys and paths (recommended) or
+  the keyword `:rf.ssr.payload/whole-app-db` (explicit opt-in to shipping
   the whole `app-db`). Absence throws
   `:rf.error/ssr-missing-payload-policy`. The host adapter validates
   at handler-construction time so misconfigured deployments fail at
@@ -41,7 +41,7 @@
   runtime-db value; it is projected via `payload-policy/project-runtime-db`
   under the EXPLICIT `frame-id` (the same target the app-db
   projection uses, never the ambient scope), yielding the serializable durable
-  slice — machine snapshots, route `:current` slice, elision declarations, SSR
+  slice — machine snapshots, route `:current` slice, resource entries, SSR
   metadata — that rides the payload as `:rf/runtime-db` so the client
   `:rf/hydrate` handler installs a coherent frame-state. nil / empty runtime-db
   omits the optional key.
@@ -70,12 +70,12 @@
     (:client-frame-id policy-opts)
     ;; Apply the allowlist before the frame-scoped hydration-egress projection,
     ;; so classified values inside the surviving slice are still redacted —
-    ;; except the paths the host permits. The projection target is
-    ;; the REAL per-request frame-id.
+    ;; except the classified leaves a `:payload` path names. The projection
+    ;; target is the REAL per-request frame-id.
     (rf.ssr.payload-policy/project-app-db-egress
      (rf.ssr.payload-policy/apply-policy app-db policy-opts)
      frame-id
-     (:payload-include-sensitive policy-opts))
+     (:payload policy-opts))
     ;; Project the runtime-db under the EXPLICIT carried `frame-id`
     ;; (the same target the `project-app-db-egress` above uses), NOT an ambient
     ;; one: the wrapper must not rely on a MATCHING

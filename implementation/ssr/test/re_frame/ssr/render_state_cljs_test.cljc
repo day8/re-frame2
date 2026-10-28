@@ -156,8 +156,8 @@
 
 (deftest project-honours-the-hosts-sensitive-permit-inside-its-own-allowlist
   ;; The renderer prints what the render state carries, so the host's
-  ;; `:payload-include-sensitive` must reach it too, or the markup and the
-  ;; payload disagree on a permitted value.
+  ;; `:payload` paths must permit here too, or the markup and the payload
+  ;; disagree on a permitted value.
   (let [mid      (fresh-id "auth")
         sfid     (settled-server-frame! mid)
         classify (fresh-id "classify-user")]
@@ -165,13 +165,14 @@
     (is (= {:session {:user :rf/redacted :token "secret-session-token"}
             :todos   (:todos corpus-app-db)}
            (:rf/app-db (rf.ssr.render-state/project
-                         sfid {:render-state              {:app-db [:session :todos]}
-                               :payload-include-sensitive [[:session :token]]})))
+                         sfid {:render-state {:app-db [:session :todos]}
+                               :payload      [[:session :token]]})))
         "the permitted value rides raw; the classified sibling it does not name stays redacted")
-    (testing "the permit applies only inside :render-state's own allowlist"
+    (testing "the handler's :payload permits only inside :render-state's own allowlist,
+              and selects nothing there"
       (is (not (contains? (:rf/app-db (rf.ssr.render-state/project
-                                        sfid {:render-state              {:app-db [:todos]}
-                                              :payload-include-sensitive [[:session :token]]}))
+                                        sfid {:render-state {:app-db [:todos]}
+                                              :payload      [:session [:session :token]]}))
                           :session))))))
 
 ;; ---------------------------------------------------------------------------

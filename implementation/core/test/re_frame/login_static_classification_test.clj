@@ -70,8 +70,7 @@
   (rf/make-frame {:id ::server :platform :server})
   (type-password! ::server)
   (let [payload   (rf.ssr/hydration-payload ::server {:payload [:auth]})
-        permitted (rf.ssr/hydration-payload ::server {:payload                   [:auth]
-                                                      :payload-include-sensitive [password-path]})]
+        permitted (rf.ssr/hydration-payload ::server {:payload [:auth password-path]})]
     (is (= :rf/redacted (get-in payload (into [:rf/app-db] password-path)))
         "the server resolves the declaration and redacts the path in the payload")
     (is (= secret (get-in permitted (into [:rf/app-db] password-path)))
