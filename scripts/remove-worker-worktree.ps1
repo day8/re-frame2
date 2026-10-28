@@ -353,8 +353,12 @@ function Write-ManifestDelta([string[]]$Before, [string[]]$After) {
 # checks Test-WorktreeIsIntact FIRST.
 # The EXIT CODE decides, not the output: on a husk the merged output holds
 # git's fatal text, which is not a list of dirty paths. See Invoke-GitQuiet.
+#
+# `core.longpaths` because without it Git for Windows cannot open a directory
+# whose path passes 260 characters: status warns, skips it and exits 0, so
+# untracked work under a deep path is never listed.
 function Get-WorktreeDirt([string]$Path) {
-  $r = Invoke-GitQuiet @('-C', $Path, 'status', '--porcelain')
+  $r = Invoke-GitQuiet @('-c', 'core.longpaths=true', '-C', $Path, 'status', '--porcelain')
   if ($r.ExitCode -ne 0) { return @() }
   return @($r.Output) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 }
@@ -1421,10 +1425,15 @@ foreach ($rawTarget in $Worktree) {
     $failed = $true
   }
   else {
+    # `core.longpaths`: without it Git for Windows cannot delete a path past
+    # 260 characters (a nested node_modules, a build cache), and `git worktree
+    # remove` has already deleted the registration by the time the tree delete
+    # fails, so the tree comes out a HUSK. It also reaches the cleanliness
+    # check the remove runs, for the reason Get-WorktreeDirt gives.
     $removeArgs = if ($Force -or $ForceDisposable) {
-      @('-C', $mayorRootPath, 'worktree', 'remove', '--force', $wt)
+      @('-c', 'core.longpaths=true', '-C', $mayorRootPath, 'worktree', 'remove', '--force', $wt)
     } else {
-      @('-C', $mayorRootPath, 'worktree', 'remove', $wt)
+      @('-c', 'core.longpaths=true', '-C', $mayorRootPath, 'worktree', 'remove', $wt)
     }
     $removeResult = Invoke-GitQuiet $removeArgs
     # git's own diagnosis, verbatim and unprefixed, exactly where the POSIX
