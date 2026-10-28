@@ -116,7 +116,7 @@
 ;; putting field errors under the inputs. A registration schema can do neither.
 ;;
 ;; A word on the password, because a secret has to be classified at *every*
-;; boundary it crosses, and this one crosses three
+;; boundary it crosses, and this one crosses four
 ;; (docs/core/how-to/keep-secrets-out-of-traces.md):
 ;;
 ;;   1. It lives in the app-db draft while you type — redacted at egress by the
@@ -125,9 +125,13 @@
 ;;      registration declares `:sensitive [[:value]]`, so the edit trace redacts it.
 ;;   3. It reaches the wire only through the managed-HTTP request body, scrubbed
 ;;      by `:sensitive? true`.
+;;   4. It reaches the view through the `:auth.login/form-slice` and
+;;      `:auth.login/draft` subs, each of which declares `:sensitive` over the
+;;      password in its own output, because classification does not propagate
+;;      from app-db to a sub (docs/core/how-to/build-a-form.md).
 ;;
 ;; It never enters the machine at all — `submit-form` issues the request and
-;; hands the machine a credential-free signal. Three owners, one per boundary;
+;; hands the machine a credential-free signal. Four owners, one per boundary;
 ;; the live value stays readable to the handlers that need it.
 (def Credentials
   [:map
@@ -446,7 +450,7 @@
 ;; Dispatched once at boot (from each substrate mount's `:initial-events`) so the
 ;; very first render reads a real draft.
 ;;
-;; This is also OWNER 1 of the password's three egress boundaries (see the
+;; This is also OWNER 1 of the password's four egress boundaries (see the
 ;; `Credentials` note above). Alongside the `:db` write we return a `:sensitive`
 ;; classification effect that marks the draft-password app-db path — installed
 ;; here, in the *first* durable write that creates the slice, so no keystroke can
@@ -496,7 +500,7 @@
              (assoc-in  [:auth :login-form :draft field] value)
              (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 
-;; OWNER 2 of the password's three egress boundaries. The password's keystrokes
+;; OWNER 2 of the password's four egress boundaries. The password's keystrokes
 ;; get their own event, and — the whole point — a MAP payload `{:value …}` rather
 ;; than a positional arg, so the registration can name a path into it. The
 ;; `:sensitive [[:value]]` declaration classifies that `:value` key: the
@@ -708,14 +712,16 @@
 ;; (or before they've tried to submit).
 
 (rf/reg-sub :auth.login/form-slice
-  {:doc "The whole login-form slice at [:auth :login-form]."}
+  {:doc       "The whole login-form slice at [:auth :login-form]."
+   :sensitive [[:draft :password]]}
   (fn sub-auth-login-form-slice [db _]
     (get-in db [:auth :login-form])))
 
 (rf/reg-sub :auth.login/draft
   {:doc "The login-form draft — what the user has currently typed. Each input
          binds its :value to a field of this map (controlled inputs)."
-   :inputs [[:auth.login/form-slice]]}
+   :inputs    [[:auth.login/form-slice]]
+   :sensitive [[:password]]}
   (fn sub-auth-login-draft [[slice] _]
     (:draft slice)))
 
