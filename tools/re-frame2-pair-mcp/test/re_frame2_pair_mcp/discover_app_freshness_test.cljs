@@ -55,3 +55,52 @@
             (is (= {:liveness :stale-build :warning :ambiguous-frame}
                    {:liveness (:liveness (:freshness edn)) :warning (:warning edn)}))
             (done))))))
+
+;; Several tabs on one build: every op reaches shadow-cljs's default runtime,
+;; the tab that answered the health read, so discover-app names that tab.
+
+(def ^:private answering-tab
+  (assoc health-with-browser-half
+         :runtime-instance-id "uuid-answering"
+         :runtime-loaded-at   1700000000000))
+
+(deftest discover-app-flags-several-runtimes-and-names-the-answering-tab
+  (async done
+    (-> (discover! answering-tab
+                   {:compile-cycle 3 :build-flushed-at 900 :runtime-count 2 :heartbeat-age-ms 50})
+        (.then
+          (fn [edn]
+            (is (= {:liveness :fresh :runtime-count 2 :warning :several-runtimes}
+                   {:liveness      (:liveness (:freshness edn))
+                    :runtime-count (:runtime-count (:freshness edn))
+                    :warning       (:warning edn)}))
+            (is (re-find #"^2 runtimes \(browser tabs\) are connected to build :examples/step-deck"
+                         (str (:note edn))))
+            (is (re-find #"runtime-instance-id is \"uuid-answering\" \(loaded at 2023-11-14T22:13:20.000Z\)"
+                         (str (:note edn))))
+            (done))))))
+
+(deftest discover-app-one-runtime-carries-no-several-runtimes-flag
+  (async done
+    (-> (discover! answering-tab
+                   {:compile-cycle 3 :build-flushed-at 900 :runtime-count 1 :heartbeat-age-ms 50})
+        (.then
+          (fn [edn]
+            (is (= {:liveness :fresh :warning nil :note nil}
+                   {:liveness (:liveness (:freshness edn))
+                    :warning  (:warning edn)
+                    :note     (:note edn)}))
+            (done))))))
+
+(deftest discover-app-stale-build-keeps-the-warning-slot-over-several-runtimes
+  ;; A stale answering tab beside a second one: :stale-build keeps the slot,
+  ;; and the note still names the tab every op reaches.
+  (async done
+    (-> (discover! answering-tab
+                   {:compile-cycle 3 :build-flushed-at 1700000009000 :runtime-count 3 :heartbeat-age-ms 50})
+        (.then
+          (fn [edn]
+            (is (= {:liveness :stale-build :warning :stale-build}
+                   {:liveness (:liveness (:freshness edn)) :warning (:warning edn)}))
+            (is (re-find #"^3 runtimes " (str (:note edn))))
+            (done))))))
