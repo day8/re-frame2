@@ -268,6 +268,21 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
       {:fx [[:ui/set-theme-attr (or local-theme "system")]]}))
   ```
 
+### `reg-classification`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-classification id decl) → id
+  ```
+- **Description**: Declares the app-db paths a feature makes sensitive or large, once, beside its other registrations, under the registrar kind `:classification`. `decl` is a closed map: `:sensitive` and `:large`, each a vector of paths absolute in app-db, plus an optional `:doc`. Every frame unions the declarations its own view resolves, so a declared path reads `:rf/redacted` (or the size marker) from its first egress, with no classification event, while handlers still see the real value. A retained epoch record keeps the declarations it was recorded under. Any other key, or a malformed path, throws `:rf.error/bad-classification`. See [Spec 015 §Static app-db classification](../../spec/015-Data-Classification.md#static-app-db-classification).
+- **Example**:
+  ```clojure
+  (rf/reg-classification :auth.login
+    {:doc       "The login draft's password."
+     :sensitive [[:auth :login-form :draft :password]]})
+  ```
+
 ### `clear`
 
 - **Kind**: function
@@ -276,7 +291,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
   (clear kind id) → id
   ```
 - **Description**: Removes one registration and returns its `id`. It is the inverse of the `reg-*` forms, keyed by kind, for tests, REPL work and teardown. There are no per-kind names such as `clear-event` or `clear-resource`.
-    - `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:flow`, `:resource`, `:mutation`, `:resource-scope` or `:http-interceptor`. A frame is not a registration; tear it down with [`destroy-frame!`](#destroy-frame).
+    - `kind` is one of `:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:route`, `:head`, `:error-projector`, `:app-schema`, `:classification`, `:flow`, `:resource`, `:mutation`, `:resource-scope` or `:http-interceptor`. A frame is not a registration; tear it down with [`destroy-frame!`](#destroy-frame).
     - Kinds that hold runtime state clean it up: `:flow` emits `:rf.flow/cleared`, and each frame running the flow removes its output path on its next event; `:route` emits `:rf.route/cleared`, `:http-interceptor` emits `:rf.http.interceptor/cleared`, and the resource kinds dispose per-frame runtime state. The other kinds only remove the registrar entry.
     - A registration belongs to no frame, so `clear` removes it for every frame at once and takes no opts. A trailing opts map throws `:rf.error/registrar-clear-bad-request`, as does an unknown kind, naming the valid kinds. To stop one frame running a flow or an HTTP interceptor, re-make that frame without it.
     - Clearing a kind whose optional artefact is not loaded throws that artefact's missing-artefact error, for example `:rf.error/flows-artefact-missing` for `:flow`.

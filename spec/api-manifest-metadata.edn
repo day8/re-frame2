@@ -795,6 +795,12 @@
   ["re-frame.core" "reg-interceptor"]     {:tier :front-porch :owner "001" :status "EP-0022"
                                           :action :keep
                                           :justification "Front-porch: the public interceptor-authoring form (EP-0022). ->interceptor and ->interceptor* are not on the facade, so this is the one authoring door."}
+  ;; Static app-db classification (Spec 015, EP-0039). Core-owned, so no
+  ;; artefact wrapper: the facade macro delegates to
+  ;; `re-frame.classification/reg-classification*`.
+  ["re-frame.core" "reg-classification"]  {:tier :advanced    :owner "015" :status "EP-0039"
+                                          :action :keep
+                                          :justification "A registration macro: it captures call-site source coords, so an image selects the declaration by its namespace, and it is written beside the feature's other registrations. Its implementation is core, so the facade is its only supported door."}
   ;; There is no `reg-frame`: a frame is a LIVE runtime object, not a
   ;; program member, so a reg-* that constructed instead of registered would
   ;; corrupt the registrar grammar. `make-frame` (below) is the ONE
