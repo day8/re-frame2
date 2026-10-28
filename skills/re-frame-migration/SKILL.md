@@ -71,7 +71,7 @@ Exit when the [done checklist](#done-checklist) is satisfied.
 
 Two pre-flight phases, then six. Each points to the leaf that holds the detail.
 
-**Phase 0a — Inventory and plan.** Read-only, and before any dependency edit or compile: inventory the v1 add-on libraries and app features, scan the add-ons' **source** for removed or moved v2 surfaces, grep the app for the compile-silent rules, and write a per-item plan. A compile reaches broken dependency source one namespace at a time; planning the sweep up front replaces that march. → [`inventory-and-plan.md`](references/inventory-and-plan.md).
+**Phase 0a — Inventory and plan.** Read-only, and before any dependency edit or the first compile attempt: inventory the v1 add-on libraries and app features, scan the add-ons' **source** for removed or moved v2 surfaces, grep the app for the compile-silent rules, and write a per-item plan. A compile reaches broken dependency source one namespace at a time; planning the sweep up front replaces that march. → [`inventory-and-plan.md`](references/inventory-and-plan.md).
 
 **Phase 0b — The React-19 / Reagent-2 floor gate.** Before any dependency edit. re-frame2's adapters target React 19 (the Reagent bridge runs on Reagent 2.x); for a React-17/18 + Reagent-1.x project this is the largest, riskiest step, and its blocking case should surface here rather than inside a failed compile. Run the leaf's checks and record its go/no-go; the bumps it approves ride into M-0. → [`floor-gate.md`](references/floor-gate.md#the-react-19--reagent-2-floor-gate-pre-flight--run-before-m-0).
 
