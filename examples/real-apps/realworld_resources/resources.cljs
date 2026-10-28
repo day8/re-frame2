@@ -101,8 +101,8 @@
 ;; params return DIFFERENT bytes to Alice, to Bob, and to an anonymous reader —
 ;; which means the viewer is part of the read's identity. Each declares
 ;; `:scope {:from-db :realworld/viewer}`, the named resolver (scope.cljs) that
-;; keys `[:rf.scope/viewer {:username …}]` per signed-in reader and
-;; `[:rf.scope/viewer :anonymous]` for a confirmed logged-out one — so no
+;; keys `[:realworld.scope/viewer {:username …}]` per signed-in reader and
+;; `[:realworld.scope/viewer :anonymous]` for a confirmed logged-out one — so no
 ;; viewer's `favorited`/`following` flags ever surface in another's cache.
 ;; (Only `:realworld/tags` below is TRULY invariant, and it alone stays
 ;; `:rf.scope/global`.) See scope: ../../../docs/resources/glossary.md#scope.

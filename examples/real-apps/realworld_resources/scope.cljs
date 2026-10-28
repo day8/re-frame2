@@ -23,10 +23,11 @@
      detail, an author profile, an article's comments, a profile's authored /
      favorited lists. All are readable logged-out, but their payloads embed
      `favorited` / `following` RELATIVE TO THE CURRENT VIEWER. So they carry a
-     VIEWER scope `[:rf.scope/viewer {:username …}]` (or `[:rf.scope/viewer
-     :anonymous]` for a confirmed logged-out reader) — Alice, a confirmed
-     anonymous viewer, and Bob never share a cache entry carrying someone else's
-     relationship flags.
+     VIEWER scope `[:realworld.scope/viewer {:username …}]` (or
+     `[:realworld.scope/viewer :anonymous]` for a confirmed logged-out reader) —
+     Alice, a confirmed anonymous viewer, and Bob never share a cache entry
+     carrying someone else's relationship flags. The head is the app's own
+     keyword: `:rf.scope/*` is a closed framework set.
 
    - Session reads — the authenticated user's personalised feed
      (`/articles/feed`). What that returns depends on who's asking, so it carries
@@ -87,10 +88,10 @@
 ;; identity is the viewer, not the world. This resolver derives that viewer from
 ;; the auth slice and distinguishes THREE conditions the cache must keep apart:
 ;;
-;;   - AUTHENTICATED — a durable username is present → `[:rf.scope/viewer
+;;   - AUTHENTICATED — a durable username is present → `[:realworld.scope/viewer
 ;;     {:username …}]`. Each signed-in reader gets their own representation.
-;;   - CONFIRMED ANONYMOUS — no username AND no saved token → `[:rf.scope/viewer
-;;     :anonymous]`. A logged-out reader's representation (all flags false) is a
+;;   - CONFIRMED ANONYMOUS — no username AND no saved token →
+;;     `[:realworld.scope/viewer :anonymous]`. A logged-out reader's representation (all flags false) is a
 ;;     real, shareable identity — but only among genuinely anonymous readers.
 ;;   - UNRESOLVED — no username YET, but a saved token IS present (cold-boot
 ;;     restore is mid-flight) → `nil`, FAIL-CLOSED. The token would make the
@@ -108,16 +109,17 @@
 
 (rf/reg-resource-scope :realworld/viewer
   {:doc    "The current viewer's resource cache scope for the optional-auth reads
-            — the per-reader representation boundary. `[:rf.scope/viewer
-            {:username …}]` when signed in, `[:rf.scope/viewer :anonymous]` when
-            confirmed logged out, and nil (fail-closed) while a saved token is
-            present but the user has not restored yet."
+            — the per-reader representation boundary.
+            `[:realworld.scope/viewer {:username …}]` when signed in,
+            `[:realworld.scope/viewer :anonymous]` when confirmed logged out,
+            and nil (fail-closed) while a saved token is present but the user
+            has not restored yet."
    :inputs {:username [:db [:auth :user :username]]
             :token    [:db [:auth :token]]}}
   (fn [{:keys [username token]} _ctx]
     (cond
-      username           [:rf.scope/viewer {:username username}]
-      (str/blank? token) [:rf.scope/viewer :anonymous]
+      username           [:realworld.scope/viewer {:username username}]
+      (str/blank? token) [:realworld.scope/viewer :anonymous]
       :else              nil)))
 
 ;; ============================================================================

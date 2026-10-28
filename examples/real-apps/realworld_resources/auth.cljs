@@ -19,10 +19,10 @@
    :cause …}]`. The departing reader's personalised feed is cached under
    `[:rf.scope/session {:username …}]` and their optional-auth reads (articles /
    profiles / comments, carrying that reader's `favorited` / `following` flags)
-   under `[:rf.scope/viewer {:username …}]`, or `[:rf.scope/viewer :anonymous]`
-   for a signed-out reader. The next reader must never lay eyes on either, and
-   nothing may refetch them with the next reader's token. The event clears those
-   scopes and replans the current route under the new identity. The concrete old
+   under `[:realworld.scope/viewer {:username …}]`, or
+   `[:realworld.scope/viewer :anonymous]` for a signed-out reader. The next
+   reader must never lay eyes on either, and nothing may refetch them with the
+   next reader's token. The event clears those scopes and replans the current route under the new identity. The concrete old
    scopes are resolved with the `rf/resolve-resource-scope` helper against the
    handler's COEFFECT db — the pre-transition value, which still remembers who was
    reading — using the same named `:realworld/viewer` / `:realworld/session`
@@ -441,7 +441,7 @@
       ;; cold-boot deep link to a PUBLIC page (`/article/x`) should remain readable
       ;; as an anonymous viewer, not get yanked home — that's `:clear-session`'s
       ;; job on an interactive logout, not on a failed restore. Clearing the token
-      ;; RESOLVES the viewer to `[:rf.scope/viewer :anonymous]`, and
+      ;; RESOLVES the viewer to `[:realworld.scope/viewer :anonymous]`, and
       ;; `:auth/clear-session` changes principal with the cause named here, which
       ;; re-plans the current route's reads under the anonymous viewer — the
       ;; mirror of `:auth/session-restored`, minus the sign-in. (There is no old

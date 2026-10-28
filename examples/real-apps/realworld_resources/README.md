@@ -97,7 +97,7 @@ Every resource declares a scope — whose data the cached read belongs to. The t
 Conduit is the textbook case. Its article and profile endpoints allow anonymous access — but every Article carries a per-viewer `favorited` flag and every Profile a per-viewer `following` flag (both mandatory in the wire contract, `realworld-shared.schema`). GET the same article as Alice, as Bob, and logged-out, and you get 3 different payloads. If you cached those under one shared key because "the endpoint is public," Alice's `favorited: true` would surface in Bob's UI — and a click would then send Bob's client a favourite/unfavourite verb chosen from Alice's state. So Conduit reads 3 kinds of server data, with 3 scopes:
 
 - truly invariant — the popular tags (`/tags`). A bare list of strings, the same bytes for everyone. This is the only read that earns `:scope :rf.scope/global`. (Xray lists every `:rf.scope/global` resource as a standing security-review list — "here is everything you have declared safe to share.")
-- optional-auth — the article list, an article, a profile, comments, the 2 profile-tab lists. Readable logged-out, but the payload embeds the current viewer's relationship flags. So each carries a viewer scope, `[:rf.scope/viewer {:username …}]` (or `[:rf.scope/viewer :anonymous]` for a confirmed logged-out reader).
+- optional-auth — the article list, an article, a profile, comments, the 2 profile-tab lists. Readable logged-out, but the payload embeds the current viewer's relationship flags. So each carries a viewer scope, `[:realworld.scope/viewer {:username …}]` (or `[:realworld.scope/viewer :anonymous]` for a confirmed logged-out reader). The head is the app's own keyword, because `:rf.scope/*` is a closed framework set.
 - session — the private feed (`/articles/feed`). Depends on being signed in at all. A session scope, `[:rf.scope/session {:username …}]`, nil (fail-closed) when logged out.
 
 There is no default scope. Forget it and registration fails loud with `:rf.error/resource-missing-scope-policy`.
@@ -110,9 +110,9 @@ There is no default scope. Forget it and registration fails loud with `:rf.error
             :token    [:db [:auth :token]]}}
   (fn [{:keys [username token]} _ctx]
     (cond
-      username           [:rf.scope/viewer {:username username}]  ; signed in
-      (str/blank? token) [:rf.scope/viewer :anonymous]            ; confirmed logged out
-      :else              nil)))                                    ; token present, user not resolved YET → fail closed
+      username           [:realworld.scope/viewer {:username username}]  ; signed in
+      (str/blank? token) [:realworld.scope/viewer :anonymous]            ; confirmed logged out
+      :else              nil)))                                           ; token present, user not resolved YET → fail closed
 ```
 
 That third branch is the sharp edge. During cold-boot session restore a saved token is present before the durable user identity resolves — and the bearer interceptor would make any read fired in that window authenticated, so its bytes are the token-holder's, not anonymous's. Labelling them shareable under the anonymous identity is exactly the cross-viewer leak. So the resolver returns `nil` (fail-closed) until restore settles, at which point auth.cljs dispatches the framework's `[:rf.resource/change-principal …]`, which re-plans the active route under the now-resolved viewer without navigating. (The `:token` input is read only for its presence — it never rides the derived scope, which carries at most a username, and the framework redacts the scope-resolution trace off-box.)

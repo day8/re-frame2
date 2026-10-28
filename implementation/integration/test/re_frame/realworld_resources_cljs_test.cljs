@@ -100,9 +100,9 @@
 (defn- stale? [e]
   (or (contains? #{:loading :fetching} (:status e)) (some? (:invalidated-at e))))
 
-(defn- viewer-scope [username] [:rf.scope/viewer {:username username}])
+(defn- viewer-scope [username] [:realworld.scope/viewer {:username username}])
 
-(def ^:private anon-viewer-scope [:rf.scope/viewer :anonymous])
+(def ^:private anon-viewer-scope [:realworld.scope/viewer :anonymous])
 
 (defn- article-key [slug]
   (rf.resources.state/scoped-resource-key (viewer-scope "alice") :realworld/article {:slug slug}))

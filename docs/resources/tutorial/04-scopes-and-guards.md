@@ -26,8 +26,8 @@ The fix is a named **[scope resolver](../glossary.md#scope-resolver)** that answ
             :token    [:db [:auth :token]]}}
   (fn [{:keys [username token]} _ctx]
     (cond
-      username           [:rf.scope/viewer {:username username}]
-      (str/blank? token) [:rf.scope/viewer :anonymous]
+      username           [:conduit.scope/viewer {:username username}]
+      (str/blank? token) [:conduit.scope/viewer :anonymous]
       :else              nil)))
 ```
 
@@ -177,8 +177,8 @@ scope.
             :token    [:db [:auth :token]]}}
   (fn [{:keys [username token]} _ctx]
     (cond
-      username           [:rf.scope/viewer {:username username}]
-      (str/blank? token) [:rf.scope/viewer :anonymous]
+      username           [:conduit.scope/viewer {:username username}]
+      (str/blank? token) [:conduit.scope/viewer :anonymous]
       :else              nil)))
 
 (rf/reg-resource :conduit/articles
@@ -225,9 +225,9 @@ scope.
      [:button {:on-click #(dispatch [:auth/logout])} "Sign out"]
      [:table
       [:tbody
-       [cache-row {:label "anonymous" :scope [:rf.scope/viewer :anonymous]}]
-       [cache-row {:label "alice" :scope [:rf.scope/viewer {:username "alice"}]}]
-       [cache-row {:label "bob"   :scope [:rf.scope/viewer {:username "bob"}]}]]]
+       [cache-row {:label "anonymous" :scope [:conduit.scope/viewer :anonymous]}]
+       [cache-row {:label "alice" :scope [:conduit.scope/viewer {:username "alice"}]}]
+       [cache-row {:label "bob"   :scope [:conduit.scope/viewer {:username "bob"}]}]]]
      [:p "Requests sent: " @requests]]))
 
 [rf/frame-root {:id :conduit
