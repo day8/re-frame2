@@ -42,12 +42,10 @@
           current-cnt (atom (atom 0))
           fanout      4]
       (rf/reg-event :b/leaf
-        {:frame :rgj.exec/b}
         (fn [{:keys [db]} _]
           (swap! @current-cnt inc)
           {:db (update db :n (fnil inc 0))}))
       (rf/reg-event :a/cross-fire
-        {:frame :rgj.exec/a}
         (fn [_ _]
           (dotimes [_ fanout]
             (rf/dispatch [:b/leaf] {:frame :rgj.exec/b}))
@@ -80,7 +78,7 @@
     (rf/make-frame {:id :rgj.reload/main :drain-depth 100000})
     (let [v1 (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})
           v2 (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})]
-      (rf/reg-event :rgj.reload/tick {:frame :rgj.reload/main} v1)
+      (rf/reg-event :rgj.reload/tick v1)
       (let [stop          (atom false)
             reload-thread (Thread.
                             ^Runnable
@@ -88,7 +86,6 @@
                               (let [toggle (atom false)]
                                 (while (not @stop)
                                   (rf/reg-event :rgj.reload/tick
-                                                {:frame :rgj.reload/main}
                                                 (if (swap! toggle not) v2 v1))
                                   (Thread/yield)))))]
         (.start reload-thread)
