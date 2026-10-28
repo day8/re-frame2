@@ -1,10 +1,11 @@
 # MCP transport — the skill's only transport
 
-re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC server holding one nREPL socket open for the whole session (per-op latency ~5–50ms). This is the **only** transport the skill exposes (no shell tool in `allowed-tools:`); treat the MCP tools as the complete operating surface.
+re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC server holding one nREPL socket open for the whole session (per-op latency ~5–50ms). This is the **only** transport the skill exposes (no shell tool in `allowed-tools:`); treat the MCP tools as the complete operating surface. A host that registers the server presents them as `mcp__re-frame2-pair__*` tools; an agent that cannot register it reaches the same tools by running the server itself ([§Headless use](#headless-use--no-host-registration)).
 
 ## Contents
 
 - [Install / configure (one-time)](#install--configure-one-time)
+- [Headless use — no host registration](#headless-use--no-host-registration) — a shell client for an agent that cannot register the server
 - [Stale-binary post-merge hook](#stale-binary-post-merge-hook)
 - [MCP tool reference (args)](#mcp-tool-reference-args) — the 30 tools, name → arg signature → semantics home
 - [When to use `snapshot` vs the per-op reads](#when-to-use-snapshot-vs-the-per-op-reads)
@@ -71,6 +72,32 @@ via a **five-step cascade** (per `tools/re-frame2-pair-mcp/spec/002-nREPL-Transp
 A port file counts only when its port accepts a TCP connect within half a second, at every step that reads one (1, 3, 4, 5). shadow-cljs deletes its port files from a JVM shutdown hook, so a JVM that was force-killed or crashed leaves a file naming a port nothing listens on. Discovery skips that file and moves to the next step: it never attaches to it or offers it in the elicitation, and a discovery that then fails names it ([§When the MCP server is degraded](#when-the-mcp-server-is-degraded)).
 
 The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win the cascade — pass one when discovery misses (no running shadow, non-default `:http :port`, exotic setup). Shadow restarts are absorbed transparently: each subsequent tool call re-reads the cached port file — the exact path discovery won on, kept verbatim rather than re-derived — and reconnects if the port changed.
+
+## Headless use — no host registration
+
+An agent that cannot register an MCP server with its host, or start the fresh session a registration needs — a dispatched worker with a shell and nothing else — runs the same server as its own child process. The tools, gates and wire caps are the ones a host reaches; only the client differs. Build the server first, as above.
+
+**One call per command.** `bin/call.cjs` starts the server, makes one tool call, prints the result and exits. `<app>` is the app's project root:
+
+```bash
+node <repo>/tools/re-frame2-pair-mcp/bin/call.cjs get-re-frame2-pair-instructions
+node <repo>/tools/re-frame2-pair-mcp/bin/call.cjs discover-app '{}' -- --port-file <app>/.shadow-cljs/nrepl.port
+node <repo>/tools/re-frame2-pair-mcp/bin/call.cjs read-sub '{"sub": "[:cart/total]"}' -- --port-file <app>/.shadow-cljs/nrepl.port
+```
+
+The word after the tool name is its arguments as one JSON object (default `{}`), launch flags go after `--`, and the environment, `SHADOW_CLJS_BUILD_ID` included, passes through. The tool's text result goes to stdout and the server's log to stderr. The exit status is 0 for a result, 1 for a tool error (`isError`), and 2 when no result came back: malformed arguments, no `out/server.js`, or a protocol failure. Each command is a new server with its own nREPL connection, so the build `discover-app` makes sticky lasts for that command only; pass `build` on every call when the app runs more than one build.
+
+**Pass `--port-file`.** Discovery step 3 asks the client for its workspace roots, and a client with none to give declines; `bin/call.cjs` does. Discovery then falls through to shadow's HTTP probe and the cwd scan, which find your app only when it is the shadow-cljs on `:9630` or the server's working directory. The absolute path of the app's `.shadow-cljs/nrepl.port` in `--port-file`, or the port itself in `SHADOW_CLJS_NREPL_PORT`, wins at step 1.
+
+**Your own client.** For many calls over one connection, launch `node <repo>/tools/re-frame2-pair-mcp/out/server.js --port-file <app>/.shadow-cljs/nrepl.port` and exchange newline-delimited JSON-RPC 2.0 over its stdin and stdout, one JSON object per line (`tools/re-frame2-pair-mcp/spec/001-Wire-Protocol.md`); stderr is the server's log.
+
+1. Send `initialize` and read its response: `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"my-client","version":"0"}}}`
+2. Send `{"jsonrpc":"2.0","method":"notifications/initialized"}`.
+3. Call tools: `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"discover-app","arguments":{}}}`. The response's `result.content[0].text` is the EDN envelope this skill describes, and `result.isError` is true on a refusal. `tools/list` returns the descriptors when you want them; nothing requires it.
+4. Answer any request the server sends — a line carrying both `method` and `id`, such as the `roots/list` discovery sends when no `--port-file` wins — with `{"jsonrpc":"2.0","id":<its id>,"error":{"code":-32601,"message":"Method not found"}}`. Left unanswered, it holds that call for the SDK's 60-second request timeout.
+5. Close stdin to end the session, once the last response has arrived: the server closes its nREPL socket and exits 0 without answering a call still in flight, so a file piped in whole gets the `initialize` response and nothing more.
+
+`bin/call.cjs` is a short working client to start from.
 
 ## Stale-binary post-merge hook
 
