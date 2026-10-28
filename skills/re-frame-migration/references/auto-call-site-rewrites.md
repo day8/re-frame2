@@ -140,7 +140,11 @@ Same for the `uix` variant.
 (reg :flow :id ...)                  → (reg-flow :id {…} derive-fn)   ; 3 slots, reshaped — see the :flow note below
 (sub <vector>)                       → (subscribe <vector>)   ; EXCEPT inside a reg-sub signal/input fn, per M-71 (below)
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
+(sub ::id)                           → (subscribe [::id])     ; alpha reads a bare keyword as {:re-frame/q ::id}
+(sub ::id {:param 1})                → (subscribe [::id 1])   ; alpha reads id + map as {:re-frame/q ::id :param 1}, the row above
 ```
+
+**The two shorthand `sub` rows are not renames.** v2's `subscribe` takes a query vector, and its 2-arity is `[query-v opts]`: a renamed `(subscribe ::id)` passes a keyword where the query vector goes, and a renamed `(subscribe ::id {:param 1})` hands the params to `opts`, which drops them. The signal-fn carve-out below applies to these rows as it does to the vector row. One query id takes neither row: alpha registers a `:flow` sub itself, so `(sub :flow {:id ::f})` (or the vector `[:flow {:id ::f}]`) reads a flow's output. v2 flows publish no subscriptions ([Spec 013 §Sub integration](https://github.com/day8/re-frame2/blob/main/spec/013-Flows.md#sub-integration)): read the flow's `:output-path` through a `reg-sub` and subscribe to that.
 
 **The `:flow` row is a reshape, not a rename** ([`MIGRATION.md` §M-23](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-23-re-framealpha-is-removed)): `:id` becomes the first slot, `:inputs` goes from a keyword→path map to a vector of paths in the derive fn's parameter order, `:path` becomes `:output-path`, and the `:output` fn becomes the third-slot derive fn, which takes its inputs positionally — a body left destructuring the old resolved-inputs map computes from `nil`s with no error. `:live?`, `:cleanup` and per-flow `:fx` are dropped (Type B, M-30). A flow is also frame-owned, so give it `:frame` or register it inside a `with-frame` once the frame exists ([`guided-interceptors-subs.md` §`on-changes`](guided-interceptors-subs.md#on-changes)).
 
