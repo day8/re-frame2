@@ -3,27 +3,23 @@
 // pull-mode epoch tools (`trace-window` + `watch-epochs`) and the
 // `snapshot` `:epochs` slice.
 //
-// ## EP-0025 — durable app-db classification rides the commit-plane effects
+// ## Durable app-db classification is a registration
 //
-// Durable app-db egress classification is declared by the EP-0025
-// commit-plane classification effects: an event handler returns
-// `:sensitive [[:auth :token]]` (or `:large` / `:clear-*`) alongside `:db`
-// (spec/015-Data-Classification.md; docs/EP/EP-0025-data-classification.md).
-// The router folds the declaration into the same atomic commit as the `:db`
-// write, installing it into the frame's durable elision registry tagged
-// `:source :effect`; the epoch assembler's `sensitive-rollup` and the
-// off-box `project-egress` both read THAT registry. There is no durable
+// Durable app-db egress classification is declared by `reg-classification`
+// (spec/015-Data-Classification.md §Static app-db classification): the
+// frame's classification policy, which the epoch assembler's
+// `sensitive-rollup` and the off-box `project-egress` both read, claims the
+// declared paths `{:source :classification :id <id>}`. There is no durable
 // `:sensitive {:app-db …}` *frame annotation* (a frame is not app-db's
 // definition site). Schemas describe shape, not durable app-db
 // egress policy: there is no schema-attached `:sensitive?` app-db
 // classification (EP-0015 §8).
 //
 // The gate-OFF / gate-ON arms below therefore classify the sensitive slot
-// through the commit-plane `:sensitive` effect — the same route an app
-// author uses — NOT by hand-seeding the elision registry. Driving the
-// public route proves the whole classification path end-to-end: a regression
-// where the `:sensitive` effect stopped reaching the epoch rollup /
-// project-egress / pair-MCP wire egress goes RED here.
+// through `reg-classification` — the same route an app author uses.
+// Driving the public route proves the whole classification path
+// end-to-end: a regression where the declaration stopped reaching the epoch
+// rollup / project-egress / pair-MCP wire egress goes RED here.
 //
 // ## What this test guards
 //
@@ -64,10 +60,8 @@
 //      (the published default — the redaction MUST hold).
 //   2. Via `eval-cljs` against the live runtime:
 //        a. classify `[:rf-conformance/secret]` sensitive through the
-//           PUBLIC EP-0025 route — the write event returns the commit-plane
-//           `:sensitive [[:rf-conformance/secret]]` effect alongside `:db`,
-//           installing the `:source :effect` declaration the rollup +
-//           project-egress read, in the same atomic commit as the write;
+//           PUBLIC route — a `reg-classification` — which the rollup +
+//           project-egress read;
 //        b. dispatch an event that writes a recognisable SENTINEL string
 //           into that slot, landing it in the next epoch's `:db-after`
 //           (and flagging the epoch's `:rf.epoch/sensitive?` rollup true).
@@ -143,28 +137,23 @@ const SECRET_KEY = ':rf-conformance/secret';
 const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 
 // CLJS form (evaluated app-side via eval-cljs) that:
-//   1. classifies `[SECRET_KEY]` sensitive through the PUBLIC EP-0025
-//      route — the write event returns the commit-plane
-//      `:sensitive [[SECRET_KEY]]` effect alongside `:db`. This is the SAME
-//      route an app author uses (spec/015-Data-Classification.md;
-//      docs/EP/EP-0025-data-classification.md); the router installs the
-//      `:source :effect` declaration into the frame's durable elision
-//      registry that `sensitive-rollup` and `project-egress` read, in the
-//      same atomic commit as the write. No hand-seeded `swap-elision-slot!`,
-//      no schema artefact, no frame annotation;
-//   2. dispatch-syncs that event, writing the SENTINEL into the slot and
-//      classifying it in the SAME commit, landing in the next epoch's
-//      `:db-after`.
+//   1. classifies `[SECRET_KEY]` sensitive through the PUBLIC route — a
+//      `reg-classification`, the SAME route an app author uses
+//      (spec/015-Data-Classification.md), which `sensitive-rollup` and
+//      `project-egress` read. No schema artefact, no frame annotation;
+//   2. dispatch-syncs the write event, writing the SENTINEL into the slot,
+//      landing in the next epoch's `:db-after`.
 // The secret is closed over in the handler so it never appears in the
 // trigger-event vector — the classified path is the only sensitive
 // leaf, mirroring epoch_mcp_egress_conformance_test.clj's drive pattern.
 //
-// Classifying in the SAME event that writes the value means the rollup is
-// stamped true at the assembly of the very epoch the dispatch records (a
-// path classified at commit redacts from its first egress).
+// Classifying before the write means the rollup is stamped true at the
+// assembly of the very epoch the dispatch records (a declared path redacts
+// from its first egress).
 //
-// Registration uses the fn-form `re-frame.events/reg-event` rather than
-// the `re-frame.core/reg-event` MACRO: a runtime cljs-eval form cannot
+// Registration uses the fn-forms `re-frame.events/reg-event` and
+// `re-frame.classification/reg-classification*` rather than the
+// `re-frame.core` MACROS: a runtime cljs-eval form cannot
 // expand a macro the analyzer hasn't seen, so the macro call would yield
 // nil. The fn-form is a plain call against the events ns the fixture
 // already loads (transitively via re-frame.core). `reg-event` is the one
@@ -206,19 +195,17 @@ const ENABLE_CONFIGURE_FORM = `
 // dispatch the sentinel write.
 const SEED_FORM = `
 (let [fid (re-frame2-pair.runtime/current-frame)]
-  ;; Declare the sensitive slot through the PUBLIC EP-0025 route — the
-  ;; commit-plane \`:sensitive\` classification effect, returned by the
-  ;; write-secret event alongside \`:db\`. The router folds it into the same
-  ;; atomic commit as the \`:db\` write, installing the \`:source :effect\`
-  ;; declaration that project-egress (which reads the record's :frame
-  ;; elision registry) and sensitive-rollup both consult, so the leaf matches
-  ;; at egress AND the dispatched epoch's rollup stamps true. (There is no
-  ;; durable \`:sensitive {:app-db …}\` frame annotation.)
+  ;; Declare the sensitive slot through the PUBLIC route — a
+  ;; reg-classification, which project-egress (reading the record's :frame
+  ;; policy) and sensitive-rollup both consult, so the leaf matches at egress
+  ;; AND the dispatched epoch's rollup stamps true. (There is no durable
+  ;; \`:sensitive {:app-db …}\` frame annotation.)
+  (re-frame.classification/reg-classification* ${SECRET_KEY}
+    {:sensitive [[${SECRET_KEY}]]})
   (re-frame.events/reg-event
     :rf-conformance/write-secret
     (fn [{:keys [db]} _]
-      {:db (assoc db ${SECRET_KEY} "${SENTINEL}")
-       :sensitive [[${SECRET_KEY}]]}))
+      {:db (assoc db ${SECRET_KEY} "${SENTINEL}")}))
   (re-frame.router/dispatch-sync! [:rf-conformance/write-secret] {:frame fid})
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
@@ -283,12 +270,11 @@ const VERIFY_WRITE_FORM =
 // ABSENT + the `:rf/redacted` marker PRESENT in the surviving record's
 // `:db-after`.
 //
-// This arm ALSO drives the PUBLIC EP-0025 classification route:
-// the `:clear-sensitive` commit-plane effect drops the prior
-// `:source :effect` declaration, then a post-hoc
-// `apply-classification-effects` re-classifies the inner slot. So the
-// arm proves the classification route reaches `project-egress` egress for
-// the record-then-classify ordering too — not just the classify-then-record
+// This arm ALSO drives the PUBLIC classification route: clearing the
+// prior `reg-classification` drops its claim, then a post-hoc
+// `reg-classification` classifies the inner slot. So the arm proves the
+// classification route reaches `project-egress` egress for the
+// record-then-classify ordering too — not just the classify-then-record
 // ordering of the gate-OFF arm.
 // (`re-frame.epoch.state/reset-histories!` is internal projection /
 // ring-state plumbing, used here only to isolate the ring; it is NOT a
@@ -308,14 +294,14 @@ const INNER_SENTINEL = 'rf2-ywn27-INNER-secret-do-not-leak-9b2e4d';
 //
 // CLEAN-SLATE precondition: this arm shares the live fixture runtime
 // (same nREPL / `:rf/default` frame) with the gate-OFF arm that ran
-// before it — which declared `:rf-conformance/secret` sensitive (via the
-// commit-plane `:sensitive` effect) AND left its value in app-db. If that
+// before it — which declared `:rf-conformance/secret` sensitive (via a
+// `reg-classification`) AND left its value in app-db. If that
 // declaration were still live when our epoch assembles, `sensitive-rollup`
 // (assembly.cljc) would see a declared path holding a non-nil leaf and
 // stamp the rollup TRUE — and this arm would no longer separate the
 // registry read from the stamped label. So the form FIRST wipes the epoch
-// ring, then dispatches a secret-write event that returns
-// `:clear-sensitive` for the prior slot AND dissocs its value, guaranteeing
+// ring, then clears the prior slot's `reg-classification` and dispatches a
+// secret-write event that dissocs its value, guaranteeing
 // no declared-sensitive leaf exists at assembly time. We read the rollup
 // off the HEAD (last) record — the inner-secret write — which is the one
 // the egress tools surface.
@@ -329,13 +315,11 @@ const INNER_WRITE_FORM = `
   ;; (reset-histories! is internal ring-state plumbing, not a policy
   ;; surface — see the arm header.)
   (re-frame.epoch.state/reset-histories!)
-  ;; Clear the prior sensitive declaration through the PUBLIC EP-0025 route:
-  ;; the write-inner-secret event returns the \`:clear-sensitive\` commit-plane
-  ;; effect for the prior secret slot (the set/unset symmetry of the axis),
-  ;; dropping its \`:source :effect\` declaration. The assembler then sees an
-  ;; EMPTY sensitive-paths set when our epoch is built (rollup ⇒ false).
-  ;; (Re-registration does not clear classification — there is no frame
-  ;; annotation; \`:clear-sensitive\` is the un-classify path.)
+  ;; Clear the prior sensitive declaration through the PUBLIC route —
+  ;; clearing its reg-classification drops its claim. The assembler then
+  ;; sees an EMPTY sensitive-paths set when our epoch is built
+  ;; (rollup ⇒ false).
+  (re-frame.core/clear :classification ${SECRET_KEY})
   (re-frame.events/reg-event
     :rf-conformance/write-inner-secret
     (fn [{:keys [db]} _]
@@ -343,8 +327,7 @@ const INNER_WRITE_FORM = `
       ;; stray lingering declaration can't find a non-nil leaf.
       {:db (-> db
                (dissoc ${SECRET_KEY})
-               (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))
-       :clear-sensitive [[${SECRET_KEY}]]}))
+               (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))}))
   (re-frame.router/dispatch-sync! [:rf-conformance/write-inner-secret] {:frame fid})
   {:frame fid
    :rollup-at-assembly
@@ -359,22 +342,17 @@ const INNER_WRITE_FORM = `
 // This arm deliberately classifies WITHOUT recording a new epoch (so the
 // already-recorded epoch stays HEAD and its stamped rollup, computed once at
 // assembly, can be re-read), to prove `project-egress` reads the CURRENT
-// elision registry at egress. We therefore apply the EP-0025 commit-plane
-// `:sensitive` classification effect DIRECTLY onto the frame's runtime-db
-// (`apply-classification-effects`, `:source :effect`) — the same registry
-// write the effect performs at commit, minus the dispatch/epoch. (An ordinary
-// app author would return the `:sensitive` effect from an event; here the
-// internal seed avoids perturbing the epoch ring the assertion re-reads.)
+// classification policy at egress. A `reg-classification` dispatches
+// nothing, so it leaves the epoch ring the assertion re-reads unperturbed.
 const INNER_DECLARE_FORM = `
 (let [fid (re-frame2-pair.runtime/current-frame)]
-  (re-frame.frame/swap-runtime-db! fid
-    (fn [rt] (re-frame.elision/apply-classification-effects
-               rt {:sensitive [[${INNER_SECRET_KEY}]]})))
+  (re-frame.classification/reg-classification* ${INNER_SECRET_KEY}
+    {:sensitive [[${INNER_SECRET_KEY}]]})
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
    ;; Re-read the STAMPED rollup on the SAME recorded epoch — it MUST
    ;; still be false/absent: sensitive-rollup ran once at assembly and
-   ;; is NOT recomputed on a later declaration, so only the registry read
+   ;; is NOT recomputed on a later declaration, so only the policy read
    ;; at egress can protect the slot.
    :rollup-after-declare
    (:rf.epoch/sensitive? (last (re-frame.epoch/epoch-history fid)))})`;
@@ -394,13 +372,13 @@ function assertOk(resp, name) {
 // literal / `nil` immediately following the key) from an eval-cljs
 // response's text, matching the shape `re-frame.elision/sensitive-
 // declarations` actually returns: a map from classified PATH VECTOR to the
-// retained OWNER-SET (the registry is multi-owner), e.g.
-// `{[:rf-conformance/secret] #{{:source :effect}}}` (and, when two
-// independent owners claim one path, `#{{:source :effect} {:source :route}}`),
+// OWNER-SET claiming it, e.g.
+// `{[:rf-conformance/secret] #{{:source :classification :id :rf-conformance/secret}}}`
+// (and, when two independent owners claim one path, a two-member set),
 // or `{}` when nothing is classified. The owner-set nests THREE brace levels
 // deep — the outer map, the `#{…}` owner-set, and each owner map — so the
 // regex tolerates three levels of brace nesting (it also matches a bare
-// single-map `{:source :effect}` value). Returns `null` if `:declared` is
+// single-map owner value). Returns `null` if `:declared` is
 // absent entirely (a malformed / unexpected eval return — the caller treats
 // that as a precondition failure too).
 function declaredValueText(text) {
@@ -428,15 +406,15 @@ function declaredValueText(text) {
 // `sensitive-declarations`) appears in the pr-str on ANY successful eval —
 // classified or not. A bare key-PRESENCE check would be a tautology that
 // can never fail: it would only prove the eval didn't error, never that
-// the classification actually landed. If the EP-0025 commit-plane
-// `:sensitive` effect silently failed to register the declaration,
+// the classification actually landed. If the `reg-classification`
+// silently failed to register the declaration,
 // `sensitive-declarations` would return `{}` / `nil` and such a check would
 // pass.
 //
 // This asserts the VALUE instead: non-empty (rejects the `{}` / `nil`
 // shape `sensitive-declarations` returns when nothing is classified) AND
 // containing the exact classified-path literal — so a silently-failed
-// classification effect trips this precondition rather than passing it
+// declaration trips this precondition rather than passing it
 // unnoticed (the downstream sentinel/redaction assertions catch the leak
 // too; this makes the precondition itself real, as defense in depth).
 function assertDeclared(text, pathLiteral, label) {

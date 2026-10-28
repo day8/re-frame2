@@ -203,7 +203,7 @@
 (defn runtime-app-schema-path?
   "True when `path`'s FIRST segment reaches into the runtime-db partition
   — a keyword in the reserved `:rf.runtime/*` namespace (`:rf.runtime/
-  machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, …) or the
+  machines`, `:rf.runtime/routing`, …) or the
   runtime-db CONTAINER root `:rf.db/runtime` (the epoch / restore path
   prefix). Such a path is a category error for `reg-app-schema`, which
   validates only app-db. A `:rf/runtime` key is ordinary app data, so a
@@ -550,7 +550,7 @@
                                       prior-schema new-schema)))))
 
 ;; Schemas describe shape and validation-failure egress. They do not populate
-;; durable app-db classification, which is owned by commit-plane effects.
+;; durable app-db classification, which `reg-classification` owns.
 ;; Schema props are available to owner-local transient egress projectors.
 
 ;; ---- app-db schema registration -------------------------------------------

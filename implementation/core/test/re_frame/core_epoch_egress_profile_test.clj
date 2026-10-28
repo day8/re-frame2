@@ -11,7 +11,6 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -24,9 +23,8 @@
 (defn- last-record [frame-id]
   (last (rf.epoch/epoch-history frame-id)))
 
-(defn- install-large-path! [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
+(defn- install-large-path! []
+  (rf/reg-classification ::classified {:large [[:blob :payload]]})
   nil)
 
 (defn- big-string [n] (apply str (repeat n "X")))
@@ -52,7 +50,7 @@
 
 (deftest core-project-egress-honors-egress-profile
   (rf/make-frame {:id :ep/main})
-  (install-large-path! :ep/main)
+  (install-large-path!)
   (rf/reg-event :store
                 (fn [{:keys [db]} [_ payload]]
                   {:db (assoc-in db [:blob :payload] payload)}))

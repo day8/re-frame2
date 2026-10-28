@@ -53,25 +53,27 @@
 
 (deftest a-mutation-instance-is-classified-exactly-while-present
   ;; The mutations root hook claims an instance's declared slots on the
-  ;; runtime-db value it is handed, beside the registry's own claims.
+  ;; runtime-db value it is handed, beside the policy's app-db claims.
   (reg-secret-mutation!)
+  (rf/reg-classification ::app {:sensitive [[:app :token]]})
   (let [k-id   (rf.resources.mutation-runtime/instance-key-id :i1)
         inst   (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}})
         policy (rf.elision/frame-policy :rf/default)
         claims (fn [rdb]
                  (:sensitive-declarations
-                   (rf.elision/with-runtime-classification
-                     (:rf.runtime/elision rdb) [policy] rdb)))
-        rdb    (-> {rf.resources.mutation-runtime/mutations-key {k-id inst}}
-                   (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
-                             #{{:source :effect}}))]
-    (is (= {[:rf.runtime/mutations k-id :params :password] #{{:source :mutation}}
-            [:app :token]                                   #{{:source :effect}}}
+                   (-> (rf.elision/with-policy nil policy)
+                       (rf.elision/with-runtime-classification [policy] rdb))))
+        rdb    {rf.resources.mutation-runtime/mutations-key {k-id inst}}
+        ;; The default frame's view also holds every other loaded namespace's
+        ;; classification, so the app-db claims are measured, not spelled.
+        base   (claims {})]
+    (is (= #{{:source :classification :id ::app}} (get base [:app :token]))
+        "the app-db claim stands with no instance present")
+    (is (= (assoc base [:rf.runtime/mutations k-id :params :password] #{{:source :mutation}})
            (claims rdb))
-        "the instance's params slot is claimed beside the effect claim")
-    (is (= {[:app :token] #{{:source :effect}}}
-           (claims (assoc rdb rf.resources.mutation-runtime/mutations-key {})))
-        "with the instance gone, only the effect claim stands")))
+        "the instance's params slot is claimed beside the app-db claims")
+    (is (= base (claims (assoc rdb rf.resources.mutation-runtime/mutations-key {})))
+        "with the instance gone, only the app-db claims stand")))
 
 (deftest execute-classifies-the-instance-and-redacts-egress-and-continuation
   (reg-secret-mutation!)
@@ -126,9 +128,6 @@
                               {:status :error :error {:http-status 422 :body "nope"}}))
       (is (= redacted-params (:params @replied)))
       (is (not (str/includes? (pr-str @replied) PW))))
-    (testing "no mutation claim is written into the frame's elision registry"
-      (is (not-any? #(= :mutation (:source %))
-                    (mapcat val (get-in (runtime-db) [:rf.runtime/elision :sensitive-declarations])))))
     (testing "clear removes the instance, and its claim with it"
       (rf/dispatch-sync [:rf.mutation/clear {:instance :i1}])
       (is (empty? (get (rf.elision/sensitive-declarations :rf/default)

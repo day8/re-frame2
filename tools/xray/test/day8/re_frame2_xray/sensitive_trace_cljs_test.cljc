@@ -315,17 +315,17 @@
 #?(:cljs
    (defn- record-sensitive-ring!
      "Fill `re-seed-app`'s epoch ring with three REAL records: a clean tick,
-     a login that writes the secret and classifies that path `:sensitive`,
-     and a second tick carrying the classified leaf. Returns the ring,
+     a login that writes the secret at a path classified `:sensitive`, and a
+     second tick carrying the classified leaf. Returns the ring,
      oldest-first."
      []
+     (rf/reg-classification ::re-seed-auth {:sensitive [[:auth :token]]})
      (rf/make-frame {:id re-seed-app})
      (rf/reg-event ::re-seed-tick
        (fn [{:keys [db]} _] {:db (update db :ticks (fnil inc 0))}))
      (rf/reg-event ::re-seed-login
        (fn [{:keys [db]} [_ token]]
-         {:db        (assoc-in db [:auth :token] token)
-          :sensitive [[:auth :token]]}))
+         {:db (assoc-in db [:auth :token] token)}))
      (rf/dispatch-sync [::re-seed-tick] {:frame re-seed-app})
      (rf/dispatch-sync [::re-seed-login re-seed-secret] {:frame re-seed-app})
      (rf/dispatch-sync [::re-seed-tick] {:frame re-seed-app})

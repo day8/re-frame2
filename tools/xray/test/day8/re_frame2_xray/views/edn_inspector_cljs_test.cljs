@@ -1832,14 +1832,22 @@
 
 (deftest public-projection-bounds-two-endless-sequences-rf2-bmed1
   ;; At the root, and nested under a map key — the projection walks a
-  ;; collapsed child the renderer never descends into.
+  ;; collapsed child the renderer never descends into. The render runs in a
+  ;; frame whose view holds Xray's views alone: the bundle loads apps that
+  ;; classify app-db paths, and a frame that classifies anything walks a
+  ;; view's render args whole for its `:rf.view/rendered` trace (Spec 015
+  ;; §Static app-db classification), which would realise the input here.
+  (rf/make-frame {:id     ::xray-views-only
+                  :images [(rf/image {:id        ::xray-views-only
+                                      :select-ns {:include ["day8.re-frame2-xray.views.**"]}})]})
   (doseq [wrap [identity (fn [s] {:xs s})]]
     (let [seen-b (atom 0)
           seen-a (atom 0)
           before (wrap (counting-seq seen-b 50000))
           after  (wrap (counting-seq seen-a 50000))
           opts   {:panel-id :rf.xray/app-db :before before}]
-      ((ei/edn-inspector after opts) after opts)
+      (rf/with-frame ::xray-views-only
+        ((ei/edn-inspector after opts) after opts))
       (is (<= (max @seen-b @seen-a) render-path-bound)
           (str "realised " @seen-b " BEFORE / " @seen-a " AFTER elements")))))
 

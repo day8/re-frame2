@@ -1,7 +1,7 @@
 (ns re-frame.epoch-egress-historic-classification-test
   "An epoch record egresses under the classification recorded with it, not only
   under the frame's registry as it stands now. Removing a classification owner —
-  destroying a machine actor, clearing a flow, a declassifying effect — drops its
+  destroying a machine actor, clearing a flow, clearing a classification — drops its
   claims from the live registry while older records still hold the values those
   claims governed.
 
@@ -81,7 +81,7 @@
                         (conj (snapshot-data-path :frame-state-after) :token)))
       "the sensitive opt-in still reveals the recorded secret"))
 
-;; ---- app-db: a cleared flow, a declassifying effect -----------------------
+;; ---- app-db: a cleared flow, a cleared classification ---------------------
 
 (def ^:private flow-secret "secret-historic-flow-output")
 (def ^:private auth-secret "secret-historic-auth-token")
@@ -126,14 +126,16 @@
       (is (not (leaks? projected flow-secret))))))
 
 (deftest ^:requires-debug a-declassified-path-stays-redacted-on-records-made-while-classified
+  (rf/reg-classification ::auth {:sensitive [[:auth :token]]})
   (rf/reg-event ::sign-in
-    (fn [{:keys [db]} _] {:db (assoc db :auth {:token auth-secret}) :sensitive [[:auth :token]]}))
-  (rf/reg-event ::declassify (fn [_ _] {:clear-sensitive [[:auth :token]]}))
+    (fn [{:keys [db]} _] {:db (assoc db :auth {:token auth-secret})}))
+  (rf/reg-event ::declassify (fn [{:keys [db]} _] {:db (assoc db :declassified? true)}))
   (rf/dispatch-sync [::sign-in])
+  (rf/clear :classification ::auth)
   (rf/dispatch-sync [::declassify])
   (let [token-path [:auth :token]]
     (is (not (contains? (rf.elision/sensitive-declarations :rf/default) token-path))
-        "the effect drops its claim")
+        "clearing the registration drops its claim")
     (let [projected (rf/project-egress (record-for ::sign-in))]
       (is (= [[:db-after :rf/redacted] [:frame-state-after :rf/redacted]]
              (values-at projected token-path))

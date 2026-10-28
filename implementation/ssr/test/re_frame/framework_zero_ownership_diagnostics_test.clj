@@ -1,7 +1,7 @@
 (ns re-frame.framework-zero-ownership-diagnostics-test
   "The framework never trips its OWN runtime-db ownership diagnostics. Real
   flows of every runtime-db-writing subsystem (Spec 002 §Write authority) —
-  routing, machines, elision, SSR hydration — run while the trace stream is
+  routing, machines, SSR hydration — run while the trace stream is
   recorded. A framework writer that tripped a diagnostic would teach users
   the warning is noise.
 
@@ -16,7 +16,6 @@
   trip the warning, and its write still lands."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
@@ -105,22 +104,6 @@
               (do (rf/dispatch-sync [:zod/parent [:start]]) (some? (snapshot :zod/parent)))
               (do (rf/dispatch-sync [:zod/parent [:kill]]) (snapshot :zod/child))])
           "bootstrap and spawn commit snapshots; the explicit destroy clears the child's")
-      (assert-no-diagnostic! diags))))
-
-(deftest elision-population-fires-no-ownership-diagnostic
-  (testing "commit-plane classification effects write `[:rf.runtime/elision …]`
-            through the privileged frame-state commit, not the app-visible
-            runtime-db effect"
-    (let [diags (record-ownership-diagnostics! ::elision)]
-      (rf/reg-event :test/classify-profile
-                    (fn [{:keys [db]} _]
-                      {:db        (assoc db :profile {:avatar :x :ssn :y})
-                       :large     [[:profile :avatar]]
-                       :sensitive [[:profile :ssn]]}))
-      (rf/dispatch-sync [:test/classify-profile])
-      (is (every? seq [(rf.elision/declarations :rf/default)
-                       (rf.elision/sensitive-declarations :rf/default)
-                       (runtime-at [:rf.runtime/elision])]))
       (assert-no-diagnostic! diags))))
 
 (deftest ssr-hydrate-fires-no-ownership-diagnostic

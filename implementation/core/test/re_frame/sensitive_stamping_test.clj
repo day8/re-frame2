@@ -11,7 +11,7 @@
   `privacy-production-egress-test`'s subject."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
+            [re-frame.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas]
@@ -19,9 +19,8 @@
             [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-(defn- install-sensitive! [frame-id paths]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
+(defn- install-sensitive! [paths]
+  (rf/reg-classification ::classified {:sensitive (mapv vec paths)}))
 
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
@@ -66,7 +65,7 @@
   (testing "with [:auth :password] classified, a handler focused at [:auth]
             emits the same event vectors and top-level stamps as the same
             handler with no path interceptor"
-    (install-sensitive! :rf/default [[:auth :password]])
+    (install-sensitive! [[:auth :password]])
     (let [focused   (login-event-vectors {:interceptors [[:rf.interceptor/path [:auth]]]})
           unfocused (login-event-vectors {})]
       (is (some #(= :rf.event/run-start (first %)) focused)

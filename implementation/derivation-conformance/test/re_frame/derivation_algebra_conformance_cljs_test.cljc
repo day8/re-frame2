@@ -16,7 +16,6 @@
             [re-frame.identity :as rf.identity]
             [re-frame.schemas.digest]
             [re-frame.privacy :as rf.privacy]
-            [re-frame.elision :as rf.elision]
             ;; Facades install the registrations used by family contributors.
             [re-frame.routing]
             [re-frame.routing.tooling :as rf.routing.tooling]
@@ -464,8 +463,8 @@
                           :value   {:cart {:items secret-token}}}})}))
 
 (defn- classify-egress-frame-sensitive! []
-  (rf.frame/swap-runtime-db! egress-frame
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:cart :items]]}))))
+  (let [decl {:sensitive [[:cart :items]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (defn- sub-value [graph]
   (get-in graph [:nodes [:sub [:cart/items]] :value]))

@@ -126,8 +126,8 @@
   (`:path`, `:bytes`, `:type`, `:reason`, `:hint`, `:handle`) is therefore
   identical to every other framework emission.
 
-  `:reason :effect` is the canonical classification provenance. The enclosing
-  trace already identifies the validation-failure source.
+  `:reason :classification` names the declaring surface generically; the
+  enclosing trace already identifies the validation-failure source.
 
   `:hint nil` — the slot is REQUIRED by the contract (Spec 009 §Wire marker
   permits a nil value); the whole-value substitution has no human-facing
@@ -138,7 +138,7 @@
   value: the whole checked value, or the failing leaf on the app-db
   surface's narrowed `:value`."
   [v]
-  (rf.elision/->marker v [] {:reason :effect :hint nil}))
+  (rf.elision/->marker v [] {:reason :classification :hint nil}))
 
 (defn- elide-large-slots
   "Substitute the `:rf.size/large-elided` marker for `v` (the value those
@@ -215,12 +215,11 @@
   "The `:app-db` failure slots that re-ship the whole registered value."
   [:explain :explain-humanized])
 
-(defn- project-through-registry
+(defn- project-through-classification
   "Project an `:app-db` failure's value-bearing slots through `frame-id`'s
-  elision registry — the one classification `:rf.sub/run` and
-  `:rf.flow/computed` apply at emit — so a path classified there (a
-  commit-plane effect, a flow's own output marks, a subsystem declaration)
-  needs no second `:sensitive?` on its schema. Runs after the schema-driven
+  classification — the one `:rf.sub/run` and `:rf.flow/computed` apply at
+  emit — so a path classified there (a `reg-classification`, a flow's own
+  output marks) needs no second `:sensitive?` on its schema. Runs after the schema-driven
   redaction, which stays an additional way to mark a slot.
 
     - `:value`, narrowed to the failing leaf, is walked at the leaf's own
@@ -228,22 +227,17 @@
       the schema already redacted or size-elided is left alone.
     - `:explain` / `:explain-humanized` re-ship the whole registered value
       and are not path-anchored, so they cannot be walked like `:value`.
-      When the registry classifies anything in that value sensitive they are
-      redacted whole and the trace is stamped `:sensitive? true`; otherwise,
-      when it classifies anything large, a size marker stands in for them.
-
-  The registry walked is the one the candidate transition would install,
-  `runtime-db-after`'s (nil when the transition leaves runtime-db alone, so the
-  committed registry stands). The failure is projected before that commit, and
-  a classification effect returned by the event that wrote the failing value
-  must already govern it, though the rejection installs nothing.
+      When the classification makes anything in that value sensitive they
+      are redacted whole and the trace is stamped `:sensitive? true`;
+      otherwise, when it makes anything large, a size marker stands in for
+      them.
 
   The walker fails closed: a frame it cannot resolve redacts the whole value,
   which reads here as sensitive."
-  [tags frame-id runtime-db-after registered-path registered-value leaf-path leaf-value]
+  [tags frame-id registered-path registered-value leaf-path leaf-value]
   (let [walk       (fn [v path extra]
-                     (rf.elision/elide-candidate-value
-                       v (merge {:frame frame-id :path path} extra) runtime-db-after))
+                     (rf.elision/elide-wire-value
+                       v (merge {:frame frame-id :path path} extra)))
         sensitive? (not= registered-value
                          (walk registered-value registered-path {:rf.egress/include-large? true}))
         large?     (and (not sensitive?)
@@ -838,7 +832,6 @@
     (validate-app-schema! db event-id)                   ;; current frame, named handler
     (validate-app-schema! db event-id frame-id)          ;; explicit frame
     (validate-app-schema! db event-id frame-id db-before)
-    (validate-app-schema! db event-id frame-id db-before runtime-db-after)
 
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
@@ -857,14 +850,8 @@
   checked when a write lands beneath it, and `[]` whenever the db changed.
   Without db-before every present entry is checked.
 
-  runtime-db-after (the 5-arity, and the shape the router's late-bind call
-  uses — it invokes the hook as
-  `(validate db-after event-id frame db-before runtime-db-after)`) is the
-  candidate runtime-db the same transition would install, nil when it leaves
-  runtime-db alone. A failure projects through ITS elision registry, so a
-  classification effect returned by the event that wrote the failing value
-  governs the failure trace. Without it the frame's committed registry is
-  walked.
+  A failure projects through the frame's classification, so a path a
+  `reg-classification` declares redacts in the failure trace.
 
   Returns:
     true   — every registered schema conformed (or no validator /
@@ -883,10 +870,8 @@
   ([db] (validate-app-schema! db nil (rf.frame/current-frame)))
   ([db event-id] (validate-app-schema! db event-id (rf.frame/current-frame)))
   ([db event-id frame-id]
-   (validate-app-schema! db event-id frame-id nil nil))
+   (validate-app-schema! db event-id frame-id nil))
   ([db event-id frame-id db-before]
-   (validate-app-schema! db event-id frame-id db-before nil))
-  ([db event-id frame-id db-before runtime-db-after]
    ;; Per Spec 009 §Production builds the entire body lives inside a
    ;; `(if interop/debug-enabled? ... true)` gate as the OUTERMOST form
    ;; so :advanced + goog.DEBUG=false DCE-elides every reason string,
@@ -1021,10 +1006,10 @@
                                          large?     (-> (elide-large-slots registered-value
                                                                            app-db-whole-slots)
                                                         (elide-large-slots leaf-value [:value])))
-                                       ;; Then the frame's elision registry, at
+                                       ;; Then the frame's classification, at
                                        ;; the unredacted leaf path.
-                                       (project-through-registry
-                                         frame-id runtime-db-after
+                                       (project-through-classification
+                                         frame-id
                                          registered-path registered-value
                                          (if in-path
                                            (into (vec registered-path) in-path)

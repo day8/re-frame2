@@ -2858,17 +2858,18 @@
   (case k
     :sensitive
     (str "retired frame key :sensitive (EP-0025). A frame no longer carries a "
-         ":sensitive block: durable app-db classification moved to the "
-         "commit-plane `:sensitive` / `:large` effects a handler returns "
-         "alongside its `:db` write, and HTTP carrier names moved onto the "
-         "managed-HTTP `reg-fx` registration metadata (its `:carriers "
+         ":sensitive block: durable app-db classification is a "
+         "`(rf/reg-classification <feature-id> {:sensitive [[…]]})` beside "
+         "the feature that writes the path, and HTTP carrier names moved onto "
+         "the managed-HTTP `reg-fx` registration metadata (its `:carriers "
          "{:headers […] :query-params …}` block) — see Spec 014 §HTTP "
          "carriers.")
     :large
     (str "retired frame key :large — durable app-db classification is no "
-         "longer a frame annotation (EP-0025). Declare it from an event "
-         "handler via the `:sensitive` / `:large` commit-plane effects "
-         "(alongside `:db`); a frame is not app-db's definition site.")))
+         "longer a frame annotation (EP-0025). Declare it with "
+         "`(rf/reg-classification <feature-id> {:large [[…]]})` beside the "
+         "feature that writes the path; a frame is not app-db's definition "
+         "site.")))
 
 (defn- validate-frame-config!
   "Refuse a malformed frame config before any frame state is written, so a bad
@@ -2877,8 +2878,8 @@
   throws:
 
   1. `:sensitive` / `:large` — no frame carries either. Durable app-db
-     classification is the commit-plane effects a handler returns beside
-     `:db`, and HTTP carrier names live on the `:rf.http/managed`
+     classification is a `reg-classification`, and HTTP carrier names live
+     on the `:rf.http/managed`
      registration, so either key would install nothing
      (`:rf.error/bad-frame-classification`).
   2. `:http-interceptors` — a vector of keyword ids naming
@@ -3445,11 +3446,10 @@
               ;; succeed. Any throw destroys only this exact incarnation before
               ;; admission is released.
               (try
-                ;; EP-0025: there is no durable app-db classification install
-                ;; here — durable classification is the commit-plane
-                ;; classification effects' job, not a frame annotation.
-                ;; A `:frame-init` `:initial-events` step that classifies a path
-                ;; runs (below) at creation, so init-cascade trace stays redacted.
+                ;; There is no durable app-db classification install here:
+                ;; the frame's policy resolves its `reg-classification`s
+                ;; through its view at egress (Spec 015 §Static app-db
+                ;; classification), so init-cascade trace is redacted too.
                 ;; EP-0027 §Construction — FORBID handler-time frame construction.
                 ;; Frames are created by the VIEW (frame-root, ENSURE) or at TOP LEVEL
                 ;; (tests, boot, SSR per request); constructing a frame INSIDE an

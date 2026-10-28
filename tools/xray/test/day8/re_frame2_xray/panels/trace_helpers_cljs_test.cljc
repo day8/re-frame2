@@ -10,9 +10,9 @@
   (:require #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [are deftest is testing use-fixtures]])
             [clojure.string :as str]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
+            [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
@@ -29,19 +29,31 @@
 ;; changed `[:auth :token]` never matches a declaration above it.
 (def ^:private ancestor-frame :trace-helpers.test/ancestor)
 
-(defn- declare-sensitive! [frame-id paths]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive paths}))))
+(defn- declare-sensitive!
+  "Classify `paths` sensitive from namespace `ns-name`, recorded the way that
+  namespace's `reg-classification` would record it."
+  [ns-name paths]
+  (binding [rf.source-coords/*pending-coords* {:ns (symbol ns-name) :line 1}]
+    (rf.classification/reg-classification* (keyword ns-name "classified")
+                                            {:sensitive paths})))
+
+(defn- frame-viewing!
+  "Make frame `id` whose one image is `image-spec`. A frame's classification
+  is the registrations its own view resolves (Spec 015 §Static app-db
+  classification), so each frame here sees exactly one declaration, or none."
+  [id image-spec]
+  (rf/make-frame {:id id :images [(rf/image (assoc image-spec :id (keyword "trace-helpers.img" (name id))))]}))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (rf/make-frame {:id plain-frame})
-                (rf/make-frame {:id secure-frame})
-                (rf/make-frame {:id ancestor-frame})
-                (declare-sensitive! secure-frame   [[:auth :token]])
-                (declare-sensitive! ancestor-frame [[:auth]]))}))
+                (declare-sensitive! "trace-helpers.secure"   [[:auth :token]])
+                (declare-sensitive! "trace-helpers.ancestor" [[:auth]])
+                (frame-viewing! secure-frame   {:select-ns {:include ["trace-helpers.secure"]}})
+                (frame-viewing! ancestor-frame {:select-ns {:include ["trace-helpers.ancestor"]}})
+                (frame-viewing! plain-frame
+                                {:registrations {:reg-event [[::noop {} (fn [{:keys [db]} _] {:db db})]]}}))}))
 
 ;; ---- fixture builders ---------------------------------------------------
 

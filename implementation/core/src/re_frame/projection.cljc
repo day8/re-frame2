@@ -19,7 +19,7 @@
   record-level boundary primitive — the required step before any off-box
   sink. It knows which record slots are app-db-shaped / event-shaped /
   exception-shaped / HTTP-shaped / public-summary-only, applies the merged
-  per-frame classification (the elision registry, `re-frame.elision`), and
+  per-frame classification (`re-frame.elision/frame-policy`), and
   DELEGATES to `elide-wire-value` for every tree-shaped slot where frame
   policy applies. The per-record-kind projectors are PRIVATE (EP-0015
   issue 2: `project-egress` names the BOUNDARY, not a record kind). There
@@ -818,7 +818,7 @@
   A `:rf.observe/derived-tree` record (EP-0025 B4) carries `:tree`
   (the derived value, or a map when `:slot-keys` names which map slots to walk)
   and is PATH-walked through `elide-wire-value` against the frame's
-  classification registry (frame- / EP-0025-commit-plane-effect- / flow-sourced
+  classification policy (`reg-classification`, flow-output and subsystem
   declarations, unioned at lookup). There is no VALUE-match (taint) redaction
   of values re-keyed off their app-db path (EP-0025 §\"What is removed\"): under
   a LIVE governing frame such a re-keyed copy is NOT covered and ships RAW

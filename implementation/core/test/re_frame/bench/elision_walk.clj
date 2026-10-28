@@ -303,9 +303,10 @@
     (reset! rf.frame/frames {})
     (rf/init! rf.substrate.plain-atom/adapter)
     (rf/make-frame {:id fid})
+    (rf/reg-classification :bench/declared {:sensitive declared-sensitive})
     (rf/with-frame fid
       (rf/reg-event :bench/init
-                    (fn [_ [_ v]] {:db v :sensitive declared-sensitive}))
+                    (fn [_ [_ v]] {:db v}))
       (rf/reg-event :bench/favorite
                     (fn [{:keys [db]} [_ i]]
                       {:db (update-in db [:articles :list i :favorites-count] inc)}))

@@ -10,8 +10,6 @@
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.elision :as rf.elision]
-   [re-frame.frame :as rf.frame]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
@@ -33,8 +31,8 @@
   (rf.registrar/clear-kind! :resource-scope)
   (rf.registrar/clear-kind! :resource)
   (rf/make-frame {:id frame-id})
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :user :username]]})))
+  (let [decl {:sensitive [[:auth :user :username]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl))
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]

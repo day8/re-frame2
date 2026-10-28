@@ -5,7 +5,6 @@
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             [re-frame.privacy :as rf.privacy]
             [re-frame.reply :as rf.reply]
@@ -25,10 +24,9 @@
 
 (defn- mk-frame! []
   (rf/make-frame {:id frame-id})
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:token]]
-                :large     [[:blob]]}))))
+  (let [decl {:sensitive [[:token]]
+              :large     [[:blob]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (def ^:private work-id
   [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1])

@@ -333,7 +333,7 @@
 ;; it serializes into `:rf/app-db`, instead of shipping the raw secret.
 ;;
 ;; project-egress on a kindless map walks it as a tree-shaped VALUE via
-;; `elide-wire-value`, which resolves the frame's elision registry from the
+;; `elide-wire-value`, which resolves the frame's classification from the
 ;; explicit `:frame` opt. EP-0002 / EP-0015 issue 1 fail-closed: an
 ;; unresolvable / never-registered frame redacts the WHOLE value to
 ;; `:rf/redacted` rather than borrow another frame's policy — so a missing
@@ -539,7 +539,6 @@
       scroll / nav-token / pending-nav caches are host-side transient
       state, not runtime-db at all), PROJECTED
       against the frame's route classification (see below);
-    - `:rf.runtime/elision`  — OMITTED from the wire (see below);
     - `:rf.runtime/ssr`       — the SSR hydration metadata.
 
   Returns nil for a nil / empty runtime-db OR when no durable subsystem fact
@@ -574,22 +573,9 @@
   projection and the app-db slice projection. An unclassified route slice rides
   verbatim (the walk is path-precise).
 
-  The `:rf.runtime/elision` per-frame DECLARATION REGISTRY is NOT
-  shipped at all: it is OMITTED from the hydration wire. Its declaration KEYS are
-  themselves app-db / runtime-db PATHS, and a classified path can embed a
-  sensitive id (`[:by-id \"user-secret\" :token]`), so shipping the raw registry
-  would leak both the sensitive PATH STRUCTURE (what the app classifies, and
-  where) and any sensitive id embedded in a key off-box to every visitor — the
-  exact leak EP-0025 / Spec 015 §SSR forbids (\"the per-frame registry is itself
-  projected before any view of it crosses the hydration wire\"). Omitting is the
-  strongest form of that projection. It is also sufficient: SSR and the client
-  run the SAME app image, so the client resolves the same declarations from its
-  own registrations, rebuilds its registry from its `reg-event` classification
-  effects / `reg-flow` as they re-run on mount, and the egress walk consults the
-  LIVE frame classification, never the wire copy. The classified app-db / route /
-  machine slices above were ALREADY projected against this registry server-side,
-  so their redaction is baked into the wire value and does not need the
-  declarations to re-derive it.
+  Classification itself never rides the wire: the server and the client run
+  the same image, so they resolve the same policy (Spec 015 §SSR and
+  hydration are allowlist-first).
 
   ## The projection frame is the EXPLICIT carried target
 
@@ -628,8 +614,8 @@
     (let [;; An EXPLICIT `frame-id` that no longer resolves to a
           ;; LIVE frame (destroyed, or re-registered under the same id, between
           ;; the caller's state capture and this projection) has lost the
-          ;; per-frame elision registry that classifies every user-bearing
-          ;; runtime-db slice. Routing fails closed on its own (`project-routing-
+          ;; frame policy that classifies every user-bearing runtime-db
+          ;; slice. Routing fails closed on its own (`project-routing-
           ;; egress` delegates to `project-egress`, which redacts a dead-frame
           ;; slice whole); but the MACHINES snapshot hook and the RESOURCE
           ;; extension hook classify PRECISELY only under a live frame and would
@@ -660,13 +646,6 @@
 
                   (some? routing-slice)
                   (assoc :rf.runtime/routing routing-slice)
-
-                  ;; `:rf.runtime/elision` is intentionally OMITTED
-                  ;; (no `(contains? … :rf.runtime/elision)` clause): the per-frame
-                  ;; declaration registry must not cross the hydration wire (its
-                  ;; keys ARE classified paths that can embed a sensitive id; the
-                  ;; client rebuilds its own registry from its registrations on
-                  ;; mount — see the docstring's elision note).
 
                   (contains? runtime-db :rf.runtime/ssr)
                   (assoc :rf.runtime/ssr (:rf.runtime/ssr runtime-db)))

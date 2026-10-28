@@ -40,9 +40,8 @@
     (cond-> {:scope {:from-db :p026f5/session} :params-schema [:map [:page :int]]}
       owner-sensitive? (assoc :sensitive? true))
     (fn [{:keys [page]} _ctx] {:request {:method :get :url "/feed" :params {:page page}}}))
-  (rf/reg-event :p026f5/classify (fn [_ _] {:sensitive [[:auth :user :username]]}))
-  (rf/make-frame {:id :p026f5/req-frame :platform :server :initial-events [[:p026f5/classify]]})
-  ;; swap, not replace: the elision registry the classify event wrote must survive.
+  (rf/reg-classification :p026f5/auth {:sensitive [[:auth :user :username]]})
+  (rf/make-frame {:id :p026f5/req-frame :platform :server})
   (rf.frame/swap-runtime-db! :p026f5/req-frame
     assoc rf.resources.state/resources-key
     {:entries     {(rf.resources.state/key-id scoped-key) loaded-entry}

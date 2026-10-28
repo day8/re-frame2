@@ -11,7 +11,7 @@
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [malli.core      :as m]
             [malli.error     :as me]
-            ;; Canonical framework elision builder and classification effect.
+            ;; Canonical framework elision builder and reg-classification.
             [re-frame.core   :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame  :as rf.frame]
@@ -53,7 +53,7 @@
   (doseq [[schema wrapper] [[Overflow {:rf.mcp/overflow {:limit :reached :token-count 1 :cap-tokens 1
                                                          :tool "snapshot" :hint "..."}}]
                             [ElisionMarker {:rf.size/large-elided {:path [:a] :bytes 1 :type :map
-                                                                   :reason :effect :hint nil
+                                                                   :reason :classification :hint nil
                                                                    :handle [:rf.elision/at [:a]]}}]]]
     (is (not (m/validate schema (assoc wrapper :sneaky :key)))
         (str (ffirst wrapper) " MUST be a single key — an extra sibling fails"))))
@@ -104,7 +104,7 @@
 
 (defn- elision-live-marker
   "Drive `re-frame.elision/elide-wire-value` over `v` with the `large`
-  paths classified through the commit-plane `:large` effect, under a fresh
+  paths classified `:large` by a `reg-classification`, under a fresh
   `:rf/default` frame."
   [large v]
   (reset! rf.frame/frames {})
@@ -114,8 +114,8 @@
   (rf.elision/configure! {:rf.egress/threshold-bytes 16384})
   (rf.frame/ensure-default-frame!)
   (binding [rf.frame/*current-frame* :rf/default]
-    (rf.frame/swap-runtime-db! :rf/default
-      (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)})))
+    (let [decl {:large (mapv vec large)}]
+      (rf/reg-classification (keyword "classified" (str (hash decl))) decl))
     (rf.elision/elide-wire-value v)))
 
 (deftest elision-marker-emitted-live-by-canonical-walker
@@ -129,7 +129,7 @@
              "(a :reason drift the fixture+grep "
              "layers cannot see):\n"
              (me/humanize (m/explain ElisionMarker marker))))
-    (is (= {:reason :effect :path [:user :uploaded-pdf]}
+    (is (= {:reason :classification :path [:user :uploaded-pdf]}
            (select-keys (:rf.size/large-elided marker) [:reason :path])))))
 
 (defn- schema-validation-failure-marker
@@ -159,10 +159,10 @@
                "ElisionMarker validation — the schemas-artefact emitter has "
                "drifted from the canonical contract:\n"
                (me/humanize (m/explain ElisionMarker marker)))))
-    (testing "the live :reason is the EP-0025 commit-plane classification default, NOT :schema"
-      (is (= :effect (get-in marker [:rf.size/large-elided :reason]))
-          (str "The validation-failure marker MUST emit :reason :effect "
-               "(EP-0025 — the canonical commit-plane classification source). Got: "
+    (testing "the live :reason is the classification default, NOT :schema"
+      (is (= :classification (get-in marker [:rf.size/large-elided :reason]))
+          (str "The validation-failure marker MUST emit :reason :classification "
+               "(the app-db classification source). Got: "
                (pr-str (get-in marker [:rf.size/large-elided :reason])))))
     (testing "the large blob survives nowhere verbatim in the marker"
       (is (not (str/includes? (pr-str marker) blob))
@@ -284,7 +284,7 @@
                  {:path [:user :pdf]
                   :bytes 102400
                   :type :string
-                  :reason :effect
+                  :reason :classification
                   :hint "User PDF; fetch via get-path."
                   :handle [:rf.elision/at [:user :pdf]]}}
                 :elided-large 1}
@@ -292,7 +292,7 @@
                {:status :pass :frame :story.button/primary
                 :app-db {:blob {:rf.size/large-elided
                                 {:path [:blob] :bytes 102400 :type :string
-                                 :reason :effect :hint nil
+                                 :reason :classification :hint nil
                                  :handle [:rf.elision/at [:blob]]}}}
                 :elided-large 1}}}])
 

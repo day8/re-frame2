@@ -60,14 +60,12 @@
 (def ^:private control-note   "mcp-egress-unmarked-control")
 
 (defn- install-mcp-style-schemas!
-  "Classify `[:auth :password]` sensitive and `[:blob :payload]` large against
-  `frame-id`, plus the session identity the resource scope resolver reads, so
-  the app-db axis is never what the resource-family scans catch."
-  [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:auth :password] [:auth :user :username]]
-                :large     [[:blob :payload]]})))
+  "Classify `[:auth :password]` sensitive and `[:blob :payload]` large, plus
+  the session identity the resource scope resolver reads, so the app-db axis
+  is never what the resource-family scans catch."
+  []
+  (rf/reg-classification ::classified {:sensitive [[:auth :password] [:auth :user :username]]
+                                       :large     [[:blob :payload]]})
   nil)
 
 (def ^:private mixed-ring-frame
@@ -173,7 +171,7 @@
             point, so a marker's `:bytes` / `:digest` do not drift across a
             pipeline that double-projects"
     (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
+    (install-mcp-style-schemas!)
     (let [raw         (drive-mixed-ring! :test/mcp)
           ring        (mapv rf/project-egress raw)
           bookkeeping [:epoch-id :frame :committed-at :event-id
@@ -298,7 +296,7 @@
             `:rf.error/effect-map-shape` `:reason` is prose and redacts whole —
             while the value-free metadata that identifies the fx survives"
     (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
+    (install-mcp-style-schemas!)
     (let [raw      (drive-fx-carriers! :test/mcp)
           proj     (rf/project-egress raw)
           r        :rf/redacted
@@ -484,7 +482,7 @@
             CEDN-1 key-id — while a plain owner's ride verbatim in the same rows
             and slots, so a blanket strip fails as loudly as a leak"
     (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
+    (install-mcp-style-schemas!)
     (install-resource-family! :test/mcp)
     (drive-resource-family! :test/mcp)
     (let [raw-hist     (rf.epoch/epoch-history :test/mcp)

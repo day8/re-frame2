@@ -62,8 +62,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
+            [re-frame.elision]
             [re-frame.identity :as rf.identity]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -78,24 +77,27 @@
 ;;                   (a route :params slug carrying a session token) and
 ;;                   [:cart :items] large.
 ;;   :app/plain    — no classification (every value egresses verbatim, modulo
-;;                   the runtime size threshold which we leave at default).
+;;                   the runtime size threshold which we leave at default): it
+;;                   runs an image holding no classification, so the
+;;                   declaration above is outside its view.
 ;; ---------------------------------------------------------------------------
 
 (def secure-frame :app/secure)
 (def plain-frame  :app/plain)
 
+(def ^:private unclassified-image
+  "A frame running this image classifies nothing: classification resolves
+  through the frame's own view (Spec 015 §Static app-db classification), and
+  this image holds one inline event and no classification."
+  (rf/image {:id            ::unclassified
+             :registrations {:reg-event [[::noop {} (fn [{:keys [db]} _] {:db db})]]}}))
+
 (defn- install-policy! []
-  ;; EP-0025: durable app-db classification rides the commit-plane
-  ;; classification effects. Write :sensitive / :large declarations directly
-  ;; via `rf.elision/apply-classification-effects` (`:source :effect`) — the same
-  ;; registry write a reg-event returning `:sensitive` / `:large` performs.
-  (rf.frame/swap-runtime-db! secure-frame
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:current :params :token]]
-                :large     [[:cart :items]]}))))
+  (rf/reg-classification ::classified {:sensitive [[:current :params :token]]
+                                       :large     [[:cart :items]]}))
 
 (defn- init-fn []
-  (rf/make-frame {:id plain-frame})
+  (rf/make-frame {:id plain-frame :images [unclassified-image]})
   (rf/make-frame {:id secure-frame})
   (install-policy!))
 

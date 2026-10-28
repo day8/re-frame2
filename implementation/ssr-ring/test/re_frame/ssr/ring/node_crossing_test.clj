@@ -554,12 +554,13 @@
       (finally (.stop server 0)))))
 
 (deftest the-handlers-sensitive-permit-reaches-the-render-state
+  (rf/reg-classification :rf.test.crossing/session
+    {:sensitive [[:session :csrf] [:session :upstream-key]]})
   (rf/reg-event :rf.test.crossing/seed-session
     {:platforms #{:server}}
     (fn [_ _]
-      {:db        {:heading "Crossing"
-                   :session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}}
-       :sensitive [[:session :csrf] [:session :upstream-key]]}))
+      {:db {:heading "Crossing"
+            :session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}}}))
   (let [seen (atom nil)]
     (with-capturing-stub-sidecar seen "crossing-build-1"
       (fn [url]

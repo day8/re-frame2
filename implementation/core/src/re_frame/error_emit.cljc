@@ -413,7 +413,7 @@
 ;; this path does not touch.
 ;;
 ;; `dispatch-on-error!` runs `:event` through `rf.elision/elide-wire-value` (the
-;; frame's durable app-db elision registry). For a DISPATCHED EVENT that is
+;; frame's durable app-db classification). For a DISPATCHED EVENT that is
 ;; payload hygiene. For a SUB error `:event` is the query vector, and a concrete
 ;; integer app-db path coincidentally matching a query-vector coordinate mutates
 ;; identity at egress (`[1]` turns `[:patient/record "SECRET"]` into
@@ -575,9 +575,8 @@
   gated like the dev trace. Every caller MUST keep identifiers tight,
   leave `:event` to the projection here, and carry NO raw app-db slice.
   Sensitive-data redaction on this path is path-based: the event
-  registration's `:sensitive` paths, then the per-frame
-  `:rf.runtime/elision` registry's `:sensitive-declarations`, drive the
-  per-slot substitutions. A boolean handler-meta `:sensitive?` is not
+  registration's `:sensitive` paths, then the frame's app-db classification,
+  drive the per-slot substitutions. A boolean handler-meta `:sensitive?` is not
   consulted; path-marked classification is the mechanism (Spec 015).
 
   ## Component attribution
@@ -661,7 +660,7 @@
          raw-identity-event? (raw-identity-query-vector-event?
                                error-kw (:op attrs))
          ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
-         ;; via the per-frame `:rf.runtime/elision` registry get their
+         ;; by the frame's classification get their
          ;; per-path substitutions. Skipped for a raw-identity query
          ;; vector, which egresses verbatim.
          ;;

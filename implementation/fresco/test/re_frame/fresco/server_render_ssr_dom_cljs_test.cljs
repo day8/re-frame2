@@ -97,10 +97,9 @@
 (rf/reg-sub ::label (fn [db _] (:label db)))
 (rf/reg-sub ::secret (fn [db _] (:secret db)))
 (rf/reg-event ::relabel (fn [{:keys [db]} [_ label]] {:db (assoc db :label label)}))
-;; The permit row's classification, run by the request frame's setup vector
-;; after the snapshot seeds `:session`.
-(rf/reg-event ::classify-session
-  (fn [_ _] {:sensitive [[:session :csrf] [:session :upstream-key]]}))
+;; The permit row's classification.
+(rf/reg-classification ::session
+  {:sensitive [[:session :csrf] [:session :upstream-key]]})
 
 ;; The platform PAIR. Two effects that differ in exactly one
 ;; thing, their `:platforms` metadata, dispatched together from one event,
@@ -344,7 +343,6 @@
         {:keys [payload document]}
         (rf.fresco.server/render
           (request :snapshot                  (assoc snapshot :session session)
-                   :initial-events            [[::classify-session]]
                    :payload                   [:label :session]
                    :payload-include-sensitive [[:session :csrf]]))
         db (:rf/app-db payload)]

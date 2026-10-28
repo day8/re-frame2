@@ -76,8 +76,7 @@
 
           (testing "a declaration added after the first render governs the next render"
             (reset! traces [])
-            (rf.frame/swap-runtime-db! frame-id
-              (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:token]]})))
+            (rf/reg-classification ::classified {:sensitive [[:token]]})
             (ratom/flush!)
             (is (= 1 @runs) "adding a declaration is itself an unrelated runtime-db write")
             (reset! input {:token "second-token"})

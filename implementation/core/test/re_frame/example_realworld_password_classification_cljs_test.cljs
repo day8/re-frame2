@@ -34,13 +34,10 @@
 (def sentinel "PW-REALWORLD-SENTINEL-7d2c4a")
 (def token-sentinel "JWT-REALWORLD-SENTINEL-9f1e6b")
 
-;; Mirror of realworld-http.core's `:auth/classify-token`: this ns does not load
-;; core, so it marks the durable JWT path on its bare test frame itself.
-(rf/reg-event :test.realworld/classify-token
-  {:doc "Mirror of realworld-http.core's :auth/classify-token — mark the durable
-         JWT path [:auth :token] sensitive on this bare test frame."}
-  (fn [{:keys [db]} _]
-    {:db db :sensitive [[:auth :token]]}))
+;; Mirror of realworld-http.core's `reg-classification :auth`: this ns does not
+;; load core, so it declares the durable JWT path itself.
+(rf/reg-classification :test.realworld/jwt
+  {:sensitive [[:auth :token]]})
 
 (defn- leaks? [needle x] (str/includes? (pr-str x) needle))
 
@@ -106,7 +103,6 @@
             trace carrying the raw password or JWT, while the handler-visible
             values stay real"
     (with-new-frame [f (login-frame!)]
-      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
       (let [traces (record-traces! ::login-cascade)]
         (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
@@ -131,7 +127,6 @@
             credential-owning handoff as login, so no emitted trace leaks the
             raw password"
     (with-new-frame [f (login-frame!)]
-      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
       (let [traces (record-traces! ::register-cascade)]
         (rf/dispatch-sync [:auth.register-form/edit-field :username "alice"] {:frame f})
@@ -152,7 +147,6 @@
             `:auth/session-restored` — leaves NO emitted trace event carrying the
             raw JWT, while the durable token stays real"
     (with-new-frame [f (login-frame!)]
-      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (let [traces (record-traces! ::boot-read)]
         (with-saved-jwt token-sentinel #(rf/dispatch-sync [:auth/initialise] {:frame f}))
         (rf/unregister-listener! :trace ::boot-read)
@@ -172,7 +166,6 @@
             no-op; the assertions at `:rf.event/v` are positive so that
             spelling cannot pass"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (let [traces (record-traces! ::store-session)
             user   {:username "alice"
                     :email    "alice@example.com"
@@ -255,7 +248,6 @@
             :rf/redacted at the secret in its `:rf.sub/run` trace, while the
             value it hands its reader stays real"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
       (rf/dispatch-sync [:auth/store-session {:username "alice"
                                               :email    "alice@example.com"
                                               :bio      nil

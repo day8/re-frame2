@@ -342,8 +342,7 @@
   `{:seen :adopted-html :password-value}`.
 
   The client frame is a FRESH one seeded exactly as the browser seeds it:
-  `frame-config`, so the classification effects re-run, and then the payload
-  replaces its state.
+  `frame-config`, and then the payload replaces its state.
 
   `:adopted-html` and `:password-value` are read BEFORE `unmount!`, which is
   not tidiness: React empties the container on unmount, so a row reading them

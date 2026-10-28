@@ -54,10 +54,8 @@
   (`re-frame.ssr.payload-policy`), including the frame's classification:
   the app-db slice runs through `project-app-db-egress`, and the runtime-db
   slice through `project-runtime-db` — machine snapshot `:data` and the
-  route `:current` slice redact / elide their classified paths, the
-  routing slice narrows to its durable `:current`, and the elision
-  declaration registry is never carried (it is refused in the allowlist at
-  construction). The rendered markup goes to the browser, so a
+  route `:current` slice redact / elide their classified paths, and the
+  routing slice narrows to its durable `:current`. The rendered markup goes to the browser, so a
   value the app classifies `:sensitive` is a value the render should not
   be able to print in the first place — projecting it here keeps the
   sidecar unable to — unless the host permits it, with the same
@@ -185,8 +183,7 @@
       may be absent; each present slot is a sequential of keywords, and
       an empty one projects its partition to `{}` → OK (allowlists)
     - `:render-state (fn [frame-id] -> partition-map)` → OK (escape hatch)
-    - a map with an unknown slot, a non-sequential / non-keyword allowlist, or
-      `:rf.runtime/elision` in the runtime-db list
+    - a map with an unknown slot, or a non-sequential / non-keyword allowlist
       → `:rf.error/ssr-malformed-payload-allowlist` (the payload family's
       id, reused — ex-data `:opt :render-state` says which policy)
     - absent / nil / `{}` / a keyword / anything else
@@ -209,13 +206,6 @@
               :when (contains? render-state slot)]
         (when-let [reason (allowlist-shape-problem slot (get render-state slot))]
           (throw-malformed-policy! reason render-state)))
-      (when (some #{:rf.runtime/elision} (:runtime-db render-state))
-        (throw-malformed-policy!
-          (str ":runtime-db names :rf.runtime/elision — the per-frame "
-               "classification registry never crosses a wire (its keys are "
-               "classified paths), and a renderer has no use for "
-               "it: the classified values are already projected here")
-          render-state))
       opts)
 
     :else

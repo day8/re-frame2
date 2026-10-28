@@ -20,22 +20,17 @@
     - Emit-time projection — the path-walk + sentinel substitution consumed by
       `re-frame.trace/build-event` to redact a trace event's `:tags` against
       the in-scope registrations' declared paths and the frame's app-db
-      classification registry.
+      classification.
 
   Per Spec 015 §Hot-path cost: the entire surface rides
   `re-frame.interop/debug-enabled?` — registrations still populate tables at
   boot (constant memory), but emit-time projection is gated and constant-folds
   out of CLJS production bundles via `goog.DEBUG`.
 
-  Durable app-db classification lives in the per-frame elision registry
-  (`[:rf.runtime/elision :sensitive-declarations]` / `:declarations` in the
-  frame's runtime-db partition — EP-0001), populated by the EP-0025
-  commit-plane classification effects (`re-frame.elision`, `:source :effect` —
-  a `reg-event` returns `:sensitive` / `:large` alongside `:db`) and by
-  `reg-flow` output declarations (`re-frame.flows.registry`, `:source :flow`),
-  and unioned at lookup time with the frame's static policy: its
-  `reg-classification` declarations, and the subsystem claims it makes on the
-  instances the frame's runtime-db holds (`re-frame.elision/frame-policy`).
+  Durable app-db classification is the frame's static policy
+  (`re-frame.elision/frame-policy`): its `reg-classification` declarations,
+  the output declarations of the flows it runs, and the subsystem claims it
+  makes on the instances the frame's runtime-db holds.
   There is no durable `:sensitive` / `:large {:app-db …}`
   *frame annotation* (a frame is not app-db's definition site), and
   classification does NOT propagate — you redact exactly the paths you classify;
@@ -748,8 +743,8 @@
   re-rooted `:sensitive` / `:large` decls match the bare slice the sub returns.
   A no-op pass-through when the hook is unbound (routing artefact absent) or
   `sub-id` is not a framework route read sub (the projector itself fail-opens on
-  a non-route id). `frame-id` seeds the walker's `:frame` opt so the per-frame
-  elision registry is reachable (the projector inherits `elide-wire-value`'s
+  a non-route id). `frame-id` seeds the walker's `:frame` opt so the frame's
+  classification is reachable (the projector inherits `elide-wire-value`'s
   fail-closed posture on a nil / unresolvable frame).
 
   The five-argument arity projects a PRIOR value, handing the projector the
@@ -939,15 +934,15 @@
 
 (defn- frame-has-declarations?
   "True when `frame-id` carries any elision declaration (sensitive or large).
-  Cheap registry read used to gate the full-db walk so the no-classification
-  common case stays reference-preserving.
+  Cheap read used to gate the full-db walk so the no-classification common
+  case stays reference-preserving.
 
-  On a CLASSIFIED frame this gate re-reads the registry that the
+  On a CLASSIFIED frame this gate re-reads the classification that the
   downstream `elide-wire-value` walk reads again (a few extra `get-in` reads
   per db-bearing trace event). The gate read is INTENTIONALLY kept separate
   rather than threading pre-resolved tables into the walk: `elide-wire-value`
   is the public egress surface whose fail-closed contract keys off `frame-id`
-  live-frame resolution (not the registry tables), so folding the tables down
+  live-frame resolution (not the declaration tables), so folding them down
   would spread that contract across call sites for no production gain — the
   whole projection path is dev/JVM-only (DCE-elided in production CLJS). The
   explicit gate reads plainly; clarity wins over a dev-only read count."
@@ -958,44 +953,28 @@
 (defn- project-db-tags
   "Walk the `:rf.event/db` slot carried by the `:rf.event/db-pending` (t1) and
   `:rf.event/db-pending-post-flow` (t2) trace events. The slot stamps the FULL
-  pending `app-db` value, so its declared paths are the FRAME's app-db elision
-  registry, rooted at the db root. We route it through the schema-first wire
+  pending `app-db` value, so its declared paths are the FRAME's app-db
+  classification, rooted at the db root. We route it through the schema-first wire
   walker `re-frame.elision/elide-wire-value`.
 
   Gated on `frame-has-declarations?` so a frame with no classification keeps the
   reference-identity the `:rf.event/db` stamp promises. FAIL CLOSED on a nil
-  `frame-id`.
-
-  t1 / t2 fire BEFORE the commit folds this event's EP-0025
-  classification effects into the registry, so the router carries those
-  effects under the PRIVATE tag `::pending-classification-effects`
-  (`:re-frame.classification/pending-classification-effects`, never a `:rf.*`
-  key). When present the value is walked against the CANDIDATE registry
-  (`rf.elision/elide-pending-db`: committed + this event's effects), so a path
-  classified in the same event is redacted from its first egress. The tag is
-  STRIPPED here unconditionally, so it reaches no listener, ring or epoch."
+  `frame-id`. A declaration exists before any event runs, so a path the
+  pending db writes is redacted from its first egress."
   [tags frame-id]
-  (let [pending (::pending-classification-effects tags)
-        tags    (cond-> tags
-                  (contains? tags ::pending-classification-effects)
-                  (dissoc ::pending-classification-effects))]
-    (cond
-      (not (contains? tags :rf.event/db))
-      tags
+  (cond
+    (not (contains? tags :rf.event/db))
+    tags
 
-      (nil? frame-id)
-      (assoc tags :rf.event/db rf.privacy/redacted-sentinel)
+    (nil? frame-id)
+    (assoc tags :rf.event/db rf.privacy/redacted-sentinel)
 
-      (seq pending)
-      (assoc tags :rf.event/db
-             (rf.elision/elide-pending-db (:rf.event/db tags) frame-id pending))
+    (frame-has-declarations? frame-id)
+    (assoc tags :rf.event/db
+           (rf.elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
 
-      (frame-has-declarations? frame-id)
-      (assoc tags :rf.event/db
-             (rf.elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
-
-      :else
-      tags)))
+    :else
+    tags))
 
 (defn- project-after-delta-segment
   "Apply `project-v` (a fn of `[side k v]`) to every VALUE in one segment delta
@@ -1085,7 +1064,7 @@
 (defn- project-view-rendered-tags
   "Walk the `:rf.view/render-args` slot carried by the `:rf.view/rendered` trace
   event. The slot holds the vector of POSITIONAL render args/props. Like
-  `:rf.event/db`, the declared paths are the FRAME's app-db elision registry; we
+  `:rf.event/db`, the declared paths are the FRAME's app-db classification; we
   route EACH positional arg through `re-frame.elision/elide-wire-value`.
 
   Gated on `frame-has-declarations?`. FAIL CLOSED on a nil `frame-id`."
@@ -1175,8 +1154,8 @@
 ;; is re-rooted SNAPSHOT-relative by stripping that prefix.
 
 (defn- snapshot-classification-in
-  "Re-root the elision declarations `sens-decls` / `large-decls` (registry
-  axis maps keyed by absolute path) to the snapshot keyed under `actor-id`:
+  "Re-root the elision declarations `sens-decls` / `large-decls` (axis maps
+  keyed by absolute path) to the snapshot keyed under `actor-id`:
   keep those rooted at `[:rf.runtime/machines :snapshots <actor-id> …]` and
   strip that prefix. Returns `{:sensitive [paths] :large [paths]}` (slot
   omitted when empty), or nil when `actor-id` is nil or nothing matches."
@@ -1571,7 +1550,7 @@
 (defn project-trace-event
   "The single chokepoint `re-frame.trace/build-event` consults after envelope
   assembly and before delivery. Walks `:tags` for classification declared on the
-  in-scope registrations (and the frame's app-db registry). Returns the
+  in-scope registrations (and the frame's app-db classification). Returns the
   (possibly mutated) event. The cost is gated by `interop/debug-enabled?`
   upstream so production builds elide before this fn is reached.
 
@@ -1685,8 +1664,8 @@
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
-;; The trace ns reads through these hooks; this ns reads through the elision
-;; registry. The arrangement avoids load cycles (`re-frame.trace` →
+;; The trace ns reads through these hooks; this ns reads the frame's
+;; classification through `re-frame.elision`. The arrangement avoids load cycles (`re-frame.trace` →
 ;; `re-frame.classification` would cycle since this ns requires elision which
 ;; requires trace).
 

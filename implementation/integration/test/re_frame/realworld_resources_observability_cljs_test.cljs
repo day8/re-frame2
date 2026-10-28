@@ -3,9 +3,7 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.integration-adapter :as rf.integration-adapter]
-            [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.observability :as rf.observability]
             [re-frame.test-support :as rf.test-support]
@@ -19,16 +17,10 @@
                 (rf.observability/clear-observability-sinks!))}))
 
 (def ^:private sensitive-token
-  "Stands in for the Conduit JWT. The example marks [:auth :token] sensitive at
-   frame creation (`:auth/classify-token`), so this string must never reach a
+  "Stands in for the Conduit JWT. The example declares [:auth :token]
+   sensitive (`reg-classification :auth`), so this string must never reach a
    sink raw."
   "CONDUIT-JWT-SENTINEL-4f21c9")
-
-(defn- classify-token-sensitive!
-  [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects
-               rt {:sensitive [[:auth :token]]}))))
 
 (defn- reg-throwing-event! [frame-id]
   (rf/reg-event ::boom
@@ -47,7 +39,6 @@
       (rf/register-observability-sink! app/error-sink-id
                                        (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id ::routed :observability app/observability})
-      (classify-token-sensitive! ::routed)
       (reg-throwing-event! ::routed)
       (drive-failure! ::routed)
 
@@ -64,7 +55,6 @@
       (rf/register-observability-sink! app/error-sink-id
                                        (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id ::unclassified})
-      (classify-token-sensitive! ::unclassified)
       (reg-throwing-event! ::unclassified)
       (drive-failure! ::unclassified)
       (is (empty? @seen)))))

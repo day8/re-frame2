@@ -2,7 +2,6 @@
   "Machine `:data` trace-egress redaction through the frame's classification
   (EP-0025). A classified snapshot `:data` path — the absolute runtime-db path
   `[:rf.runtime/machines :snapshots <actor-id> :data …]` — is claimed under
-  `:source :effect` by the commit-plane classification effects, or under
   `:source :machine` by a `reg-machine` spec's projection-relative
   `:sensitive` / `:large` declaration, which applies at egress to every
   snapshot present. The trace egress chokepoint redacts the
@@ -51,19 +50,21 @@
       :states  {:anon  {:on {:login :authed}}
                 :authed {}}})))
 
-(defn- declare-frame-marks!
-  "Classify the machine snapshot's `:data` token slot SENSITIVE and the blob
-  slot LARGE on `:rf/default`, writing the frame's elision registry under
-  `:source :effect` as the commit-plane `:sensitive` / `:large` effects do."
-  ([] (declare-frame-marks! auth-id))
+(defn- declare-machine-marks!
+  "Re-register `actor-id`'s machine — a singleton, so its id names it —
+  declaring its `:data` token slot SENSITIVE and its blob slot LARGE, the
+  machine's own projection-relative classification (Spec 015 §Subsystem
+  projection-relative classification)."
+  ([] (declare-machine-marks! auth-id))
   ([actor-id]
-   (rf.elision/swap-elision-slot! :rf/default
-     (fn [reg]
-       (-> (or reg {})
-           (rf.elision/add-claims :sensitive-declarations {:source :effect}
-                               [[:rf.runtime/machines :snapshots actor-id :data :token]])
-           (rf.elision/add-claims :declarations {:source :effect}
-                               [[:rf.runtime/machines :snapshots actor-id :data :blob]]))))))
+   (rf.machines/reg-machine* actor-id
+     {:sensitive [[:data :token]]
+      :large     [[:data :blob]]
+      :initial   :anon
+      :data      {:retries 0 :token nil :blob nil}
+      :schemas   {:data auth-schema}
+      :states    {:anon  {:on {:login :authed}}
+                  :authed {}}})))
 
 (defn- machine-transition-event*
   "Build a `:rf.machine/transition` trace event whose `:before` / `:after`
@@ -91,10 +92,10 @@
 
 (deftest started-data-slot-redacted-in-egress
   (testing ":rf.machine/started carries the booted snapshot's :data MAP
-            directly (one level shallower than a snapshot); a frame-declared
-            slot redacts / elides"
+            directly (one level shallower than a snapshot); a declared slot
+            redacts / elides"
     (reg-auth-machine!)
-    (declare-frame-marks!)
+    (declare-machine-marks!)
     (let [out  (rf.classification/project-trace-event
                  {:operation :rf.machine/started
                   :tags      {:machine-id auth-id
@@ -112,7 +113,7 @@
   (testing ":rf.machine/guard-evaluated carries :input {:data … :event …}; the
             :data sub-slot redacts, :event is left to project-event-tags"
     (reg-auth-machine!)
-    (declare-frame-marks!)
+    (declare-machine-marks!)
     (let [out   (rf.classification/project-trace-event
                   {:operation :rf.machine/guard-evaluated
                    :tags      {:machine-id auth-id
@@ -135,7 +136,7 @@
   (testing "a :rf.machine/transition's :cascade carries per-step :data-delta
             maps keyed by :data keys directly; each delta redacts"
     (reg-auth-machine!)
-    (declare-frame-marks!)
+    (declare-machine-marks!)
     (let [out           (rf.classification/project-trace-event
                           {:operation :rf.machine/transition
                            :tags      {:machine-id auth-id
@@ -159,12 +160,12 @@
 
 (deftest actor-id-takes-precedence-over-machine-id-in-snapshot-egress
   (testing "when a transition carries BOTH ids the lookup PREFERS :actor-id:
-            a frame declaration on the :actor-id snapshot path redacts even
+            the :actor-id machine's declaration redacts even
             though :machine-id points at an UNDECLARED machine"
     (reg-auth-machine!)
     (rf/reg-machine :rf.machine-redaction/undeclared-sibling
       {:initial :idle :data {:n 0} :states {:idle {}}})
-    (declare-frame-marks! auth-id)
+    (declare-machine-marks! auth-id)
     (let [out (rf.classification/project-trace-event
                 (-> (machine-transition-event* :actor-id auth-id)
                     (assoc-in [:tags :machine-id] :rf.machine-redaction/undeclared-sibling)))]
@@ -278,78 +279,6 @@
              :data      {}
              :states    {:idle {}}}))
         "a non-vector :sensitive axis is rejected at registration")))
-
-;; ---- (5) INDEPENDENT owners ----------------------------------------------
-;; Spec 015 §Subsystem projection-relative classification permits an app to
-;; ADDITIONALLY classify a subsystem's absolute snapshot path from a handler
-;; effect (`:source :effect`). The two claims are independent: the effect
-;; clear (`re-frame.elision/apply-classification-effects`) removes only the
-;; effect's owner, and the actor's destroy removes only the machine's claim,
-;; which is derived from the snapshot while it is present. Removing the path
-;; with the actor would un-redact the app's still-standing classification — a
-;; privacy fail-open.
-
-(deftest machine-and-effect-claims-union-and-remove-independently
-  (testing "a machine's :data claim and an app effect claim
-            on the SAME absolute snapshot path UNION (both owners retained), and
-            each removes INDEPENDENTLY: the effect clear leaves the machine claim
-            standing; the actor destroy leaves the effect claim standing."
-    (let [mid       :rf.machine-redaction/union-single
-          abs-token [:rf.runtime/machines :snapshots mid :data :token]
-          sources   #(set (map :source (get-in (snapshot-elision-reg)
-                                               [:sensitive-declarations abs-token])))]
-      (rf/reg-machine mid
-        {:sensitive [[:data :token]]
-         :initial   :anon
-         :data      {:token nil :retries 0}
-         :states    {:anon {:on {:login :authed}} :authed {}}})
-      (rf/reg-event :rf.machine-redaction/union-classify
-        (fn [{:keys [db]} _] {:db db :sensitive [abs-token]}))
-      (rf/reg-event :rf.machine-redaction/union-clear
-        (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
-      (rf/reg-event :rf.machine-redaction/union-destroy
-        (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
-      (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
-      (is (= #{:machine :effect} (sources)) "the effect claim UNIONS in alongside the machine claim")
-      (rf/dispatch-sync [:rf.machine-redaction/union-clear])
-      (is (= #{:machine} (sources)) "the machine claim SURVIVES the effect clear")
-      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
-      (rf/dispatch-sync [:rf.machine-redaction/union-destroy])
-      (is (= #{:effect} (sources)) "the effect claim SURVIVES the actor destroy — no fail-open"))))
-
-;; ---- (6) EFFECT-FIRST boot: the machine's own claim still holds ----------
-;; An effect that classifies the snapshot path before the machine boots owns a
-;; registry entry, while the machine's claim is derived from the snapshot once
-;; it exists, so neither displaces the other.
-
-(deftest machine-boot-claim-survives-when-effect-pre-classified
-  (testing "an effect that PRE-classifies a machine's absolute
-            snapshot path does NOT prevent the machine's own :source :machine
-            claim once it boots; both owners union, and
-            the machine claim keeps the path redacted after the effect clears"
-    (let [mid       :rf.machine-redaction/effect-first-single
-          abs-token [:rf.runtime/machines :snapshots mid :data :token]
-          sources   #(set (map :source (get-in (snapshot-elision-reg)
-                                               [:sensitive-declarations abs-token])))]
-      (rf/reg-machine mid
-        {:sensitive [[:data :token]]
-         :initial   :anon
-         :data      {:token nil :retries 0}
-         :states    {:anon {:on {:login :authed}} :authed {}}})
-      (rf/reg-event :rf.machine-redaction/ef-classify
-        (fn [{:keys [db]} _] {:db db :sensitive [abs-token]}))
-      (rf/reg-event :rf.machine-redaction/ef-clear
-        (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
-      (rf/dispatch-sync [:rf.machine-redaction/ef-classify])
-      (is (= #{:effect} (sources)) "precondition: only the effect's claim before the machine boots")
-      (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (is (= #{:machine :effect} (sources)) "the machine IS a durable claim owner after boot")
-      (rf/dispatch-sync [:rf.machine-redaction/ef-clear])
-      (let [out (rf.classification/project-trace-event (machine-transition-event mid))]
-        (is (= [#{:machine} :rf/redacted false]
-               [(sources) (get-in out [:tags :after :data :token]) (.contains (pr-str out) "secret-jwt")])
-            "the machine's surviving claim keeps the value redacted after the effect cleared")))))
 
 ;; ---- (7) a thrown action's exception row ---------------------------------
 ;; A message routinely quotes the value that failed, so once a machine declares

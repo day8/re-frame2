@@ -59,7 +59,6 @@
     :rf.error/redirect-scheme-rejected
     :rf.error/redirect-host-disallowed
     :rf.error/schema-validation-failure
-    :rf.error/classification-effect-shape
     :rf.error/effect-map-shape
     :rf.ssr/hydration-mismatch})
 

@@ -4,8 +4,7 @@
   classification): the `:machines/runtime-classification` hook re-roots each
   snapshot's machine declaration onto its absolute snapshot path, so an actor
   is classified exactly while its snapshot is present — from its spawn, gone
-  with its destroy, back the moment an installer restores it — and nothing is
-  written into the frame's elision registry."
+  with its destroy, back the moment an installer restores it."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -35,16 +34,6 @@
 
 (defn- claimed? [actor-id]
   (contains? (rf.elision/sensitive-declarations :rf/default) (token-path actor-id)))
-
-(defn- registry-machine-claims
-  "Every `:source :machine` owner the frame's elision registry itself holds."
-  []
-  (for [[_ decls] (:rf.runtime/elision (rf.machines.test-support/runtime-db))
-        :when (map? decls)
-        [_ owners] decls
-        owner owners
-        :when (= :machine (:source owner))]
-    owner))
 
 (deftest the-hook-gives-each-snapshot-its-own-machines-declaration
   (rf/reg-machine :rtc/kid classified)
@@ -77,12 +66,10 @@
         saved (:rf.runtime/machines (rf.machines.test-support/runtime-db))]
     (is (keyword? child) "control: the host spawned its child")
     (is (claimed? child) "spawned: the child's snapshot is claimed, with no classification step")
-    (is (empty? (registry-machine-claims)) "nothing is written into the frame's elision registry")
     (rf/dispatch-sync [:rtc/host [:close]])
     (is (not (claimed? child)) "destroyed: the claim goes with the snapshot, with no drop step")
     (rf/dispatch-sync [:rf/install-frame-state {:rf.db/runtime {:rf.runtime/machines saved}}])
-    (is (claimed? child) "installed: the restored snapshot is classified at once")
-    (is (empty? (registry-machine-claims)) "and still nothing is written into the registry")))
+    (is (claimed? child) "installed: the restored snapshot is classified at once")))
 
 (deftest a-singletons-first-event-traces-are-classified-before-its-snapshot-commits
   (rf/reg-machine :rtc/login

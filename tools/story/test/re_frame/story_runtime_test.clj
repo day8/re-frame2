@@ -1077,25 +1077,23 @@
     (is (nil? (rf.story.config/get-project-root)))))
 
 ;; ===========================================================================
-;; VARIANT-BODY CLASSIFICATION (EP-0025): a variant's `:sensitive` /
-;; `:large` `:app-db` paths are lowered into its frame's elision registry
-;; before the lifecycle events; a malformed declaration fails loud.
+;; VARIANT-BODY CLASSIFICATION: a variant's `:sensitive` / `:large`
+;; `:app-db` paths register as a `reg-classification` its frame owns, before
+;; the lifecycle events; a malformed declaration fails loud.
 ;; ===========================================================================
 
 (deftest variant-classification-malformed-fails-loud-pre-commit
   (testing "a malformed :app-db path the loose schema admits fails loud
-            pre-commit with :rf.error/classification-effect-shape"
+            with :rf.error/bad-classification"
     (rf/reg-event :noop-7c6ecy (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.classif/bad
       {:setup [[:noop-7c6ecy]] :sensitive {:app-db [42]}})
     (let [r (run-variant! :story.classif/bad)]
-      (is (= [:error :rf.error/classification-effect-shape]
+      (is (= [:error :rf.error/bad-classification]
              [(:lifecycle r)
               (-> (exception-record-of r) :error :data :rf.error/id)]))
-      (is (not (contains? (get-in (rf.frame/frame-runtime-db-value :story.classif/bad)
-                                  [:rf.runtime/elision :sensitive-declarations])
-                          [42]))
-          "no partial commit"))
+      (is (not (contains? (rf.elision/sensitive-declarations :story.classif/bad) [42]))
+          "nothing is registered"))
     (rf.story/destroy-variant! :story.classif/bad)))
 
 ;; The plan compiler folds `:sensitive` / `:large` through `:extends`, and
@@ -1160,6 +1158,6 @@
     (let [r (rf.story.async/deref-blocking
               (rf.story/run {:setup [[:noop-cmjly3]] :sensitive {:app-db [42]}})
               5000)]
-      (is (= :rf.error/classification-effect-shape
+      (is (= :rf.error/bad-classification
              (-> (exception-record-of r) :error :data :rf.error/id)))
       (is (not= :pass (:status r))))))

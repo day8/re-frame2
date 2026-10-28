@@ -42,15 +42,19 @@
 
   ## Why the classification is real
 
-  The frame's elision registry is written through
-  `rf.elision/swap-elision-slot!` + `add-claims` — the substrate the EP-0025
-  commit-plane `:sensitive` effect writes through. A hand-redacted snapshot
-  injected through the override seam would carry no registry at all and would
-  pass against a sub classifying against the wrong frame."
+  `machine-id` declares `[:data :secret]` sensitive on its `reg-machine`, and
+  a frame's classification resolves through its own view (Spec 015 §Subsystem
+  projection-relative classification): a frame made without `:images` sees
+  the declaration, one made with `bare-image` does not, so the same snapshot is
+  classified on one host and not the other through the real machines root
+  hook. A hand-redacted snapshot injected through the override seam would carry
+  no classification at all and would pass against a sub classifying against the
+  wrong frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -80,38 +84,30 @@
 
 ;; ---- host-side seeding ---------------------------------------------------
 
+(def ^:private bare-image
+  "An image holding one inline event and no machine, so a frame running it
+  resolves no machine classification."
+  (rf.image/image {:id            :rf2-6ev6j/bare
+                   :registrations {:reg-event [[:rf2-6ev6j/noop {} (fn [{:keys [db]} _] {:db db})]]}}))
+
+(defn- make-host!
+  "Make host frame `frame-id`. A `declares?` host resolves the whole
+  registration store, where `machine-id` declares `[:data :secret]`
+  sensitive; any other runs `bare-image`."
+  [frame-id declares?]
+  (rf/reg-machine machine-id
+    {:sensitive [[:data :secret]] :initial :authed :states {:authed {}}})
+  (rf/make-frame (cond-> {:id frame-id}
+                   (not declares?) (assoc :images [bare-image]))))
+
 (defn- seed-host-runtime-db!
-  "Install a live machine snapshot into `frame-id`'s RUNTIME-DB partition
-  (EP-0001) — the raw `[:rf.runtime/machines :snapshots]` slot
-  `machine-snapshots-value` reads. A framework-authority `reg-event` returning
-  the reserved `:rf.db/runtime` effect is the same path the machines
-  lifecycle-fx write through; `:rf/machine? true` marks it framework-authority
-  so the runtime-write diagnostic stays quiet.
-
-  Seeded BEFORE any classification is declared: this REPLACES the partition, so
-  declaring first would clobber `[:rf.runtime/elision]`."
-  [frame-id]
-  (rf/make-frame {:id frame-id})
-  (rf/reg-event :rf2-6ev6j/seed-runtime-db
-    {:rf/machine? true}
-    (fn [_ [_ v]] {:rf.db/runtime v}))
-  (rf/with-frame frame-id
-    (rf/dispatch-sync [:rf2-6ev6j/seed-runtime-db
-                       {:rf.runtime/machines {:snapshots {machine-id snapshot}}}])))
-
-(defn- declare-secret-sensitive!
-  "Declare `[:data :secret]` of `machine-id`'s snapshot SENSITIVE on `frame-id`
-  — the frame-owned classification (EP-0025), keyed by the ABSOLUTE runtime-db
-  snapshot path `frame-snapshot-classification` re-roots against.
-  `add-claims` is the multi-owner-safe spelling."
-  [frame-id]
-  (rf.elision/swap-elision-slot! frame-id
-    (fn [reg]
-      (rf.elision/add-claims (or reg {})
-                             :sensitive-declarations
-                             {:source :effect}
-                             [[:rf.runtime/machines :snapshots machine-id
-                               :data :secret]]))))
+  "Make host `frame-id` (`make-host!`) and install a live `machine-id`
+  snapshot into its RUNTIME-DB partition (EP-0001) — the raw
+  `[:rf.runtime/machines :snapshots]` slot `machine-snapshots-value` reads."
+  [frame-id declares?]
+  (make-host! frame-id declares?)
+  (rf.frame/swap-runtime-db! frame-id assoc :rf.runtime/machines
+    {:snapshots {machine-id snapshot}}))
 
 ;; ---- Xray-side seeding ---------------------------------------------------
 
@@ -155,8 +151,7 @@
             host-b's declaration governs it. RED against a sub classifying
             against the nil collector target, which would surface the
             declared-sensitive slot RAW."
-    (seed-host-runtime-db! host-b)
-    (declare-secret-sensitive! host-b)
+    (seed-host-runtime-db! host-b true)
     (setup-xray!)
     (focus-frame! host-b)
     (let [snaps (machine-snapshots)]
@@ -181,9 +176,8 @@
             host-b (declaring the slot sensitive). The data is host-b's, so
             host-b's declaration must govern. RED against a sub asking
             host-a, which gets no declaration and leaks the slot."
-    (seed-host-runtime-db! host-b)
-    (declare-secret-sensitive! host-b)
-    (rf/make-frame {:id host-a})
+    (seed-host-runtime-db! host-b true)
+    (make-host! host-a false)
     (setup-xray!)
     (select-target-frame! host-a)
     (focus-frame! host-b)
@@ -202,9 +196,8 @@
             applying host-a's policy to host-b's value — the borrowed-
             policy failure `panels/routing.cljs`'s own `current-route-slice`
             comment names, reached from the other direction."
-    (seed-host-runtime-db! host-b)
-    (seed-host-runtime-db! host-a)
-    (declare-secret-sensitive! host-a)
+    (seed-host-runtime-db! host-b false)
+    (seed-host-runtime-db! host-a true)
     (setup-xray!)
     (select-target-frame! host-a)
     (focus-frame! host-b)

@@ -67,9 +67,8 @@
   test driver; the queue belongs to the application."
   ;; EP-0025: there is no imperative classification API to re-export. Durable
   ;; app-db classification is a frame-creation concern — a variant declares
-  ;; `:sensitive` / `:large` on its body and the runtime applies them as
-  ;; commit-plane classification effects into the variant frame's elision
-  ;; registry at allocation, BEFORE its lifecycle / init events
+  ;; `:sensitive` / `:large` on its body and the runtime registers them for
+  ;; the variant frame at allocation, BEFORE its lifecycle / init events
   ;; (`re-frame.story.frames/apply-variant-classification!`). Story requires
   ;; neither the classification ns nor `re-frame.core` directly (the docstring
   ;; above names `rf/dispatch-sync` etc. illustratively).
@@ -686,16 +685,13 @@
 ;; with the app-db paths under `:app-db` (a vector of `:rf/path`s)
 ;; (spec/Conventions.md §Privacy). The framework's `re-frame.core/make-frame`
 ;; rejects `:sensitive` / `:large` frame keys loudly; the variant body
-;; declares the same `{:app-db [[:auth :token]]}`
-;; durable form the four commit-plane classification effects carry. The Story
-;; runtime lowers the `:app-db` paths into the variant
-;; frame's elision registry through the commit-plane `:sensitive` / `:large`
-;; classification effects at frame creation (an init classify step,
-;; `:source :effect`), so the redaction is live from creation onward.
+;; declares `{:app-db [[:auth :token]]}` paths. The Story runtime registers
+;; them as a `reg-classification` the variant frame owns, at frame creation and
+;; before any lifecycle event, so the redaction is live from creation onward.
 ;; (There is no durable `:sensitive` / `:large {:app-db …}` *frame
 ;; annotation* — a frame is not app-db's definition site — so the runtime
-;; does not thread the declaration onto the `make-frame` config; it rides the
-;; commit-plane effect. The variant `:sensitive` block carries only
+;; does not thread the declaration onto the `make-frame` config. The variant
+;; `:sensitive` block carries only
 ;; `:app-db` paths — transient-payload carriers are declared on the
 ;; `:rf.http/managed` `reg-fx` registration's `:carriers` block.)
 ;;

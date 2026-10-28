@@ -80,13 +80,10 @@
      :initial   :idle
      :data      {:token machine-secret :label "public"}
      :states    {:idle {}}})
+  (rf/reg-classification :trc/account {:sensitive [[:account :password]]})
   (rf/reg-event :trc/sign-in
     (fn [{:keys [db]} _]
-      {:db        (assoc-in db [:account :password] app-secret)
-       :sensitive [[:account :password]]}))
-  (rf/reg-event :trc/classify
-    (fn [{:keys [db]} [_ paths]]
-      {:db db :sensitive paths}))
+      {:db (assoc-in db [:account :password] app-secret)}))
   (rf/reg-event :trc/note
     (fn [{:keys [db]} [_ m]]
       {:db (assoc db :note (:note m))})))
@@ -111,8 +108,6 @@
   (reg-fixtures!)
   (let [saved  (saved-frame-state!)
         _      (rf/make-frame {:id :trc/dest})
-        ;; the destination classifies its own app-db path, as an app's events do
-        _      (rf/dispatch-sync [:trc/classify [[:account :password]]] {:frame :trc/dest})
         traces (captured #(rf/dispatch-sync [:rf/install-frame-state saved] {:frame :trc/dest}))]
     (assert-installer-traces-redacted traces :rf/install-frame-state [machine-secret app-secret])
     (is (= app-secret (get-in (rf/app-db-value :trc/dest) [:account :password]))
@@ -152,7 +147,7 @@
 (deftest a-hydration-traces-no-secret-it-carried
   (reg-fixtures!)
   (rf/make-frame {:id :trc/client :platform :client})
-  (rf/dispatch-sync [:trc/classify [[:csrf]]] {:frame :trc/client})
+  (rf/reg-classification :trc/csrf {:sensitive [[:csrf]]})
   (let [payload {:rf/version 1 :rf/app-db {:csrf wire-secret :greeting "hello"}}
         traces  (captured #(rf/dispatch-sync [:rf/hydrate payload] {:frame :trc/client}))]
     (assert-installer-traces-redacted traces :rf/hydrate [wire-secret])

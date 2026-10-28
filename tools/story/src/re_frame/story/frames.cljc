@@ -59,18 +59,10 @@
             ;; calls under the hood. Story's `test_support` already reaches
             ;; `re-frame.frame` directly; this is the same boundary.
             [re-frame.frame            :as rf.frame]
-            ;; EP-0025: a variant's durable app-db `:sensitive` / `:large`
-            ;; classification is applied as commit-plane classification
-            ;; effects (there is no frame annotation). Story reaches the
-            ;; pure registry-write seam directly (same artefact as
-            ;; `re-frame.frame` above; bundle-isolated from production).
-            [re-frame.elision          :as rf.elision]
-            ;; EP-0025 fail-loud: a variant's lowered classification effects are
-            ;; validated through the SAME pure validator the router's
-            ;; commit-plane boundary uses (`rf.elision/classification-effect-defect`)
-            ;; and a defect is raised via the canonical thrown-error builder, so
-            ;; a malformed declaration FAILS LOUD pre-commit rather than crashing
-            ;; inside `apply-classification-effects` / `allocate!`.
+            ;; A variant's durable app-db `:sensitive` / `:large` registers
+            ;; through the programmatic `reg-classification*` (see
+            ;; `apply-variant-classification!`).
+            [re-frame.classification   :as rf.classification]
             [re-frame.error            :as rf.error]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.decorators :as rf.story.decorators]
@@ -489,11 +481,11 @@
   Per `002-Runtime.md` §Per-variant frame allocation we stamp `:rf/story?` and `:rf/variant` so tools
   can recognise variant frames from their `frame-meta`.
 
-  EP-0025: a variant's durable app-db `:sensitive` / `:large` classification
-  is NOT threaded onto the `make-frame` config — there is no frame
-  annotation. It is applied as commit-plane classification effects into the
-  frame's elision registry right after `make-frame`, before the lifecycle /
-  init events run (see `apply-variant-classification!`).
+  A variant's durable app-db `:sensitive` / `:large` classification is NOT
+  threaded onto the `make-frame` config — there is no frame annotation. It
+  registers as a frame-owned `reg-classification` right after `make-frame`,
+  before the lifecycle / init events run (see
+  `apply-variant-classification!`).
 
   The config also declares Story's own `:observability :errors`
   sink, so a variant's deliberate refusal is ROUTED rather than merely
@@ -578,27 +570,39 @@
     (when (seq app-imgs)
       (conj app-imgs (rf.story.runtime-image/runtime-image)))))
 
-(defn- ->classification-effects
+(defn- ->classification-decl
   "Convert a variant body's `:sensitive` / `:large` classification declaration
-  (the durable app-db form `{:app-db [[path]…]}`) into the flat EP-0025
-  commit-plane effect form `{:sensitive [[path]…] :large [[path]…]}`. The
-  variant `:sensitive` / `:large` slots carry only `:app-db` paths — HTTP
-  carriers are declared on the `:rf.http/managed` `reg-fx` registration's
-  `:carriers` block — so
-  only the `:app-db` paths are lowered here. Returns nil when no app-db paths
-  are declared."
+  (the durable app-db form `{:app-db [[path]…]}`) into a `reg-classification`
+  declaration `{:sensitive [[path]…] :large [[path]…]}`. The variant
+  `:sensitive` / `:large` slots carry only `:app-db` paths — HTTP carriers are
+  declared on the `:rf.http/managed` `reg-fx` registration's `:carriers`
+  block. Returns an empty map when no app-db paths are declared."
   [{:keys [sensitive large]}]
   (let [sens (:app-db sensitive)
         lrg  (:app-db large)]
     (cond-> {}
-      (seq sens) (assoc :sensitive (vec sens))
-      (seq lrg)  (assoc :large (vec lrg)))))
+      (some? sens) (assoc :sensitive sens)
+      (some? lrg)  (assoc :large lrg))))
+
+(defonce ^:private classified-frames
+  ;; The frames `apply-variant-classification!` registered a classification
+  ;; for, so a destroy clears only those.
+  (atom #{}))
+
+(defn- variant-classification-id
+  "The `reg-classification` id frame `frame-id`'s own variant classification
+  registers under: Story-owned, one per frame."
+  [frame-id]
+  (keyword (str "rf.story.classification"
+                (when-let [n (namespace frame-id)] (str "." n)))
+           (name frame-id)))
 
 (defn- apply-variant-classification!
-  "Apply a variant/plan's durable app-db `:sensitive` / `:large`
-  classification as EP-0025 commit-plane classification effects into
-  `subject-id`'s elision registry (`:source :effect`), the SAME registry
-  write a `reg-event` returning those effects performs. Runs right after
+  "Register a variant/plan's durable app-db `:sensitive` / `:large`
+  classification as a `reg-classification` owned by frame `subject-id`
+  (`variant-classification-id`), so the frame's policy classifies those
+  paths from its first egress (Spec 015 §Static app-db classification); the
+  registration goes when the frame is destroyed. Runs right after
   the frame exists (`make-frame` for `allocate!` AND for
   `allocate-inline!`) and BEFORE the lifecycle / init events, so a
   classified path is already redacted in any trace the run's setup emits.
@@ -613,16 +617,16 @@
   `:extends`es a classified parent, declaring none of its own, still
   inherits + redacts the parent's paths.
 
-  EP-0025 fail-loud: the lowered effects are validated through the SAME
-  pure validator the router's FINAL-effects commit-plane boundary uses
-  (`rf.elision/classification-effect-defect`) BEFORE `apply-classification-effects`
-  touches the registry. A malformed declaration (a non-vector `:app-db`, or a
-  path that is not a valid concrete `:rf/path`) raises
-  `:rf.error/classification-effect-shape` pre-commit — no partial registry
-  write — rather than crashing later inside `apply-classification-effects`.
-  This mirrors the router's pre-commit abort
-  (`router/emit-classification-effect-shape!`) so the variant-declaration and
-  effect-return paths reject malformed classification identically.
+  A registration is image-wide: while the variant runs, every frame
+  resolving the live registration store classifies its paths too, which
+  redacts more, never less. A frame made with `:images` resolves a sealed
+  generation this registration does not reach, so a variant that composes
+  images and declares its own classification is refused
+  (`:rf.error/bad-classification`) rather than left unredacted; such a
+  variant classifies through a `reg-classification` in one of its images'
+  namespaces. A malformed declaration (a non-vector `:app-db`, or a path that
+  is not a valid concrete `:rf/path`) raises `:rf.error/bad-classification`
+  from the registration, with nothing registered.
 
   Called AFTER the frame is registered (both callers), not before: for
   `allocate-inline!` this means a malformed declaration can leave an
@@ -636,27 +640,37 @@
   class: every other throw site between `rf/make-frame` and the
   `allocated?` flip (`rf.story.loaders/mount!` / `apply-frame-setup!`'s `:init`
   events) shares it."
-  [subject-id classification]
-  (let [effects (->classification-effects classification)]
-    (when (seq effects)
-      (when-let [defect (rf.elision/classification-effect-defect effects)]
+  [subject-id classification images?]
+  (let [decl (->classification-decl classification)]
+    (when (seq decl)
+      (when images?
         ;; `:where` is the FULL NAMESPACE rather than a var, because the throw
         ;; site `apply-variant-classification!` is private — no var spelling
         ;; names a place a reader can land on. Same shape as the private
         ;; `reject-arg!` in `re-frame.ssr.response`.
         (rf.error/throw-error!
-          :rf.error/classification-effect-shape
+          :rf.error/bad-classification
           're-frame.story.frames
           (str "re-frame2-story: " subject-id
-               " declares a malformed `:sensitive` / `:large` classification — "
-               (:reason defect)
-               ". Each axis is a carrier-keyed map whose `:app-db` value is a "
-               "vector of concrete `:rf/path`s "
-               "(e.g. `:sensitive {:app-db [[:auth :token]]}`).")
+               " composes :images and declares its own `:sensitive` / `:large`"
+               " classification, which its sealed image generation cannot see."
+               " Declare the paths with `reg-classification` in one of its"
+               " images' namespaces instead.")
           {:recovery :fix-the-variant-classification-shape
-           :extra    (assoc defect :variant-id subject-id)}))
-      (rf.frame/swap-runtime-db! subject-id
-        (fn [rt] (rf.elision/apply-classification-effects rt effects))))))
+           :extra    {:variant-id subject-id}}))
+      (rf.classification/reg-classification*
+        (variant-classification-id subject-id) decl)
+      (swap! classified-frames conj subject-id))))
+
+;; A variant frame's classification goes with the frame, so a later frame
+;; reusing the id starts unclassified. Spec 002 §Lifecycle contributions.
+(rf.frame/contribute-lifecycle!
+  {:id                 :rf.story/variant-classification
+   :phase              #{:post-dead}
+   :on-frame-destroyed (fn [frame-id _phase]
+                         (when (contains? @classified-frames frame-id)
+                           (swap! classified-frames disj frame-id)
+                           (rf/clear :classification (variant-classification-id frame-id))))})
 
 (defn allocate!
   "Create the variant's frame, register fx-override stubs, run
@@ -767,8 +781,7 @@
            ;; The make-frame config: the fx / interceptor overrides plus
            ;; the image ids (for frame-meta tooling read-back).
            ;; `variant-frame-config` reads neither `:sensitive` nor `:large` —
-           ;; classification rides the commit-plane effects applied after
-           ;; `make-frame` below.
+           ;; classification registers after `make-frame` below.
            config-map     (variant-frame-config
                             variant-id fx-overrides
                             (assoc (select-keys scenario [:sensitive :large])
@@ -799,19 +812,18 @@
        (rf/make-frame (cond-> {:id variant-id}
                         (seq composed-imgs) (assoc :images composed-imgs)
                         :always             (merge config-map)))
-       ;; EP-0025: apply the variant's durable app-db `:sensitive` / `:large`
-       ;; classification as commit-plane classification effects into the frame's
-       ;; elision registry NOW — after the container exists, BEFORE the
-       ;; lifecycle / init / frame-setup events run, so a classified path is
-       ;; already redacted in any trace the variant's setup emits. (There is
-       ;; no frame-config annotation.)
+       ;; Register the variant's durable app-db `:sensitive` / `:large`
+       ;; classification NOW — after the frame exists, BEFORE the lifecycle /
+       ;; init / frame-setup events run, so a classified path is already
+       ;; redacted in any trace the variant's setup emits. (There is no
+       ;; frame-config annotation.)
        ;;
        ;; The EFFECTIVE (`:extends`-merged) classification when a
        ;; compiled `world` was threaded; the raw body's own
        ;; `:sensitive`/`:large` for the 2-arity direct / test callers below
        ;; `run-phase-0!`, none of which exercise `:extends`.
        (apply-variant-classification!
-         variant-id (select-keys scenario [:sensitive :large]))
+         variant-id (select-keys scenario [:sensitive :large]) (seq composed-imgs))
        ;; Drive the lifecycle by variant shape. Events-only
        ;; variants jump straight to :ready (no skeleton ever shows);
        ;; everything else takes the classical four-phase route through
@@ -899,9 +911,8 @@
     classification), which `apply-variant-classification!`
     no-ops on.
 
-  Registers the `:fx-override`-decorator stubs, applies the plan's
-  `:sensitive`/`:large` classification into the frame's elision registry
-  (mirrors `allocate!`'s `apply-variant-classification!` exactly — same
+  Registers the `:fx-override`-decorator stubs, registers the plan's
+  `:sensitive`/`:large` classification for the frame (mirrors `allocate!`'s `apply-variant-classification!` exactly — same
   ordering: AFTER `rf/make-frame`, BEFORE the lifecycle/init events run),
   drives the lifecycle by the supplied shape, applies any `:frame-setup`
   decorators' `:init` events, and returns the frame-id. The frame's
@@ -936,7 +947,7 @@
            config-map   (inline-frame-config frame-id fx-overrides
                                              (:interceptor-overrides plan-frame))]
        (rf/make-frame (assoc config-map :id frame-id))
-       (apply-variant-classification! frame-id classification)
+       (apply-variant-classification! frame-id classification false)
        (if events-only?
          (rf.story.loaders/mount-ready! frame-id)
          (rf.story.loaders/mount!       frame-id))

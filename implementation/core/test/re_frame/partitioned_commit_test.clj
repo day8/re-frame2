@@ -7,8 +7,7 @@
   equality: `:rf.event/db-changed` reports app-db changes only and
   `:rf.event/frame-state-changed` names the touched partitions. An app-db
   schema rejection discards the whole candidate, both partitions, before
-  install, while out-of-band classification writes made during the rejected
-  event stand.
+  install.
 
   The deftests about schema rejection, `replace-frame-state!` and the change
   traces carry `^:requires-debug`: app-schema validation, `replace-frame-state!`
@@ -16,8 +15,8 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            ;; Publishes the `:flows/*` late-bind hooks; a frame claims a
-            ;; flow's `:source :flow` elision marks when it evaluates it.
+            ;; Publishes the `:flows/*` late-bind hooks, among them the one
+            ;; that classifies a flow's output (`:source :flow`).
             [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -81,8 +80,6 @@
       "runtime-db survives a fresh-map :db return"))
 
 (deftest runtime-db-effect-whole-value-commit
-  ;; The exact runtime-db value also pins that a frame which never used
-  ;; elision gains no `:rf.runtime/elision` sub-tree on a runtime commit.
   (rf/make-frame {:id :pc/rtfx})
   (rf/reg-event :pc/seed-app (fn [_ _] {:db {:app :data}}))
   (rf/dispatch-sync [:pc/seed-app] {:frame :pc/rtfx})
@@ -184,54 +181,13 @@
          (rf/frame-state-value :pc/rb))
       "both partitions keep their pre-handler values"))
 
-(deftest ^:requires-debug schema-rejection-never-installs-in-band-effect-keeps-flow-mark
-  ;; The in-band `:sensitive` effect rides the rejected candidate, so it never
-  ;; installs; the `:source :flow` mark, claimed by an earlier committed
-  ;; event, stands.
-  (rf/reg-flow :creds {:inputs      [[:n]]
-                       :output-path [:derived :creds]
-                       :sensitive   [[:secret]]}
-    (fn [n] {:secret n}))
-  (rf/make-frame {:id :pc/rb-srcaware :flows [:creds]})
-  (rf.epoch/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0} :rf.db/runtime {}})
-  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
-  (rf/reg-event :pc/ok (fn [{:keys [db]} _] {:db db}))
-  (rf/reg-event :pc/bad-with-effect
-    (fn [_ _] {:db {:n -5} :sensitive [[:another-secret]]}))
-  (rf/dispatch-sync [:pc/ok] {:frame :pc/rb-srcaware})
-  (rf/dispatch-sync [:pc/bad-with-effect] {:frame :pc/rb-srcaware})
-  (is (= {:n 0 :derived {:creds {:secret 0}}} (rf/app-db-value :pc/rb-srcaware)))
-  (is (= {[:derived :creds :secret] #{{:source :flow :flow-id :creds}}}
-         (rf.elision/sensitive-declarations :pc/rb-srcaware))))
-
-(deftest ^:requires-debug schema-rejection-keeps-subsystem-mark-lowered-during-event
-  ;; A subsystem lowering a declaration during the event writes the LIVE
-  ;; registry, not the discarded candidate, so the mark stands.
-  (rf/make-frame {:id :pc/rb-subsys})
-  (rf.epoch/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0} :rf.db/runtime {}})
-  (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]])
-  (rf/reg-interceptor :pc/subsystem-mark-writer
-    {:after (fn [ctx]
-              (rf.elision/swap-elision-slot! :pc/rb-subsys
-                (fn [reg]
-                  (rf.elision/add-claims (or reg {}) :sensitive-declarations
-                                         {:source :machine :machine-id :door}
-                                         [[:actor :token]])))
-              ctx)})
-  (rf/reg-event :pc/bad-subsys
-    {:interceptors [:pc/subsystem-mark-writer]}
-    (fn [_ _] {:db {:n -5}}))
-  (rf/dispatch-sync [:pc/bad-subsys] {:frame :pc/rb-subsys})
-  (is (= {:n 0} (rf/app-db-value :pc/rb-subsys)))
-  (is (= {[:actor :token] #{{:source :machine :machine-id :door}}}
-         (rf.elision/sensitive-declarations :pc/rb-subsys))))
-
 (deftest ^:requires-debug schema-rejection-keeps-flow-claims-on-the-committed-output
   ;; A re-registration that moves a flow's output path reaches the frame on its
-  ;; next event, whose pass claims the new path and vacates the old one. Ahead
-  ;; of the install a pass only adds claims, so when that event is rejected the
-  ;; old output stays committed and keeps its claim; the next committed event
-  ;; installs the exact set, moving both.
+  ;; next event, whose pass vacates the old path. The frame's classification
+  ;; covers both the active definition's path and the one its memo row still
+  ;; names, so when that event is rejected the old output stays committed and
+  ;; claimed; the next committed event publishes the new row, and the old
+  ;; path's claim goes with the output it covered.
   (let [mover (fn [path]
                 (rf/reg-flow :mover {:inputs      [[:n]]
                                      :output-path path

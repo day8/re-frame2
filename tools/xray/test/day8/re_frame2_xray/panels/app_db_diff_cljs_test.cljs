@@ -10,8 +10,6 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -136,8 +134,8 @@
 (defn- seed-sensitive-schema! []
   ;; Declares [:auth :password] :sensitive on :rf/default, which the caller
   ;; has made.
-  (rf.frame/swap-runtime-db! :rf/default
-    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
+  (let [decl {:sensitive [[:auth :password]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 ;; ---- (7b) no-target / stale-target egress FAILS CLOSED -------------------
 ;;

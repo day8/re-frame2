@@ -1,6 +1,7 @@
 (ns re-frame.elision-test
-  "Wire elision: `elide-wire-value` against a frame's elision registry, seeded
-  through the EP-0025 commit-plane classification effect path.
+  "Wire elision: `elide-wire-value` against a frame's classification policy,
+  declared through `reg-classification` (Spec 015 §Static app-db
+  classification).
 
   ## Posture split
 
@@ -24,15 +25,13 @@
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn- install-class!
-  "Classify `sensitive` / `large` paths on the frame the way a `reg-event`
-  returning `:sensitive` / `:large` alongside `:db` does."
-  ([sensitive large] (install-class! :rf/default sensitive large))
-  ([frame-id sensitive large]
-   (let [effects (cond-> {}
-                   (seq sensitive) (assoc :sensitive (mapv vec sensitive))
-                   (seq large)     (assoc :large     (mapv vec large)))]
-     (rf.frame/swap-runtime-db! frame-id
-       (fn [rt] (rf.elision/apply-classification-effects rt effects))))))
+  "Classify `sensitive` / `large` app-db paths with a `reg-classification`
+  whose id derives from the declaration, so repeated calls union."
+  [sensitive large]
+  (let [decl (cond-> {}
+               (seq sensitive) (assoc :sensitive (mapv vec sensitive))
+               (seq large)     (assoc :large     (mapv vec large)))]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (defn- reset-runtime [test-fn]
   (rf.registrar/clear-all!)
@@ -75,7 +74,7 @@
                    :pdf  {:rf.size/large-elided {:path   [:user :pdf]
                                                  :bytes  14
                                                  :type   :string
-                                                 :reason :effect
+                                                 :reason :classification
                                                  :hint   nil
                                                  :handle [:rf.elision/at [:user :pdf]]}}}}
            (update-in out [:user :pdf :rf.size/large-elided] dissoc :digest)))))
@@ -134,7 +133,7 @@
     (is (= {:a {:rf.size/large-elided {:path   [:a]
                                        :bytes  (pr-str-bytes {:b :rf/redacted :c "public"})
                                        :type   :map
-                                       :reason :effect
+                                       :reason :classification
                                        :hint   nil
                                        :handle [:rf.elision/at [:a]]}}}
            (rf.elision/elide-wire-value v)))
@@ -162,43 +161,17 @@
 
 (deftest streamed-cascades-elide-per-element-frame
   ;; A drain walking several frames' bundles in one tick must elide each under
-  ;; its own frame's declarations; one operating frame for all would leak.
-  (rf/make-frame {:id :elision-test/frame-a})
-  (rf/make-frame {:id :elision-test/frame-b})
-  (install-class! :elision-test/frame-a [[:secret-a]] [])
-  (install-class! :elision-test/frame-b [[:secret-b]] [])
+  ;; its own frame's declarations; one operating frame for all would leak. A
+  ;; flow's output classification is per frame: only the frame running it.
+  (rf/reg-flow ::secret-a {:inputs [[:in]] :output-path [:secret-a] :sensitive [[]]} identity)
+  (rf/reg-flow ::secret-b {:inputs [[:in]] :output-path [:secret-b] :sensitive [[]]} identity)
+  (rf/make-frame {:id :elision-test/frame-a :flows [::secret-a]})
+  (rf/make-frame {:id :elision-test/frame-b :flows [::secret-b]})
   (is (= [{:frame :elision-test/frame-a :secret-a :rf/redacted :secret-b "A-public"}
           {:frame :elision-test/frame-b :secret-a "B-public" :secret-b :rf/redacted}]
          (mapv #(rf.elision/elide-wire-value % {:frame (:frame %)})
                [{:frame :elision-test/frame-a :secret-a "A-private" :secret-b "A-public"}
                 {:frame :elision-test/frame-b :secret-a "B-public" :secret-b "B-private"}]))))
-
-;; Tool-Pair §"Direct-read privacy posture for sub-cache and get-path": a pair
-;; tool routes its `{query-v {:value v :ref-count n}}` sub-cache slice through
-;; `elide-wire-value`. The walker matches declarations against the walked path
-;; whatever the input shape, so a query-v key is just another segment.
-
-(deftest sub-cache-shape-walker-redacts-declared-sensitive-path
-  (let [sub-cache {[:auth/token] {:value {:token "shh-secret"} :ref-count 1}
-                   [:cart/total] {:value 42 :ref-count 2}}]
-    (rf.elision/swap-elision-slot! :rf/default
-      (fn [reg] (assoc reg :sensitive-declarations
-                       {[[:auth/token] :value :token] #{{:source :test}}})))
-    (is (= {[:auth/token] {:value {:token :rf/redacted} :ref-count 1}
-            [:cart/total] {:value 42 :ref-count 2}}
-           (rf.elision/elide-wire-value sub-cache)))
-    (is (= sub-cache
-           (rf.elision/elide-wire-value sub-cache {:rf.egress/include-sensitive? true})))))
-
-(deftest sub-cache-shape-walker-emits-large-marker-on-declared-path
-  ;; The marker carries the walked path, so a follow-up get-path can drill in.
-  (let [path [[:user/uploaded] :value :pdf]]
-    (rf.elision/swap-elision-slot! :rf/default
-      (fn [reg] (assoc reg :declarations {path #{{:source :test :hint "Upload preview"}}})))
-    (is (= {:path path :hint "Upload preview"}
-           (-> (rf.elision/elide-wire-value {[:user/uploaded] {:value {:pdf "<<5MB-blob>>"} :ref-count 1}})
-               (get-in [[:user/uploaded] :value :pdf :rf.size/large-elided])
-               (select-keys [:path :hint]))))))
 
 ;; EP-0002: egress resolves its frame from the carried stamp (an explicit
 ;; `:frame` opt, else the in-effect scope) with no `:rf/default` floor. With no
@@ -318,7 +291,7 @@
     (is (= {:rf.size/large-elided {:path   [:big :blob]
                                    :bytes  6
                                    :type   :string
-                                   :reason :effect
+                                   :reason :classification
                                    :hint   nil
                                    :handle [:rf.elision/at [:big :blob]]}}
            (read-at db [:big :blob]))
@@ -331,7 +304,7 @@
     (is (= {:rf.size/large-elided {:path   [:a :x]
                                    :bytes  (pr-str-bytes {:secret :rf/redacted :pub "ok"})
                                    :type   :map
-                                   :reason :effect
+                                   :reason :classification
                                    :hint   nil
                                    :handle [:rf.elision/at [:a :x]]}}
            (read-at db [:a :x]))

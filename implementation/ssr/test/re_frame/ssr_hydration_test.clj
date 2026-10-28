@@ -184,10 +184,8 @@
 (deftest mismatch-always-on-record-redacts-sensitive-payload-frame-id
   (testing "a frame that declares :payload-frame-id :sensitive gets it redacted on
             the always-on record, reason prose included; the dev trace keeps it raw"
-    (rf/reg-event :rf.b5/classify (fn [_ _] {:sensitive [[:payload-frame-id]]}))
-    (let [frame  (rf.frame/make-anon-frame-record!
-                   {:platform       :client
-                    :initial-events [[:rf.b5/classify]]})
+    (rf/reg-classification :rf.b5/payload-frame-id {:sensitive [[:payload-frame-id]]})
+    (let [frame  (rf.frame/make-anon-frame-record! {:platform :client})
           corpus (atom [])]
       (rf.error-emit/register-error-listener! ::b5-corpus
         (fn [record] (swap! corpus conj record)))

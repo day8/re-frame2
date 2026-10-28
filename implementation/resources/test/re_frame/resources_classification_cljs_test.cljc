@@ -12,7 +12,6 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.classification :as rf.resources.classification]
@@ -162,9 +161,7 @@
   (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
         k-id (rf.resources.state/key-id k)
         e    (entry {:resource-id :article/by-slug :data {:secret "tok-xyz" :title "hello"}})]
-    (rf.frame/swap-runtime-db! :rcfg/ssr
-      (fn [rt] (rf.elision/apply-classification-effects
-                 rt {:sensitive [[:rf.runtime/resources :entries k-id :data :secret]]})))
+    (rf/reg-classification ::classified {:sensitive [[:rf.runtime/resources :entries k-id :data :secret]]})
     (let [proj (rf/with-frame :rcfg/ssr
                  (rf.resources.ssr/project-resources-runtime-db (runtime-db-with {k e})))
           we   (val (first (get-in proj [rf.resources.state/resources-key :entries])))]

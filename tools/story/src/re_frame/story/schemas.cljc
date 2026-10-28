@@ -933,14 +933,11 @@
     [:background            {:optional true} BackgroundSlot]
     ;; EP-0025 frame-owned durable classification. A variant declares which
     ;; of ITS app-db paths are sensitive / large at frame creation, in the
-    ;; SAME durable `{:app-db [[:auth :token]]}` form the four commit-plane
-    ;; classification effects carry. There is no durable
+    ;; carrier-keyed `{:app-db [[:auth :token]]}` form. There is no durable
     ;; frame annotation: the runtime does not thread these onto the
-    ;; variant's `make-frame` config — it lowers the `:app-db` paths
-    ;; into the variant frame's elision registry as commit-plane
-    ;; classification effects right after frame creation, BEFORE the lifecycle
-    ;; / init events (`frames/apply-variant-classification!` →
-    ;; `re-frame.elision/apply-classification-effects`, `:source :effect`).
+    ;; variant's `make-frame` config — it registers the `:app-db` paths as a
+    ;; frame-owned `reg-classification` right after frame creation, BEFORE
+    ;; the lifecycle / init events (`frames/apply-variant-classification!`).
     ;; Classification is owned at frame creation, not mutated post-creation
     ;; (spec/015 §Frame-owned durable classification; spec/Conventions.md
     ;; §Privacy).
@@ -951,10 +948,9 @@
     ;; only `:app-db` rides here). The
     ;; `:app-db` value is a vector-of-paths; we keep it `[:vector :any]` here
     ;; on purpose — the rigorous per-path `:rf/path` shape validation is owned
-    ;; ONCE by the framework's commit-plane validator
-    ;; (`re-frame.elision/classification-effect-defect`), which
-    ;; `apply-variant-classification!` routes through so a malformed path
-    ;; FAILS LOUD pre-commit with `:rf.error/classification-effect-shape`.
+    ;; ONCE by `reg-classification`, which `apply-variant-classification!`
+    ;; routes through so a malformed path FAILS LOUD with
+    ;; `:rf.error/bad-classification`.
     ;; Story does not fork that path validation — one source of truth. The
     ;; carrier-keyed MAP shape here (vs a bare vector) catches the most common
     ;; authoring slip — a flat `[[:auth :token]]` vector instead of

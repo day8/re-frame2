@@ -3,9 +3,7 @@
   predicate over a trace event's top-level stamp.
 
   Redaction itself is declared, never inferred. Durable app-db paths are
-  classified by the EP-0025 commit-plane effects (a `reg-event` handler
-  returns `:sensitive [[…]]` alongside its `:db` write, folded into the
-  per-frame `[:rf.runtime/elision :sensitive-declarations]` registry), and
+  classified by `reg-classification` beside the feature that owns them, and
   transient payloads by `:sensitive` registration metadata on the `reg-*`
   that owns them. Both are applied at egress by the classification
   projection (`re-frame.classification`, `re-frame.elision`), never by the

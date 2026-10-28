@@ -110,8 +110,6 @@
   (visit! "/oauth?token=secret")
   (is (= #{[:rf.runtime/routing :current :query :token]} (route-paths :sensitive-declarations))
       "the current route's declaration is claimed, with no activation step")
-  (is (nil? (get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/elision]))
-      "nothing is written into the frame's elision registry")
   (visit! "/home")
   (is (= #{} (route-paths :sensitive-declarations))
       "the leaving route's claim goes with its slice, with nothing replaced"))
@@ -161,12 +159,6 @@
     (is (= [{:a-secret sentinel :b-secret "BBB"}
             {:a-secret "AAA" :b-secret sentinel}]
            [(egress :rf/default) (egress :frame/b)]))))
-
-(deftest clear-keys-are-not-classification-keys-ignored-by-extract
-  (is (= [nil nil]
-         [(rf.routing.classification/validate+extract :route/clearish {:clear-sensitive [[:query :token]]})
-          (rf.routing.classification/validate+extract :route/clearish {:clear-large [[:params :payload]]})])
-      "only :sensitive / :large are classification keys; reg-route's bare-key guard rejects the clear verbs"))
 
 ;; ---- the query-key promotion advisory ----------------------------------------
 ;;
@@ -248,49 +240,3 @@
       (is (= :route/oauth (:route-id route)) "an unclassified slot rides verbatim"))
     (testing "the in-process slice stays raw"
       (is (= "secret123" (get-in rdb [:rf.runtime/routing :current :query :token]))))))
-
-;; ---- multi-owner: an effect claim on the route's absolute path ---------------
-;;
-;; An app may classify a subsystem's absolute runtime-db path from a handler
-;; effect (`:source :effect`). A route change must drop only the route's own
-;; claim: a single-owner registry would let the route claim overwrite or
-;; ignore the effect claim and then delete the path on route leave.
-
-(def ^:private abs-token-path [:rf.runtime/routing :current :query :token])
-
-(defn- effect-classify-abs-token! []
-  (rf/reg-event :app/classify-abs-token
-    (fn [{:keys [db]} _] {:db db :sensitive [abs-token-path]}))
-  (rf/dispatch-sync [:app/classify-abs-token]))
-
-(defn- reg-oauth-and-plain! []
-  (rf/reg-route :route/oauth
-                {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                "/oauth")
-  (rf/reg-route :route/plain {} "/plain"))
-
-(defn- token-owners []
-  (get-in (elision-reg :rf/default) [:sensitive-declarations abs-token-path]))
-
-(defn- redacts-token-at-abs-path? []
-  (let [rdb (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                (assoc-in abs-token-path "secret123"))]
-    (= sentinel (get-in (rf.elision/elide-wire-value rdb {:frame :rf/default}) abs-token-path))))
-
-(deftest effect-then-route-then-route-leave-preserves-effect-claim
-  (effect-classify-abs-token!)
-  (reg-oauth-and-plain!)
-  (visit! "/oauth?token=secret123")
-  (is (= #{{:source :effect} {:source :route}} (token-owners)) "the two claims union")
-  (visit! "/plain")
-  (is (= #{{:source :effect}} (token-owners)) "the route leave drops only the route's claim")
-  (is (redacts-token-at-abs-path?)))
-
-(deftest route-then-effect-then-route-leave-preserves-effect-claim
-  (reg-oauth-and-plain!)
-  (visit! "/oauth?token=secret123")
-  (effect-classify-abs-token!)
-  (is (= #{{:source :route} {:source :effect}} (token-owners))
-      "the effect unions in under the standing route claim")
-  (visit! "/plain")
-  (is (= #{{:source :effect}} (token-owners))))

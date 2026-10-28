@@ -43,10 +43,9 @@
   through the EP-0025 commit-plane effect path."
   [frame-id]
   (rf/make-frame {:id frame-id})
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:auth :token]]
-                :large     [[:docs :blob]]}))))
+  (let [decl {:sensitive [[:auth :token]]
+              :large     [[:docs :blob]]}]
+    (rf/reg-classification (keyword "classified" (str (hash decl))) decl)))
 
 (defn- sample-value []
   {:auth {:token "super-secret-token"}
@@ -161,10 +160,8 @@
   ;; A both-marked path redacts and never large-elides, so no path, size or
   ;; digest can leak.
   (rf/make-frame {:id :proj/both})
-  (rf.frame/swap-runtime-db! :proj/both
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:secret]]
-                :large     [[:secret]]})))
+  (rf/reg-classification ::classified {:sensitive [[:secret]]
+                :large     [[:secret]]})
   (is (= {:secret :rf/redacted}
          (rf/project-egress {:secret big-string}
                             {:frame :proj/both :rf.egress/profile :rf.egress/off-box-observability}))))

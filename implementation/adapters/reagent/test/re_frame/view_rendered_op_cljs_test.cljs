@@ -13,8 +13,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -118,8 +116,7 @@
    inside a render arg reaches the trace surface as :rf/redacted"
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       ;; The same registry write a `reg-event` returning `:sensitive` performs.
-      (rf.frame/swap-runtime-db! :rf/default
-        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+      (rf/reg-classification ::classified {:sensitive [[:auth :password]]})
       (rf/reg-view ^{:rf/id :rf2-rpgq8/sensitive} sensitive-view [_props]
         [:span "ok"])
       ((rf/view :rf2-rpgq8/sensitive) {:auth {:username "ada" :password "hunter2"}})

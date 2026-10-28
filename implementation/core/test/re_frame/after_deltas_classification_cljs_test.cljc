@@ -53,13 +53,13 @@
   (first (filter #(= :rf.event/run-end (:operation %)) traces)))
 
 (defn- seed-classified-secret!
-  "Make the frame and classify `[:auth :token]` in the event that writes the secret."
+  "Make the frame, classify `[:auth :token]`, and write the secret there."
   []
   (rf/make-frame {:id frame-id})
+  (rf/reg-classification :after-deltas/auth {:sensitive [[:auth :token]]})
   (rf/reg-event :after-deltas/seed
     (fn [{:keys [db]} _]
-      {:db        (assoc db :auth {:token secret} :counter 0)
-       :sensitive [[:auth :token]]}))
+      {:db (assoc db :auth {:token secret} :counter 0)}))
   (rf/dispatch-sync [:after-deltas/seed] {:frame frame-id}))
 
 (deftest ^:requires-debug user-after-added-fx-args-take-the-fx-registration-classification
@@ -154,12 +154,12 @@
     (vec (walk [] x))))
 
 (defn- seed!
-  "Make the frame, then write `db` — and classify `sensitive`, when given — in
-  ONE event."
+  "Make the frame, classify `sensitive` when given, then write `db`."
   [db sensitive]
   (rf/make-frame {:id frame-id})
-  (rf/reg-event :fc84b/seed
-    (fn [_ _] (cond-> {:db db} (seq sensitive) (assoc :sensitive sensitive))))
+  (when (seq sensitive)
+    (rf/reg-classification :fc84b/seed {:sensitive sensitive}))
+  (rf/reg-event :fc84b/seed (fn [_ _] {:db db}))
   (rf/dispatch-sync [:fc84b/seed] {:frame frame-id}))
 
 (defn- run-focused!

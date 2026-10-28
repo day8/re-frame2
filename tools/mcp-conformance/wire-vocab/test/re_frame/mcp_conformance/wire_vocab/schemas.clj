@@ -235,13 +235,10 @@
    [:path    [:vector :any]]
    [:bytes   :int]
    [:type    [:enum :map :vector :set :scalar :string]]
-   ;; EP-0025: `:reason` is the declaration SOURCE that classified the path.
-   ;; The durable `:sensitive`/`:large {:app-db …}` frame annotation (`:frame`)
-   ;; and the imperative marks API (`:marks`) are REMOVED; the surviving sources
-   ;; are the commit-plane classification effects (`:effect`, the canonical
-   ;; default), `reg-flow` outputs (`:flow`), and the subsystem
-   ;; projection-relative declarations (`:route` / `:machine`).
-   [:reason  [:enum :effect :flow :route :machine]]
+   ;; `:reason` is the declaring surface: a `reg-classification`
+   ;; (`:classification`, the default), a `reg-flow` output (`:flow`), or a
+   ;; subsystem projection-relative declaration.
+   [:reason  [:enum :classification :flow :machine :route :resource :mutation]]
    [:hint    [:maybe :string]]
    [:handle  [:tuple [:= :rf.elision/at] [:vector :any]]]
    [:digest  {:optional true} :string]])
@@ -516,10 +513,10 @@
     ;; `:reason` slot carries the declaration provenance (the `:source` that
     ;; classified the path). EP-0025: there is no durable `:sensitive`/`:large
     ;; {:app-db …}` frame annotation (`:frame`) and no imperative
-    ;; `add-marks`/`set-marks` API (`:marks`); the sources are the commit-plane
-    ;; classification effects (`:effect`, the canonical default), `reg-flow`
+    ;; `add-marks`/`set-marks` API (`:marks`); the sources are
+    ;; `reg-classification` (`:classification`, the canonical default), `reg-flow`
     ;; outputs (`:flow`), and the subsystem projection-relative declarations
-    ;; (`:route` / `:machine`). Three fixtures below cover the `:effect` source
+    ;; (`:route` / `:machine` / `:resource` / `:mutation`). Three fixtures below cover the `:classification` source
     ;; across body shapes (string-with-hint / map-with-digest / set).
     :servers  #{:re-frame2-pair-mcp}
     :fixtures {:re-frame2-pair-mcp-effect-string
@@ -527,7 +524,7 @@
                 {:path   [:user :uploaded-pdf]
                  :bytes  102400
                  :type   :string
-                 :reason :effect
+                 :reason :classification
                  :hint   "User-uploaded PDF; fetch via get-path."
                  :handle [:rf.elision/at [:user :uploaded-pdf]]}}
                :re-frame2-pair-mcp-effect-with-digest
@@ -535,7 +532,7 @@
                 {:path   [:cofx :db]
                  :bytes  524288
                  :type   :map
-                 :reason :effect
+                 :reason :classification
                  :hint   nil
                  :handle [:rf.elision/at [:cofx :db]]
                  :digest "sha256:deadbeefcafef00d"}}
@@ -544,8 +541,8 @@
                 {:path   [:scratch :payload]
                  :bytes  262144
                  :type   :set
-                 :reason :effect
-                 :hint   "Classified large via the commit-plane :large effect; fetch via get-path."
+                 :reason :classification
+                 :hint   "Classified large by a reg-classification; fetch via get-path."
                  :handle [:rf.elision/at [:scratch :payload]]}}}}
 
    {:key      :rf.mcp/cache-hit

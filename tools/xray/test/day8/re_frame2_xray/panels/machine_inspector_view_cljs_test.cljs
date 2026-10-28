@@ -33,7 +33,6 @@
             ;; machine carrying a `:sensitive?` `[:schemas :data]` slot and
             ;; run a real transition trace through `project-trace-event`.
             [re-frame.classification :as rf.classification]
-            [re-frame.elision :as rf.elision]
             [re-frame.schemas]
             [re-frame.schemas.malli]
             [day8.re-frame2-xray.registry :as registry]
@@ -466,36 +465,23 @@
 (def ^:private redaction-machine-id :session/auth-redaction)
 
 (def ^:private sensitive-schema
-  "A `[:schemas :data]` — VALIDATION ONLY under EP-0025 (props do not classify).
-  The FRAME declares the snapshot `:data` path sensitive (see the tests)."
+  "A `[:schemas :data]` — VALIDATION ONLY (props do not classify). The
+  machine's own `:sensitive` declaration classifies the snapshot `:data` path."
   [:map
    [:retries :int]
    [:token [:maybe :string]]])
 
 (defn- reg-sensitive-machine! []
   (rf/reg-machine redaction-machine-id
-    {:initial :anon
+    {:sensitive [[:data :token]]
+     :initial :anon
      :data    {:retries 0 :token nil}
      :schemas {:data sensitive-schema}
      :states  {:anon   {:on {:login :authed}}
                :authed {}}}))
 
-(defn- declare-redaction-frame-marks!
-  "Declare the redaction machine's snapshot `:data` token slot SENSITIVE on
-  `frame-id` — the frame-owned classification (EP-0025, the sole app-db
-  mechanism), keyed by the absolute runtime-db snapshot path. EP-0025: there
-  is no imperative add-marks API, so this installs directly into the frame's
-  elision registry (the substrate the commit-plane `:sensitive` effect
-  writes through)."
-  [frame-id]
-  (rf.elision/swap-elision-slot! frame-id
-    (fn [reg]
-      (assoc-in reg [:sensitive-declarations
-                     [:rf.runtime/machines :snapshots redaction-machine-id :data :token]]
-                {:source :effect}))))
-
 (deftest panel-renders-sensitive-data-slot-redacted-rf2-kq8nac
-  (testing "EP-0025: a FRAME-declared sensitive machine `:data`
+  (testing "a machine-declared sensitive `:data`
             slot does NOT leak its raw value into the Machine Inspector
             panel. The focused epoch's `:trace-events` are the EGRESSED
             (project-trace-event-projected) events — exactly what
@@ -505,9 +491,6 @@
             reads the egressed snapshot, not raw machine state."
     (setup-xray-frame!)
     (reg-sensitive-machine!)
-    ;; EP-0025: the FRAME declares the snapshot token slot sensitive (the
-    ;; raw event below carries :frame :rf/default, so declare it there).
-    (declare-redaction-frame-marks! :rf/default)
     (rf/with-frame :rf/xray
       (override-machines!    [redaction-machine-id])
       (override-definitions! {redaction-machine-id
@@ -529,8 +512,8 @@
                               :event      [:login]
                               :rf.trace/dispatch-id "d-1"}}
             ;; The egress chokepoint redacts :before/:after :data.token →
-            ;; :rf/redacted against the FRAME's declared snapshot path
-            ;; (EP-0025). Epoch-capture sees THIS projected event, so the
+            ;; :rf/redacted under the machine's declaration, resolved through
+            ;; :rf/default's policy. Epoch-capture sees THIS projected event, so the
             ;; panel's :trace-events are redacted.
             egressed  (rf.classification/project-trace-event raw-event)
             egressed* (assoc egressed :id 1 :time 10)]

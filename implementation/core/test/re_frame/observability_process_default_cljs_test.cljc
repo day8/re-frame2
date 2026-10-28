@@ -18,10 +18,9 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
-            [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -41,16 +40,20 @@
     (try (t)
          (finally (rf.observability/clear-observability-default!)))))
 
-;; `classify-frame!` declares this app-db path sensitive. A record slot
+;; `classify!` declares this app-db path sensitive. A record slot
 ;; `:auth {:token …}` lands on `[:tags :auth :token]`, which the walker reaches
 ;; through this declaration.
 (def ^:private classified-path [:auth :token])
 
-(defn- classify-frame!
-  [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects
-               rt {:sensitive [classified-path]}))))
+(defn- classify! []
+  (rf/reg-classification ::classified {:sensitive [classified-path]}))
+
+(def ^:private unclassified-image
+  "A frame running this image classifies nothing: classification resolves
+  through the frame's own view (Spec 015 §Static app-db classification), and
+  this image holds one inline event and no classification."
+  (rf.image/image {:id            ::unclassified
+                   :registrations {:reg-event [[::noop {} (fn [{:keys [db]} _] {:db db})]]}}))
 
 ;; `:auth` is not a summary slot, so routing lifts it onto `:tags`.
 (defn- payload-record
@@ -69,8 +72,8 @@
                                        (fn [r] (swap! seen conj r)))
       (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
       (rf/make-frame {:id :obs.default/classified})
-      (rf/make-frame {:id :obs.default/unclassified})
-      (classify-frame! :obs.default/classified)
+      (rf/make-frame {:id :obs.default/unclassified :images [unclassified-image]})
+      (classify!)
       (rf.error-emit/dispatch-error-record!
         (payload-record :rf.error/test-union :obs.default/classified))
       (rf.error-emit/dispatch-error-record!
@@ -146,7 +149,7 @@
       (rf/configure! {:observability {:errors [{:sink :test.sinks/default}]}})
       (rf/make-frame {:id :obs.default/ambient
                       :observability {:errors [{:sink :test.sinks/ambient}]}})
-      (classify-frame! :obs.default/ambient)
+      (classify!)
       ;; Carried, not merely alive: outside `with-frame` there is no ambient
       ;; frame to fall through to, and the pin would pass for free.
       (rf/with-frame :obs.default/ambient
@@ -177,7 +180,7 @@
                       :observability {:errors [{:sink :test.sinks/successor}]}})
       (rf/make-frame {:id :obs.default/bystander
                       :observability {:errors [{:sink :test.sinks/ambient}]}})
-      (classify-frame! :obs.default/bystander)
+      (classify!)
       (rf/with-frame :obs.default/bystander
         (#'rf.error-emit/dispatch-error-record*
           (assoc (payload-record :rf.error/frame-teardown-failed

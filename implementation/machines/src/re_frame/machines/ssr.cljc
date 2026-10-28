@@ -27,8 +27,7 @@
 
   A machine definition declares its sensitive / large `:data` slots
   projection-relative (`re-frame.machines.classification`), and egress claims
-  them on every snapshot present under `:source :machine`, unioned with any
-  commit-plane `:sensitive` / `:large` effect on the same path. The
+  them on every snapshot present under `:source :machine`. The
   `[:schemas :data]` schema VALIDATES `:data`; it does not classify it for
   egress.
 

@@ -21,10 +21,9 @@
 (deftest build-payload-redacts-sensitive-and-ships-large-under-both-policies
   ;; `:large` protects tool budgets, not the page's own browser: the payload is
   ;; installed as live client state, so a size marker would replace real data.
-  (rf/reg-event :rf.bt9kct/classify
-    (fn [_ _] {:sensitive [[:session :token]] :large [[:session :items]]}))
-  (rf/make-frame {:id :rf.bt9kct/server :platform :server
-                  :initial-events [[:rf.bt9kct/classify]]})
+  (rf/reg-classification :rf.bt9kct/session
+    {:sensitive [[:session :token]] :large [[:session :items]]})
+  (rf/make-frame {:id :rf.bt9kct/server :platform :server})
   (let [db      {:session {:token "secret-jwt" :user "alice" :items [1 2 3]}
                  :secrets {:api-key "internal-only"}}
         session {:token redacted :user "alice" :items [1 2 3]}]
@@ -39,11 +38,12 @@
 ;; page must send it back, so the host permits it; the rest stays redacted.
 
 (defn- reg-session-app! []
+  (rf/reg-classification :rf.hjz4r/session
+    {:sensitive [[:session :csrf] [:session :upstream-key]]})
   (rf/reg-event :rf.hjz4r/seed-session
     (fn [_ _]
-      {:db        {:session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}
-                   :secrets {:api-key "internal-only"}}
-       :sensitive [[:session :csrf] [:session :upstream-key]]}))
+      {:db {:session {:csrf "csrf-abc-123" :upstream-key "sk-server-only" :user "alice"}
+            :secrets {:api-key "internal-only"}}}))
   (rf/reg-sub :rf.hjz4r/csrf (fn [db _] (get-in db [:session :csrf])))
   (rf/reg-view* :rf.hjz4r/root
     (fn [] [:input {:type "hidden" :name "csrf" :value (rf/subscribe-once [:rf.hjz4r/csrf])}])))

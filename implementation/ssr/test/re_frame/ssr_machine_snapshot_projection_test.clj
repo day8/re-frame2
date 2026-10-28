@@ -1,14 +1,15 @@
 (ns re-frame.ssr-machine-snapshot-projection-test
   "A durable machine snapshot's `:data` hydrates projected, not raw.
 
-  The frame classifies the snapshot's absolute runtime-db path through a
-  commit-plane `:sensitive` / `:large` effect (EP-0025), and `project-runtime-db`
+  The machine's projection-relative `:sensitive` / `:large` declaration
+  classifies every snapshot of it the frame holds, and `project-runtime-db`
   projects `:rf.runtime/machines` through the late-bound
   `:machines/project-ssr-runtime-db` hook. A machine's `[:schemas :data]`
   validates `:data`; it does not classify it."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
             ;; Loading machines publishes :machines/project-ssr-runtime-db.
             [re-frame.machines]
             [re-frame.schemas]
@@ -24,26 +25,25 @@
   ;; The large blob rides whole: the client actor needs its `:data`, so the
   ;; hydration wire applies no size elision.
   (rf/reg-machine auth-id
-    {:initial :anon
-     :data    {:retries 0 :token nil :blob nil}
-     :schemas {:data [:map [:retries :int] [:token [:maybe :string]] [:blob [:maybe :string]]]}
-     :states  {:anon {:on {:login :authed}} :authed {}}})
-  (rf/reg-event :rf.ssr-machine/classify-snapshot
-    (fn [_ _]
-      {:sensitive [[:rf.runtime/machines :snapshots auth-id :data :token]]
-       :large     [[:rf.runtime/machines :snapshots auth-id :data :blob]]}))
-  (rf/dispatch-sync [:rf.ssr-machine/classify-snapshot])
-  (is (= {:rf.runtime/machines
-          {:snapshots {auth-id {:state :authed
-                                :data  {:retries 2 :token :rf/redacted :blob "huge-blob-value"}}}
-           :spawned   {}}}
-         (rf.ssr.payload-policy/project-runtime-db
-           {:rf.runtime/machines
+    {:sensitive [[:data :token]]
+     :large     [[:data :blob]]
+     :initial   :anon
+     :data      {:retries 0 :token nil :blob nil}
+     :schemas   {:data [:map [:retries :int] [:token [:maybe :string]] [:blob [:maybe :string]]]}
+     :states    {:anon {:on {:login :authed}} :authed {}}})
+  (let [runtime-db {:rf.runtime/machines
+                    {:snapshots {auth-id {:state :authed
+                                          :data  {:retries 2
+                                                  :token   "secret-jwt-snapshot"
+                                                  :blob    "huge-blob-value"}}}
+                     :spawned   {}}}]
+    ;; The request frame holds the snapshot it hydrates, as it does at render.
+    (rf.frame/swap-runtime-db! :rf/default #(merge % runtime-db))
+    (is (= {:rf.runtime/machines
             {:snapshots {auth-id {:state :authed
-                                  :data  {:retries 2
-                                          :token   "secret-jwt-snapshot"
-                                          :blob    "huge-blob-value"}}}
-             :spawned   {}}}))))
+                                  :data  {:retries 2 :token :rf/redacted :blob "huge-blob-value"}}}
+             :spawned   {}}}
+           (rf.ssr.payload-policy/project-runtime-db runtime-db)))))
 
 (deftest a-collection-element-declaration-redacts-every-element-as-the-trace-does
   ;; A spawned actor's projection-relative `[:data :items :token]` names the
