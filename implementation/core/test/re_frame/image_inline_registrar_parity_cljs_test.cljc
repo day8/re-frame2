@@ -184,6 +184,10 @@
    ["fx: no handler fn"
     {:reg-fx [[:parity/v-fx {:doc "no handler"} nil]]}
     #(rf/reg-fx :parity/v-fx {:doc "no handler"} nil)
+    :rf.error/fx-registration-invalid]
+   ["fx: a reserved fx-id the runtime runs itself"
+    {:reg-fx [[:dispatch fx-body]]}
+    #(rf/reg-fx :dispatch fx-body)
     :rf.error/fx-registration-invalid]])
 
 (deftest inline-registration-time-validators-match-reg-star

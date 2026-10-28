@@ -460,3 +460,17 @@
         (is (= {:rf.error/id :rf.error/fx-registration-invalid :rf.fx/id id}
                (select-keys (ex-data ex) [:rf.error/id :rf.fx/id])))
         (is (nil? (rf.registrar/lookup :fx id)) "nothing was registered")))))
+
+(deftest reg-fx-of-a-reserved-body-id-is-registration-invalid
+  ;; The reserved body runs before any registry lookup, so the registration
+  ;; would be silently inert (Conventions §Reserved fx-ids).
+  (doseq [[id register!]
+          [[:dispatch       #(rf/reg-fx :dispatch (fn [_ _]))]
+           [:dispatch-later #(rf/reg-fx :dispatch-later {:doc "a v1-style stub"} (fn [_ _]))]]]
+    (testing (str id)
+      (let [ex (try (register!) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (= {:rf.error/id :rf.error/fx-registration-invalid :rf.fx/id id}
+               (select-keys (ex-data ex) [:rf.error/id :rf.fx/id])))
+        (is (re-find #":fx-overrides" (str (ex-message ex)))
+            "the message names the replacement")
+        (is (nil? (rf.registrar/lookup :fx id)) "nothing was registered")))))
