@@ -4,7 +4,7 @@ Phase 0a — the **inventory-and-plan pre-flight**. Run it **before** any dep ed
 
 ## Why a complete inventory comes first
 
-re-frame2 removes and moves surfaces that v1 add-on libraries and v1 app code reach into. A compile reaches those breakages **one namespace at a time** — so a "swap the coord, compile, fix the first error, recompile, fix the next" loop turns into whack-a-mole, because the breakages live in **dependency source** (add-on jars, git/source deps, vendored code) the compiler only loads as it walks the require graph: each fix unblocks the compiler to reach the *next* broken namespace, which you had no warning about.
+re-frame2 removes and moves surfaces that v1 add-on libraries and v1 app code reach into. A compile reaches those breakages **one namespace at a time** — so a "swap the coord, compile, fix the first error, recompile, fix the next" loop turns into whack-a-mole, because the breakages live in **dependency source** (add-on jars, git/source deps, vendored code) the compiler only loads as it walks the require graph: each fix unblocks the compiler to reach the *next* broken namespace, which you had no warning about. The same wall returns mid-sweep in the app's own half-converted tree, where [`orchestrating-a-large-migration.md` §Seeing past the first missing namespace](orchestrating-a-large-migration.md#seeing-past-the-first-missing-namespace) lists the instruments that see past it.
 
 A complete up-front inventory collapses that loop. Read the dep tree and the relevant add-on **source** once, list every surface that will break, and produce a plan that fixes them all in a single pass — the compile then either passes or surfaces only the genuinely-unforeseeable.
 
