@@ -202,7 +202,9 @@
 
   ;; Nightly/rigorous slow-test gate. INCLUDES ONLY the
   ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
-  ;; excludes), so `:test` + `:slow-test` together cover every test once.
+  ;; excludes); `:test`'s other exclusion, the `^:prod-gate` pin, runs in
+  ;; `:prod-gate`, so `:test` + `:slow-test` + `:prod-gate` together cover
+  ;; every test.
   ;;
   ;; ITS CLASSPATH IS A COPY OF `:test`'s — the same `:extra-paths`, example
   ;; roots included, and the same `:extra-deps` — and the two stay equal.
