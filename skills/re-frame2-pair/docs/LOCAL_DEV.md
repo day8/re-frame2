@@ -25,23 +25,13 @@ The install paths below link the **skill directory** (`SKILL.md` + `preload/`
 skill-facing transport — which lives at `tools/re-frame2-pair-mcp/` outside the
 skill dir. To run the server from this clone instead of waiting for an npm
 release, build it once (`cd tools/re-frame2-pair-mcp && npm install && npm run
-build`) and point your Claude Code `mcpServers` entry at the compiled server:
-
-```json
-{
-  "mcpServers": {
-    "re-frame2-pair": {
-      "command": "node",
-      "args": ["<repo>/tools/re-frame2-pair-mcp/out/server.js"]
-    }
-  }
-}
-```
-
-See [`tools/re-frame2-pair-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md)
-for the exact entry point, the launch flags (`--allow-writes`,
-`--allow-sensitive-reads`, `--no-eval`, `--port-file`), and port discovery.
-Restart Claude Code after editing `mcpServers`.
+build`) and register the compiled `out/server.js` with Claude Code. The
+`claude mcp add` command line, the scope that decides which file holds the
+entry, the `.mcp.json` form, the launch flags (`--allow-writes`,
+`--allow-sensitive-reads`, `--no-eval`, `--port-file`) and port discovery are
+in [`references/mcp-transport.md` §Install / configure](../references/mcp-transport.md#install--configure-one-time).
+Start a fresh Claude Code session after registering the server or changing
+its flags.
 
 ## 0. Repo installer (recommended — links all skills)
 
