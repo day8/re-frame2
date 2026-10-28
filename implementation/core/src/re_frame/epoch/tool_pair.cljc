@@ -1508,11 +1508,13 @@
     (merge opts floor (select-keys opts shared-size-axis-keys))))
 
 (defn- recorded-registry
-  "The elision registry a recorded frame-state carries in its runtime-db
-  partition (`:rf.runtime/elision`): the classification that governed both of
-  its partitions when it was recorded. Nil for a nil frame-state."
-  [frame-state]
-  (get-in frame-state [:rf.db/runtime :rf.runtime/elision]))
+  "The classification `record`'s `slot` frame-state was recorded under: the
+  elision registry it carries in its runtime-db partition
+  (`:rf.runtime/elision`), unioned with the static policy the record carries
+  (`rf.elision/recorded-policy`)."
+  [record slot]
+  (rf.elision/with-policy (get-in record [slot :rf.db/runtime :rf.runtime/elision])
+                          (rf.elision/recorded-policy record)))
 
 (defn- redact-by-recorded-registry
   "Redact `v`, a recorded app-db or runtime-db value, at the claims `registry`
@@ -2455,8 +2457,8 @@
   ;; docstring above and `resolve-shared-size-axes`.
   (let [opts            (resolve-shared-size-axes opts)
         own-frame?      (= frame-id (:frame record))
-        registry-before (when own-frame? (recorded-registry (:frame-state-before record)))
-        registry-after  (when own-frame? (recorded-registry (:frame-state-after record)))]
+        registry-before (when own-frame? (recorded-registry record :frame-state-before))
+        registry-after  (when own-frame? (recorded-registry record :frame-state-after))]
     (cond-> record
       ;; Whole-frame slots project app-db and redact runtime-db
       ;; unless the corresponding trusted-local opts lift them.

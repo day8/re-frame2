@@ -11,6 +11,7 @@
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
     :event :sub :fx :cofx :interceptor :view :frame :route :head
     :error-projector :flow :resource :mutation :resource-scope :app-schema
+    :http-interceptor :classification
 
   Machine guards and actions are NOT a registrar kind. Per Spec 005 the
   machine spec's `:guards` / `:actions` maps are the single source of
@@ -144,10 +145,15 @@
   definition (`:before` / `:after`) under it. A frame activates definitions
   by naming them, in order, in its `:http-interceptors` config vector; the
   http artefact resolves those ids through the frame's own view when a
-  request is issued. Reserved whether or not the http artefact ships."
+  request is issued. Reserved whether or not the http artefact ships.
+
+  `:classification` (Spec 015 §Durable app-db) is the static app-db
+  classification kind — `reg-classification` registers a feature's
+  `:sensitive` / `:large` app-db paths under it, and a frame's egress
+  classification is the union of the registrations its own view resolves."
   #{:event :sub :fx :cofx :interceptor :view :frame :route :head
     :error-projector :flow :resource :mutation :resource-scope :app-schema
-    :http-interceptor})
+    :http-interceptor :classification})
 
 (defn valid-kind? [k]
   (contains? kinds k))

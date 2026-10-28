@@ -27,6 +27,12 @@
   root `:data-schema` slot, per EP-0029 A3). There are no
   imperative large-path APIs.
 
+  A frame's `:classification` registrations (`reg-classification`) are the
+  static app-db source: they resolve through the frame's own view into an
+  immutable classification POLICY that egress unions with the registry at read
+  time, and that is never written into runtime-db (Spec 015 §Static app-db
+  classification).
+
   EP-0001: the elision declaration registry is DURABLE,
   serializable framework state (it must survive epoch-restore / SSR-
   hydration so an off-box projection redacts consistently), so it lives in
@@ -40,6 +46,8 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.trace :as rf.trace]))
 
@@ -119,17 +127,118 @@
 (defonce ^:private warned-unschema'd
   (atom #{}))
 
+;; ---- the static classification policy -------------------------------------
+;;
+;; A frame's `:classification` registrations resolve through its OWN view —
+;; the sealed generation of a frame made with `:images`, the live registration
+;; store otherwise — into the frame's classification POLICY: an immutable value
+;; holding declarations only, never instances. Each path is claimed by
+;; `{:source :classification :id <registration-id>}`, the owner shape the
+;; registry uses, so the walkers read both sources through one lookup.
+;;
+;; The policy is a function of the view alone, so it is cached per frame
+;; against the view it was built from: successive egresses, and every value
+;; recorded while the declarations stand still, share one policy value. Spec
+;; 015 §Static app-db classification.
+
+(def ^:private empty-policy
+  {:app-db {:sensitive {} :large {}}})
+
+(defonce ^:private policy-cache
+  ;; {frame-id {:view <what the policy was built from> :policy <policy>}}
+  (atom {}))
+
+(defn- resolved-classifications
+  "The `[id descriptor]` entries of every `:classification` registration the
+  bound resolution runs. An id more than one namespace registers is one a frame
+  made without `:images` refuses to run; classification is a union, so every
+  namespace's declaration of it is kept rather than the id dropping out."
+  []
+  (concat (rf.registrar/registrations :classification)
+          (for [[id ns->desc] (rf.registrar/ambiguous-registrations :classification)
+                desc          (vals ns->desc)]
+            [id desc])))
+
+(defn- build-policy
+  [entries]
+  (let [claim (fn [m owner paths]
+                (reduce #(update %1 (vec %2) (fnil conj #{}) owner) m paths))
+        app-db (reduce (fn [acc [id desc]]
+                         (let [owner {:source :classification :id id}]
+                           (-> acc
+                               (update :sensitive claim owner (:sensitive desc))
+                               (update :large claim owner (:large desc)))))
+                       (:app-db empty-policy)
+                       entries)]
+    (if (= app-db (:app-db empty-policy))
+      empty-policy
+      {:app-db app-db})))
+
+(defn- policy-view
+  "What the bound resolution's `:classification` entries are a function of:
+  the sealed generation when one is bound, else the registration table's
+  `:classification` slice."
+  []
+  (or rf.registrar/*generation*
+      (get @rf.source-store/kind->id->ns->descriptor :classification)))
+
+(defn ^:no-doc frame-policy
+  "The classification policy of frame `frame-id`:
+  `{:app-db {:sensitive {path #{owner}} :large {path #{owner}}}}`, built from
+  the `:classification` registrations the frame's own view resolves, reached
+  through the late-bound `:live-frame/call-with-frame-resolution` seam — never
+  an ambient lookup. A frame that does not exist has the empty policy."
+  [frame-id]
+  (if-not (and (some? frame-id) (some? (rf.frame/frame frame-id)))
+    empty-policy
+    (let [resolve (fn []
+                    (let [view   (policy-view)
+                          cached (get @policy-cache frame-id)]
+                      (if (and cached (identical? view (:view cached)))
+                        (:policy cached)
+                        (let [policy (build-policy (resolved-classifications))]
+                          (swap! policy-cache assoc frame-id {:view view :policy policy})
+                          policy))))]
+      (if-let [with-resolution (rf.late-bind/get-fn :live-frame/call-with-frame-resolution)]
+        (with-resolution frame-id resolve)
+        (resolve)))))
+
+(defn ^:no-doc with-policy
+  "Registry value `reg` with `policy`'s app-db declarations unioned into its two
+  axis slots, the shape every egress walk reads. Pure: the union is a read-time
+  view and is never written back to runtime-db."
+  [reg policy]
+  (let [{:keys [sensitive large]} (:app-db policy)]
+    (cond-> reg
+      (seq sensitive) (update :sensitive-declarations #(merge-with into % sensitive))
+      (seq large)     (update :declarations #(merge-with into % large)))))
+
+(defn ^:no-doc record-policy
+  "`v`, a retained value, carrying `policy` as the classification it was
+  recorded under. It rides in metadata, so it never egresses. Spec 015
+  §Retained values keep their recorded classification."
+  [v policy]
+  (vary-meta v assoc ::recorded-policy policy))
+
+(defn ^:no-doc recorded-policy
+  "The policy `record-policy` attached to `v`, or nil."
+  [v]
+  (::recorded-policy (meta v)))
+
 (defn- registry-of
-  "The frame's elision registry, read off its runtime-db projection as a
-  SNAPSHOT. Its readers run inside the computations they describe — trace
-  classification projects a `:rf.sub/run` inside the sub's compute and a
+  "The frame's egress classification: its elision registry, read off its
+  runtime-db projection as a SNAPSHOT, unioned with its static policy
+  (`frame-policy`). Its readers run inside the computations they describe —
+  trace classification projects a `:rf.sub/run` inside the sub's compute and a
   `:rf.view/rendered` inside the view's render — and a capturing read there
   would make the whole runtime-db projection an input of that computation, so
   an unrelated runtime-db write would re-run it. The read therefore records no
   reactive dependency."
   [frame-id]
   (when-let [container (rf.frame/runtime-db-container frame-id)]
-    (get-in (rf.substrate.adapter/read-container-untracked container) [:rf.runtime/elision])))
+    (with-policy
+      (get-in (rf.substrate.adapter/read-container-untracked container) [:rf.runtime/elision])
+      (frame-policy frame-id))))
 
 (defn ^:no-doc write-elision-slot
   "Set or clear the per-frame elision registry inside `runtime-db`. When
@@ -268,7 +377,7 @@
   provenance from a path's retained owner-set. A large path may be claimed by
   several independent owners; the marker carries ONE reproducible source so the
   wire shape is stable across runs and serialization. First match wins."
-  [:effect :flow :machine :route :resource])
+  [:classification :effect :flow :machine :route :resource])
 
 (defn ^:no-doc owners->provenance
   "Derive the STABLE `:reason` / `:source` provenance keyword for a large-
@@ -540,8 +649,9 @@
 
 (defn declarations
   "Return the `:large` `:app-db` declarations for `frame-id` (the union of
-  every source that populates the slot — EP-0025 commit-plane effects under
-  `:source :effect`, `reg-flow` outputs under `:source :flow`, subsystem
+  every source that populates the slot — the frame's `:classification`
+  registrations under `:source :classification`, EP-0025 commit-plane effects
+  under `:source :effect`, `reg-flow` outputs under `:source :flow`, subsystem
   projection-relative declarations).
   Returns a snapshot, not a reactive subscription: reading it inside a
   reactive computation does not make that computation depend on the registry.
@@ -557,7 +667,8 @@
 
 (defn sensitive-declarations
   "Return the `:sensitive` `:app-db` declarations for `frame-id` (the union
-  of every source that populates the slot — EP-0025 commit-plane effects
+  of every source that populates the slot — the frame's `:classification`
+  registrations under `:source :classification`, EP-0025 commit-plane effects
   under `:source :effect`, `reg-flow` outputs under `:source :flow`,
   subsystem projection-relative declarations).
   Returns a snapshot, not a reactive subscription: reading it inside a
@@ -1499,7 +1610,8 @@
   install, rather than the frame's committed one. A value a transition carries
   is projected before that transition commits, so a path classified by the
   SAME event is redacted from its first egress. A nil `runtime-db` means the
-  transition leaves runtime-db alone, so the committed registry stands.
+  transition leaves runtime-db alone, so the committed registry stands. Either
+  registry is unioned with the frame's static policy.
 
   The governing frame is the explicit `:frame` opt, and it must name a LIVE
   frame, else the whole value is the sentinel. Internal: the one
@@ -1511,7 +1623,8 @@
     (if (and (some? frame-id) (some? (rf.frame/frame frame-id)))
       (elide-against-registry v opts frame-id
                               (if (some? runtime-db)
-                                (get runtime-db :rf.runtime/elision)
+                                (with-policy (get runtime-db :rf.runtime/elision)
+                                             (frame-policy frame-id))
                                 (registry-of frame-id)))
       rf.privacy/redacted-sentinel)))
 
@@ -1568,4 +1681,6 @@
 (rf.frame/contribute-lifecycle!
   {:id                 :elision
    :phase              #{:post-dead}
-   :on-frame-destroyed (fn [_frame-id _phase] (clear-warning-cache!))})
+   :on-frame-destroyed (fn [frame-id _phase]
+                         (swap! policy-cache dissoc frame-id)
+                         (clear-warning-cache!))})

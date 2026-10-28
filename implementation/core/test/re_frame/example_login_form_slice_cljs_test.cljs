@@ -2,7 +2,8 @@
   "The login feature's form slice and password privacy, driven through
    `login.model`'s own events (docs/core/how-to/keep-secrets-out-of-traces.md).
    The password crosses three boundaries, each with its own owner: the app-db
-   draft (classified `:sensitive` at slice-init), the `:auth.login/edit-password`
+   draft (classified `:sensitive` by the feature's `reg-classification`), the
+   `:auth.login/edit-password`
    event (`:sensitive [[:value]]`), and the managed-HTTP request that
    `:auth.login/submit-form` issues itself with `:sensitive? true`, handing the
    machine only a credential-free signal."

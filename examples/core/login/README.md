@@ -46,7 +46,7 @@ The whole flow is one transition table, registered with `reg-machine` under the 
 
 One detail worth noticing, about the password. A password is a secret, and re-frame2 is unusually observable — events, app-db snapshots, and HTTP records all flow down one trace wire that every tool reads. So the secret has to be classified at every boundary it crosses, and here it crosses 3, each with its own owner ([keep secrets out of traces](../../../docs/core/how-to/keep-secrets-out-of-traces.md)):
 
-- durable app-db — the draft at `[:auth :login-form :draft :password]`. `:auth.login/initialise-form` classifies it `:sensitive` in the very first write that creates the slice, so it reads `:rf/redacted` in every snapshot, epoch, and off-box record from the first keystroke on — while handlers still see the real value.
+- durable app-db — the draft at `[:auth :login-form :draft :password]`. The feature's `(rf/reg-classification :auth.login …)` declares it `:sensitive` beside the form events, so it reads `:rf/redacted` in every snapshot, epoch, and off-box record from the first write that creates the slice — while handlers still see the real value.
 - the edit event — the password's keystrokes ride `:auth.login/edit-password`, a map-payload event whose registration declares `:sensitive [[:value]]`, so the dispatched-event trace redacts it. (A positional arg can't be classified — redaction is path-based — which is why the secret field gets its own map-shaped event while the non-secret email keeps the plain positional `:auth.login/edit-field`.)
 - the HTTP request — `:submit-form` issues the managed-HTTP call with `:sensitive? true`, scrubbing the request body from every `:rf.http/*` trace event.
 
