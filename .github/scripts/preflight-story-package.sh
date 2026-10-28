@@ -51,9 +51,10 @@
 # # Runner / portability
 #
 # Linux-runner-only by design (sole caller is release-story.yml on
-# ubuntu-latest). POSIX sh + python3 — python3 is a runner requirement
-# anyway, for the rewrite step that runs immediately before this, and
-# ships on ubuntu-latest. The pom is parsed with ElementTree rather than
+# ubuntu-latest). POSIX sh + Python 3.10+, found by lib/python.sh
+# (`python3` first) — a runner requirement anyway, for the rewrite step
+# that runs immediately before this, and python3 ships on ubuntu-latest.
+# A host where no Python runs exits 2 naming what was tried. The pom is parsed with ElementTree rather than
 # grepped: this is the last gate before an irreversible publish, and a
 # text parser that mis-reads a reformatted pom would produce exactly the
 # false PASS this script exists to prevent. No .ps1 sibling: nothing runs
@@ -70,6 +71,11 @@ set -eu
 
 VERSION="${1:?usage: preflight-story-package.sh VERSION [STORY_DIR]}"
 STORY_DIR="${2:-.}"
+
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/lib/python.sh"
+resolve_python || exit 2
+
 cd "$STORY_DIR"
 
 echo "preflight: building Story pom at lockstep version ${VERSION} (build only — NOT deploy)"
@@ -83,7 +89,7 @@ if [ ! -f "$POM" ]; then
 fi
 echo "preflight: pom = $POM"
 
-if ! VERSION="$VERSION" python3 - "$POM" <<'PYTHON'
+if ! VERSION="$VERSION" $python - "$POM" <<'PYTHON'
 import os
 import sys
 import xml.etree.ElementTree as ET

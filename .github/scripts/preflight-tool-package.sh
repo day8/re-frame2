@@ -66,9 +66,10 @@
 # # Runner / portability
 #
 # Linux-runner-only by design (callers are the release workflows on
-# ubuntu-latest). POSIX sh + the Clojure CLI + python3, all of which the
-# deploy job has anyway. No .ps1 sibling (same rationale as
-# preflight-story-package.sh).
+# ubuntu-latest). POSIX sh + the Clojure CLI + Python 3.10+ (found by
+# lib/python.sh, `python3` first), all of which the deploy job has anyway.
+# A host where no Python runs exits 2 naming what was tried. No .ps1
+# sibling (same rationale as preflight-story-package.sh).
 #
 # # Usage
 #
@@ -82,6 +83,11 @@ set -eu
 LIB="${1:?usage: preflight-tool-package.sh GROUP/ARTIFACT VERSION [DIR]}"
 VERSION="${2:?usage: preflight-tool-package.sh GROUP/ARTIFACT VERSION [DIR]}"
 ARTEFACT_DIR="${3:-.}"
+
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/lib/python.sh"
+resolve_python || exit 2
+
 cd "$ARTEFACT_DIR"
 
 GROUP=$(printf '%s' "$LIB" | cut -d/ -f1)
@@ -159,7 +165,7 @@ fi
 echo "preflight: pom = $POM"
 
 if ! LIB="$LIB" VERSION="$VERSION" COORDS_FILE="$COORDS_FILE" REL_DEPS="$REL_DEPS" \
-     python3 - "$POM" <<'PYTHON'
+     $python - "$POM" <<'PYTHON'
 import os
 import sys
 import xml.etree.ElementTree as ET

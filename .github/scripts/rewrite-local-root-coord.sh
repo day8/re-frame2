@@ -46,14 +46,15 @@
 #      which means the real coordinate was renamed or removed)
 #   - more than one occurs in code                           → exit 4
 #     (genuinely ambiguous — refuse rather than guess)
+#   - no Python 3.10+ interpreter runs                       → exit 2
 # Better a release abort than a published pom missing its framework dep.
 #
 # # Runner / portability
 #
 # Linux-runner-only by design: the only caller is release.yml's deploy-leaf
-# job, which runs on ubuntu-latest. POSIX sh + python3, which is
-# preinstalled on ubuntu-latest. No .ps1 sibling: nothing runs it off a
-# Linux runner.
+# job, which runs on ubuntu-latest. POSIX sh + Python 3.10+, found by
+# lib/python.sh (`python3` first, which ubuntu-latest preinstalls). No .ps1
+# sibling: nothing runs it off a Linux runner.
 #
 # # Usage
 #
@@ -69,12 +70,16 @@ LOCAL_ROOT="${1:?usage: rewrite-local-root-coord.sh LOCAL_ROOT VERSION [DEPS_EDN
 VERSION="${2:?usage: rewrite-local-root-coord.sh LOCAL_ROOT VERSION [DEPS_EDN]}"
 DEPS_EDN="${3:-deps.edn}"
 
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/lib/python.sh"
+resolve_python || exit 2
+
 if [ ! -f "$DEPS_EDN" ]; then
   echo "::error::expected deps.edn at '$DEPS_EDN' — not found"
   exit 2
 fi
 
-LOCAL_ROOT="$LOCAL_ROOT" VERSION="$VERSION" DEPS_EDN="$DEPS_EDN" python3 <<'PY'
+LOCAL_ROOT="$LOCAL_ROOT" VERSION="$VERSION" DEPS_EDN="$DEPS_EDN" $python <<'PY'
 import os
 import pathlib
 import sys
