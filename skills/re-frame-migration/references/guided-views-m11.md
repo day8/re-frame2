@@ -292,7 +292,7 @@ Do **not** reach for a re-pointable bundle or a mutable frame handle to "fix" th
 
 M-11 above operationalises the no-frame-context footgun for the callbacks a **view** sets up; M-40 ([`auto-cross-cutting.md` §Boot-sequence invariant](auto-cross-cutting.md#boot-sequence-invariant--init-must-run-before-the-first-dispatch-and-the-first-render)) operationalises it for the **synchronous boot kick**. Both are instances of one general rule:
 
-> **Under EP-0002, ANY bare `rf/dispatch` / `rf/subscribe` reachable OUTSIDE a render AND OUTSIDE an explicit frame scope (a `with-frame` body or a captured `(rf/capture-frame)`) raises `:rf.error/no-frame-context`.** Frame identity is carried, not found; there is no ambient `:rf/default` the runtime synthesises in its place.
+> **Under EP-0002, ANY bare `rf/dispatch` / `rf/subscribe` reachable OUTSIDE a render AND OUTSIDE a frame scope (a `with-frame` body, an event's run, or a captured `(rf/capture-frame)`) raises `:rf.error/no-frame-context`.** Frame identity is carried, not found; there is no ambient `:rf/default` the runtime synthesises in its place.
 
 The remaining instance is the **async / non-render class** — code that registers a callback *outside any view* and bare-dispatches when it **later fires**:
 
@@ -302,6 +302,8 @@ The remaining instance is the **async / non-render class** — code that registe
 - a third-party JS-lib lifecycle callback (a map's `moveend`, a chart's `onClick`, a socket's `onmessage`).
 
 Each is registered outside any `frame-provider` and fires **after** boot, so there is no render around the callback body to read a frame from — its bare `dispatch` / `subscribe` raises `:rf.error/no-frame-context` at first fire.
+
+**An event's run is a frame scope; what it schedules is not.** The router binds the event's frame around the whole run — its interceptors, its `reg-cofx` suppliers, the handler, and every `reg-fx` body its effects reach — so a synchronous bare `rf/dispatch` or `(rf/capture-frame)` in any of those bodies resolves that frame and is not a site ([Spec 002 §Dispatches issued from inside a handler body](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body)). A callback such a body schedules — a timer, a promise continuation, an XHR completion — fires after the binding has unwound, so it is a site of this class: take the capture in the body, before scheduling, and reply through the captured `dispatch` — in a `reg-fx`, `(rf/capture-frame (:frame m))` on the handler's first argument ([M-51](auto-call-site-rewrites.md#effect-handler-arity-m-51)).
 
 **CRUCIAL — the remedy differs from the M-40 boot kick.** The boot kick is fixed by a `with-frame` *around the synchronous boot dispatch*. That does **not** carry here: a `with-frame` (or a `frame-provider`) established at **registration time** is a dynamic binding that is **already unwound by the time the async callback fires** — wrapping the `addEventListener` / `setTimeout` call itself in `with-frame` leaves the callback *body* running under no scope, and it still raises `:rf.error/no-frame-context`. Re-establish the frame **inside the callback**, two ways:
 
