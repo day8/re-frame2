@@ -24,8 +24,7 @@
   (rf.frame/ensure-default-frame!)
   (rf.event-emit/clear-event-listeners!)
   (rf/reg-app-schema [:user/avatar-pdf] [:maybe :string])
-  (rf.frame/swap-runtime-db! :rf/default
-    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:user/avatar-pdf]]}))))
+  (rf/reg-classification ::avatar {:large [[:user/avatar-pdf]]}))
 
 (defn- after! []
   (when-let [snap @registrar-snapshot]
@@ -62,7 +61,7 @@
     (is (string? blob))
     (is (>= (count blob) 5000))
     (is (number? (:bytes marker)))
-    (is (= {:path [:user/avatar-pdf] :reason :effect}
+    (is (= {:path [:user/avatar-pdf] :reason :classification}
            (select-keys marker [:path :reason])))))
 
 (deftest event-emit-listener-leaves-unschema'd-inline-large-payload

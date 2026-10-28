@@ -2,8 +2,8 @@
 
 4 handlers exercise the wire-elision surface defined
 in [spec/009 §Size elision in traces](../../spec/009-Instrumentation.md).
-3 buttons write to paths classified `:large` via the EP-0025
-commit-plane classification effect, and one button
+3 buttons write to paths classified `:large` by a
+`reg-classification`, and one button
 writes to an undeclared slot to exercise the
 `:rf.warning/large-value-unschema'd` dev-mode advisory. A consumer
 (Xray, Story, re-frame2-pair-mcp) reads the surface to verify the
@@ -14,10 +14,10 @@ marker on the appropriate slot.
 
 | Button | `data-testid` | Path written | Mechanism | Payload size | Outcome |
 |---|---|---|---|---|---|
-| A | `write-auto` | `[:auto-large-value]` | No classification | **20 KiB** | The wire-boundary walker emits the `:rf.warning/large-value-unschema'd` dev-mode advisory once (the path is not classified `:large` and exceeds the 16 KiB warning threshold) and leaves the value inline. Classify the path with the `:large` effect to elide it regardless of size — the warning is the nudge. (Fail-open: an unclassified small value rides raw.) |
-| B | `write-declared` | `[:declared-large-value]` | Classified `:large` (commit-plane effect) | 200 bytes | The path is classified `:large` by the `:large` effect the boot event returns alongside `:db`. The walker substitutes the `:rf.size/large-elided` marker on every emit regardless of size. |
+| A | `write-auto` | `[:auto-large-value]` | No classification | **20 KiB** | The wire-boundary walker emits the `:rf.warning/large-value-unschema'd` dev-mode advisory once (the path is not classified `:large` and exceeds the 16 KiB warning threshold) and leaves the value inline. Classify the path `:large` with a `reg-classification` to elide it regardless of size — the warning is the nudge. (Fail-open: an unclassified small value rides raw.) |
+| B | `write-declared` | `[:declared-large-value]` | Classified `:large` (`reg-classification`) | 200 bytes | The path is classified `:large` by the testbed's `reg-classification`. The walker substitutes the `:rf.size/large-elided` marker on every emit regardless of size. |
 | C | `write-fx-declared` | `[:fx-declared-value]` | Second `:large`-classified path | 200 bytes | Same outcome as Button B on a second path — gives consumers two simultaneous marker rows to assert against. |
-| D | `write-schema` | `[:schema-bag :schema-large-value]` | Nested `:large`-classified path | 200 bytes | Same outcome as Button B/C but the classified path is nested inside a composed `:map` (validated by `SchemaLarge`) rather than at the flat root. Exercises the walker's traversal into nested slots. The schema here only **validates** shape — the `:large` classification rides the commit-plane effect. |
+| D | `write-schema` | `[:schema-bag :schema-large-value]` | Nested `:large`-classified path | 200 bytes | Same outcome as Button B/C but the classified path is nested inside a composed `:map` (validated by `SchemaLarge`) rather than at the flat root. Exercises the walker's traversal into nested slots. The schema here only **validates** shape — the `:large` classification is the `reg-classification`. |
 
 ## DOM mirrors
 
@@ -26,7 +26,7 @@ marker on the appropriate slot.
 | `auto-len` | `20480` after click A — the handler sees the full 20 KiB value via the regular cofx slot. Click A does NOT cause wire elision (path not classified); it only fires the unschema'd-large warning. |
 | `declared-len` / `fx-len` / `schema-len` | `200` after the corresponding click — small payloads but the `:large` classification still fires elision on the wire. |
 | `auto-count` / `declared-count` / `fx-count` / `schema-count` | Advances on each click — proves the handler ran. |
-| `elision-decls` | The contents of `[:rf.runtime/elision :declarations]` — populated at boot by the `:large` commit-plane effect. A Playwright spec can assert that all three classified paths land with `:source :effect` (the durable app-db classification route). |
+| `elision-decls` | The frame's `:large` declarations (`re-frame.elision/declarations`). A Playwright spec can assert that all three classified paths are claimed `{:source :classification}` by the testbed's `reg-classification`. |
 
 ## The wire marker
 
@@ -38,14 +38,14 @@ substitutes the elided value with a normative shape:
   {:path    [:declared-large-value]            ;; absolute path
    :bytes   202                                ;; pr-str byte count
    :type    :string                            ;; one of :map :vector :set :scalar :string
-   :reason  :effect                            ;; classified via the :large commit-plane effect
+   :reason  :classification                    ;; classified by a reg-classification
    :handle  [:rf.elision/at [:declared-large-value]]}}
 ```
 
 A consumer asserting on the wire emit looks for the
 `:rf.size/large-elided` keyword in the trace event's `:tags :app-db-*`
 slots (or `:db-before` / `:db-after` in the epoch record). All three
-classified paths emit `:reason :effect`; click A does not produce
+classified paths emit `:reason :classification`; click A does not produce
 a marker (it produces the `:rf.warning/large-value-unschema'd`
 advisory instead).
 

@@ -55,7 +55,7 @@
   ;; [:auth :token], and baking it into server-rendered HTML would spill a live
   ;; credential into the page source: visible in view-source, logged by
   ;; proxies, possibly cached by a CDN. The frame classifies that path
-  ;; `:sensitive` (`:auth/classify-token`, core.cljs), but a classification
+  ;; `:sensitive` (the `:auth` `reg-classification`, core.cljs), but a classification
   ;; REDACTS: the payload would carry `:rf/redacted` in the token's place, and
   ;; the payload's app-db becomes the client's whole app-db, so the client would
   ;; boot holding a keyword where AuthSlice wants `[:maybe :string]` — and the

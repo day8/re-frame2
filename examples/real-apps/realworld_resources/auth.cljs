@@ -208,8 +208,8 @@
   {:doc "Store the authenticated session — the standalone, directly-dispatchable
          form of `store-session-db` (test fixtures and any external caller
          dispatch this by name). The JWT gets exactly one durable home:
-         the classified `[:auth :token]` path (declared by `:auth/classify-token`
-         in core.cljs). The User payload lands at `[:auth :user]` with its `:token`
+         the classified `[:auth :token]` path (declared by the `:auth`
+         `reg-classification` in core.cljs). The User payload lands at `[:auth :user]` with its `:token`
          field stripped off (`dissoc`), so the JWT is not quietly duplicated into
          the unclassified `[:auth :user :token]` slot. That matters: a second
          durable copy there would ship raw to every off-box record, because
@@ -630,16 +630,18 @@
 (def login-form-defaults    {:email "" :password ""})
 (def register-form-defaults  {:username "" :email "" :password ""})
 
+(rf/reg-classification :auth.forms
+  {:doc       "The login and register drafts' passwords: redacted at every
+               app-db egress (snapshot, epoch, off-box shipper, SSR) while
+               handlers still read the live value. See keep-secrets:
+               ../../../docs/core/how-to/keep-secrets-out-of-traces.md"
+   :sensitive [[:auth :login-form :draft :password]
+               [:auth :register-form :draft :password]]})
+
 (rf/reg-event :auth.login-form/initialise
-  {:doc "Seed the login-form draft AND classify its password path :sensitive in
-         the first durable write that creates the slice — so the raw password is
-         redacted at every app-db egress (snapshot, epoch, off-box shipper, SSR)
-         while handlers still read the live value. Mirrors :auth/classify-token
-         for the JWT (core.cljs). See keep-secrets:
-         ../../../docs/core/how-to/keep-secrets-out-of-traces.md"}
+  {:doc "Seed the login-form draft."}
   (fn [{:keys [db]} _]
-    {:db        (assoc-in db [:auth :login-form] {:draft login-form-defaults :touched #{}})
-     :sensitive [[:auth :login-form :draft :password]]}))
+    {:db (assoc-in db [:auth :login-form] {:draft login-form-defaults :touched #{}})}))
 
 (rf/reg-event :auth.login-form/edit-field
   {:doc    "Controlled-input edit for a NON-SECRET login field (email). The
@@ -697,11 +699,9 @@
               :on-failure [:auth/flow [:auth/failure]]}]]})))
 
 (rf/reg-event :auth.register-form/initialise
-  {:doc "Seed the register-form draft AND classify its password path :sensitive —
-         same egress-only, path-based discipline as the login form above."}
+  {:doc "Seed the register-form draft."}
   (fn [{:keys [db]} _]
-    {:db        (assoc-in db [:auth :register-form] {:draft register-form-defaults :touched #{}})
-     :sensitive [[:auth :register-form :draft :password]]}))
+    {:db (assoc-in db [:auth :register-form] {:draft register-form-defaults :touched #{}})}))
 
 (rf/reg-event :auth.register-form/edit-field
   {:doc "Controlled-input edit for a NON-SECRET register field (username,

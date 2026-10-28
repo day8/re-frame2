@@ -305,8 +305,8 @@
                    [:password {:optional true} [:maybe :string]]]
    ;; The new-password rides the mutation envelope as a param, so the mutation
    ;; OWNER classifies it :sensitive projection-relative to its instance (Spec
-   ;; 016 clause 4 / EP-0025). The runtime lowers this per-instance into the
-   ;; frame elision registry, so the password redacts across the durable
+   ;; 016 clause 4 / EP-0025). Egress applies it to each instance (Spec 015
+   ;; §Subsystem projection-relative classification), so the password redacts across the durable
    ;; instance's egress projection AND the completion continuation echo, while
    ;; the `:request` handler below still receives the raw value. The HTTP body
    ;; is scrubbed separately by `:sensitive?` on the `:request` (below).

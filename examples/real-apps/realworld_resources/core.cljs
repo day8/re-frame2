@@ -79,16 +79,13 @@
           [:dispatch [:auth.register-form/initialise]]]}))
 
 ;; The JWT at [:auth :token] is both durable and sensitive — exactly the kind of
-;; thing you don't want leaking off the box. The `:sensitive` effect marks it as
-;; such. We return it alongside `:db` from an event the frame runs at creation
-;; (`:initial-events`, before anything leaves the box), so the raw token is
-;; redacted from any capture, SSR payload, or trace. See data classification:
+;; thing you don't want leaking off the box. Declaring it here, beside the
+;; feature, redacts the raw token from any capture, SSR payload, or trace from
+;; the first one. See data classification:
 ;; ../../../docs/core/glossary.md#data-classification.
-(rf/reg-event :auth/classify-token
-  {:doc "Marks the durable JWT path [:auth :token] as sensitive, at frame
-         creation."}
-  (fn [{:keys [db]} _]
-    {:db db :sensitive [[:auth :token]]}))
+(rf/reg-classification :auth
+  {:doc       "The durable JWT."
+   :sensitive [[:auth :token]]})
 
 ;; ============================================================================
 ;; APP-SHELL VIEWS
@@ -244,7 +241,7 @@
 ;;
 ;; What the sink receives is ALREADY PROJECTED, under this frame's
 ;; classification and the entry's `:rf.egress/off-box-observability` profile.
-;; The JWT that `:auth/classify-token` marked sensitive is redacted before your
+;; The JWT the `:auth` `reg-classification` declares sensitive is redacted before your
 ;; code sees it, and the off-box profile omits the raw event-args slot
 ;; altogether. A sink never scrubs anything itself — that is precisely why the
 ;; policy lives on the frame instead of being passed as a callback.
@@ -340,11 +337,7 @@
 ;; a frame-wide auth-guard interceptor over the navigation events. See
 ;; routing.cljs §AUTH GATE for why the interceptor spelling fails open.
 ;;
-;; The order of `:initial-events` matters, for two reasons:
-;;   - `:auth/classify-token` goes first. The JWT at [:auth :token] is a durable
-;;     secret, so we mark it sensitive before anything (an Xray capture, an SSR
-;;     payload) could lay eyes on the raw value. See data classification:
-;;     ../../../docs/core/glossary.md#data-classification.
+;; The order of `:initial-events` matters:
 ;;   - `:auth/initialise` runs before `:app/initialise`. Session restore asks
 ;;     the `:realworld-resources.session/load` effect to read localStorage, and
 ;;     the classified `:auth/session-read` reply folds the saved JWT into
@@ -356,7 +349,7 @@
 ;; The token is not the only credential, though: the login / register / settings
 ;; PASSWORD is one too, the moment it is typed. Every surface it crosses is
 ;; classified on its own, fail-open, mirroring the token's discipline:
-;;   - the app-db draft, at slice-init (auth.cljs / settings.cljs);
+;;   - the app-db draft, by `reg-classification` (auth.cljs / settings.cljs);
 ;;   - the per-keystroke EDIT, its own map-payload event
 ;;     (`:sensitive [[:value]]`, e.g. `:auth.login-form/edit-password`,
 ;;     `:settings/edit-password`) rather than the positional event the
@@ -423,9 +416,8 @@
                       ;; ERROR REPORTING above.
                       :observability   observability
                       :http-interceptors [:realworld/bearer-auth]
-                      :initial-events  [[:auth/classify-token]
-                                            [:auth/initialise]
-                                            [:app/initialise]]}
+                      :initial-events  [[:auth/initialise]
+                                        [:app/initialise]]}
        [root-view]]
       el)
     ;; The frame is now live and session-seeded (and, per the note above, has
