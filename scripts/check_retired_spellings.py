@@ -3,7 +3,7 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Nine retired spellings are
+repo source is a CI failure, not a doc note. Ten retired spellings are
 lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1).
@@ -69,6 +69,13 @@ lintable:
       to edit the current query in place: an in-place `:query` merges into
       it, and a nil member removes its key. The key is retired with NO alias
       — the navigate gate rejects a leftover one as an unknown key.
+
+  (j) The SSR payload option `:payload-include-sensitive`. What reaches the
+      browser is one decision spelled in one option: a `:payload` path that
+      names a classified leaf is the permit for it. A second permit list
+      beside the allowlist is a second way to misdeclare a security
+      boundary, so the option is retired with NO alias, and every arm that
+      reads the payload policy refuses it, naming the path form.
 
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
@@ -295,6 +302,14 @@ retired SHAPES:
       sanctioned code use, so a delimited token in a navigate request IS the
       violation. Tests are outside the default surface, which is what lets
       the routing suite assert that a leftover `:query-merge` is refused.
+
+  (j) `:payload-include-sensitive` as a Clojure KEYWORD TOKEN, delimited
+      exactly as rule (c) delimits `:query-retain`. Unlike (i), the refusal
+      names the replacement, so it has to detect the token: the payload
+      policy is the ONE source file that names it, and
+      `PAYLOAD_PERMIT_SOURCE_ALLOWLIST` is closed at that file, as rule (f)'s
+      is at the parser that refuses the arrow. Tests are outside the default
+      surface, so the SSR suites can assert the refusal.
 
 WHY RULE (g) IS THE ONLY WIDE ONE
 
@@ -996,6 +1011,23 @@ _RETIRED_QUERY_MERGE_RE = re.compile(
     r"(?=[\s)\]},]|$)"           # keyword-token end
 )
 
+# (j) The retired SSR payload option `:payload-include-sensitive`, as a
+#     delimited Clojure KEYWORD TOKEN — the rule (c) shape. Its one sanctioned
+#     code use is the refusal itself, in the one allow-listed file.
+_RETIRED_PAYLOAD_PERMIT_RE = re.compile(
+    r"(?:^|(?<=[\s(\[{,]))"      # keyword-token start (a backtick denies it)
+    r":payload-include-sensitive"
+    r"(?=[\s)\]},]|$)"           # keyword-token end
+)
+
+# The ONE source file that must name the retired option: the payload policy,
+# whose refusal detects it and quotes the path form back to the author. A
+# CLOSED allow-list — a second source file naming the option is the
+# reintroduction this rule exists to catch.
+PAYLOAD_PERMIT_SOURCE_ALLOWLIST = (
+    "implementation/ssr/src/re_frame/ssr/payload_policy.cljc",
+)
+
 # (e) The retired facade fn `machine-has-tag?`, in its TWO shapes.
 #     Both are matched on the RAW line — see (e) under "WHY THE SHAPES ARE
 #     SCOPED PRECISELY" for why this rule alone does not mask comments.
@@ -1392,6 +1424,16 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
                         raw_snippet(line_no))
             )
 
+    # (j) The retired `:payload-include-sensitive` option — line-local, outside
+    #     the one file whose refusal names it.
+    if not _allowlisted(path, PAYLOAD_PERMIT_SOURCE_ALLOWLIST):
+        for line_no, line in enumerate(masked, start=1):
+            if _RETIRED_PAYLOAD_PERMIT_RE.search(line):
+                findings.append(
+                    Finding(path, line_no, "retired-payload-permit-option",
+                            raw_snippet(line_no))
+                )
+
     # (e) The retired facade fn `machine-has-tag?`. RAW lines, not masked —
     #     a carrier can sit inside a `;;` comment, and the qualified shape has
     #     no legitimate prose use. See (e) in the module docstring for the
@@ -1769,6 +1811,14 @@ _FIX_HINTS = {
         "into the current query, a nil member removes its key, and "
         "`:query nil` clears the query (Spec 012 §In-place navigation)."
     ),
+    "retired-payload-permit-option": (
+        "The SSR payload option `:payload-include-sensitive` is retired with "
+        "no alias — every arm that reads the payload policy refuses it. Name "
+        "each classified leaf the browser may hold by its PATH in `:payload` "
+        "itself, beside the top-level keys: "
+        "`:payload [:session [:session :csrf]]` (Spec 011 §`:rf/app-db` "
+        "projection)."
+    ),
     "retired-bench-coordinate": (
         "A fresco BENCH-TREE coordinate — `front.*` / `arm1.*` — is "
         "retired. The shipped package was measured as the prototype "
@@ -1871,6 +1921,7 @@ def main(argv: list[str]) -> int:
             "repo source (the bare :frame coeffect; redirect :url/:to; "
             "route :query-retain; the SSR fx :rf.server/safe-redirect; "
             "the navigate key :query-merge; "
+            "the SSR payload option :payload-include-sensitive; "
             "a fresco front.*/arm1.* bench coordinate, "
             "as a symbol OR as a string; the retired facade fn "
             "machine-has-tag?, qualified or redefined; the retired product "
@@ -2042,6 +2093,7 @@ _FIXTURE_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     ("scan", "positive/query_retain_reg_route_meta.cljc", 1),
     ("scan", "positive/safe_redirect_fx.cljc",            2),
     ("scan", "positive/query_merge_navigate.cljc",        1),
+    ("scan", "positive/payload_include_sensitive_opt.cljc", 1),
     ("coord", "coord/positive/where_symbol_front.cljc",     1),
     ("coord", "coord/positive/assertion_string_front.cljc", 1),
     ("coord", "coord/positive/syntax_quoted_symbol.cljc",   1),
@@ -2069,6 +2121,16 @@ _MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
      0),
     ("a private defn- helper",
      "(defn- machine-has-tag? [m tag] (contains? (:tags m) tag))", 0),
+)
+
+# Rule (j)'s allow-list, as one code line through `_scan_text` under two
+# paths: the allow-listed file is exempt, and the same line one file over is
+# not.
+_PAYLOAD_PERMIT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
+    ("implementation/ssr/src/re_frame/ssr/payload_policy.cljc",
+     "(when (contains? opts :payload-include-sensitive)", 0),
+    ("implementation/ssr/src/re_frame/ssr/render_state.cljc",
+     "(when (contains? opts :payload-include-sensitive)", 1),
 )
 
 # Rule (g), through `_scan_product_file`: the fixture supplies the BYTES and the
@@ -2162,6 +2224,9 @@ def _run_self_tests(verbose: bool = False) -> int:
     for label, line, expected in _MACHINE_HAS_TAG_SELF_TEST_CASES:
         check(label, len(_scan_text(Path("<case>"), line)), expected)
 
+    for at, line, expected in _PAYLOAD_PERMIT_SELF_TEST_CASES:
+        check(f"{line} in {at}", len(_scan_text(Path(at), line)), expected)
+
     for rel, at, expected in _PRODUCT_SELF_TEST_CASES:
         path = fixture(rel)
         got = len(_scan_product_file(Path(at), path.read_bytes())) if path else "no fixture"
@@ -2191,6 +2256,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     if verbose:
         total = (len(_FIXTURE_SELF_TEST_CASES)
                  + len(_MACHINE_HAS_TAG_SELF_TEST_CASES)
+                 + len(_PAYLOAD_PERMIT_SELF_TEST_CASES)
                  + len(_PRODUCT_SELF_TEST_CASES)
                  + len(_ARROW_PROSE_ROSTER_SELF_TEST_CASES)
                  + len(_PRODUCT_ROSTER_SELF_TEST_CASES))
