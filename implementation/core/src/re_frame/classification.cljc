@@ -379,6 +379,11 @@
                        ;; argument `re-frame.elision/fork-index-paths` makes).
                        (cond-> (fork-segment candidates i prefixes)
                          index-free? (into candidates))])
+           ;; A seq the app has not forced is never walked. A declared path
+           ;; that can still reach inside it fails closed; otherwise it ships
+           ;; as found.
+           :unforced (fn [[_path candidates] s]
+                       (if (seq candidates) rf.privacy/redacted-sentinel s))
            :leaf    (fn [_state v] v)}
           ;; Measures a collision node: sensitive redaction only, large off.
           measure
