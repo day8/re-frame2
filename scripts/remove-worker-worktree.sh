@@ -372,8 +372,13 @@ manifest_delta() {
 # ONLY MEANINGFUL ON AN INTACT WORKTREE. On a husk the git call fails, prints
 # nothing, and this returns empty — identical to clean. Every caller therefore
 # checks worktree_is_intact FIRST.
+#
+# `core.longpaths` because without it Git for Windows cannot open a directory
+# whose path passes 260 characters: status warns, skips it and exits 0, so
+# untracked work under a deep path reads as clean. Other git builds ignore the
+# key.
 worktree_dirt() {
-  git -C "$1" status --porcelain 2>/dev/null || true
+  git -c core.longpaths=true -C "$1" status --porcelain 2>/dev/null || true
 }
 
 # Is there still a git worktree behind this directory?
@@ -1396,14 +1401,19 @@ while IFS= read -r raw_target; do
     printf 'the rest can go.\n' >&2
     FAILED=1
   elif [ "$FORCE" -eq 1 ] || [ "$FORCE_DISPOSABLE" -eq 1 ]; then
-    if git -C "$MAYOR_ROOT" worktree remove --force "$WT"; then
+    # `core.longpaths`: without it Git for Windows cannot delete a path past
+    # 260 characters (a nested node_modules, a build cache), and `git worktree
+    # remove` has already deleted the registration by the time the tree delete
+    # fails, so the tree comes out a HUSK. It also reaches the cleanliness
+    # check the remove runs, for the reason worktree_dirt gives.
+    if git -c core.longpaths=true -C "$MAYOR_ROOT" worktree remove --force "$WT"; then
       printf 'REMOVED=%s\n' "$WT"
     else
       report_remove_failure "$WT"
       FAILED=1
     fi
   else
-    if git -C "$MAYOR_ROOT" worktree remove "$WT"; then
+    if git -c core.longpaths=true -C "$MAYOR_ROOT" worktree remove "$WT"; then
       printf 'REMOVED=%s\n' "$WT"
     else
       report_remove_failure "$WT"
