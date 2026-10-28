@@ -1,0 +1,374 @@
+'use strict';
+// ONE ISOLATE — a worker thread, its deadline, and its one in-flight
+// render (guarantees 1, 3 and 4).
+//
+// ## WHY A THREAD AND NOT A FUNCTION CALL
+//
+// Because of guarantee 4, and only because of it. Everything else this
+// file does could be done in-process; hard termination cannot.
+//
+// `react-dom/server`'s `renderToString` is SYNCHRONOUS. A render that
+// will not finish — an accidental infinite loop in a view, a pathological
+// input, a regex that backtracks — cannot be interrupted by anything
+// cooperative. There is no promise to reject, no abort signal anyone is
+// polling, and no timer that will fire, because the timer's own callback
+// is queued behind the loop. In-process, a hung render hangs the process.
+//
+// `worker.terminate()` reaches V8's execution terminator and stops
+// synchronous JavaScript mid-instruction. That is the whole reason an
+// isolate here is a worker thread. It also buys, for free, the isolation
+// guarantee 1 wants: a separate V8 isolate is a separate module registry,
+// so the render module's process-scoped state — the substrate Spec 006
+// allows one of, the framework registrar, the module-level adoption
+// window the Fresco entry opens around its render — is per-isolate.
+//
+// ## A TERMINATED ISOLATE IS NEVER REUSED
+//
+// After `terminate()` the worker's heap is in whatever state the
+// interrupted instruction left it. It is not restarted here and not
+// drained; it is marked dead and the POOL replaces it. Reusing it would
+// be handing the next request a renderer that was killed halfway through
+// someone else's, which is the failure this guarantee exists to prevent
+// rather than a saving.
+
+const path = require('node:path');
+const { Worker } = require('node:worker_threads');
+const { CODE, Refusal, isRefusalCode, ISOLATE_LOST_REFUSAL } = require('./protocol.cjs');
+
+const WORKER_PATH = path.join(__dirname, 'worker.cjs');
+
+/**
+ * The operator's copy of the fault that killed an isolate mid-render —
+ * everything the refusal deliberately does not carry.
+ *
+ * The counterpart of `worker.cjs`'s `reportRenderException`, on this side
+ * of the thread boundary and for the faults that side never sees: an
+ * exception thrown from a callback the render scheduled is never caught by
+ * anything in the worker, so its `try/catch` — and therefore its stderr
+ * write — never runs. This is the only place the exception exists.
+ *
+ * WHICH IS WHY THIS FUNCTION IS PART OF THE CONTRACT RATHER THAN A
+ * COURTESY. A refusal whose wording is closed, with no copy of the fault
+ * anywhere else, would trade a leak for a silence, and a failure nobody can
+ * diagnose is its own defect.
+ *
+ * NO SEPARATE SUBSYSTEM and no flag, for the reasons `reportRenderException`
+ * gives: `bin/serve.cjs` writes `[rf.ssr-node] …` here, so this is that
+ * stream under that prefix, and a diagnostic that can be switched off is
+ * off on the day it is wanted.
+ */
+function reportIsolateFault(isolateSeq, err) {
+  const trace = err && err.stack ? err.stack : String(err);
+  process.stderr.write(`[rf.ssr-node] isolate ${isolateSeq} died mid-render: ${trace}\n`);
+}
+
+let nextIsolateSeq = 0;
+
+class Isolate {
+  constructor({ modulePath, bootTimeoutMs = 30000 }) {
+    this.seq = nextIsolateSeq++;
+    this.modulePath = modulePath;
+    this.bootTimeoutMs = bootTimeoutMs;
+    this.worker = null;
+    this.threadId = null;
+    this.buildId = null;
+    this.entries = null;
+    this.dead = false;
+    /** The one in-flight render, or null. Guarantee 3, in one field. */
+    this.pendingRender = null;
+    this._nextRenderId = 0;
+  }
+
+  get busy() {
+    return this.pendingRender !== null;
+  }
+
+  /** Boot the worker and wait for it to publish its tables. */
+  start() {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(WORKER_PATH, {
+        workerData: { modulePath: this.modulePath },
+      });
+      this.worker = worker;
+      this.threadId = worker.threadId;
+
+      const bootTimer = setTimeout(() => {
+        this._terminateWorker();
+        reject(
+          new Refusal(
+            CODE.MALFORMED_MODULE,
+            `the render module did not become ready within ${this.bootTimeoutMs} ms`,
+            { modulePath: this.modulePath },
+          ),
+        );
+      }, this.bootTimeoutMs);
+      bootTimer.unref();
+
+      const handleBootMessage = (message) => {
+        if (message.t === 'ready') {
+          clearTimeout(bootTimer);
+          worker.off('message', handleBootMessage);
+          this.buildId = message.buildId;
+          this.entries = message.entries;
+          worker.on('message', (renderMessage) => this._handleRenderMessage(renderMessage));
+          resolve(this);
+        } else if (message.t === 'boot-error') {
+          clearTimeout(bootTimer);
+          this._terminateWorker();
+          reject(new Refusal(message.code, message.message, { modulePath: this.modulePath }));
+        }
+      };
+      worker.on('message', handleBootMessage);
+      worker.on('error', (err) => {
+        clearTimeout(bootTimer);
+        // ONE HANDLER, TWO PHASES, AND THEY ARE NOT THE SAME AUDIENCE. It
+        // stays registered for the worker's whole life, so before boot
+        // resolves the `reject` below is live and `_failPendingRender` is a
+        // no-op; afterwards the promise is settled and it is the other way
+        // round. The two arms answer different people and that is why they
+        // differ.
+        //
+        // THE RENDER ARM — a fault that reached a CALLER. `handleRender`'s
+        // own catch never sees this one: an exception thrown from a callback
+        // the render scheduled runs on a later tick with no `try` above it,
+        // so Node kills the thread and the `Error` arrives here instead.
+        // That makes this the second receiver of the response law.
+        // `err.message` is the module's wording and `err.stack` is that
+        // wording plus every absolute path in the deployment, and either one
+        // on the public `Refusal` would be serialised into the HTTP body.
+        // So: the contract's wording, and a `detail` this file builds.
+        // `isolate` and `threadId` are the same two service-owned facts the
+        // deadline refusal below carries, and for the same reason — they
+        // name the thread an operator is about to go looking for, and
+        // neither originates in the module.
+        //
+        // The real exception goes to stderr first, and on this path that is
+        // the only copy that has ever existed; see `reportIsolateFault`.
+        if (this.pendingRender) reportIsolateFault(this.seq, err);
+        this._failPendingRender(
+          new Refusal(CODE.ISOLATE_LOST, ISOLATE_LOST_REFUSAL, {
+            isolate: this.seq,
+            threadId: this.threadId,
+          }),
+        );
+        // THE BOOT ARM — the module's own wording, deliberately. Boot fails
+        // before the service listens, so this refusal is read by the
+        // operator standing at the process they just started rather than by
+        // a caller across a wire. Two audiences, and this one is already the
+        // operator. It serves only a fault the worker did not catch, which
+        // kills the thread before `ready`: an exception thrown while the
+        // module is loaded or from its `boot` hook is caught in `worker.cjs`,
+        // which writes its stack to stderr (`reportBootException`) and posts
+        // `boot-error` to the receiver above instead, so it never reaches
+        // this handler.
+        //
+        // Read NULLISH-SAFELY, because this line runs in every phase: the
+        // `reject` is a no-op after boot, but its arguments are still
+        // evaluated. A module callback that throws `null` or `undefined`
+        // (CLJS emits `throw null` for `(throw nil)`) arrives here as that
+        // value itself, and reading `.message` off it would throw in the
+        // MAIN thread — an uncaught exception that takes the whole sidecar
+        // down, every isolate's in-flight render with it.
+        reject(new Refusal(CODE.MALFORMED_MODULE, err?.message ?? String(err), { stack: err?.stack }));
+      });
+      worker.on('exit', (exitCode) => {
+        clearTimeout(bootTimer);
+        // THE BOOT ARM OF THIS EVENT. A worker that exits before it posts
+        // `ready` — a module calling `process.exit()` while it is evaluated,
+        // or from its `boot` hook — raises no `error` and posts no
+        // `boot-error`, and the line above has just cleared the one other
+        // thing that could settle startup. Without this `reject`, startup
+        // would stay pending for ever, past `bootTimeoutMs`, and so would
+        // everything above it: `Pool.start`'s `allSettled` would never reach
+        // its sibling cleanup, and a replacement would never leave
+        // `startingReplacements`, which `close()` waits on. A no-op once
+        // `ready` has resolved, exactly as the `error` arm's `reject` is.
+        reject(
+          new Refusal(
+            CODE.MALFORMED_MODULE,
+            `the render module's worker exited (code ${exitCode}) before it became ready`,
+            { modulePath: this.modulePath, exitCode },
+          ),
+        );
+        // THE SIBLING ARM, AND IT IDENTIFIES ITSELF THE SAME WAY.
+        // `ISOLATE_LOST` covers three distinct causes — a crashed worker, a
+        // worker that exited, and a replacement that will not boot — and a
+        // consumer tells them apart by detail SHAPE, because the code and
+        // the wording are the only other things it has. This is the arm
+        // whose thread is gone most quietly (nothing thrown, nothing on
+        // stderr), so an EMPTY map here would name neither the isolate nor
+        // the thread an operator is about to go looking for. `isolate` and
+        // `threadId` are the same two service-owned facts the `error` arm
+        // above and the deadline refusal below carry, and for the same
+        // reason: neither originates in the render module.
+        this._failPendingRender(
+          new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {
+            isolate: this.seq,
+            threadId: this.threadId,
+          }),
+        );
+      });
+    });
+  }
+
+  /**
+   * Render one request. Resolves with `{ html, renderMs, buildId }` — the
+   * body markup the module returned and the facts this side owns about it;
+   * rejects with a `Refusal` — with one
+   * deliberate exception, named because a docstring that quietly overstates
+   * its contract is worse than one that admits the edge. A `postMessage`
+   * that throws rejects with the RAW fault: that is a fault in the sidecar
+   * rather than in the application, and `service.cjs`'s last receiver is
+   * the only thing that both writes the real trace to the operator's stderr
+   * and publishes the contract's own wording to the caller. Building a
+   * `Refusal` here would satisfy the sentence above and leave the operator
+   * with no copy of the failure at all.
+   */
+  render(request, { timeoutMs }) {
+    if (this.dead) {
+      return Promise.reject(new Refusal(CODE.ISOLATE_LOST, 'this isolate is dead', {}));
+    }
+    if (this.busy) {
+      // See the header of `worker.cjs`: the pool never does this, and the
+      // guard holds anyway.
+      return Promise.reject(
+        new Refusal(
+          CODE.SERVICE_SATURATED,
+          'this isolate already has a render in flight; one at a time',
+          { isolate: this.seq },
+        ),
+      );
+    }
+
+    const renderId = this._nextRenderId++;
+
+    return new Promise((resolve, reject) => {
+      // THE POST COMES FIRST, AND NOTHING IS MARKED UNTIL IT LANDS.
+      // `postMessage` throws — a structured clone refuses any value it
+      // cannot copy. Run last, after the flag and the timer were set, a
+      // throw would leave the isolate marked busy with a render that had
+      // already rejected, and only the deadline could clear it:
+      // `pendingRender` is the sole reading of `busy`, and every other path
+      // that clears it is a message about a render this one never sent. The
+      // pool would take the isolate back (`dead` is false, so nothing
+      // replaces it) and hand it to the next caller, who would be refused
+      // SERVICE_SATURATED by an isolate doing nothing at all — until the
+      // deadline fired and TERMINATED a healthy worker thread, costing one
+      // more request and a boot.
+      //
+      // The ordering needs no extra state: a throw here unwinds the
+      // executor with the timer unarmed and `pendingRender` untouched, so
+      // the isolate is exactly as free as it was a line ago. Posting before
+      // marking is safe because nothing can observe the gap — a reply from
+      // another thread cannot arrive until this synchronous executor has
+      // run to its end.
+      this.worker.postMessage({ t: 'render', id: renderId, request });
+
+      const deadlineTimer = setTimeout(() => {
+        // HARD TERMINATION. Not a cancel, not a reject-and-hope: the
+        // thread is stopped, because a synchronous render cannot be asked
+        // to stop.
+        const isolateSeq = this.seq;
+        const threadId = this.threadId;
+        this._settlePendingRender(renderId, () =>
+          reject(
+            new Refusal(
+              CODE.RENDER_TIMEOUT,
+              `render exceeded its ${timeoutMs} ms deadline; the isolate was terminated`,
+              { timeoutMs, isolate: isolateSeq, threadId, entry: request.entry },
+            ),
+          ),
+        );
+        this._terminateWorker();
+      }, timeoutMs);
+      deadlineTimer.unref();
+
+      this.pendingRender = { renderId, deadlineTimer, resolve, reject };
+    });
+  }
+
+  _handleRenderMessage(message) {
+    const pendingRender = this.pendingRender;
+    if (!pendingRender || message.id !== pendingRender.renderId) return;
+
+    if (message.t === 'complete') {
+      // Named fields, never a spread of `message`. The worker puts nothing
+      // on this message but the module's markup and its own clock (see its
+      // header), and this end declines to carry a field it was not
+      // expecting even if one somehow arrived — two independent readings of
+      // the same property, which is what makes it a boundary rather than a
+      // habit.
+      this._settlePendingRender(message.id, () =>
+        pendingRender.resolve({
+          html: message.html,
+          renderMs: message.renderMs,
+          buildId: this.buildId,
+        }),
+      );
+      return;
+    }
+    if (message.t === 'error') {
+      // THE SECOND READING, and the same discipline the `complete` branch
+      // above states: this is the boundary that BUILDS the public
+      // `Refusal`, so the closed family is checked here as well as at the
+      // worker that posts it. The worker is the enforcement — it is what
+      // stops a module's own `code` being believed at all — and this is
+      // the reading that stops any code the family does not contain from
+      // reaching `http.cjs`'s `statusFor` and choosing a status of its
+      // own. Two independent readings of one property, which is what makes
+      // it a boundary rather than a habit.
+      this._settlePendingRender(message.id, () =>
+        pendingRender.reject(
+          new Refusal(
+            isRefusalCode(message.code) ? message.code : CODE.RENDER_THREW,
+            message.message,
+            message.detail ?? {},
+          ),
+        ),
+      );
+    }
+  }
+
+  /** Clear the in-flight record and its deadline, then run `settle`. */
+  _settlePendingRender(renderId, settle) {
+    const pendingRender = this.pendingRender;
+    if (!pendingRender || pendingRender.renderId !== renderId) return;
+    clearTimeout(pendingRender.deadlineTimer);
+    this.pendingRender = null;
+    settle();
+  }
+
+  /** Reject whatever is in flight — the isolate died under it. */
+  _failPendingRender(refusal) {
+    const pendingRender = this.pendingRender;
+    this.dead = true;
+    if (pendingRender) {
+      clearTimeout(pendingRender.deadlineTimer);
+      this.pendingRender = null;
+      pendingRender.reject(refusal);
+    }
+  }
+
+  _terminateWorker() {
+    this.dead = true;
+    const worker = this.worker;
+    this.worker = null;
+    if (worker) worker.terminate().catch(() => {});
+  }
+
+  /** Orderly shutdown. Nothing in flight is waited for. */
+  async close() {
+    const worker = this.worker;
+    this.dead = true;
+    this.worker = null;
+    if (this.pendingRender) {
+      clearTimeout(this.pendingRender.deadlineTimer);
+      const pendingRender = this.pendingRender;
+      this.pendingRender = null;
+      pendingRender.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}));
+    }
+    if (worker) await worker.terminate().catch(() => {});
+  }
+}
+
+module.exports = { Isolate };

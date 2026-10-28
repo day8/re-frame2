@@ -1,0 +1,633 @@
+'use strict';
+// THE JVM<->NODE RENDER PROTOCOL.
+//
+// This file is the contract and its validator, and it knows nothing about
+// HTTP, worker threads or how any of it is framed on a wire: the protocol
+// is a set of MESSAGE SHAPES, and a transport is an adapter over them. `http.cjs`
+// is one such adapter; a socket, a length-prefixed pipe or an in-process
+// call would be others, and none of them would touch this file.
+//
+// ## A RESPONSE IS ONE BODY, OR A REFUSAL INSTEAD OF IT
+//
+// The render module returns its body markup as a string — React's
+// `renderToString` output, in a Fresco bundle — and a response is that
+// string in one `complete` message, or one `refusal` in its place. One
+// buffered body is all either side reads: the JVM adapter POSTs to
+// `/render` and takes the whole body, and Spec 011 specifies a whole-page
+// response. A streaming render would be a separate, stream-returning form
+// behind the JVM's `:renderer` seam, with flow control and cancellation of
+// its own, added beside this one rather than latent in it.
+//
+// Every caller-fault refusal is delivered before an isolate is borrowed,
+// because `validateRequest` runs to completion before dispatch; that is
+// asserted in `protocol.test.cjs`.
+//
+// ## NODE RETURNS BODY MARKUP AND NOTHING ELSE
+//
+// This is the designed topology rather than a simplification, and it is what
+// keeps the field lists below as short as they are.
+// `docs/design/fresco/production-server-arm.md` §5 sets the compliant
+// shape out arrow by arrow: `ssr-ring` drains the boot events and holds
+// the request frame on the JVM; Node resolves an entry identifier against
+// the table its own bundle publishes, seeds a per-request frame from the
+// state projection, and renders; **Node returns the body markup, and
+// nothing else**; the JVM assembles the page and writes the payload
+// script from ITS OWN app-db. §11's tripwire names the alternative in as
+// many words — *"Anything beyond the body markup crossing the contract …
+// is the host fork the adversarial review rejected, arriving by
+// increments."*
+//
+// So the hydration payload is not on this wire in either direction, and
+// neither is the head model, the response accumulator, cookies or
+// redirects. That is why `payloadPolicy` and `clientFrameId` are absent
+// from the request: with the payload built on the JVM, a render that
+// asked for either would be a render building a payload.
+//
+// ## TWO PARTITIONS CROSS, AND THE JVM DECIDES WHAT IS IN THEM
+//
+// A settled frame is two partitions — the application's app-db and the
+// framework's runtime-db (the route slice, the machine snapshots) — and a
+// render reads both. So the request carries both, in the same per-key
+// EDN-text shape: `state` for the app-db partition and `runtime` for the
+// runtime-db partition. The JVM projects them with
+// `re-frame.ssr.render-state/project` under its `:render-state` policy —
+// required, fail-closed, and the one render-visibility policy on this
+// path — and the bundle's entry seeds a fresh frame from them with
+// `render-state/restore!`, the framework's install door. This file checks
+// the SHAPE of what was sent — top-level key text, EDN-text values, one
+// byte ceiling over both — and never decodes application data. Which keys
+// were sent is not its question: a key the JVM projected is a key the
+// render may read.
+//
+// ## FAIL-CLOSED MEANS THE FIELD LIST IS THE CONTRACT
+//
+// A request field this file does not name is a refusal. Not ignored, not
+// passed through, not logged — refused. Two things follow that look like
+// strictness for its own sake and are not:
+//
+//   - a typo'd field name cannot silently become a default, which is the
+//     failure mode the framework's own `payload-policy` exists to
+//     prevent on the neighbouring wire;
+//   - the field list ENFORCES THE TOPOLOGY above, at the door, rather
+//     than in a paragraph nobody reads at 3am. The three fields a
+//     well-meaning implementer would actually reach for are named in
+//     `REFUSED_FIELDS` with the reason attached to the refusal, so the
+//     message teaches instead of merely declining.
+//
+// ## AND THE RESPONSE LEG IS ALLOWLISTED THE SAME WAY
+//
+// A fail-closed request door with an open response door is not a
+// fail-closed crossing; it is a fail-closed crossing in one direction and
+// a `meta` map in the other. `COMPLETE_FIELDS` is therefore the response
+// leg's field list, and it is the same kind of object as `REQUEST_FIELDS`
+// rather than a comment: every member is a fact the SERVICE owns about
+// the crossing it just performed, except `html`, the body markup itself —
+// and there is no other member, and no mechanism, by which the
+// application's render module contributes one. The string `render` returns
+// is the module's only output channel, and `worker.cjs` refuses a module
+// that returns anything else.
+
+const PROTOCOL_VERSION = 1;
+
+/**
+ * Refusal codes. Namespaced under `:rf.ssr-node/*` — a reserved-namespace
+ * tenant per Conventions' `:rf/*` single-root scheme, catalogued in
+ * `spec/Conventions.md`.
+ */
+const CODE = Object.freeze({
+  MALFORMED_REQUEST: ':rf.ssr-node/malformed-request',
+  PROTOCOL_VERSION: ':rf.ssr-node/protocol-version',
+  UNKNOWN_REQUEST_FIELD: ':rf.ssr-node/unknown-request-field',
+  BAD_REQUEST_FIELD: ':rf.ssr-node/bad-request-field',
+  REQUEST_TOO_LARGE: ':rf.ssr-node/request-too-large',
+  UNKNOWN_ENTRY: ':rf.ssr-node/unknown-entry',
+  BUILD_IDENTITY_MISMATCH: ':rf.ssr-node/build-identity-mismatch',
+  RENDER_TIMEOUT: ':rf.ssr-node/render-timeout',
+  RENDER_THREW: ':rf.ssr-node/render-threw',
+  ISOLATE_LOST: ':rf.ssr-node/isolate-lost',
+  SERVICE_SATURATED: ':rf.ssr-node/service-saturated',
+  SERVICE_CLOSED: ':rf.ssr-node/service-closed',
+  MALFORMED_MODULE: ':rf.ssr-node/malformed-render-module',
+});
+
+/**
+ * EVERY field a request may carry. The list IS the allowlist — see the
+ * header. Adding a field here is a protocol change and should read like
+ * one.
+ */
+const REQUEST_FIELDS = Object.freeze([
+  'protocol',
+  'entry',
+  'state',
+  'runtime',
+  'args',
+  'buildId',
+  'timeoutMs',
+  'requestId',
+]);
+
+/**
+ * The two frame-state partitions a request carries, as [request field,
+ * what the keys are]. One table, so the read-once bindings and the
+ * partition validator cannot disagree about which partitions exist.
+ */
+const PARTITIONS = Object.freeze([
+  Object.freeze({ field: 'state', keys: 'app-db' }),
+  Object.freeze({ field: 'runtime', keys: 'runtime-db' }),
+]);
+
+/**
+ * Fields refused ON PURPOSE, each with the reason a reader needs. Every
+ * other unknown field takes the generic refusal; these three are the ones
+ * an implementer building this crossing would reach for first, and a
+ * refusal that only says "unknown" would send them to widen the list.
+ */
+const REFUSED_FIELDS = Object.freeze({
+  initialEvents:
+    'The JVM drains the boot events and holds the request frame. A Node side that drained ' +
+    'them itself forks the event drain, which is the host fork this contract refuses. ' +
+    'Send the drained state as `state` instead.',
+  payloadPolicy:
+    'The hydration payload is built on the JVM from its own app-db. Node returns body ' +
+    'markup and nothing else, so there is no payload here for a policy to govern.',
+  head:
+    'The head model, the response accumulator, cookies and redirects are `ssr-ring`\'s and ' +
+    'stay on the JVM. Anything beyond body markup crossing this contract is the host fork ' +
+    'arriving by increments.',
+});
+
+/**
+ * EVERY field a `complete` response carries. The response leg's half of the
+ * contract, and the same kind of list as `REQUEST_FIELDS` — see the header.
+ *
+ * Read the members as a single claim: `html` is the body markup the
+ * application's render module returned, and every other member is a fact
+ * about the CROSSING, produced by this service — none of them originates
+ * in the module.
+ *
+ *   `type`      — the discriminator, beside a refusal's `'refusal'`.
+ *   `html`      — the body markup, exactly as the module returned it.
+ *   `renderMs`  — how long the module's render took. Timed here.
+ *   `buildId`   — which bundle answered. Read from the module's published
+ *                 table at boot, not from the render.
+ *   `requestId` — the CALLER's own correlation token, echoed back. It is
+ *                 the one field that did not originate on this side, and
+ *                 it originated with the caller rather than with the
+ *                 application bundle, so echoing it egresses nothing the
+ *                 caller does not already hold.
+ *
+ * Adding a member is a protocol change and should read like one. Adding a
+ * member the render module fills in is the topology change §11 of the
+ * server-arm pricing calls "the host fork arriving by increments", and
+ * `test/egress.test.cjs` is the row that will say so.
+ */
+const COMPLETE_FIELDS = Object.freeze(['type', 'html', 'renderMs', 'buildId', 'requestId']);
+
+/**
+ * What a caller is told when the render module threw.
+ *
+ * ONE WORDING FOR EVERY RENDER EXCEPTION, and the wording is this
+ * contract's rather than the module's, so it is worth saying why a fixed
+ * string beats the obvious alternative.
+ *
+ * A thrown `Error` is the OTHER way out of a render, and it can carry
+ * application data that only the returned body markup may carry.
+ * `message` is built from the value being processed in every renderer
+ * worth the name — React names the
+ * property that was undefined, a validator quotes the input, a template
+ * interpolates the row — so this is not a leak that needs a module doing
+ * something strange; it is a leak that needs a module having a bug.
+ * `detail` is worse: nothing bounds what an application hangs on it. Both
+ * would cross into the public `Refusal` and into the HTTP JSON body.
+ *
+ * `code` is the same untrusted property and a distinct failure. It is a
+ * bare field on an ordinary `Error`, and `http.cjs`'s `statusFor` maps it
+ * to a status — so a module could describe its own bug in this service's
+ * closed vocabulary and present a render fault as a 400 the caller blames
+ * itself for, a 503 a retry policy sleeps on, or a 504. The refusal
+ * taxonomy is a fact about THIS SERVICE'S crossing; the application is not
+ * one of its authors.
+ *
+ * WHY NOT A REDACTED OR TRUNCATED MESSAGE. Because there is no rule that
+ * separates the safe part of an application's exception from the rest, and
+ * a rule that only usually holds is the shape this file already refuses on
+ * the request leg. The diagnosis is not lost — the worker writes the real
+ * exception, stack and all, to the sidecar's stderr, which is where an
+ * operator already reads this package (`bin/serve.cjs` writes there under
+ * the same prefix). Two audiences, two channels: the caller across the
+ * wire gets an honest, closed refusal; the operator inside the process
+ * gets everything.
+ */
+const RENDER_THREW_REFUSAL =
+  'the render module threw. Its exception belongs to the application, not to this contract: ' +
+  'the message, the `detail` and any `code` it carried are the module\'s own and do not cross ' +
+  'this boundary — a diagnostic that echoed them would be application data leaving through ' +
+  'the error channel, which is the same egress the response leg refuses wearing a different ' +
+  'frame type, and a module-chosen `code` would let a render fault present itself as a ' +
+  'caller fault, a saturation or a deadline. The full exception, with its stack, is on the ' +
+  'sidecar\'s stderr for the operator.';
+
+/**
+ * What a caller is told when the isolate died under their render.
+ *
+ * THE SAME LAW AS `RENDER_THREW_REFUSAL`, STATED BY THE OTHER RECEIVER —
+ * and that there are two receivers is the whole of why this constant
+ * exists. `RENDER_THREW_REFUSAL` closes the throw `worker.cjs` is standing
+ * in front of: the module throws while the service is inside
+ * `await renderModule.render()`, so a `try` has it. A throw from a callback
+ * the render SCHEDULED has no `try` above it anywhere — a timer, an
+ * unhandled `.then`, an event listener — so it is an uncaught exception in
+ * the worker thread. Node terminates the thread and raises `'error'` on the
+ * parent's `Worker`, and `isolate.cjs` builds the refusal from an `Error`
+ * that came from the application.
+ *
+ * That `Error`'s `message` is the module's own wording, which would leak
+ * for the reason `RENDER_THREW_REFUSAL` sets out at length; its `stack` is
+ * worse than the message, because on top of that wording it names every
+ * absolute path in the deployment's filesystem. Neither goes on the public
+ * `Refusal` or into the HTTP JSON body.
+ *
+ * THE CODE STAYS `ISOLATE_LOST` AND IS NOT SMOOTHED INTO `RENDER_THREW`.
+ * The two are different facts and the caller acts on the difference: a
+ * render that threw leaves a healthy isolate the pool may reuse, while this
+ * one is a dead thread the pool must replace. Closing the wording is not a
+ * licence to describe a crashed worker as a reusable one.
+ *
+ * The diagnosis is not lost. `isolate.cjs` writes the real exception, stack
+ * and all, to the sidecar's stderr under the prefix `bin/serve.cjs` uses —
+ * and on this path that is not merely the better channel, it is the only
+ * one: the worker never caught anything, so its own
+ * `reportRenderException` never ran.
+ */
+const ISOLATE_LOST_REFUSAL =
+  'the isolate died while rendering. The exception belongs to the application, not to this ' +
+  'contract: its message and its stack are the module\'s own — and the stack names the ' +
+  'server\'s filesystem besides — so neither crosses this boundary, for the same reason a ' +
+  'render that threw inside the call does not carry its wording out. The render did not ' +
+  'finish and this isolate is not reusable; the pool replaces it. The full exception, with ' +
+  'its stack, is on the sidecar\'s stderr for the operator.';
+
+/**
+ * What a caller waiting for capacity is told when the pool could not
+ * replace a terminated isolate — and every caller after it, since that
+ * failure closes the service for good.
+ *
+ * THE SAME LAW AGAIN, STATED BY A THIRD RECEIVER — and this one exists
+ * because one refusal has two AUDIENCES, not because a different failure
+ * needs its own. `isolate.cjs` builds one refusal for every boot
+ * failure, and it carries the module's own `message` and `stack` on
+ * purpose: boot fails before the service listens, so its reader is the
+ * operator standing at the process they just started. That reasoning is
+ * sound for `Pool.start()` and false for `Pool._startReplacement()`. A
+ * replacement boots while the service is LIVE, and `Pool.release()` hands
+ * its failure to everyone queued in `acquire()` — a caller across a wire,
+ * reading a refusal written for somebody standing at a terminal.
+ *
+ * IT WOULD BE THE WIDEST OF THE THREE LEAKS. The boot refusal carries the
+ * module's boot wording, the absolute module path this deployment was
+ * pointed at, and — because the boot receiver builds its `Refusal`
+ * straight from the posted `code` without consulting `isRefusalCode` — a
+ * code the MODULE chose, which is the spoof `RENDER_THREW_REFUSAL` closes
+ * on the render path arriving on the boot path instead. Forwarded to a
+ * waiter, a module that types `:rf.ssr-node/service-saturated` onto its
+ * boot error would turn its own broken bundle into the 503 a caller's
+ * retry policy sleeps on.
+ *
+ * THE CODE STAYS `ISOLATE_LOST`, for the reason its own constant gives:
+ * an isolate really was lost and really was not replaced, and a caller
+ * acts on that rather than on why the boot failed.
+ *
+ * The diagnosis goes to the operator, and on this path that costs nothing:
+ * the loop over waiters tells no one when NOBODY is queued, so without a
+ * stderr write a failed replacement would end the service with its cause
+ * untold. The stderr write is therefore unconditional.
+ */
+const REPLACEMENT_FAILED_REFUSAL =
+  'the service could not replace a terminated isolate, so the capacity you were waiting for ' +
+  'will not arrive. Why the replacement would not boot belongs to the application and to this ' +
+  'deployment, not to this contract: the module\'s own message, the `code` it carried and the ' +
+  'path this service was pointed at do not cross this boundary — a module-chosen `code` would ' +
+  'let a broken bundle present itself as a caller fault, a saturation or a deadline, and the ' +
+  'path names the server\'s filesystem. The full failure, with its stack, is on the sidecar\'s ' +
+  'stderr for the operator.';
+
+/**
+ * Is this one of the refusal codes this service publishes?
+ *
+ * The family is closed — `CODE` is the whole of it — and this is the test
+ * that says so at the boundary that BUILDS a public `Refusal`, so that a
+ * code arriving from anywhere else cannot reach `statusFor` and be given a
+ * status of its own choosing.
+ */
+const REFUSAL_CODES = Object.freeze(new Set(Object.values(CODE)));
+const isRefusalCode = (code) => REFUSAL_CODES.has(code);
+
+/**
+ * A top-level partition key, as its EDN text. Keywords in re-frame2 are
+ * what top-level app-db and runtime-db keys are (Spec 011 §`:rf/app-db`
+ * projection; Conventions §Reserved runtime-db keys), so the wire spelling
+ * is a leading colon and no whitespace. Deliberately not a full keyword
+ * grammar: this is a boundary check, and a boundary that reimplements the
+ * reader is a boundary with a reader's bugs.
+ */
+const KEY_TEXT = /^:[^\s:][^\s]*$/;
+
+class Refusal extends Error {
+  constructor(code, message, detail = {}) {
+    super(message);
+    this.name = 'Refusal';
+    this.code = code;
+    this.detail = detail;
+  }
+  /** The wire frame, sent instead of a `complete` response. */
+  toFrame(requestId) {
+    return {
+      type: 'refusal',
+      code: this.code,
+      message: this.message,
+      detail: this.detail,
+      ...(requestId === undefined ? {} : { requestId }),
+    };
+  }
+}
+
+const refuse = (code, message, detail) => {
+  throw new Refusal(code, message, detail);
+};
+
+const isPlainObject = (value) =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Validate the render module a service was pointed at.
+ *
+ * Fail-closed here too: a module that does not speak this protocol version,
+ * publish a build identity, export a render function and publish a
+ * non-empty entry table is refused at boot rather than at its first
+ * request. The entry table is a list of entry ids — the names a JVM host
+ * may ask for, and the bundle can resolve back into a root.
+ */
+function validateModule(renderModule, moduleLabel = '<render module>') {
+  if (!isPlainObject(renderModule)) {
+    refuse(CODE.MALFORMED_MODULE, `${moduleLabel} did not export an object`);
+  }
+  if (renderModule.protocol !== PROTOCOL_VERSION) {
+    refuse(
+      CODE.MALFORMED_MODULE,
+      `${moduleLabel} declares protocol ${JSON.stringify(renderModule.protocol)}; this service speaks ${PROTOCOL_VERSION}`,
+      { declared: renderModule.protocol, expected: PROTOCOL_VERSION },
+    );
+  }
+  if (typeof renderModule.buildId !== 'string' || renderModule.buildId.length === 0) {
+    refuse(
+      CODE.MALFORMED_MODULE,
+      `${moduleLabel} publishes no buildId. Build identity is how a JVM host detects that the ` +
+        `sidecar is serving a different application than the one it deployed against.`,
+    );
+  }
+  if (typeof renderModule.render !== 'function') {
+    refuse(CODE.MALFORMED_MODULE, `${moduleLabel} exports no render function`);
+  }
+  if (!Array.isArray(renderModule.entries) || renderModule.entries.length === 0) {
+    refuse(
+      CODE.MALFORMED_MODULE,
+      `${moduleLabel} publishes no entry table: \`entries\` must be a non-empty array of entry ids`,
+    );
+  }
+  for (const entryId of renderModule.entries) {
+    if (typeof entryId !== 'string' || entryId.length === 0) {
+      refuse(
+        CODE.MALFORMED_MODULE,
+        `${moduleLabel} entry table carries ${JSON.stringify(entryId)}, which is not a non-empty string`,
+      );
+    }
+  }
+  return renderModule;
+}
+
+/**
+ * Validate the shape of one partition of a request — `state` or `runtime`:
+ * top-level key text mapped to EDN text. Returns `{ partition, bytes }`: a SNAPSHOT
+ * of the partition as sent (an empty object when the field was absent) and
+ * the UTF-8 byte count of every key and value in it, so the caller can
+ * hold both partitions to one ceiling. Throws `Refusal`.
+ *
+ * A SNAPSHOT AND NOT THE CALLER'S OWN OBJECT. What this returns is what
+ * `isolate.cjs` hands to `postMessage`, and a structured clone is a SECOND
+ * READ of every value in it. Returning the caller's object would put that
+ * second read outside the validator's reach: a value backed by an accessor
+ * — a getter, a Proxy, a lazily materialised row out of a serializer —
+ * could be a well-formed EDN string when the checks below read it and
+ * something else when the clone does, so the checks would be about a value
+ * the wire never saw. Copying the already-read, already-checked value into a
+ * fresh object closes that gap at its cause rather than guarding its
+ * symptom: there is no second read to disagree with the first.
+ */
+function validatePartition(partition, { field: partitionField, keys: partitionLabel }) {
+  if (partition === undefined) return { partition: {}, bytes: 0 };
+  if (!isPlainObject(partition)) {
+    refuse(
+      CODE.BAD_REQUEST_FIELD,
+      `\`${partitionField}\` must be an object mapping a top-level ${partitionLabel} key (EDN text) to that ` +
+        "key's value (EDN text)",
+      { field: partitionField },
+    );
+  }
+  let partitionBytes = 0;
+  const validated = {};
+  for (const [partitionKey, ednText] of Object.entries(partition)) {
+    if (!KEY_TEXT.test(partitionKey)) {
+      refuse(
+        CODE.BAD_REQUEST_FIELD,
+        `${partitionField} key ${JSON.stringify(partitionKey)} is not a top-level ${partitionLabel} key in EDN spelling`,
+        { field: partitionField, key: partitionKey },
+      );
+    }
+    if (typeof ednText !== 'string') {
+      refuse(
+        CODE.BAD_REQUEST_FIELD,
+        `${partitionField} value for ${partitionKey} must be EDN text; the service does not decode application data`,
+        { field: partitionField, key: partitionKey },
+      );
+    }
+    validated[partitionKey] = ednText;
+    partitionBytes +=
+      Buffer.byteLength(partitionKey, 'utf8') + Buffer.byteLength(ednText, 'utf8');
+  }
+  return { partition: validated, bytes: partitionBytes };
+}
+
+/**
+ * Validate one request against the contract and against the tables the
+ * loaded bundle published (`moduleTables` is `{ buildId, entries }`). Returns
+ * the request normalized — defaults applied, nothing added the caller did
+ * not send. Throws `Refusal` on anything else.
+ *
+ * Order matters and is deliberate: shape, then identity, then content. A
+ * caller reading its first refusal wants the field it got wrong, not the
+ * consequence three checks downstream.
+ *
+ * AND EVERY FIELD IS READ EXACTLY ONCE. The request that comes
+ * back is built from the values the checks below actually inspected, never
+ * from a fresh read of the caller's object — because this request is what
+ * `postMessage` structured-clones, and that clone is a second read the
+ * validator has no say over. Read-once is the whole of the discipline: it
+ * needs no defensive copy of the request, no freeze and no re-check, and
+ * it removes the class rather than the instance.
+ */
+function validateRequest(request, moduleTables, limits = {}) {
+  const { defaultTimeoutMs = 1000, maxTimeoutMs = 5000, maxRequestBytes = 1 << 20 } = limits;
+
+  if (!isPlainObject(request)) {
+    refuse(CODE.MALFORMED_REQUEST, 'a render request must be an object');
+  }
+
+  // ---- the field allowlist, first and without exception ------------------
+  for (const field of Object.keys(request)) {
+    if (!REQUEST_FIELDS.includes(field)) {
+      const intentionalRefusalReason = REFUSED_FIELDS[field];
+      refuse(
+        CODE.UNKNOWN_REQUEST_FIELD,
+        `unknown request field ${JSON.stringify(field)}. The contract carries: ` +
+          `${REQUEST_FIELDS.join(', ')}.` +
+          (intentionalRefusalReason ? ` ${intentionalRefusalReason}` : ''),
+        {
+          field,
+          allowed: REQUEST_FIELDS,
+          ...(intentionalRefusalReason ? { refusedOnPurpose: true } : {}),
+        },
+      );
+    }
+  }
+
+  // ---- read once; everything below reads these, never `request` ----------
+  // The one place this function touches the caller's object. What follows
+  // validates these bindings and returns these bindings, so there is no
+  // read left for an accessor to answer differently — see the header.
+  const protocol = request.protocol;
+  const entry = request.entry;
+  const requestId = request.requestId;
+  const args = request.args;
+  const buildId = request.buildId;
+  const timeout = request.timeoutMs;
+  const state = request[PARTITIONS[0].field];
+  const runtime = request[PARTITIONS[1].field];
+
+  if (protocol !== PROTOCOL_VERSION) {
+    refuse(
+      CODE.PROTOCOL_VERSION,
+      `request declares protocol ${JSON.stringify(protocol)}; this service speaks ${PROTOCOL_VERSION}`,
+      { declared: protocol, expected: PROTOCOL_VERSION },
+    );
+  }
+
+  if (typeof entry !== 'string' || entry.length === 0) {
+    refuse(CODE.BAD_REQUEST_FIELD, '`entry` must be a non-empty string', { field: 'entry' });
+  }
+  if (requestId !== undefined && typeof requestId !== 'string') {
+    refuse(CODE.BAD_REQUEST_FIELD, '`requestId` must be a string', { field: 'requestId' });
+  }
+  if (args !== undefined && typeof args !== 'string') {
+    refuse(
+      CODE.BAD_REQUEST_FIELD,
+      '`args` is the root arguments as EDN TEXT, not a decoded value — the service does not ' +
+        'read application data',
+      { field: 'args' },
+    );
+  }
+  if (buildId !== undefined && typeof buildId !== 'string') {
+    refuse(CODE.BAD_REQUEST_FIELD, '`buildId` must be a string', { field: 'buildId' });
+  }
+
+  // ---- build identity ----------------------------------------------------
+  // The per-request half of the skew detector. A JVM host that records the
+  // id it deployed against turns "the two artefacts are from different
+  // builds" — which otherwise has nothing to compare, and fails as two
+  // different applications answering one request — into a refusal.
+  if (buildId !== undefined && buildId !== moduleTables.buildId) {
+    refuse(
+      CODE.BUILD_IDENTITY_MISMATCH,
+      `request expects build ${JSON.stringify(buildId)} but this sidecar is serving ` +
+        `${JSON.stringify(moduleTables.buildId)}`,
+      { expected: buildId, serving: moduleTables.buildId },
+    );
+  }
+
+  // ---- the entry table ---------------------------------------------------
+  if (!moduleTables.entries.includes(entry)) {
+    refuse(CODE.UNKNOWN_ENTRY, `no entry named ${JSON.stringify(entry)} in this bundle`, {
+      entry,
+      known: [...moduleTables.entries],
+    });
+  }
+
+  // ---- the two partitions ------------------------------------------------
+  const stateValidation = validatePartition(state, PARTITIONS[0]);
+  const runtimeValidation = validatePartition(runtime, PARTITIONS[1]);
+  // ONE ceiling over both partitions: the budget is the request's EDN
+  // text, and a partition is a way of naming it, not a second allowance.
+  const requestBytes = stateValidation.bytes + runtimeValidation.bytes;
+  if (requestBytes > maxRequestBytes) {
+    refuse(
+      CODE.REQUEST_TOO_LARGE,
+      `state and runtime together are ${requestBytes} bytes, over the ${maxRequestBytes}-byte ceiling`,
+      { bytes: requestBytes, ceiling: maxRequestBytes },
+    );
+  }
+
+  // ---- the deadline ------------------------------------------------------
+  let timeoutMs = defaultTimeoutMs;
+  if (timeout !== undefined) {
+    if (typeof timeout !== 'number' || !Number.isFinite(timeout) || timeout <= 0) {
+      refuse(CODE.BAD_REQUEST_FIELD, '`timeoutMs` must be a positive finite number', {
+        field: 'timeoutMs',
+      });
+    }
+    // Clamped rather than refused: a caller asking for longer than the
+    // service will ever wait has made a configuration mistake, and the
+    // service's own ceiling is the one that binds either way.
+    timeoutMs = Math.min(timeout, maxTimeoutMs);
+  }
+
+  return {
+    protocol: PROTOCOL_VERSION,
+    entry,
+    state: stateValidation.partition,
+    runtime: runtimeValidation.partition,
+    args,
+    requestId,
+    timeoutMs,
+  };
+}
+
+/**
+ * The success response: the body markup and the facts this service owns
+ * about it — `COMPLETE_FIELDS` is the whole of it. There is deliberately no
+ * rest parameter and no spread of a caller-supplied object here: a
+ * constructor that copies whatever it is handed is a field list that grows
+ * without anyone editing the field list.
+ */
+const completeFrame = ({ html, renderMs, buildId, requestId }) => ({
+  type: 'complete',
+  html,
+  renderMs,
+  buildId,
+  ...(requestId === undefined ? {} : { requestId }),
+});
+
+module.exports = {
+  PROTOCOL_VERSION,
+  CODE,
+  REQUEST_FIELDS,
+  PARTITIONS,
+  REFUSED_FIELDS,
+  COMPLETE_FIELDS,
+  RENDER_THREW_REFUSAL,
+  ISOLATE_LOST_REFUSAL,
+  REPLACEMENT_FAILED_REFUSAL,
+  isRefusalCode,
+  Refusal,
+  validateModule,
+  validateRequest,
+  completeFrame,
+};

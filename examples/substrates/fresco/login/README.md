@@ -261,15 +261,15 @@ a typed password signs in without clearing anything first.
 # From implementation/ — the server bundle and the client bundle.
 npx shadow-cljs compile :examples/login-fresco-server
 npx shadow-cljs compile :examples/login-fresco
-
-# The sidecar, pointed at the server bundle. It prints ONE JSON line on
-# stdout when it is listening; read the `url` out of that.
-node ssr-node/bin/serve.cjs --module out/examples/login-fresco-server/server.js
 ```
 
+There is no sidecar to start. The JVM renderer launches it on the server
+bundle, from the copy `day8/re-frame2-ssr-ring` carries, and supervises it.
+
 For a deployment, stamp a real build identity into the bundle and give the JVM
-host the same string — the sidecar refuses a request that names a different
-one, and the adapter refuses an answer that comes back with one:
+host the same string — the renderer refuses to launch a bundle that names a
+different one, and after that the sidecar refuses a request that names a
+different one and the adapter refuses an answer that comes back with one:
 
 ```bash
 npx shadow-cljs release examples/login-fresco-server   --config-merge '{:closure-defines {fresco.login.server/build-id "2026-09-02-a1b2c3"}}'
@@ -281,15 +281,10 @@ Then boot the JVM and serve `host.clj`'s `app`. Start it from
 classpath, and `ssr-ring`'s `:test` and `:crossing-test`
 aliases are the only place all three meet — each puts both `examples/` roots
 beside `ring/ring-jetty-adapter`. `implementation/deps.edn` carries no Jetty
-at all, so the `require` below will not resolve from there.
-
-Two environment variables point the host at the two moving parts.
-`LOGIN_FRESCO_SSR_NODE` is the sidecar's URL, read off the JSON line it
-printed. `LOGIN_FRESCO_CLIENT_DIR` is where the client bundle landed:
-`host.clj`'s default is written relative to `implementation/`, so from
-`ssr-ring/` it needs the `../` that gets you back there. Skip it and every
-asset request takes the 404 branch — the page renders and then comes up
-without its JavaScript.
+at all, so the `require` below will not resolve from there. `host.clj`'s two
+build paths, `server-bundle` and `client-dir`, are written relative to that
+directory; `LOGIN_FRESCO_SERVER_BUNDLE` and `LOGIN_FRESCO_CLIENT_DIR` move
+them if your builds landed elsewhere.
 
 Each of those aliases also carries `:main-opts` that run a test suite, and
 the Clojure CLI runs an alias's `:main-opts` even under `-A`, so
@@ -300,9 +295,7 @@ this opens a REPL:
 
 ```bash
 # From implementation/ssr-ring/ — a REPL with the host on the classpath.
-LOGIN_FRESCO_SSR_NODE=http://127.0.0.1:PORT \
-LOGIN_FRESCO_CLIENT_DIR=../out/examples/login-fresco \
-  clojure -Sdeps '{:aliases {:repl {:main-opts ["-r"]}}}' -M:test:repl
+clojure -Sdeps '{:aliases {:repl {:main-opts ["-r"]}}}' -M:test:repl
 ```
 
 ```clojure
@@ -315,21 +308,26 @@ LOGIN_FRESCO_CLIENT_DIR=../out/examples/login-fresco \
 ;; comes back as a bare HTTP 500 with a healthy sidecar sitting idle.
 (host/init!)
 
-;; `host/app`, not `host/handler`. `handler` is the SSR handler alone, and an
-;; SSR handler renders a document for EVERY request it is given — including
-;; the `/main.js` the page it just served asks the browser to fetch. `app`
-;; puts one route in front of it: `/` renders, everything else comes out of
-;; the compiled bundle's output directory, and a miss is a 404 rather than
-;; another login page.
-(jetty/run-jetty host/app {:port 3000 :join? false})
+;; Launch the Node sidecar on the server bundle and wait until it is ready.
+;; A missing bundle, or one stamped with another build id, fails HERE.
+;; `(.close renderer)` stops it; so does leaving the REPL.
+(def renderer (host/renderer))
+
+;; `host/app`, not `host/make-handler`. The handler is the SSR handler alone,
+;; and an SSR handler renders a document for EVERY request it is given —
+;; including the `/main.js` the page it just served asks the browser to
+;; fetch. `app` puts one route in front of it: `/` renders, everything else
+;; comes out of the compiled bundle's output directory, and a miss is a 404
+;; rather than another login page.
+(jetty/run-jetty (host/app renderer) {:port 3000 :join? false})
 ```
 
 Open `http://localhost:3000`. The client boots through the same `core.cljs`
 either way: it looks for `__rf_payload`, and hydrates when it finds one
 instead of mounting.
 
-Three paths have to agree, and two environment variables move them together
-with the build: the `compile` above writes `out/examples/login-fresco`
+Three paths have to agree, and `client-dir` moves them together with the
+build: the `compile` above writes `out/examples/login-fresco`
 (`LOGIN_FRESCO_CLIENT_DIR`), that build's `:asset-path` is `"."` so its
 generated dependency URLs resolve against the document's own directory, and
 the page is served at `/` — so the output tree is served at `/` too, and
@@ -357,8 +355,8 @@ The crossing is witnessed from both ends:
 - `implementation/ssr-ring/test/re_frame/ssr/ring/login_host_crossing_test.clj`
   — the **host** half, on the JVM. Requiring `fresco.login.host` is itself the
   compile gate (before it, a compile error here passed everything silently);
-  its `:crossing` tests spawn the real `serve.cjs` launcher on a port-0 socket
-  and drive this file's `make-handler`, asserting the complete JVM-owned
+  its `:crossing` tests have the renderer launch the sidecar it ships, and
+  drive this file's `make-handler` over that socket, asserting the complete JVM-owned
   document, the projection under `policy.cljc`'s list, and the sidecar's refusal
   of a host that reaches past it. `clojure -M:crossing-test` from
   `implementation/ssr-ring/`; CI runs it as `jvm-node-crossing`.
@@ -396,8 +394,8 @@ does not check an app's dependency list.
 For the server variant, also copy `server.cljs`, `host.clj`, and `policy.cljc`
 alongside `core.cljs`, and add `day8/re-frame2-ssr-ring` plus a Ring server adapter
 to the JVM host's dependencies. The [server recipe above](#build-it-and-run-it)
-uses Jetty and shows the two builds, sidecar, host initialization, and asset
-mapping they need.
+uses Jetty and shows the two builds, host initialization, the renderer that
+launches the sidecar, and the asset mapping they need.
 
 There is also no Fresco variant in the re-frame2 app template
 (`tools/template` scaffolds `:reagent` and `:uix`). Build by hand from the

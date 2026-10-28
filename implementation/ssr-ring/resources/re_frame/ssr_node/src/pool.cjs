@@ -1,0 +1,331 @@
+'use strict';
+// THE ISOLATE POOL (guarantees 3 and 4).
+//
+// One isolate renders one request at a time, so the pool size IS the
+// service's concurrency and there is no second knob pretending otherwise.
+// Everything here is one of three jobs:
+//
+//   ADMISSION   hand a caller an idle isolate, or refuse. A request that
+//               waits forever for capacity is a request whose caller's
+//               own timeout decides the outcome, which is the outcome
+//               being decided by the wrong process. So waiting is bounded
+//               twice: in time by the admission budget, and in length by
+//               the pool size, past which a caller is refused at once.
+//   REPLACEMENT a terminated isolate is never reused (see `isolate.cjs`),
+//               so the pool spawns a fresh one and the caller after next
+//               never notices. A replacement that will not boot ends the
+//               service: the pool can never reach its configured size
+//               again, and a supervisor restart is the recovery.
+//   IDENTITY    every isolate loads the same bundle from the same path.
+//               A replacement that comes back with a DIFFERENT buildId
+//               means the artefact changed on disk under a running
+//               service — two applications answering one service's
+//               requests, which is precisely the skew the build identity
+//               exists to catch. It is refused rather than absorbed.
+
+const { CODE, Refusal, REPLACEMENT_FAILED_REFUSAL } = require('./protocol.cjs');
+const { Isolate } = require('./isolate.cjs');
+
+/**
+ * The operator's copy of a replacement boot that failed — everything the
+ * waiters' refusal deliberately does not carry.
+ *
+ * The third of these, after `worker.cjs`'s `reportRenderException` and
+ * `isolate.cjs`'s `reportIsolateFault`, and written for the same reason:
+ * closing a refusal's wording without opening the operator's copy trades a
+ * leak for a silence. No separate subsystem and no flag — `bin/serve.cjs`
+ * writes `[rf.ssr-node] …` here, so this is that stream under that prefix,
+ * and a diagnostic that can be switched off is off on the day it is wanted.
+ *
+ * UNCONDITIONAL, WHICH THE OTHER TWO ARE NOT. `reportIsolateFault` is
+ * guarded on there being a pending render because the unguarded half of
+ * that handler is the boot phase, which has its own diagnostic. This path
+ * has no second reporter at all: the caller-facing statement is a loop over
+ * `waiters`, so without this a replacement that failed with an EMPTY queue
+ * would reach nobody — the service would end and nothing would say
+ * why. That silence is more dangerous than a leak, because a
+ * leak is at least visible to somebody.
+ *
+ * `detail` is printed as well as the message because for one boot failure
+ * it is where the trace is: a fault the worker does not catch kills the
+ * thread, and `isolate.cjs`'s `error` handler puts `err.stack` in the
+ * refusal's `detail`. A CAUGHT boot exception — thrown while the module
+ * loads, or from its `boot` hook — does not travel that way. `worker.cjs`
+ * writes its stack to stderr under the same `[rf.ssr-node]` prefix
+ * (`reportBootException`) before it posts `boot-error`, and the refusal the
+ * boot receiver builds from that post carries only `modulePath` in its
+ * `detail`. For that failure the application's trace is the worker's line,
+ * and this one says that the boot which failed was a replacement's.
+ *
+ * `requestId` is the caller's id for the render whose isolate died and set
+ * off the replacement, when that request carried one — the same token
+ * `reportRenderException` names, for the same reason.
+ */
+function reportReplacementFault(modulePath, err, requestId) {
+  const trace = err && err.stack ? err.stack : String(err);
+  const detail =
+    err && err.detail && Object.keys(err.detail).length ? ` ${JSON.stringify(err.detail)}` : '';
+  const request = requestId === undefined ? '' : ` (request ${requestId})`;
+  process.stderr.write(
+    `[rf.ssr-node] a replacement isolate failed to boot from ${modulePath}${request}: ${trace}${detail}\n`,
+  );
+}
+
+class Pool {
+  constructor({ modulePath, size = 2, admissionTimeoutMs = 250, bootTimeoutMs = 30000 }) {
+    if (!Number.isInteger(size) || size < 1) {
+      throw new Error(`pool size must be a positive integer; got ${size}`);
+    }
+    this.modulePath = modulePath;
+    this.size = size;
+    this.admissionTimeoutMs = admissionTimeoutMs;
+    this.bootTimeoutMs = bootTimeoutMs;
+    this.idleIsolates = [];
+    this.isolates = new Set();
+    this.waiters = [];
+    /**
+     * Replacements currently booting. `close()` waits on these before it
+     * believes it has closed anything.
+     *
+     * WITHOUT THIS THE PROCESS NEVER EXITS. A replacement is spawned
+     * asynchronously so the caller that just timed out does not wait on a
+     * worker boot — which means a `close()` racing that boot snapshots
+     * `all` before the fresh isolate joins it, closes everything it can
+     * see, and leaves a live worker thread behind holding the event loop
+     * open. The symptom is a suite that passes every assertion and then
+     * hangs forever, which reads as a broken test rather than a leaked
+     * thread.
+     */
+    this.startingReplacements = new Set();
+    this.closed = false;
+    this.buildId = null;
+    this.entries = null;
+    /** Replacements performed. A rising count is a service killing renders. */
+    this.replacementCount = 0;
+    /** True once a replacement failed to boot; the pool is then closed for good. */
+    this.failed = false;
+    /** Resolves once a failed replacement has closed the pool. */
+    this.whenFailed = new Promise((resolve) => {
+      this._signalFailed = resolve;
+    });
+  }
+
+  async start() {
+    // `allSettled`, not `all`: a bundle that refuses validation refuses in
+    // every isolate at once, and a bare `all` would reject on the first
+    // while leaving its siblings' worker threads running. A boot failure
+    // that leaks threads turns a red assertion into a hung test process,
+    // which is a far worse thing to debug than the failure it is hiding.
+    const startResults = await Promise.allSettled(
+      Array.from({ length: this.size }, () => this._startIsolate()),
+    );
+    const startedIsolates = startResults
+      .filter((result) => result.status === 'fulfilled')
+      .map((result) => result.value);
+    const failedStart = startResults.find((result) => result.status === 'rejected');
+    if (failedStart) {
+      await Promise.all(startedIsolates.map((isolate) => isolate.close()));
+      this.isolates.clear();
+      throw failedStart.reason;
+    }
+    this.idleIsolates.push(...startedIsolates);
+    return this;
+  }
+
+  async _startIsolate() {
+    const isolate = await new Isolate({
+      modulePath: this.modulePath,
+      bootTimeoutMs: this.bootTimeoutMs,
+    }).start();
+
+    if (this.buildId === null) {
+      this.buildId = isolate.buildId;
+      this.entries = isolate.entries;
+    } else if (isolate.buildId !== this.buildId) {
+      await isolate.close();
+      throw new Refusal(
+        CODE.BUILD_IDENTITY_MISMATCH,
+        `a replacement isolate loaded build ${JSON.stringify(isolate.buildId)} where this ` +
+          `service is serving ${JSON.stringify(this.buildId)} — the bundle changed on disk ` +
+          `under a running service`,
+        { serving: this.buildId, loaded: isolate.buildId, modulePath: this.modulePath },
+      );
+    }
+    this.isolates.add(isolate);
+    return isolate;
+  }
+
+  /**
+   * Start one replacement, tracked and self-cancelling if the service
+   * closed while it was booting. Resolves to `null` in that case — there is
+   * a fresh isolate, and it is closed rather than offered.
+   */
+  _startReplacement() {
+    const replacementStart = this._startIsolate().then(
+      (isolate) => {
+        this.startingReplacements.delete(replacementStart);
+        if (this.closed) {
+          this.isolates.delete(isolate);
+          isolate.close().catch(() => {});
+          return null;
+        }
+        return isolate;
+      },
+      (err) => {
+        this.startingReplacements.delete(replacementStart);
+        throw err;
+      },
+    );
+    this.startingReplacements.add(replacementStart);
+    return replacementStart;
+  }
+
+  /**
+   * An idle isolate, or a `Refusal`. A caller that finds none waits, for at
+   * most `admissionTimeoutMs`, and at most one caller per isolate waits at
+   * all: past that the refusal is immediate. So the waiting line, and the
+   * validated request each waiter holds, never outgrow the pool.
+   */
+  acquire() {
+    if (this.failed) return Promise.reject(this._replacementFailedRefusal());
+    if (this.closed) {
+      return Promise.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closed', {}));
+    }
+    const idleIsolate = this.idleIsolates.pop();
+    if (idleIsolate) return Promise.resolve(idleIsolate);
+    if (this.waiters.length >= this.size) {
+      return Promise.reject(
+        new Refusal(
+          CODE.SERVICE_SATURATED,
+          `${this.waiters.length} requests already wait for a pool of ${this.size}`,
+          { poolSize: this.size, waiting: this.waiters.length },
+        ),
+      );
+    }
+
+    return new Promise((resolve, reject) => {
+      const waiter = { resolve, reject, timer: null };
+      waiter.timer = setTimeout(() => {
+        const waiterIndex = this.waiters.indexOf(waiter);
+        if (waiterIndex >= 0) this.waiters.splice(waiterIndex, 1);
+        reject(
+          new Refusal(
+            CODE.SERVICE_SATURATED,
+            `no isolate became free within ${this.admissionTimeoutMs} ms (pool of ${this.size})`,
+            { poolSize: this.size, admissionTimeoutMs: this.admissionTimeoutMs },
+          ),
+        );
+      }, this.admissionTimeoutMs);
+      waiter.timer.unref();
+      this.waiters.push(waiter);
+    });
+  }
+
+  /**
+   * Give an isolate back. A dead one is replaced rather than returned —
+   * asynchronously, because a caller finishing a request should not wait
+   * on the next isolate's boot. `requestId` is the id of the request the
+   * isolate just served, if it carried one; it reaches only the operator's
+   * line should the replacement fail.
+   */
+  release(isolate, requestId) {
+    if (isolate.dead) {
+      this.isolates.delete(isolate);
+      this.replacementCount += 1;
+      if (this.closed) return;
+      this._startReplacement().then(
+        (replacement) => {
+          if (replacement) this._offer(replacement);
+        },
+        // A pool that cannot replace an isolate can never reach its
+        // configured size again, so it ENDS rather than shrinks: every
+        // waiter and every later caller is refused with one stable code,
+        // the remaining workers are terminated, `/health` stops answering
+        // ok, and `bin/serve.cjs` exits non-zero for its supervisor to
+        // restart. In-flight renders on healthy siblings are refused as on
+        // any shutdown.
+        //
+        // AND EVERY BOOT REFUSAL STOPS HERE. Forwarding `err` when it is a
+        // `Refusal`, or interpolating `err.message` when it is not, would
+        // each publish something a waiter has no business seeing, and the
+        // pass-through would be the wider of the two. What arrives here is a
+        // BOOT refusal, and `isolate.cjs` builds those for an operator
+        // standing at a process that would not start: the module's own
+        // message, and a `detail` saying where it failed. For a fault the
+        // worker does not catch, `isolate.cjs`'s `error` handler puts
+        // `err.stack` in that `detail`. A caught boot exception's stack goes
+        // to stderr from `worker.cjs` instead, and its refusal carries only
+        // the module path in `detail`, beside a `code` the module chose,
+        // since the boot receiver does not consult `isRefusalCode` the way
+        // the render receiver does. On
+        // `Pool.start()` that audience is real. Here it is a caller across a
+        // wire, and none of it is theirs.
+        //
+        // So the audience decides the wording, not the failure: one
+        // service-owned refusal, one code from the closed family, and a
+        // `detail` naming only what this file knows. `poolSize` is the same
+        // service-owned fact the `SERVICE_SATURATED` refusal above carries,
+        // and for the same reason — it is what a waiter that has just been
+        // refused capacity would ask next.
+        //
+        // The real failure goes to stderr FIRST, and unconditionally; see
+        // `reportReplacementFault` for why that is part of the contract
+        // rather than a courtesy.
+        (err) => {
+          reportReplacementFault(this.modulePath, err, requestId);
+          if (this.failed) return;
+          this.failed = true;
+          for (const waiter of this.waiters.splice(0)) {
+            clearTimeout(waiter.timer);
+            waiter.reject(this._replacementFailedRefusal());
+          }
+          this.close().then(this._signalFailed, this._signalFailed);
+        },
+      );
+      return;
+    }
+    this._offer(isolate);
+  }
+
+  _replacementFailedRefusal() {
+    return new Refusal(CODE.ISOLATE_LOST, REPLACEMENT_FAILED_REFUSAL, { poolSize: this.size });
+  }
+
+  _offer(isolate) {
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(isolate);
+    } else {
+      this.idleIsolates.push(isolate);
+    }
+  }
+
+  stats() {
+    return {
+      total: this.isolates.size,
+      ready: this.idleIsolates.length,
+      busy: this.isolates.size - this.idleIsolates.length,
+      waiting: this.waiters.length,
+      replacements: this.replacementCount,
+    };
+  }
+
+  async close() {
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closing', {}));
+    }
+    // Replacements still booting close themselves (see `_startReplacement`),
+    // but only once they finish booting — so wait for them before
+    // believing the pool is empty.
+    await Promise.allSettled([...this.startingReplacements]);
+    const isolatesToClose = [...this.isolates];
+    this.isolates.clear();
+    this.idleIsolates.length = 0;
+    await Promise.all(isolatesToClose.map((isolate) => isolate.close()));
+  }
+}
+
+module.exports = { Pool };

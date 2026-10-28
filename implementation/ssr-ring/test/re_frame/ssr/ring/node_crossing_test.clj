@@ -2,9 +2,8 @@
   "THE JVM -> Node -> JVM CROSSING WITNESS (Spec 011 §HTTP response
   contract).
 
-  The tests tagged `:crossing` spawn implementation/ssr-node's serve
-  launcher on a plain fixture render module (`test/fixtures/node/
-  crossing.cjs`) via ProcessBuilder on port 0, parse its ready line, build
+  The tests tagged `:crossing` run the sidecar ssr-ring's jar carries on a
+  plain fixture render module (`test/fixtures/node/crossing.cjs`), build
   `ssr-handler` with `re-frame.ssr.ring.node/renderer`, and prove —
 
     (a) the JVM drains `:initial-events` FIRST and the fixture receives the
@@ -23,13 +22,18 @@
         (the frame registry is back to what it was) and the sidecar's
         `/health` shows no in-flight work;
     (f) ONE observational complete-crossing timing, printed — a number,
-        not a threshold.
+        not a threshold;
+    (g) under `:module` the renderer owns the sidecar: it launches it and
+        renders through it, refuses a bundle built as another id at
+        construction, relaunches it when it dies, and leaves no node
+        process behind once closed.
 
   `clojure -M:crossing-test` runs exactly these (Node 24 on PATH); the
-  default `:test` alias excludes the tag and never touches Node. The
-  sidecar is spawned lazily by the first `:crossing` test and killed in
-  the `:once` fixture's `finally`. The untagged construction-contract
-  tests at the bottom need no sidecar and run in the default lane."
+  default `:test` alias excludes the tag and never touches Node. The rows
+  (a)-(f) share one owned sidecar, launched lazily by the first of them and
+  stopped in the `:once` fixture's `finally`. The untagged
+  construction-contract tests at the bottom need no sidecar and run in the
+  default lane."
   (:require [clojure.data.json :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -40,87 +44,37 @@
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
-  (:import [java.net InetSocketAddress ServerSocket URI]
+  (:import [java.lang ProcessHandle]
+           [java.net InetSocketAddress ServerSocket URI]
            [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
            [java.time Duration]
            [java.util.concurrent TimeUnit]
            [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]))
 
 ;; ===========================================================================
-;; The sidecar — the ssr-node launcher on the fixture module, port 0
+;; The sidecar — the fixture module under the renderer's own supervision
 ;; ===========================================================================
-
-(def ^:private launcher
-  (.getCanonicalPath (io/file "../ssr-node/bin/serve.cjs")))
 
 (def ^:private fixture-module
   (.getCanonicalPath (io/file "test/fixtures/node/crossing.cjs")))
 
-(def ^:private boot-timeout-ms 30000)
-
-(defn- pump-lines!
-  "Read `stream` line by line on a daemon thread, calling `on-line` for
-  each; `on-eof` once the stream closes."
-  [stream on-line on-eof]
-  (doto (Thread. (fn []
-                   (try
-                     (with-open [r (io/reader stream)]
-                       (doseq [line (line-seq r)] (on-line line)))
-                     (finally (on-eof))))
-                 "rf2-crossing-sidecar-pump")
-    (.setDaemon true)
-    (.start)))
-
-(defn- spawn-sidecar!
-  "Spawn `node bin/serve.cjs --module <fixture> --port 0 …` and wait for
-  the ready line — the ONE JSON object the launcher writes to stdout,
-  discriminated by its `\"rf.ssr-node\": \"ready\"` key (scanned line by
-  line, as the README says a reader should). Returns
-  `{:process :ready :url :stderr}`; throws with the captured stderr when
-  no ready line arrives."
-  []
-  (let [pb      (ProcessBuilder. ^java.util.List
-                                 ["node" launcher
-                                  "--module" fixture-module
-                                  "--port" "0"
-                                  "--isolates" "2"
-                                  "--timeout-ms" "1000"
-                                  "--admission-ms" "250"])
-        p       (.start pb)
-        stderr  (StringBuilder.)
-        ready   (promise)]
-    (pump-lines! (.getInputStream p)
-                 (fn [line]
-                   (when-not (realized? ready)
-                     (when-let [m (try (json/read-str line) (catch Exception _ nil))]
-                       (when (= "ready" (get m "rf.ssr-node"))
-                         (deliver ready m)))))
-                 #(deliver ready ::eof))
-    (pump-lines! (.getErrorStream p)
-                 (fn [line] (locking stderr (.append stderr line) (.append stderr "\n")))
-                 (fn []))
-    (let [m (deref ready boot-timeout-ms ::timeout)]
-      (when-not (map? m)
-        (.destroyForcibly p)
-        (throw (ex-info (str "the sidecar produced no ready line (" (name m) ")"
-                             "\nstderr:\n" stderr)
-                        {:launcher launcher :module fixture-module})))
-      {:process p :ready m :url (get m "url") :stderr stderr})))
-
-(defn- stop-sidecar! [{:keys [^Process process]}]
-  ;; SIGTERM where the platform has one (a graceful close, exit 0); Windows
-  ;; terminates outright either way. A second, forcible kill if it lingers.
-  (.destroy process)
-  (when-not (.waitFor process 5 TimeUnit/SECONDS)
-    (.destroyForcibly process)))
-
 (def ^:private sidecar
-  "Spawned by the first `:crossing` test that asks, never by namespace
-  load, so the default lane loading this ns costs nothing."
+  "The owned sidecar rows (a)-(f) dial by `:endpoint`: they read its
+  `/health`, which a renderer does not expose, so they take the renderer's
+  own supervisor privately. Launched by the first `:crossing` test that
+  asks, never by namespace load, so the default lane loading this ns costs
+  nothing."
   (atom nil))
 
-(defn- sidecar! []
-  (or @sidecar (reset! sidecar (spawn-sidecar!))))
+(defn- sidecar-url []
+  ((:endpoint (or @sidecar
+                  (reset! sidecar (#'rf.ssr.ring.node/own-sidecar!
+                                   {:module       fixture-module
+                                    :node         "node"
+                                    :build-id     "crossing-build-1"
+                                    :isolates     2
+                                    :timeout-ms   1000
+                                    :admission-ms 250}))))))
 
 (defn- with-sidecar [f]
   (try
@@ -128,7 +82,7 @@
     (finally
       (when-let [s @sidecar]
         (reset! sidecar nil)
-        (stop-sidecar! s)))))
+        ((:stop! s))))))
 
 (use-fixtures :once with-sidecar)
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
@@ -237,7 +191,7 @@
 
 (deftest ^:crossing one-complete-crossing-a-b-c-e-f
   (register-app!)
-  (let [{:keys [url]} (sidecar!)
+  (let [url           (sidecar-url)
         seen          (capture-errors!)
         frames-before (set (rf/frame-ids))
         h             (handler (node-renderer url))
@@ -304,7 +258,7 @@
 
 (deftest ^:crossing d-deadline-arm-sidecar-504-crosses-back-as-a-projected-5xx
   (register-app!)
-  (let [{:keys [url]}  (sidecar!)
+  (let [url            (sidecar-url)
         seen           (capture-errors!)
         before         (get (health url) "isolates")
         frames-before  (set (rf/frame-ids))
@@ -332,7 +286,7 @@
 
 (deftest ^:crossing refusal-arm-build-identity-mismatch-is-refused-by-the-sidecar
   (register-app!)
-  (let [{:keys [url]} (sidecar!)
+  (let [url           (sidecar-url)
         seen          (capture-errors!)
         frames-before (set (rf/frame-ids))
         h             (handler (node-renderer url :build-id "some-other-build"))
@@ -428,12 +382,109 @@
           (is (nil? (:serving data)) "…carrying nil, because the answer named none"))
         (rf.error-emit/unregister-error-listener! ::crossing-recorder)))))
 
-(def ^:private good-opts
-  {:entry "app/root" :build-id "b1" :render-state {:app-db [:heading]}})
-
 (defn- construction-error [opts]
   (try (rf.ssr.ring.node/renderer opts) nil
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+;; ===========================================================================
+;; (g) — `:module`: the renderer owns the sidecar
+;; ===========================================================================
+
+(def ^:private module-opts
+  {:module       fixture-module
+   :entry        "app/root"
+   :args         {:root :crossing}
+   :build-id     "crossing-build-1"
+   :isolates     2
+   :render-state {:app-db [:heading :server-only :delay-ms]}})
+
+(defn- sidecar-children
+  "The live direct children of this JVM — where an owned sidecar's node
+  process sits."
+  []
+  (->> (.iterator (.children (ProcessHandle/current)))
+       iterator-seq
+       (filter #(.isAlive ^ProcessHandle %))
+       set))
+
+(defn- the-new-child
+  "The one live child that is not in `before`."
+  ^ProcessHandle [before]
+  (let [fresh (remove before (sidecar-children))]
+    (is (= 1 (count fresh)) "exactly one new node process")
+    (first fresh)))
+
+(deftest ^:crossing g-module-mode-launches-the-sidecar-and-renders-through-it
+  (register-app!)
+  (let [before (sidecar-children)]
+    (with-open [renderer (rf.ssr.ring.node/renderer module-opts)]
+      (is (.isAlive (the-new-child before)) "construction launched the sidecar")
+      (let [{:keys [status body]} ((handler renderer) request)]
+        (is (= 200 status))
+        (is (str/includes? body "<h1 class=\"crossing-heading\">\"Crossing\"</h1>")
+            "the drained value crossed to the owned sidecar and back")
+        (is (str/includes? body "<main data-entry=\"app/root\" data-args=\"{:root :crossing}\">")
+            "Node's body, verbatim")))))
+
+(deftest ^:crossing g-module-mode-refuses-a-bundle-built-as-another-id-at-construction
+  (let [before (sidecar-children)
+        data   (construction-error (assoc module-opts :build-id "some-other-build"))]
+    (is (= :rf.error/ssr-node-build-skew (:rf.error/id data))
+        "refused at boot, under the answer-side refusal's id")
+    (is (= {:expected "some-other-build" :serving "crossing-build-1"}
+           (select-keys data [:expected :serving])))
+    (is (= before (sidecar-children)) "and the refused sidecar is not left running")))
+
+(defn- render-until-200
+  "Render `request` through `h` every 50 ms until one answers 200 or
+  `timeout-ms` passes; the statuses, in order."
+  [h timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (loop [statuses []]
+      (let [statuses (conj statuses (:status (h request)))]
+        (if (or (= 200 (peek statuses)) (> (System/currentTimeMillis) deadline))
+          statuses
+          (do (Thread/sleep 50) (recur statuses)))))))
+
+(deftest ^:crossing g-module-mode-relaunches-a-sidecar-that-dies
+  (register-app!)
+  (let [before (sidecar-children)
+        seen   (capture-errors!)]
+    (with-open [renderer (rf.ssr.ring.node/renderer module-opts)]
+      (let [h     (handler renderer)
+            first-child (the-new-child before)]
+        (is (= 200 (:status (h request))))
+        (.destroyForcibly first-child)
+        (.get (.onExit first-child) 10 TimeUnit/SECONDS)
+        (let [statuses (render-until-200 h 20000)]
+          (is (= 200 (peek statuses)) "a request after the relaunch renders")
+          (is (every? #{:rf.error/ssr-node-unreachable} (render-failure-ids @seen))
+              (str "every request while it was down failed as unreachable: " statuses)))
+        (is (not= (.pid first-child) (.pid (the-new-child before)))
+            "the sidecar answering now is a new process")))
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
+
+(deftest ^:crossing g-closing-a-module-renderer-leaves-no-node-process
+  (register-app!)
+  (let [before   (sidecar-children)
+        renderer (rf.ssr.ring.node/renderer module-opts)
+        child    (the-new-child before)
+        seen     (capture-errors!)]
+    (.close ^java.io.Closeable renderer)
+    (is (not (.isAlive child)) "the sidecar is gone by the time .close returns")
+    (is (= before (sidecar-children)) "and nothing else was left behind")
+    (is (= 500 (:status ((handler renderer) request))) "a closed renderer renders nothing…")
+    (is (= [:rf.error/ssr-node-unreachable] (render-failure-ids @seen)) "…and says so")
+    (.close ^java.io.Closeable renderer)
+    (is (= before (sidecar-children)) "a second close is harmless")
+    (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
+
+;; ===========================================================================
+;; Construction — no sidecar needed, so these run in the default lane
+;; ===========================================================================
+
+(def ^:private good-opts
+  {:entry "app/root" :build-id "b1" :render-state {:app-db [:heading]}})
 
 (deftest the-node-renderer-validates-its-opts-at-construction
   (is (= 1750 (rf.ssr.ring.node/http-timeout-ms {:timeout-ms 1000 :admission-ms 250}))
@@ -443,16 +494,39 @@
     (doseq [opts [good-opts
                   (assoc good-opts :endpoint "https://render.internal:8148")
                   (assoc good-opts :render-state (fn [_] {:rf/app-db {}}))]]
-      (is (fn? (rf.ssr.ring.node/renderer opts)) (pr-str opts))))
-  (testing "refused at construction, naming the opt"
+      (with-open [renderer (rf.ssr.ring.node/renderer opts)]
+        (is (fn? renderer) (pr-str opts)))))
+  (testing "refused at construction, naming the opt — before any sidecar is
+            launched, so none of these needs Node"
     (doseq [[id opt opts] [[:rf.error/ssr-node-renderer-opt-invalid :entry (dissoc good-opts :entry)]
                            [:rf.error/ssr-node-renderer-opt-invalid :build-id (dissoc good-opts :build-id)]
                            [:rf.error/ssr-node-renderer-opt-invalid :endpoint (assoc good-opts :endpoint "127.0.0.1:8148")]
                            [:rf.error/ssr-node-renderer-opt-invalid :timeout-ms (assoc good-opts :timeout-ms 0)]
                            [:rf.error/ssr-node-renderer-opt-invalid :admission-ms (assoc good-opts :admission-ms -1)]
                            [:rf.error/ssr-node-renderer-opt-invalid :args (assoc good-opts :args (fn []))]
-                           [:rf.error/ssr-missing-payload-policy :render-state (dissoc good-opts :render-state)]]]
+                           [:rf.error/ssr-missing-payload-policy :render-state (dissoc good-opts :render-state)]
+                           [:rf.error/ssr-node-renderer-opt-invalid :endpoint (assoc good-opts :module fixture-module :endpoint "http://127.0.0.1:8148")]
+                           [:rf.error/ssr-node-renderer-opt-invalid :module (assoc good-opts :module "")]
+                           [:rf.error/ssr-node-renderer-opt-invalid :module (assoc good-opts :module "test/fixtures/node/no-such-bundle.cjs")]
+                           [:rf.error/ssr-node-renderer-opt-invalid :node (assoc good-opts :module fixture-module :node "")]
+                           [:rf.error/ssr-node-renderer-opt-invalid :isolates (assoc good-opts :module fixture-module :isolates 0)]
+                           [:rf.error/ssr-node-renderer-opt-invalid :node (assoc good-opts :node "node")]
+                           [:rf.error/ssr-node-renderer-opt-invalid :isolates (assoc good-opts :isolates 2)]]]
       (is (= [id opt] ((juxt :rf.error/id :opt) (construction-error opts))) (pr-str opt)))))
+
+(deftest the-launch-copies-every-sidecar-file-the-classpath-carries
+  ;; `sidecar-files` is what construction copies out of the jar; the
+  ;; resource directory is what the jar carries. A file the sidecar gains,
+  ;; copied into the resources but not named here, would be left behind and
+  ;; the launch would fail on a missing module.
+  (let [root    (io/file "resources/re_frame/ssr_node")
+        carried (->> (file-seq root)
+                     (filter #(.isFile ^java.io.File %))
+                     (map #(.replace (str (.relativize (.toPath root) (.toPath ^java.io.File %)))
+                                     java.io.File/separatorChar \/))
+                     sort)]
+    (is (some #{"bin/serve.cjs"} carried) "the resource directory was read")
+    (is (= carried (sort @#'rf.ssr.ring.node/sidecar-files)))))
 
 ;; ===========================================================================
 ;; The handler's `:payload-include-sensitive` reaches the render state, so the
