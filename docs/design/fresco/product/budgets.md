@@ -1101,7 +1101,9 @@ and its verdict is recorded there.
 > - **EFFECTIVE REVISION**: The 2026-08-12 package re-pin (rf2-fe0l, PRs
 >   #7939/#7941; S1/S2 = 1,100/1,095 B as pinned in budgets.md §4; package
 >   evidence anchor ce31a30b77). Operative from this ruling (2026-08-13), and
->   only while the shell, wrapper, comparator, React version (19.2.0), build
+>   only while the shell, wrapper, comparator, React version (19.3.0 — ruled
+>   at 19.2.0, moved by the operator's
+>   [re-affirmation of 2026-10-28](#the-breach-is-carried-never-normalised)), build
 >   mode, and measurement contract remain materially equivalent.
 > - **REOPEN CONDITIONS**: The next measured shell arm on the package (any
 >   S1/S2 re-take); HD-028 reopened, amended, or overturned; any
@@ -1248,6 +1250,18 @@ undispositioned plain red has resumed for S1. One effective-revision input has
 moved as well: the acceptance names React 19.2.0, and the tree has carried
 19.3.0 since 2026-09-10. Re-dispositioning the breach is an operator ruling,
 not this page's.
+
+**[Re-affirmed 2026-10-28, operator ruling on `rf2-e1bwb`.] The operator has
+re-dispositioned the breach: the scoped acceptance stands, re-affirmed against
+the re-taken figures, and its React condition moves from 19.2.0 to 19.3.0.**
+This is the operator's own ruling, not a delegated one. Both Reagent-segment
+run means sit inside the `1,107 B` bound, at `1,097 B` (run A) and `1,098 B`
+(run B). One round of run B read `1,108 B`, one byte over that bound, and it
+stays on the record at that figure; the ruling reads it as per-round noise
+rather than as lapsing the acceptance. Nothing else in the head-note's five
+fields moves: the line is still `1,024 B`, the acceptance bounds are unchanged,
+`S1`, `S2` and `C5` stay `BREACH`, and the reopen conditions and revert trigger
+stand as written.
 
 ---
 

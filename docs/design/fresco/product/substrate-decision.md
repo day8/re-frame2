@@ -470,7 +470,10 @@ Read the scope precisely, because a summary destroys it:
   [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger), red now
   carrying a disposition, and no row here is recoloured;
 - the effective revision is **conditional**: operative only while the shell, the
-  wrapper, the comparator, the React version (19.2.0), the build mode and the
+  wrapper, the comparator, the React version (19.3.0 — ruled at 19.2.0, moved
+  by the operator's re-affirmation of 2026-10-28, which
+  [`budgets.md` §5](budgets.md#the-breach-is-carried-never-normalised) records),
+  the build mode and the
   measurement contract remain materially equivalent;
 - and the **revert trigger deletes the acceptance — never keeps it as a floor** —
   the moment a qualifying shell arm lands under `1,024 B` on the package. The
