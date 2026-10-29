@@ -133,6 +133,25 @@
         (is (not (str/includes? (pr-str v) "SECRET"))
             label)))))
 
+(deftest violation-projects-mismatching-value-through-classification
+  (testing "a path a reg-classification declares sensitive redacts and stamps
+            :sensitive?, as a dispatch-time failure there does: the whole value
+            when it names the registered path, the classified leaf when it names
+            one beneath it"
+    (rf/reg-classification :probe/classified {:sensitive [[:token] [:auth :token]]})
+    (doseq [[k live expected] [[:token "SECRET-1" :rf/redacted]
+                               [:auth {:token "SECRET-2" :id "7"} {:token :rf/redacted :id "7"}]]]
+      (let [[v] (violations-on-re-registration k :any live :int)]
+        (is (= [expected true] [(-> v :tags :mismatching-value) (:sensitive? v)]) (str k))
+        (is (not (str/includes? (pr-str v) "SECRET")) (str k)))))
+  (testing "a path it declares large carries the size marker and no :sensitive?"
+    (rf/reg-classification :probe/large {:large [[:report :blob]]})
+    (let [[v] (violations-on-re-registration :report :any {:blob (apply str (repeat 40 "BLOB-"))} :int)]
+      (is (= [true false]
+             [(map? (-> v :tags :mismatching-value :blob :rf.size/large-elided))
+              (contains? v :sensitive?)]))
+      (is (not (str/includes? (pr-str v) "BLOB-BLOB"))))))
+
 (deftest a-stale-slice-blocks-only-the-events-that-write-it
   (testing "after a re-registration the live [:user] fails, an event that
             leaves [:user] as installed commits and one that writes an

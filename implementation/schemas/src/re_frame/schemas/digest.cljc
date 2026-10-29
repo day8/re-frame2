@@ -6,12 +6,12 @@
   Equal serialized schema maps produce equal digests. The 64-bit truncated
   result is a drift fingerprint, not an injective identity.
 
-  Per Spec 010 §Schema digest line 491 the per-schema serialisation
+  Per Spec 010 §Digest algorithm step 1 the per-schema serialisation
   step routes through the registered validator's `schema-print`
-  companion fn, pluggable via `re-frame.schemas.validator/printer-fn`.
+  companion fn, installed by `set-schema-fns!`'s `:print` key.
   The default is `validator/default-edn-print` (the
-  Malli-EDN canonical `pr-str`); non-Malli ports register their own
-  serialiser via `set-schema-fns!`'s `:print` key so the digest reflects the
+  Malli-EDN canonical `pr-str`); non-Malli ports install their own
+  serialiser there so the digest reflects the
   registered validator's serialisation contract rather than the
   framework's Malli-EDN default. The rest of the pipeline — SHA-256
   per entry, `<path> <hex>\\n` line emission, lexicographic line sort,

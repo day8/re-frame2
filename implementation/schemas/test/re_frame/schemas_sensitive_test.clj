@@ -161,6 +161,30 @@
       (is (not (str/includes? (pr-str trace) "flow-SECRET")))
       (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace))))))
 
+(deftest app-db-validation-registry-sensitive-path-keeps-declared-map-keys
+  (testing "a path only the classification makes sensitive takes the schema
+            mark's :path carve-out: a :map-of key and a :set element are the
+            caller's data, so neither rides :path or :reason"
+    (doseq [{:keys [desc classified path schema db expected-path secret]}
+            [{:desc          ":map-of key"
+              :classified    [:users]
+              :path          [:users]
+              :schema        [:map-of :keyword :int]
+              :db            {:users {"alice-SECRET@example.com" 1}}
+              :expected-path [:users :rf/redacted]
+              :secret        "alice-SECRET"}
+             {:desc          ":set element beneath a declared :map key"
+              :classified    [:auth :codes]
+              :path          [:auth]
+              :schema        [:map [:codes [:set :int]]]
+              :db            {:auth {:codes #{"SECRET-CODE"}}}
+              :expected-path [:auth :codes :rf/redacted]
+              :secret        "SECRET-CODE"}]]
+      (rf/reg-classification (keyword "probe" (name (first classified))) {:sensitive [classified]})
+      (let [v (app-db-failure-trace path schema db :classified/bad)]
+        (is (= [true expected-path] [(:sensitive? v) (-> v :tags :path)]) desc)
+        (is (not (str/includes? (pr-str v) secret)) desc)))))
+
 (deftest app-db-validation-size-elides-a-registry-large-path
   (let [blob (apply str (repeat 40 "BLOB-"))]
     (rf/reg-app-schema [:reports :part] [:map [:n :int]])

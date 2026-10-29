@@ -5,8 +5,8 @@
   canonical path: a frame-agnostic program registration that every frame
   validates against when it resolves it. Validation runs at the event,
   effect and subscription boundaries, and over each candidate app-db before
-  it installs, in development builds; the boundary interceptor can also
-  invoke the registered validator in production.
+  it installs, in development builds; the `:boundary? true` check also runs
+  the registered validator in production.
 
   Loading this artefact also loads the Malli adapter, so registering a
   schema enables validation by default. Applications can install a

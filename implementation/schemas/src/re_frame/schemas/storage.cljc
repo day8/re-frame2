@@ -15,8 +15,11 @@
       with a REQUIRED `:frame`, answering the registrations that frame
       resolves (source-coords, `:path`, `:schema`).
     - `frame-schema-entries` cross-artefact seam consumed by the validation
-      hot path, `re-frame.epoch` and Story via the late-bind table."
-  (:require [re-frame.error :as rf.error]
+      hot path, `re-frame.epoch` and Story via the late-bind table.
+    - `classification-sensitive?`, the classification half of an app-db
+      validation trace's sensitivity decision, shared with the hot path."
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -458,20 +461,27 @@
 ;; path, a re-eval with the same schema, and a live value that satisfies
 ;; the schema all do nothing.
 
-;; The `:rf/redacted` privacy sentinel — Spec 009 §Privacy. Stamped in
-;; place of `:mismatching-value` when the new schema declares the slot
-;; sensitive, mirroring the `:rf.error/schema-validation-failure`
-;; redaction posture so the hot-reload trace never re-leaks a credential.
-;; The sensitivity decision also fails closed on an opaque schema the walker
-;; cannot introspect: `schema-has-sensitive?` returns false on an opaque
-;; value even though Malli may honour a `{:sensitive? true}` slot inside it for
-;; the violation. Without the fail-closed arm a hot-reload violation against an
-;; opaque schema carrying a sensitive slot would leak `:mismatching-value`
-;; verbatim — the same asymmetry the validation-failure redactor closes
-;; (`re-frame.schemas.validate`, the
-;; `(or schema-has-sensitive? schema-opaque?)` posture). This is the redaction
-;; half of the same fail-closed posture for the hot-reload egress edge.
+;; `:mismatching-value` is the live value, so it is redacted the way a
+;; dispatch-time failure's `:value` is (Spec 010 §`:sensitive?`). When the new
+;; schema marks a slot sensitive, or hides one from the walker, it is the
+;; `:rf/redacted` sentinel: the `(or schema-has-sensitive?
+;; schema-has-opaque-child?)` posture `re-frame.schemas.validate` takes,
+;; because Malli may honour a `:sensitive?` slot inside an opaque value the
+;; walker cannot see. Otherwise it is the live value walked through the frame's
+;; classification at `path`, which redacts a classified sensitive slot and
+;; size-elides a large one.
 (def ^:private redacted-sentinel rf.privacy/redacted-sentinel)
+
+(defn classification-sensitive?
+  "True when `frame-id`'s classification redacts anything in `v`, the value at
+  app-db `path`: a `reg-classification`, a flow's output marks or a subsystem
+  declaration makes a path at, above or beneath `path` sensitive. A
+  schema-validation trace about `v` is then sensitive whatever its schema
+  says, because an app-db path is declared sensitive once, by classification
+  (Spec 010 §`:sensitive?`). A large declaration does not count."
+  [frame-id path v]
+  (not= v (rf.elision/elide-wire-value
+            v {:frame frame-id :path path :rf.egress/include-large? true})))
 
 (defn- maybe-emit-schema-violation!
   "Emit `:rf.schema/violation` when the live `app-db` value present at `path`
@@ -495,7 +505,7 @@
   so the production bundle DCEs the consult+emit branch (Spec 009
   §Production builds)."
   [frame-id path prior-registered? prior-schema new-schema]
-  (when-let [validate-fn @rf.schemas.validator/validator-fn]
+  (when-let [validate-fn (rf.schemas.validator/validator)]
     (let [app-db     (rf.frame/frame-app-db-value frame-id)
           live-value (if (nil? app-db) ::absent (get-in app-db path ::absent))]
       (when-not (or (= ::absent live-value)
@@ -508,29 +518,22 @@
                     (try (boolean (validate-fn new-schema live-value))
                          (catch #?(:clj Throwable :cljs :default) _ true)))
         (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
-          ;; Fail closed on an opaque schema. The
-          ;; pure-data walker cannot see a `{:sensitive? true}` slot inside a
-          ;; compiled `m/schema` value, so `schema-has-sensitive?` alone would
-          ;; return false and `:mismatching-value` would egress the live value
-          ;; verbatim — the asymmetry the validate-*! redactor already closes
-          ;; (`re-frame.schemas.validate` uses the same
-          ;; `(or schema-has-sensitive? schema-has-opaque-child?)` posture). A
-          ;; bare keyword is provably flag-free and is NOT opaque
-          ;; (`schema-opaque?`). Use recursive `schema-has-opaque-child?`,
-          ;; not the root-only
-          ;; `schema-opaque?` — a vector-form `new-schema` can embed a nested
-          ;; opaque child the root-only check would miss.
-          (let [sensitive? (or (rf.schemas.walker/schema-has-sensitive? new-schema)
-                               (rf.schemas.walker/schema-has-opaque-child? new-schema))]
+          ;; The recursive `schema-has-opaque-child?`, not the root-only
+          ;; `schema-opaque?`: a vector-form schema can embed an opaque child.
+          (let [schema-sensitive? (or (rf.schemas.walker/schema-has-sensitive? new-schema)
+                                      (rf.schemas.walker/schema-has-opaque-child? new-schema))]
             (emit! :warning :rf.schema/violation
                    (cond-> {:path               path
                             :post-reload-schema new-schema
-                            :mismatching-value  (if sensitive?
+                            :mismatching-value  (if schema-sensitive?
                                                   redacted-sentinel
-                                                  live-value)
+                                                  (rf.elision/elide-wire-value
+                                                    live-value {:frame frame-id :path path}))
                             :frame              frame-id
                             :recovery           :logged-and-skipped
-                            :sensitive?         sensitive?}
+                            :sensitive?         (or schema-sensitive?
+                                                    (classification-sensitive?
+                                                      frame-id path live-value))}
                      prior-registered? (assoc :pre-reload-schema prior-schema)))))))))
 
 (defn- maybe-emit-schema-violations!

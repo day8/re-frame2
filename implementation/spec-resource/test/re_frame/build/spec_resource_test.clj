@@ -122,6 +122,12 @@
           :loader-result {:state :bound}}
          (observe-resolver-during-load rf.build.spec-resource/resolve-after-require))))
 
+;; The control: the fixture still opens the window the shipped resolver closes,
+;; so the test above cannot pass because the race stopped reproducing.
+(deftest the-fixture-hands-the-naive-requiring-resolve-an-unbound-var
+  (is (= {:state :unbound}
+         (:during-load (observe-resolver-during-load requiring-resolve)))))
+
 (deftest resolve-after-require-reports-a-missing-var
   (let [release-gate-name (str "release-" (swap! unique-name-sequence inc))
         _release-gate-var (intern (create-ns (symbol gate-ns))

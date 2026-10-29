@@ -76,11 +76,12 @@
            (distinct (malformed #(reset! value (rf/subscribe-once [:sub/malformed]))))))
     (is (= [1 2 3] @value))))
 
-(deftest boundary-seam-malformed-schema-returns-false
-  (is (= [false true false]
-         [(rf.schemas.validate/validate-with-registered-fn [:vector] [:anything])
-          (rf.schemas.validate/validate-with-registered-fn [:cat [:= :ok] :int] [:ok 1])
-          (rf.schemas.validate/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"])])))
+(deftest check-reports-a-malformed-schema-apart-from-a-failure
+  (let [category #(:category (rf.schemas.validate/check! {:schema %1 :value %2 :tags-only? true}))]
+    (is (= [:rf.error/malformed-schema nil :rf.error/schema-validation-failure]
+           [(category [:vector] [:anything])
+            (category [:cat [:= :ok] :int] [:ok 1])
+            (category [:cat [:= :ok] :int] [:ok "no"])]))))
 
 (def ^:private throwing-explainer
   (fn [_schema _value] (throw (ex-info "explainer boom" {}))))
