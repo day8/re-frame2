@@ -16,7 +16,7 @@ This leaf is the recipe + when-to-reach-for-it. Depth (failure posture, exceptio
 
 Two different defaults sit at two different surfaces, and conflating them is the common error:
 
-- **Classification is fail-OPEN.** A path you forget to classify ships raw — that's the hygiene bargain, not a leak the framework guards against. Classify exactly the paths you care about; a re-keyed or rendered secret ships raw until *its* path is classified too.
+- **Classification is fail-OPEN.** A path you forget to classify ships raw — that's the hygiene bargain, not a leak the framework guards against. Classify exactly the paths you care about; a secret re-keyed to a new app-db path ships raw until *that* path is classified too. Classifying an app-db path never changes what a view renders, so the app must omit or mask content it does not want rendered.
 - **Projection is fail-CLOSED on the unknowns it *can* see.** An unknown frame, an unschematized HTTP body, an unknown egress profile — the projector redacts the whole value or errors rather than leak under invented scope.
 
 This is a **leak-prevention overlay on observability, not a security boundary.** Your app still owns auth, authorisation, encryption-at-rest, and transport. It buys you one thing: the framework's *own* observation surfaces cannot accidentally exfiltrate a *classified* secret or stuff a record with megabytes.

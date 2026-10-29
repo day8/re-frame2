@@ -180,7 +180,7 @@ A route with a token in its query string (`?reset_token=…`) classifies it on t
 | Subsystem instance data (machine `:data`, resource data, route query) | the subsystem definition | `:sensitive` / `:large` on `reg-machine` / `reg-resource` / `reg-mutation` / `reg-route` |
 | Transient payloads (event args, fx/cofx values, sub outputs, HTTP bodies, headers and query params) | the registration, or its `:decode` schema | `:sensitive` / `:large` paths, `:sensitive?` on the `:decode` schema, or the `:carriers` block |
 
-A sub or flow that reads a sensitive value does not classify its own output. If you derive a secret into a new path, through a sub, a flow, or a rendered field, classify that path too.
+A sub or flow that reads a sensitive value does not classify its own output. If you derive a secret into a new path, through a sub or a flow, classify that path too. Classifying a path never changes what a view renders, so the app must omit or mask content it does not want rendered.
 
 !!! warning "The size threshold warns; it doesn't elide"
 

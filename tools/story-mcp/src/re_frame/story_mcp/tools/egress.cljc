@@ -20,8 +20,9 @@
   RE-KEYED to a position the classification path cannot reach (a token copied
   into rendered hiccup at `[1 :value]`, into a `:network` reply, into a
   captured-event payload) is NOT covered and ships RAW — INTENDED FAIL-OPEN
-  (hygiene, not a guarantee). A consumer that needs a value redacted in a
-  derived tree must classify its app-db PATH so the value lands AT that path.
+  (hygiene, not a guarantee). Classifying an app-db path never changes what a
+  view renders, so the app must omit or mask content it does not want
+  rendered.
 
   The fail-open is scoped to a LIVE variant frame. At the FRAMEWORK boundary
   (`re-frame.core/project-egress`), a derived-tree with NO live frame FAILS
@@ -109,9 +110,9 @@
   hygiene helper does not earn (EP-0025 §\"What is removed\"). The
   derived-tree projection is PATH-BASED: `project-egress` walks the tree
   against the frame's classification, redacting a value AT a classified path
-  and leaving a RE-KEYED copy RAW (INTENDED FAIL-OPEN). A consumer that needs
-  a re-keyed value redacted must classify its app-db PATH so the derived slot
-  lands the value AT that path. The `:include-sensitive` opt-out forwards the
+  and leaving a RE-KEYED copy RAW (INTENDED FAIL-OPEN). Classifying an app-db
+  path never changes what a view renders, so the app must omit or mask content
+  it does not want rendered. The `:include-sensitive` opt-out forwards the
   raw tree (same escape hatch as `:app-db`).
 
   ## One record-level boundary: `project-egress`
