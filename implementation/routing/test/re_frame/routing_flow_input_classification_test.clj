@@ -4,10 +4,15 @@
   navigation commits its route through the event's own `:rf.db/runtime`, so on
   the event that navigates onto a route the pending runtime-db already names
   it while the committed one does not, and the param must redact all the same
-  (Spec 013 §Flow tracing, Spec 012 §Route data classification)."
+  (Spec 013 §Flow tracing, Spec 012 §Route data classification).
+
+  `:rf.flow/computed` is a development trace, so under the production-gate
+  lane (`-Dre-frame.debug=false`) the same navigations trace no flow input at
+  all, while the flow still computes."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows]
+            [re-frame.interop :as rf.interop]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
@@ -39,10 +44,14 @@
                 :output-path [:pin-length]}
                count)
   (rf/make-frame {:id :rf/default :url-bound? true :flows [:vault/pin-length]})
-  (is (= [[nil]] (visit! "/home")))
-  (is (= [[:rf/redacted]] (visit! "/vault/PIN-ONE"))
-      "the navigating event: only the pending runtime-db names the route")
-  (is (= [[:rf/redacted]] (visit! "/vault/PIN-TWO"))
-      "control: the route is already current, so the committed runtime-db names it too")
+  (let [[home onto again] (mapv visit! ["/home" "/vault/PIN-ONE" "/vault/PIN-TWO"])]
+    (if rf.interop/debug-enabled?
+      (do
+        (is (= [[nil]] home))
+        (is (= [[:rf/redacted]] onto)
+            "the navigating event: only the pending runtime-db names the route")
+        (is (= [[:rf/redacted]] again)
+            "control: the route is already current, so the committed runtime-db names it too"))
+      (is (= [[] [] []] [home onto again]) "a production build traces no flow input")))
   (is (= 7 (:pin-length (rf/app-db-value :rf/default)))
       "the flow itself reads the raw param"))
