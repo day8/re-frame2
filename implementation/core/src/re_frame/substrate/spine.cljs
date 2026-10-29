@@ -1916,7 +1916,7 @@
   (atom nil))
 
 (defn set-hiccup-emitter!
-  "Install a render-tree → HTML fn into `emitter-cell`. Idempotent."
+  "Install a render-tree → HTML fn into `emitter-cell`. Last call wins."
   [emitter-cell f]
   (reset! emitter-cell f))
 

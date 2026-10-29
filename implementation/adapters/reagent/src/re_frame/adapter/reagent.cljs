@@ -199,6 +199,12 @@
   hydration. That is what makes the one call both the boot path and the
   `^:dev/after-load` hook. `mount-point` is read on the first call only.
 
+  A later call REMOUNTS the tree below the Root rather than reconciling it:
+  stock Reagent's `render` wraps every call's tree in a fresh component, so
+  React sees a new element type. Component-local state — `r/atom`s in a
+  Form-2, `r/with-let`, uncontrolled inputs, focus, scroll — does not survive
+  a hot reload. Frames do, so state kept in a frame survives.
+
   A hydrating first call also reads two more `opts` keys.
   `:on-recoverable-error` is called with each error React recovers from.
   In every build, a hydration mismatch React recovers from is reported

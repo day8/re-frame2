@@ -27,7 +27,7 @@ See [`../README.md`](../README.md) for the wider adapter tier and the substrate 
       (js/document.getElementById "app")))
   ```
 
-- `re-frame.adapter.uix/set-hiccup-emitter!` — installs a render-tree → HTML fn for `render-to-string`; idempotent. SSR consumers call this to wire the hiccup emitter explicitly.
+- `re-frame.adapter.uix/set-hiccup-emitter!` — installs the hiccup → HTML fn `render-to-string` uses; last call wins. Requiring `re-frame.ssr` already installs it, so call this only to install a different emitter.
 
 ## Imperative escape hatch — when you need a DOM lifecycle
 
