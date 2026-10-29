@@ -53,6 +53,7 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
             [re-frame.machines.lifecycle-fx.exit-cascade :as rf.machines.lifecycle-fx.exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
             [re-frame.machines.lifecycle-fx.join :as rf.machines.lifecycle-fx.join]
@@ -285,16 +286,19 @@
   "Classify one teardown from authenticated runtime state before teardown.
 
   An authenticated in-progress explicit teardown is a
-  cancellation and atomically closes the attempt by adding its logical child
-  id to the live join state's private `:cancelled` set BEFORE exit callbacks,
-  snapshot removal, or the terminal destroyed trace. Consequently an already
-  queued/delayed exact-attempt completion observes a closed attempt and cannot
-  fold a contradictory terminal. A new join attempt seeds a new join-state, so
-  no tombstone crosses re-entry.
+  cancellation and atomically closes the attempt through `join/cancel-child`,
+  which adds its logical child id to the live join state's private
+  `:cancelled` set BEFORE exit callbacks, snapshot removal, or the terminal
+  destroyed trace. Consequently an already queued/delayed exact-attempt
+  completion observes a closed attempt and cannot fold a contradictory
+  terminal. A new join attempt seeds a new join-state, so no tombstone crosses
+  re-entry. `counts-as-failure?` goes to `cancel-child`: true for a keyword
+  destroy, whose cancellation counts as the child failing.
 
-  Returns `{:reason ... :join-child ...}` for the caller's trace, or nil when
-  the durable write did not land."
-  [frame-id actor-id requested-reason owner-token]
+  Returns `{:reason ... :join-child ...}` for the caller's trace — with the
+  join state before (`:join-state`) and after (`:join-state'`) the write when
+  it closed an attempt — or nil when the durable write did not land."
+  [frame-id actor-id requested-reason counts-as-failure? owner-token]
   (let [runtime-db     (rf.frame/frame-runtime-db-value frame-id)
         current        (authenticated-join-child runtime-db actor-id)
         classification (if current
@@ -308,20 +312,17 @@
                        ;; Re-authenticate inside the exact durable write: the
                        ;; decision and tombstone must describe the same live
                        ;; join attempt that is committed.
-                       (if-let [latest (authenticated-join-child
-                                        latest-db actor-id)]
-                         (let [reason requested-reason]
-                           (vreset! prepared (assoc latest :reason reason))
-                           (if (= :explicit reason)
-                             (update-in
-                               latest-db
-                               (conj (rf.machines.paths/spawned-path
-                                       (:parent-id latest)
-                                       (:invoke-id latest))
-                                     :cancelled)
-                               (fnil conj #{})
-                               (:child-id latest))
-                             latest-db))
+                       (if-let [{:keys [parent-id invoke-id child-id] :as latest}
+                                (authenticated-join-child latest-db actor-id)]
+                         (let [db' (rf.machines.lifecycle-fx.join/cancel-child
+                                     latest-db parent-id invoke-id child-id
+                                     counts-as-failure?)]
+                           (vreset! prepared
+                                    (assoc latest
+                                           :reason      requested-reason
+                                           :join-state' (get-in db' (rf.machines.paths/spawned-path
+                                                                      parent-id invoke-id))))
+                           db')
                          (do
                            (vreset! prepared {:reason requested-reason})
                            latest-db)))
@@ -392,7 +393,7 @@
                                spawned-id parent-id invoke-id child-id)
         (when-let [{:keys [reason join-child]}
                    (prepare-join-child-teardown!
-                     frame-id spawned-id :explicit owner-token)]
+                     frame-id spawned-id :explicit false owner-token)]
           (when (destroy-single-actor! frame-id spawned-id owner-token)
             (rf.machines.lifecycle-fx.traces/emit-destroyed!
               {:frame           frame-id
@@ -446,11 +447,17 @@
   so the cancel row closes the same work id the attempt's done or error
   row would carry. The trace carries the requested
   reason, and an `:explicit` teardown of an authenticated child durably closes
-  the attempt before callbacks can release a queued completion."
+  the attempt before callbacks can release a queued completion.
+
+  The keyword form (nil `invoke-id`) is the app's own destroy, so a join
+  child's cancellation counts as that child failing: once the child is gone,
+  `join/resolve-cancelled-child!` resolves the join on `:on-any-failed` and
+  its fx run here, through the standard fx interpreter."
   [frame-id actor-id requested-reason parent-id invoke-id old-db owner-token]
   (when (actor-live? actor-id old-db)
     (when-let [teardown (prepare-join-child-teardown!
-                          frame-id actor-id requested-reason owner-token)]
+                          frame-id actor-id requested-reason (nil? invoke-id)
+                          owner-token)]
       (let [reason     (:reason teardown)
             join-child (:join-child teardown)
             child-rt   (get-in old-db (rf.machines.paths/snapshot-path actor-id :rf/runtime))
@@ -482,16 +489,6 @@
             ;; or error row.
             work-generation (or (:work-generation join-child)
                                 (:work-generation child-rt))]
-      ;; An explicit keyword destroy of one join child can strand its join: the
-      ;; tombstone is a cancellation the completion fold never sees. A parent
-      ;; leaving the join state reaches its children through
-      ;; `destroy-spawn-all-children!` instead, where the join is ending anyway.
-      (when (and (nil? invoke-id) (= :explicit reason) (map? (:join-state teardown)))
-        (rf.machines.lifecycle-fx.join/warn-if-cancel-strands-join!
-          frame-id (:parent-id teardown) (:invoke-id teardown)
-          (get-in old-db (rf.machines.paths/snapshot-path (:parent-id teardown)))
-          (:join-state teardown)
-          (update (:join-state teardown) :cancelled (fnil conj #{}) (:child-id teardown))))
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
@@ -518,7 +515,18 @@
               (assoc :child-id (:child-id teardown))
               (some? work-generation)
               (assoc :work-generation work-generation))))
-        owner-token))))
+        owner-token)
+      ;; A keyword destroy that closed a join child's attempt resolves or
+      ;; strands its join now that the child is gone. A parent leaving the
+      ;; join state reaches its children through `destroy-spawn-all-children!`
+      ;; instead, where the join is ending anyway.
+      (when (and (nil? invoke-id) (contains? teardown :join-state'))
+        (when-let [fx (seq (rf.machines.lifecycle-fx.join/resolve-cancelled-child!
+                             (rf.frame/frame-runtime-db-value frame-id) frame-id
+                             (:parent-id teardown) (:invoke-id teardown) (:child-id teardown)
+                             (:join-state teardown) (:join-state' teardown)))]
+          (rf.fx/do-fx frame-id (vec fx)
+                       (or (:platform (rf.frame/frame-meta frame-id)) :client)))))))
   nil)
 
 ;; ---- the closed map-form grammar -------------------------------------------

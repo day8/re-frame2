@@ -1,7 +1,8 @@
 (ns re-frame.spawn-all-test
   "Spec 005 §Spawn-and-join via `:spawn-all`: the closed `:all` / `:any` join
-  grammar, sibling cancellation on resolution, the unsatisfiable-join warning,
-  completion-carrier ownership, and registration-time validation."
+  grammar, sibling cancellation on resolution, an explicit destroy counting as
+  a failure, the unsatisfiable-join warning, completion-carrier ownership, and
+  registration-time validation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -99,10 +100,62 @@
       (is (= [{:actor-id :sup/unsat :join :all}] (mapv #(select-keys (:tags %) [:actor-id :join]) (warns))))
       (is (= :joining (:state (snapshot :sup/unsat)))))))
 
+(def ^:private cancellation-result
+  "The `<result>` a resolution carries for an explicitly destroyed child."
+  {:status :cancelled :rf.reply/cancel-reason :explicit})
+
+(deftest destroying-a-join-child-fires-on-any-failed
+  (rf/reg-event :sup/fire (fn [_ [_ id]] {:fx [[:rf.machine/destroy id]]}))
+  (doseq [[parent spawn-all]
+          [[:sup/destroy-all {:on-all-complete [:hydrate/done] :on-any-failed [:hydrate/failed]}]
+           [:sup/destroy-any {:join :any :on-some-complete [:hydrate/done]
+                              :on-any-failed [:hydrate/failed]}]]]
+    (testing (str parent ": an explicit destroy of one child counts as it failing, so
+                  :on-any-failed fires at once, naming the cancellation, and the
+                  survivors are cancelled")
+      (rf.machines.test-support/reset-captured!)
+      (let [ids (start-join! parent [:a :b :c] spawn-all (over-on :hydrate/done :hydrate/failed))
+            any-failed #(events-of :rf.machine.spawn-all/any-failed)]
+        (rf/dispatch-sync [:sup/fire (:a ids)])
+        (is (= [:hydrate/failed :a cancellation-result] (join-event parent)))
+        (is (= [nil nil nil] (mapv snapshot (vals ids))))
+        (is (= [{:failed-id :a :reason cancellation-result :failed #{} :cancelled #{:a}}]
+               (mapv #(select-keys (:tags %) [:failed-id :reason :failed :cancelled]) (any-failed)))
+            "the destroyed child stays in :cancelled alone, and the trace fires once")
+        (is (not-any? #(contains? (:tags %) :rf.reply/work-id) (any-failed))
+            "the child's terminal is its own :cancelled destroyed row, not a second one here")
+        (is (= #{[:b :on-any-failed] [:c :on-any-failed]}
+               (set (map (comp (juxt :child-id :join-event) :tags)
+                         (events-of :rf.machine.spawn/cancelled-on-join-resolution)))))
+        (is (empty? (events-of :rf.warning/spawn-all-join-unsatisfiable)))))))
+
+(deftest runtime-cancellations-never-fire-on-any-failed
+  (testing "the cancel-on-decision cascade: a success resolution's survivors are
+            cancelled without firing :on-any-failed"
+    (let [ids (start-join! :sup/won [:a :b :c]
+                           {:join :any :on-some-complete [:race/won] :on-any-failed [:race/failed]}
+                           (over-on :race/won :race/failed))]
+      (rf/dispatch-sync [(:b ids) [:go]])
+      (is (= [:race/won :b :b] (join-event :sup/won)))
+      (is (= #{:a :c} (set (map (comp :child-id :tags)
+                                (events-of :rf.machine.spawn/cancelled-on-join-resolution)))))
+      (is (empty? (events-of :rf.machine.spawn-all/any-failed)))))
+  (testing "the exit cascade: leaving the :spawn-all state cancels every live child
+            without firing :on-any-failed"
+    (rf.machines.test-support/reset-captured!)
+    (let [ids (start-join! :sup/left [:a :b]
+                           {:on-all-complete [:phase/done] :on-any-failed [:phase/failed]}
+                           (assoc (over-on :phase/done :phase/failed) :leave {:target :over}))]
+      (rf/dispatch-sync [:sup/left [:leave]])
+      (is (= [:over nil] [(:state (snapshot :sup/left)) (join-event :sup/left)]))
+      (is (= [nil nil] (mapv snapshot (vals ids))))
+      (is (empty? (events-of :rf.machine.spawn-all/any-failed))))))
+
 (deftest destroying-a-join-child-that-strands-the-join-warns
-  (testing "an explicit destroy of one :all child is a cancellation the fold
-            never sees; the advisory fires when it strands the join, and the
-            parent leaving the join state raises none"
+  (testing "with no :on-any-failed, an explicit destroy of one :all child is
+            tracked as a failure is: the join can no longer succeed, the advisory
+            fires when it strands the join, and the parent leaving the join state
+            raises none"
     (rf/reg-event :sup/fire (fn [_ [_ id]] {:fx [[:rf.machine/destroy id]]}))
     (let [ids   (start-join! :sup/cancel [:a :b]
                              {:on-all-complete [:phase/done]}
@@ -111,6 +164,7 @@
                        (events-of :rf.warning/spawn-all-join-unsatisfiable))]
       (rf/dispatch-sync [:sup/fire (:a ids)])
       (is (= [[:sup/cancel #{:a}]] (warns)))
+      (is (= [#{} #{:a} false] ((juxt :failed :cancelled :resolved?) (join-state :sup/cancel))))
       (rf/dispatch-sync [(:b ids) [:go]])
       (is (= :joining (:state (snapshot :sup/cancel))) "the stranded join stays hung")
       (rf/dispatch-sync [:sup/cancel [:leave]])
