@@ -13,8 +13,8 @@
   `tools/list` descriptors the host already has at handshake, and a
   miss is answered live by the `:unknown-tool` hint, which folds
   `registry/tool-names` into the error. What the descriptors cannot
-  carry is CROSS-tool judgement — each one's preference is buried in
-  its own ~2,400-char paragraph — so this text keeps only that: the
+  carry is CROSS-tool judgement — each says what its own tool does, not
+  when to reach for it over another — so this text keeps only that: the
   global first-contact routing index.
 
   `instructions-text` ships inline as a single string so the artefact

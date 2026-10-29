@@ -318,6 +318,21 @@ hint for that surface. The number lives alongside `:name`,
 `:description`, and `:inputSchema` in the JSON-RPC `tools/list`
 response.
 
+## Universal: a tool's `:description` is its call contract
+
+Every session that loads the catalogue pays for every `:description`
+before its first call, so each one carries what a caller needs to call
+the tool correctly and safely, and nothing more: what the tool does,
+its key arguments, its headline return shape, any privacy knob or
+launch gate a caller must know before the first call, and one example.
+Detail about one argument lives on that argument's own `:description`
+in the `:inputSchema`; cross-tool routing lives in
+`get-re-frame2-pair-instructions`; long-form guidance — worked
+walk-throughs, recovery recipes, the reasoning behind a privacy
+posture — lives in this document.
+`test/re_frame2_pair_mcp/descriptor_budget_test.cljs` holds each
+description to a character budget.
+
 ## Universal: per-session response cache
 
 Every read tool — `snapshot`, `get-path`, `trace-window`,
@@ -3846,10 +3861,9 @@ the wire cap. That enumeration duplicated the `tools/list`
 descriptors an agent already holds from the handshake, and a name
 that misses is answered live by the `:unknown-tool` hint, which folds
 `registry/tool-names` into the error. What no per-tool descriptor can
-carry is CROSS-tool judgement — `read-sub`'s own description does say
-"PREFER this over raw eval-cljs", but that preference sits inside its
-~2,400-character paragraph, invisible until you already chose to read
-about `read-sub`. The routing rules are that missing global
+carry is CROSS-tool judgement — `read-sub`'s own description contrasts
+it with a raw `eval-cljs` deref, but only an agent that has already
+chosen to read about `read-sub` sees that. The routing rules are that missing global
 first-contact index, and nothing else. The full per-tool reference is
 this document.
 
