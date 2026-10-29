@@ -1,18 +1,19 @@
 (ns re-frame.security.mcp-egress-security-cljs-test
   "Adversarial tests for AI/MCP trace egress.
 
-  With sensitive reads disabled, `strip-sensitive` removes every trace event
-  carrying a truthy `:sensitive?` stamp and `scrub-snapshot` applies that rule
-  to each frame's trace and epoch slices. Truthy non-boolean stamps are treated
-  as sensitive because malformed metadata must fail closed. Enabling sensitive
-  reads is the operator's explicit raw-egress opt-in."
+  With sensitive reads disabled, `strip-sensitive` removes every record
+  carrying a truthy `:sensitive?` stamp before it crosses the MCP boundary —
+  the filter story-mcp's egress runs over assertion records. Truthy
+  non-boolean stamps are treated as sensitive because malformed metadata must
+  fail closed. Enabling sensitive reads is the operator's explicit raw-egress
+  opt-in."
   (:require #?(:clj  [clojure.test :refer [deftest is]]
                :cljs [cljs.test :refer-macros [deftest is]])
             [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
             [re-frame.security.gen :as rf.security.gen]))
 
-;; The scrub property intentionally drives thousands of malformed
-;; `:sensitive?` stamps through `scrub-snapshot`.
+;; The strip property intentionally drives thousands of malformed
+;; `:sensitive?` stamps through `strip-sensitive`.
 ;; The quiet JVM and CLJS runners buffer the expected contract-drift warnings
 ;; and replay them on failure.
 
@@ -69,39 +70,6 @@
   "A vector of 0..12 mixed events."
   (rf.security.gen/gen-vec (rf.security.gen/gen-int 0 13) gen-event))
 
-(def ^:private gen-frame
-  "A per-frame snapshot map with mixed-sensitivity :traces + :epochs slices
-  and an :app-db (which scrub-snapshot leaves alone by design)."
-  (fn [rng]
-    (let [[traces rng1] (gen-event-vec rng)
-          [epochs rng2] (gen-event-vec rng1)]
-      [{:traces traces
-        :epochs epochs
-        :app-db {:public "kept"}}
-       rng2])))
-
-(def ^:private gen-snapshot
-  "A snapshot map: 1..4 frame-keyed entries."
-  (fn [rng]
-    (let [[n rng1] ((rf.security.gen/gen-int 1 5) rng)]
-      (loop [i 0, rng rng1, acc {}]
-        (if (< i n)
-          (let [[frame rng'] (gen-frame rng)]
-            (recur (inc i) rng' (assoc acc (keyword (str "frame-" i)) frame)))
-          [acc rng])))))
-
-(defn- snapshot-leaks-sentinel?
-  "True when a frame's scrubbed trace or epoch slices still contain the
-  sentinel or an event classified sensitive. `:app-db` is deliberately outside
-  this low-level trace/epoch scrub."
-  [scrubbed]
-  (some (fn [[_frame fm]]
-          (when (map? fm)
-            (let [slices (concat (:traces fm) (:epochs fm))]
-              (or (some contains-sentinel? slices)
-                  (some rf.mcp-base.sensitive/sensitive-event? slices)))))
-        scrubbed))
-
 (defn- clean-event?
   "The oracle's classifier, independent of the code under test: every
   generated clean event carries `:sensitive? false` or no stamp, and every
@@ -109,30 +77,31 @@
   [ev]
   (not (:sensitive? ev)))
 
-(defn- expected-scrub
-  "What `scrub-snapshot` must return with sensitive reads disabled: every
-  frame keeps exactly its clean `:traces` and `:epochs` events, in order,
-  and `:app-db` untouched (the scrub is trace/epoch-only by design), beside
-  the count of every event dropped, which feeds the `:dropped-sensitive`
-  indicator (spec/Security.md §Behavioural MUSTs across the privacy surface)."
-  [snap]
-  [(into {}
-         (map (fn [[frame fm]]
-                [frame (-> fm
-                           (update :traces #(filterv clean-event? %))
-                           (update :epochs #(filterv clean-event? %)))]))
-         snap)
-   (count (remove clean-event? (mapcat #(concat (:traces %) (:epochs %)) (vals snap))))])
+(defn- expected-strip
+  "What `strip-sensitive` must return with sensitive reads disabled: exactly
+  the clean events, in order, beside the count of every event dropped, which
+  feeds the `:dropped-sensitive` indicator (spec/Security.md §Behavioural
+  MUSTs across the privacy surface)."
+  [events]
+  [(filterv clean-event? events)
+   (count (remove clean-event? events))])
 
-(deftest allow-sensitive-disabled-scrub-snapshot-drops-exactly-the-sensitive-events
+(deftest allow-sensitive-disabled-strip-sensitive-drops-exactly-the-sensitive-events
   ;; The sentinel scan guards the oracle; equality with the oracle catches
   ;; an over-strip and a miscount as well as a leak.
   (let [result (rf.security.gen/for-all
-                 gen-snapshot 300 31
-                 (fn [snap]
-                   (let [actual (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-                     (and (not (snapshot-leaks-sentinel? (first actual)))
-                          (= (expected-scrub snap) actual)))))]
+                 gen-event-vec 300 31
+                 (fn [events]
+                   (let [[kept :as actual] (rf.mcp-base.sensitive/strip-sensitive events false)]
+                     (and (not-any? contains-sentinel? kept)
+                          (not-any? rf.mcp-base.sensitive/sensitive-event? kept)
+                          (= (expected-strip events) actual)))))]
     (is (nil? result)
-        (str "scrub-snapshot leaked, over-stripped or miscounted: "
+        (str "strip-sensitive leaked, over-stripped or miscounted: "
              (pr-str (when result (dissoc result :threw)))))))
+
+(deftest allow-sensitive-enabled-strip-sensitive-is-the-raw-opt-in
+  ;; The operator's opt-in forwards every event, sensitive ones included.
+  (let [events [{:operation :fx/run :sensitive? true :tags {:value sentinel}}
+                {:operation :sub/recompute}]]
+    (is (= [events 0] (rf.mcp-base.sensitive/strip-sensitive events true)))))
