@@ -73,14 +73,12 @@
 (rf/reg-view ^{:doc "The :failed screen — shows what went wrong and offers
                   a retry that re-runs the boot from the top."}
           boot-failed []
-  (let [err @(subscribe [:app.boot/error])]
+  (let [reason @(subscribe [:app.boot/failure-reason])]
     [:div.boot-failed {:data-testid "boot-failed"}
      [:h1 "Boot failed"]
      [:p {:data-testid "boot-error"}
-      (if-let [msg (or (:message err)
-                       (some-> (:kind err) name)
-                       (some-> err pr-str))]
-        (str "Reason: " msg)
+      (if reason
+        (str "Reason: " reason)
         "An unexpected error occurred during application boot.")]
      [:button {:data-testid "boot-retry"
                :on-click    #(dispatch [:app/boot [:boot/restart]])}

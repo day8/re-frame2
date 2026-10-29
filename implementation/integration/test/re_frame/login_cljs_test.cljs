@@ -31,7 +31,12 @@
        the stale `:error` as the machine re-enters `:submitting`.
      - server-message-through-the-transport — a submit answered 401 by a stub
        transport, so the transport itself classifies the failure, shows the
-       server's message rather than the generic fallback."
+       server's message rather than the generic fallback.
+     - start-kick-starts-the-machine — the reserved `[:rf.machine/start]` kick
+       the Story variants send passes the machine's event `:schema` and
+       brings the snapshot alive in `:idle`.
+     - editing-a-field-drops-its-stale-error — after a refused submit,
+       correcting a field clears that field's error and leaves the other's."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -163,3 +168,45 @@
       (is (= [:error-shown "Invalid credentials." 1]
              [(machine-state f) (:error (machine-data f)) (:attempts (machine-data f))])
           "the 401 settled the flow in :error-shown with the body's message, not the generic fallback"))))
+
+;; ---------------------------------------------------------------------------
+;; (5) the reserved start kick passes the machine's event schema
+;; ---------------------------------------------------------------------------
+
+(deftest start-kick-starts-the-machine
+  (testing "the eager [:rf.machine/start] kick passes AuthLoginEvent and brings the machine alive in :idle"
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (let [traces (atom [])]
+        (rf/register-listener! :trace ::start-kick (fn [ev] (swap! traces conj ev)))
+        (try
+          (rf/dispatch-sync [:auth.login/flow [:rf.machine/start]] {:frame f})
+          (finally (rf/unregister-listener! :trace ::start-kick)))
+        (is (= [:idle []]
+               [(machine-state f)
+                (filterv #(= :rf.error/schema-validation-failure (:operation %)) @traces)])
+            "the kick reached the machine, which seeded its snapshot, and no schema refused it")))))
+
+;; ---------------------------------------------------------------------------
+;; (6) an edit answers its field's error
+;; ---------------------------------------------------------------------------
+
+(deftest editing-a-field-drops-its-stale-error
+  (testing "after a refused submit, correcting a field clears that field's error and leaves the other's"
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (let [field-errors (fn []
+                           (let [db (rf/frame-state-value f)]
+                             (mapv #(some? (rf/compute-sub [:auth.login/field-error %] db))
+                                   [:email :password])))]
+        (doseq [event [[:auth.login/initialise-form]
+                       [:auth.login/edit-field :email "nope"]
+                       [:auth.login/edit-password {:value "short"}]
+                       [:auth.login/submit-form]]]
+          (rf/dispatch-sync event {:frame f}))
+        (is (= [true true] (field-errors))
+            "the refused submit put an error under each field")
+        (rf/dispatch-sync [:auth.login/edit-field :email "ada@example.com"] {:frame f})
+        (is (= [false true] (field-errors))
+            "correcting the email dropped its error and left the password's")
+        (rf/dispatch-sync [:auth.login/edit-password {:value "long-enough"}] {:frame f})
+        (is (= [false false] (field-errors))
+            "correcting the password dropped its error too")))))

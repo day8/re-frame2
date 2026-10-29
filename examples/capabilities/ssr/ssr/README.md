@@ -200,6 +200,13 @@ Then open the URL it prints. The runner stages this folder's hand-written
 baked payload the client hydrates against — beside the compiled bundle, so
 there is nothing to combine by hand.
 
+Behind a real server, `handle-request` fetches the articles itself, and the
+JVM has no page to resolve a relative URL against. So the server reads its API
+origin from `API_ORIGIN` (default `http://127.0.0.1:3001`) and needs an API
+there answering `GET /api/articles` with a JSON array of
+`{"id" …, "title" …, "body" …}` objects; the browser keeps the page-relative
+`/api/articles`.
+
 ## See also
 
 - [`examples/real-apps/realworld_http/`](../../../real-apps/realworld_http/) — SSR boot folded into a broader app.

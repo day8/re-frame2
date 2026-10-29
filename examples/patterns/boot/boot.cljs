@@ -409,6 +409,18 @@
   {:inputs [[:app.boot/snapshot]]}
   (fn [[snap] _] (get-in snap [:data :error])))
 
+;; The failure screen's one line of explanation, derived from the recorded
+;; failure. An HTTP status failure carries the server's own words in its parsed
+;; `:body`, not at the top level; a transport failure has no body and carries
+;; `:message`; anything else falls back to its `:kind` (docs/async/http.md).
+(rf/reg-sub :app.boot/failure-reason
+  {:inputs [[:app.boot/error]]}
+  (fn [[err] _]
+    (or (get-in err [:body :message])
+        (:message err)
+        (some-> (:kind err) name)
+        (some-> err pr-str))))
+
 (rf/reg-sub :app.boot/ready?
   {:inputs [[:app.boot/state]]}
   (fn [[state] _] (= state :ready)))

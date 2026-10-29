@@ -173,12 +173,12 @@
                      (handle! 'ssr.core/handle-request (answering two-articles) "/articles")))
         (is (= [#{} {}] [(clojure.set/difference (frame-ids) before) @rf.ssr.request/request-slots]))))))
 
-;; The example holds its app schema as a value (`ArticlesSchema`) and registers
-;; it against EACH frame family — the per-request server frame in
-;; `handle-request`, before `:initial-events` fire, and the client frame in
-;; `run`. Bound to the client frame alone, the server-side `:articles` commit
-;; would validate against nothing. Requiring `re-frame.schemas` wires the
-;; default Malli validator, so validation is live here.
+;; The example registers its app schema (`ArticlesSchema`) once, at top level,
+;; so every frame resolves it: the per-request server frame `handle-request`
+;; makes as much as the client frame `run` mounts, and the server-side
+;; `:articles` commit validates with no registration of its own. Requiring
+;; `re-frame.schemas` wires the default Malli validator, so validation is live
+;; here.
 
 (deftest ^:requires-debug ssr-example-per-request-frame-validates-against-the-top-level-schema
   (testing "examples/capabilities/ssr/ssr — a per-request SERVER frame resolves the
@@ -334,6 +334,27 @@
                  [(:status resp) (clojure.string/includes? (:body resp) "timed-out")
                   (< elapsed 2000) leaked])
               (str "took " elapsed "ms")))))))
+
+;; ---- ssr: the server's fetch is absolute -----------------------------------------
+;;
+;; The JVM transport refuses a relative URL before any request goes out
+;; (Spec 014 §JVM transport), so a server fetching "/api/articles" answers every
+;; page 503. The stub transports above answer whatever URL they are handed, so
+;; this test reads the URL the server's fetch goes out on.
+
+(deftest ssr-example-server-fetch-goes-out-on-an-absolute-url
+  (testing "examples/capabilities/ssr/ssr — the per-request fetch names an absolute
+            URL, the only kind the JVM transport sends"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (let [urls (atom [])
+          resp (handle! 'ssr.core/handle-request
+                        (rf.http.stub-transport/route-transport
+                          (fn [{:keys [url]}] (swap! urls conj url) {:body two-articles}))
+                        "/articles")]
+      (is (= [200 [true]]
+             [(:status resp) (mapv #(.isAbsolute (java.net.URI/create %)) @urls)])
+          (str "the server fetched " (pr-str @urls))))))
 
 ;; ---- the static pages' baked source coords ---------------------------------------
 ;;

@@ -178,7 +178,9 @@
   [renderer]
   (rf.ssr.ring/ssr-handler
     {:frame          model/frame-config
-     ;; What the BROWSER may see: the form slice, and nothing else.
+     ;; The app-db keys the BROWSER may see: the form slice, and nothing
+     ;; else. Durable runtime-db, machine snapshots included, rides the
+     ;; payload as well (Spec 011 §Payload scope).
      :payload        [:auth]
      ;; No `:root-view` — only the default JVM-local renderer reads one.
      :renderer       renderer

@@ -506,8 +506,9 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; We hold the React root in an atom and create it lazily inside `run`, never at
-;; load time. Loading a namespace must not touch the DOM — otherwise several
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at load time, and the first `render!` through it, inside
+;; `mount!`, creates the Root. Loading a namespace must not touch the DOM — otherwise several
 ;; example namespaces sharing this page would all race to call `create-root` on
 ;; the same `#app` element. Once is plenty.
 (defonce app-root (rf.adapter.reagent/client-root))

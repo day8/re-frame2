@@ -196,10 +196,9 @@ because the JVM already drained them.
 ### The two policies
 
 There are two allowlists, and reading them as one is the mistake worth
-avoiding. `:payload` answers *what may the browser see?*; `:render-state`
-answers *what does the render need?* They differ in both directions — and they
-are opts on two different constructors, because the thing that projects is the
-renderer:
+avoiding. `:payload` answers *which app-db keys may the browser see?*;
+`:render-state` answers *what does the render need?* They are opts on two
+different constructors, because the thing that projects is the renderer:
 
 ```clojure
 ;; on ssr-handler — the browser's
@@ -218,12 +217,16 @@ neighbour can be read by the other's compiler. A key missing from the list is
 refused nowhere — the render reads `nil` for it and draws the wrong page — so
 name every key a render reads.
 
-`:rf.runtime/machines` is in the render's list and not the browser's *shape*
-because the two partitions are different places: the `:auth.login/flow`
-machine's snapshot lives in runtime-db, and it is what decides whether the page
-shows the form, the welcome or the locked panel. A host that restores a session
-and drives the flow to `:authed` needs that snapshot to cross, or the server
-renders a signed-in visitor a login form.
+`:rf.runtime/machines` is in the render's list because the `:auth.login/flow`
+machine's snapshot lives in runtime-db, not app-db, and it is what decides
+whether the page shows the form, the welcome or the locked panel. A host that
+restores a session and drives the flow to `:authed` needs that snapshot to
+cross, or the server renders a signed-in visitor a login form. `:payload` has no
+say over it: it names app-db keys alone, and the durable runtime-db, machine
+snapshots included, rides `__rf_payload` under `:rf/runtime-db` whatever
+`:payload` names
+([Spec 011 §Payload scope](../../../../spec/011-SSR.md#payload-scope-canonical-boundary)).
+That is how the hydrating client adopts the same face the server drew.
 
 This host drives nothing, and the consequence is worth knowing before you copy
 the file: the machine is **self-seeding** — it materialises a snapshot the first
@@ -233,7 +236,8 @@ and Node's own per-request frame seeds `:idle`, which draws the form. That is
 the right page, and both halves of it are measured in
 `re-frame.ssr.ring.login-host-crossing-test`: the shipped configuration crosses
 with an empty runtime partition, and the same page with one machine event added
-to `:initial-events` crosses carrying `:submitting`.
+to `:initial-events` crosses carrying `:submitting`, into the render and
+`__rf_payload` alike.
 
 `:auth.login/server-notice` runs the other way: a deployment notice the host
 resolves per request, which the render may read and the browser never receives.

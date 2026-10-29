@@ -112,8 +112,9 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; We stash the React root in an atom and create it lazily inside `run` — never
-;; at ns-load. The rule: loading a namespace must touch no DOM. Otherwise two
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. The rule: loading a namespace must touch no DOM. Otherwise two
 ;; examples co-required into one page would both race to `create-root` onto the
 ;; shared `#app`, and exactly one would win. See examples/TESTING.md, "Convention:
 ;; defer DOM mount to `run`".

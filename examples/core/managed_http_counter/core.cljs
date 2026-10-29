@@ -290,8 +290,9 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; We keep the React root in an atom and only build it lazily inside `run`,
-;; never at ns-load. That's the mount-isolation rule from examples/TESTING.md
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. That's the mount-isolation rule from examples/TESTING.md
 ;; §Example mount-isolation convention: loading a namespace must have zero DOM
 ;; side effects, so that two example namespaces sharing a page can't race each
 ;; other to call `create-root` on the same `#app`.

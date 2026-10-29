@@ -149,8 +149,13 @@
 ;; Every sub-event here is credential-free: the machine tracks the
 ;; login lifecycle but never touches the password. The form validates the draft
 ;; against `Credentials` and issues the request itself (see submit-form below),
-;; then nudges the machine with a bare `:submit` signal. So all four sub-events —
-;; :submit, :dismiss, :success, :failure — take the same relaxed tail.
+;; then nudges the machine with a bare `:submit` signal. So every sub-event —
+;; :submit, :dismiss, :success, :failure — takes the same relaxed tail.
+;;
+;; The enum also names `:rf.machine/start`, the framework's eager-creation kick
+;; (docs/machines/concepts.md): a Story variant sends
+;; `[:auth.login/flow [:rf.machine/start]]` to bring the machine alive before
+;; any user event, and this schema sees that vector like any other.
 ;;
 ;; The trailing `[:? :any]` is the slot for the HTTP reply. When a managed-HTTP
 ;; call resolves, the framework appends its canonical reply envelope
@@ -166,7 +171,8 @@
    ;; the schema would match `[:auth.login/flow :auth.login/submit …]` instead of
    ;; the real `[:auth.login/flow [:auth.login/submit] …]`. `[:schema …]` resets
    ;; the regex context so this branch matches the nested sub-event vector.
-   [:schema [:cat [:enum :auth.login/submit :auth.login/dismiss
+   [:schema [:cat [:enum :rf.machine/start
+                   :auth.login/submit :auth.login/dismiss
                    :auth.login/success :auth.login/failure]
              [:* :any]]]
    [:? :any]])
@@ -478,10 +484,12 @@
    :sensitive [[:auth :login-form :draft :password]]})
 
 ;; A keystroke landed on a NON-SECRET field (the email). Write the new value into
-;; `:draft` and remember the user has now touched this field (that `:touched` set
-;; decides, later, when it's fair to show a field's error). This single event is
-;; the *entire* job of a non-secret input's `:on-change` — it sets no view-local
-;; state, because there is none. The `:schema` swats away any malformed
+;; `:draft`, remember the user has now touched this field (that `:touched` set
+;; decides, later, when it's fair to show a field's error), and drop the field's
+;; error: the edit answers it, so a corrected field stops showing a complaint
+;; about the value it no longer holds. This single event is the *entire* job of a
+;; non-secret input's `:on-change` — it sets no view-local state, because there
+;; is none. The `:schema` swats away any malformed
 ;; edit-field vector at the `:where :event` boundary.
 ;;
 ;; Note this event carries its value *positionally* — fine for an email, which
@@ -493,13 +501,14 @@
 ;; raw"). Never route a secret through this event.
 (rf/reg-event :auth.login/edit-field
   {:doc    "Controlled-input edit for a NON-SECRET field (email): write it into
-            the login-form draft and mark it touched. Secrets use
+            the login-form draft, mark it touched and drop its error. Secrets use
             :auth.login/edit-password instead."
    :schema [:cat [:= :auth.login/edit-field] :keyword :string]}
   (fn handler-login-form-edit-field [{:keys [db]} [_ field value]]
     {:db (-> db
              (assoc-in  [:auth :login-form :draft field] value)
-             (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
+             (update-in [:auth :login-form :touched] (fnil conj #{}) field)
+             (update-in [:auth :login-form :errors] dissoc field))}))
 
 ;; OWNER 2 of the password's four egress boundaries. The password's keystrokes
 ;; get their own event, and — the whole point — a MAP payload `{:value …}` rather
@@ -511,14 +520,16 @@
 ;; visible — only the password's value is redacted, not the email's.
 (rf/reg-event :auth.login/edit-password
   {:doc       "Controlled-input edit for the PASSWORD field: write the value
-               into the login-form draft and mark it touched. The value rides a
-               map payload classified :sensitive so the edit trace redacts it."
+               into the login-form draft, mark it touched and drop its error.
+               The value rides a map payload classified :sensitive so the
+               edit trace redacts it."
    :sensitive [[:value]]
    :schema    [:cat [:= :auth.login/edit-password] [:map [:value :string]]]}
   (fn handler-login-form-edit-password [{:keys [db]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in  [:auth :login-form :draft :password] value)
-             (update-in [:auth :login-form :touched] (fnil conj #{}) :password))}))
+             (update-in [:auth :login-form :touched] (fnil conj #{}) :password)
+             (update-in [:auth :login-form :errors] dissoc :password))}))
 
 ;; Submit. First it *validates* the draft against `Credentials` — this handler
 ;; body is where that check happens, and the only place it happens — and latches

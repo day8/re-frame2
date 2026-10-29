@@ -20,7 +20,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape â
 |---|---|
 | Hierarchical compound state | `:active` parents `:connecting` / `:authenticating` / `:connected`; **the socket actor's lifetime is anchored on the parent**, so it outlives leaf transitions. |
 | `:spawn` (declarative spawn) | `:active` invokes a `:websocket/socket` child owning the JS `WebSocket`. Exiting `:active` destroys it; re-entering spawns a fresh one. |
-| `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. |
+| `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. A fixed `:after` deadline on `:connecting` and `:authenticating` treats a handshake the server never finishes as a lost socket. |
 | `:always` | Max-retries guard on `:reconnecting` entry; queue-flush guard on `:connected` entry. |
 | Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/disconnect`, `:ws/send`, `:ws/subscribe`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. The first three are the doors *out*: each destroys the socket actor, so each settles `:in-flight` on the way out. `:reconnecting` and `:failed` are siblings of `:active`, not leaves, so they inherit none of it and carry their own. |
 | Connection-epoch staleness check | Live socket-actor's `:self-id` is the epoch. Replies carry `:source-socket-id`; `:current-socket?` guard rejects events from a torn-down prior socket. |
@@ -48,6 +48,10 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 ;; own (which is what makes :current-socket? a safe connection clock).
 (def socket-invoke-id [:active])
 (defn socket-id [spawned] (get spawned socket-invoke-id))
+
+;; A server can accept the socket and never open it, or never answer the auth
+;; frame. Neither raises :ws/closed, so each handshake leaf carries a deadline.
+(def handshake-timeout-ms 10000)
 
 ;; The connection-epoch test both guards share: is this event stamped with the
 ;; socket we are using RIGHT NOW? A torn-down socket reads nil, so stragglers fail free.
@@ -193,8 +197,11 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                :ws/rotate-cred {:action :rotate-cred}}
      :initial :connecting
      :states
-     {:connecting     {:on {:ws/opened {:guard :current-socket? :target :authenticating}}}
+     {;; A handshake that outlives its deadline is a lost socket: retry and back off.
+      :connecting     {:after {handshake-timeout-ms {:target [:reconnecting] :action :on-socket-lost}}
+                       :on    {:ws/opened {:guard :current-socket? :target :authenticating}}}
       :authenticating {:entry :send-auth
+                       :after {handshake-timeout-ms {:target [:reconnecting] :action :on-socket-lost}}
                        :on    {:ws/auth-ok     {:guard :current-socket? :target :connected}
                                :ws/auth-failed {:guard :current-socket? :target [:failed]}}}
       :connected      {:entry  :on-connected

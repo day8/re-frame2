@@ -79,8 +79,9 @@ together.
 - Boot is a machine, not a view lifecycle. The whole sequence lives
   in `:app/boot` — not in a view's `:on-mount`, not in a top-level `js`
   side effect, not in a hand-rolled `:dispatch` chain. The view tree's
-  `root-view` does one thing: it reads `:app.boot/state` and renders
-  the main app, the progress screen, or the failure screen. The loading
+  `root-view` does one thing: it asks `:app.boot/ready?` and
+  `:app.boot/failed?` and renders the main app, the failure screen, or
+  the progress screen. The loading
   logic stays in one place instead of being spread across every
   sub-view as a per-component loading skeleton.
 
