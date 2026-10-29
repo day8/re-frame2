@@ -156,10 +156,13 @@
   (let [data (error-data #(rf.image/select-descriptors
                             (rf.image/image {:id :my/image :select-ns {:include ["nope.*"]}})
                             synthetic-store))]
-    (is (= [{:rf.error/id :rf.error/image-zero-match :image :my/image :pattern "nope.*"} true]
-           [(select-keys data [:rf.error/id :image :pattern])
+    (is (= [{:rf.error/id :rf.error/image-zero-match :where 'rf/make-frame
+             :image :my/image :pattern "nope.*"}
+            true]
+           [(select-keys data [:rf.error/id :where :image :pattern])
             (boolean (some #{"shop.cart"} (:loaded-ns data)))])
-        "the diagnostic names the image, the pattern and the loaded namespaces"))
+        "the diagnostic names the assembling call, the image, the pattern and
+        the loaded namespaces"))
   (is (= :rf.error/image-zero-match
          (:rf.error/id (error-data #(select {:select-ns {:include ["shop.**" "ghost.*"]}}))))
       "every pattern must match, not just one"))

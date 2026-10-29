@@ -741,8 +741,8 @@
       (when-not (some #(ns-matches? pattern %) loaded-ns)
         (rf.error/throw-error!
           :rf.error/image-zero-match
-          'rf/image
-          (str "rf/image: :include-ns pattern " (pr-str pattern)
+          'rf/make-frame
+          (str "rf/image assembly: :select-ns :include pattern " (pr-str pattern)
                " matched no loaded registration — every pattern must select at "
                "least one descriptor (a zero match is a typo, a forgotten "
                "require, a DCE-removed namespace, or a stale namespace name). "

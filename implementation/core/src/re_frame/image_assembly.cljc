@@ -400,9 +400,8 @@
 ;; `re-frame.live-frame`, which `re-frame.subs` requires — a static require of
 ;; the lowering producers would cycle. The lowering producers are core spine
 ;; namespaces loaded at boot, so the hook is always published by the time any
-;; image is assembled (a `make-frame` happens at runtime, well after boot); a
-;; metadata-only inline entry (no `:impl`) and every registered descriptor pass
-;; through untouched.
+;; image is assembled (a `make-frame` happens at runtime, well after boot); every
+;; registered descriptor passes through untouched.
 
 (defn- strip-descriptor-documentation
   "Elide the registrar PURE-DOCUMENTATION keys (`rf.registrar/pure-documentation-keys`
@@ -438,8 +437,8 @@
   with the runnable slots its kind's late-bound lowering produces (the same
   slots `register!` stores for a `reg-*` of that kind) — preserving `:impl`,
   provenance, `:kind` / `:id`. A non-inline descriptor (a registered or standard
-  one), a metadata-only inline entry (no `:impl`), or a kind with no published
-  lowering hook returns UNCHANGED. Pure modulo the late-bind lookup.
+  one), or a kind with no published lowering hook, returns UNCHANGED. Pure
+  modulo the late-bind lookup.
 
   DOC NORMALIZATION IS UNIFORM. The registrar contract makes `:doc`
   pure documentation stripped in production for every `reg-*` surface; this
@@ -460,8 +459,7 @@
   shared key — `:impl`, provenance, `:kind` / `:id`); only the
   pure-documentation keys are elided."
   [descriptor]
-  (if (and (:rf.provenance/inline descriptor)
-           (contains? descriptor :impl))
+  (if (:rf.provenance/inline descriptor)
     (if-let [lower (rf.late-bind/get-fn
                      (keyword "image" (str "lower-inline-" (name (:kind descriptor)))))]
       ;; The lowering returns the registrar shape (top-level metadata + the
@@ -478,8 +476,8 @@
 (defn lower-inline-descriptors
   "Map `lower-inline-descriptor` over `descriptors` — lowering every selected
   inline descriptor with a real fn body into its runnable shape before
-  validation + sealing (EP-0023 §Image Fragments). Registered /
-  standard / metadata-only descriptors pass through untouched. Order
+  validation + sealing (EP-0023 §Image Fragments). Registered and
+  standard descriptors pass through untouched. Order
   preserved (it never decides a collision winner downstream)."
   [descriptors]
   (mapv lower-inline-descriptor descriptors))
@@ -1171,10 +1169,11 @@
       a fn) names no resolver to validate.
 
   Both legs share the one `:rf.error/image-missing-reference` fail-loud point and
-  carry the same structured diagnostics: the referencing image, `[kind id]`, the
+  carry the same structured diagnostics: the referencing image (`image-of` maps
+  a resolver key to the image its descriptor came from), `[kind id]`, the
   referencing descriptor's provenance namespace, the unresolved `:missing-reference`
   `[kind id]`, and a repair path. Returns `resolver`."
-  [image-id resolver]
+  [image-of resolver]
   ;; The two legs are mechanically identical modulo (a) which descriptor kinds
   ;; carry the reference, (b) how the referenced ids are read from a descriptor,
   ;; and (c) the missing-key shape + its prose. Each leg is one data tuple here;
@@ -1213,7 +1212,7 @@
                           "reg-resource-scope's it, or correct the {:from-db …} "
                           "reference."))}]]
     (doseq [{:keys [kind? refs missing message]} legs
-            [[kind _id] descriptor] resolver
+            [[kind id] descriptor] resolver
             :when (kind? kind)
             ref-id (refs descriptor)
             :let  [missing-reference (missing ref-id)]
@@ -1223,7 +1222,7 @@
         'rf/make-frame
         (message kind descriptor ref-id)
         {:recovery :select-the-missing-registration-or-fix-the-reference
-         :extra    {:image image-id
+         :extra    {:image (image-of [kind id])
                     :kind  kind
                     :id    (:id descriptor)
                     :rf.provenance/ns (:rf.provenance/ns descriptor)
@@ -1396,11 +1395,13 @@
                         (let [standard-keys (into #{} (map descriptor-kind+id) standard)]
                           (not-empty (filterv #(framework-base-descriptor? standard-keys %)
                                               descriptors))))
-        ;; (3) Fail loud on any unsupported descriptor kind before resolving
-        ;;     (base + selected + standard).
+        ;; (3) Fail loud on any unsupported descriptor kind before resolving,
+        ;;     naming the image each descriptor came from (a standard belongs
+        ;;     to none).
         _ (check-supported-kinds! framework-base-image-id base)
-        _ (check-supported-kinds! (some :rf.image/id images)
-                                  (into (vec (mapcat second per-image)) standard))
+        _ (doseq [[image ds] per-image]
+            (check-supported-kinds! (:rf.image/id image) ds))
+        _ (check-supported-kinds! nil standard)
         ;; (4) Resolve EACH image to its id-disjoint {[kind id] descriptor} map.
         ;;     Within one image any [kind id] that resolves two ways FAILS LOUD
         ;;     (resolve-within-image): two selected → ambiguous; inline-vs-selected
@@ -1437,9 +1438,12 @@
         _ (check-standard-collision! app-resolver standard-resolver)
         ;; (7) The sealed resolver is the protected standard base + the layered
         ;;     app resolver (the app never overwrites a standard — guarded above).
-        resolver      (merge standard-resolver app-resolver)]
+        resolver      (merge standard-resolver app-resolver)
+        ;; The image each resolved [kind id] came from: the last layer defining
+        ;; it, which is the layer (5) let win. A standard belongs to none.
+        winning-image (into {} (for [[image-id r] layers, k (keys r)] [k image-id]))]
     ;; (8) Validate interceptor + scope-resolver references against the sealed set.
-    (check-references! (some :rf.image/id images) resolver)
+    (check-references! winning-image resolver)
     ;; (9) Seal.
     {:rf.gen/resolver resolver
      :rf.gen/images   images
@@ -1511,26 +1515,34 @@
 ;; generation. It is never COARSER: any change to a selected, standard, or inline
 ;; input — or to the image ORDER — changes a key leg and forces a re-seal.
 
-(defonce ^{:doc "cache-key → sealed generation. The resolved-generation cache
-  (EP-0023 §Image). A plain map atom: an SSR request assembling an unchanged
-  composition hits this in O(1) and reuses the SAME sealed object rather than
-  re-running selection + validation + sealing."
+(def ^:private generation-cache-limit
+  "The most resolved generations the cache holds. A miss only re-seals, so
+  dropping an entry is always safe, and the bound is what stops compositions
+  that are a new key every time — an image whose inline registrations are built
+  per call with fresh fns — from accumulating for the life of the process."
+  64)
+
+(defonce ^{:doc "The resolved-generation cache (EP-0023 §Image): `:entries`
+  maps cache-key → sealed generation, and `:order` holds the same keys oldest
+  first, so a miss past `generation-cache-limit` drops the oldest. An SSR
+  request assembling an unchanged composition hits this in O(1) and reuses the
+  SAME sealed object rather than re-running selection + validation + sealing."
             :private true}
   generation-cache
-  (atom {}))
+  (atom {:entries {} :order []}))
 
 (defn clear-generation-cache!
   "Drop every cached resolved generation. Test fixtures call this between cases
   so a stale generation never leaks across a test that mutated the store /
   standard registry out from under the generation counters. Idempotent."
   []
-  (reset! generation-cache {})
+  (reset! generation-cache {:entries {} :order []})
   nil)
 
 (defn cache-size
   "The number of distinct cached resolved generations (introspection / tests)."
   []
-  (count @generation-cache))
+  (count (:entries @generation-cache)))
 
 (defn- cache-key
   "Build the resolved-generation cache key for a normalized image vector under
@@ -1569,12 +1581,13 @@
   pool). A live MISS drops the entries it supersedes — the same `images` over
   the same store at an older store or standard generation, which can never hit
   again because both generations only move forward — so a dev session's hot
-  reloads keep one sealed generation per composition, not one per reload."
+  reloads keep one sealed generation per composition, not one per reload. A
+  miss past `generation-cache-limit` also drops the oldest entry."
   ([images pool-fn pool-leg]
    (assemble-cached images pool-fn pool-leg nil))
   ([images pool-fn pool-leg store]
    (let [k (cache-key images pool-leg)]
-     (if-let [hit (find @generation-cache k)]
+     (if-let [hit (find (:entries @generation-cache) k)]
        (val hit)
        (let [gen         (assemble* images (pool-fn))
              superseded? (fn [[images' [store' _]]]
@@ -1583,7 +1596,11 @@
          ;; fail-loud input, so we never reach here for one). swap! is enough —
          ;; a benign double-compute under contention seals to an equal value.
          (swap! generation-cache
-                #(assoc (into {} (remove (comp superseded? key)) %) k gen))
+                (fn [{:keys [entries order]}]
+                  (let [order (conj (into [] (remove #(or (= k %) (superseded? %))) order) k)
+                        order (subvec order (max 0 (- (count order) generation-cache-limit)))]
+                    {:entries (assoc (select-keys entries order) k gen)
+                     :order   order})))
          gen)))))
 
 ;; `assemble` routes its empty-`:images` case to `assemble-default` (the

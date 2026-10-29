@@ -238,8 +238,9 @@
 
 (defn live-frame-ids
   "The set of PUBLIC frame ids currently image-loaded — a derived read over the
-  ONE `frames` registry for records carrying a `:generation` (EP-0024). The
-  reload / reprojection path enumerates these."
+  ONE `frames` registry for records carrying a `:generation` (EP-0024), for
+  tooling. Reprojection enumerates `rf.frame/generation-frame-ids` instead,
+  which keeps a no-id frame in step too."
   []
   (rf.frame/image-loaded-frame-ids))
 
@@ -1041,7 +1042,7 @@
        ;; `:images` must fail loud BEFORE any record exists, so a conflict
        ;; leaves no half-created frame. Between
        ;; those two points the frame is not in `frames`, hence not in
-       ;; `live-frame-ids` — and a `reg-*` racing that gap fires the registration
+       ;; `rf.frame/generation-frame-ids` — and a `reg-*` racing that gap fires the registration
        ;; hook against an EMPTY live-frame set. `mark-dirty-and-schedule!`
        ;; correctly skips there (with nothing image-loaded a flush is a
        ;; guaranteed no-op, and every `reg-event` / `reg-sub` / `reg-fx` fires
@@ -1065,8 +1066,8 @@
        ;; conditional stands on that cost argument: with the pool seated beside
        ;; the generation on the record (§Generation PROVENANCE above), an
        ;; unconditional mark would also be correct, but this is the cheaper
-       ;; shape, and `make-frame-generation-seal-race-jvm-test` §4 keeps it
-       ;; pinned.
+       ;; shape, and `make-frame-generation-seal-race-jvm-test` pins both the
+       ;; mark and its condition.
        ;;
        ;; The armed flush is the RESILIENT sweep — per-frame conditional (a frame
        ;; whose composition re-resolves identically is left untouched, a
@@ -1326,16 +1327,16 @@
 
   Returns `{frame-id reload-diff}` for every frame that MOVED (empty when none
   did). EP-0024: an image-loaded frame is simply a `frames` record carrying a
-  generation. Every frame lives in
-  the single default realm, so a flat `rf.frame/image-loaded-frame-ids` enumeration
-  re-keys the registry correctly with no per-frame realm binding."
+  generation, and `rf.frame/generation-frame-ids` enumerates every one — a frame
+  made without an `:id` included, since Spec 002 §Image resolution and
+  composition re-assembles every frame made with `:images`."
   []
   (reduce (fn [moved id]
             (if-let [diff (reproject-live-frame! id)]
               (assoc moved id diff)
               moved))
           {}
-          (rf.frame/image-loaded-frame-ids)))
+          (rf.frame/generation-frame-ids)))
 
 ;; ---- the RESILIENT sweep — used ONLY by the deferred flush ----------------
 ;;
@@ -1437,14 +1438,15 @@
                                                    :where :reproject-live-frame!)))
                   (assoc-in result [:failed id] record)))))
           {:moved {} :failed {}}
-          (rf.frame/image-loaded-frame-ids)))
+          (rf.frame/generation-frame-ids)))
 
 ;; ===========================================================================
 ;; Auto-reprojection on `reg-*` source-store change (EP-0023 §Default Image
 ;; Semantics / §Hot Reload — the headline guarantee)
 ;; ===========================================================================
 ;;
-;; The EP-0023 headline guarantee (EP-0023:1497, §Default Image Semantics):
+;; The EP-0023 headline guarantee (§Hot Reload), normative in Spec 002 §Image
+;; resolution and composition:
 ;;
 ;;     The `reg-*` path uses the same operation through dependency
 ;;     invalidation. A changed `reg-*` entry does not mutate any running
@@ -1462,7 +1464,7 @@
 ;;
 ;; ## Trigger model — DIRTY-FLAG + `next-tick` COALESCING
 ;;
-;; The dirtying rule (EP-0023:524) is "mark the projection DIRTY, then resolve a
+;; The dirtying rule (EP-0023 §Default Image Semantics) is "mark the projection DIRTY, then resolve a
 ;; new generation" — a TWO-PHASE operation, not reproject-per-reg. That split is
 ;; exactly the coalescing seam: a hot reload of one namespace re-evaluates the
 ;; whole namespace, firing a BURST of synchronous `register!` calls (one per
@@ -1515,7 +1517,8 @@
 (defonce ^{:private true
            :doc "Process-local DIRTY flag: true when a `reg-*` source-store change
   has marked the live-frame projection dirty and a coalesced reprojection is
-  pending (EP-0023:524 — \"default image projection is dirty\"). Set by the
+  pending (EP-0023 §Default Image Semantics — \"default image projection is
+  dirty\"). Set by the
   registration hook, cleared by the flush. A plain atom (not a ratom) — this is
   reload-bookkeeping, not reactive frame state."}
   pending-reprojection?
@@ -1611,7 +1614,7 @@
   re-entrant `reg-*` during the flush re-arms a fresh tick rather than being
   lost. The outer `try/catch` is a defensive LAST
   RESORT for something outside the per-frame boundary itself throwing (e.g.
-  enumerating `image-loaded-frame-ids`, the flag `reset!`) — vanishingly
+  enumerating `rf.frame/generation-frame-ids`, the flag `reset!`) — vanishingly
   unlikely, but diagnosed via `:rf.warning/reprojection-flush-failed` rather
   than silently discarded, belt-and-suspenders. The SYNCHRONOUS
   `flush-pending-reprojection!` and the direct `reproject-live-frames!` keep
@@ -1637,7 +1640,8 @@
 
 (defn- mark-dirty-and-schedule!
   "Mark the live-frame projection DIRTY and schedule ONE coalesced reprojection
-  flush on `rf.interop/next-tick` (EP-0023:524 — mark dirty, then resolve a new
+  flush on `rf.interop/next-tick` (EP-0023 §Default Image Semantics — mark
+  dirty, then resolve a new
   generation). The COALESCING GATE: schedule the flush ONLY when no flush is
   already pending, so a synchronous burst of `reg-*` (a hot-reloaded namespace
   re-evaluating all its registrations) sets the flag many times but schedules at
@@ -1650,7 +1654,7 @@
   The NO-IMAGE-LOADED-FRAME skip keeps this off the hot path so an ordinary
   registration burst with no image-loaded frames costs essentially nothing:
   reprojection only ever touches image-loaded frames
-  (`reproject-live-frames!` enumerates `live-frame-ids` = the `frames` records
+  (`reproject-live-frames!` enumerates `rf.frame/generation-frame-ids` = the `frames` records
   carrying a `:generation`). With none the flush would be a guaranteed no-op, so
   there is nothing to mark dirty or schedule. This is the dominant case: every
   `reg-event` / `reg-sub` / `reg-fx` funnels through `register!` and so fires
@@ -1667,7 +1671,7 @@
   `rf.frame/set-generation!` (not `reg-*`), so a flush can never fire this hook
   or schedule its own successor."
   []
-  (when (seq (live-frame-ids))
+  (when (seq (rf.frame/generation-frame-ids))
     ;; Only the transition false→true schedules — the burst's subsequent calls
     ;; observe the flag already true and add no second tick.
     (when (compare-and-set! pending-reprojection? false true)
@@ -1701,16 +1705,10 @@
   composition actually re-resolved differently), so marking dirty on EVERY
   `reg-*` is safe — an unaffected frame is left untouched at flush time.
 
-  A FIRST registration of a `:sub` also refreshes the sub-cache of every frame
-  made without `:images`: such a frame has no generation to diff, and a cached
-  parent whose declared input was unregistered when it was built is reached
-  through that input's id (`rf.subs.cache/invalidate-frame-subs!`). A
-  re-registration needs nothing here — `re-frame.subs.cache`'s replacement hook
-  refreshes every frame. Returns nil."
-  [{:keys [kind id was]}]
-  (when (and (= :sub kind) (nil? was))
-    (doseq [frame-id (rf.frame/live-store-frame-ids)]
-      (rf.subs.cache/invalidate-frame-subs! frame-id #{id})))
+  A frame with no generation has nothing to reproject: its sub-cache follows
+  the store through `re-frame.subs.cache`'s own registration and replacement
+  hooks. Returns nil."
+  [_change]
   (mark-dirty-and-schedule!))
 
 (defonce ^{:private true

@@ -115,6 +115,22 @@
                 {:kind :fx :id :x :rf.provenance/image :i :rf.provenance/inline [:reg-fx :x]}
                 {:kind :fx :id :x :standard true}]))))
 
+(deftest a-multi-image-assembly-error-names-the-image-the-descriptor-came-from
+  ;; the reported image is the one whose selection brought the bad descriptor
+  ;; in, not the first image of the composition
+  (let [first-img  (rf.image/image {:id :img/first  :select-ns {:include ["c.core"]}})
+        second-img (rf.image/image {:id :img/second :select-ns {:include ["a.core"]}})
+        error-of   (fn [bad]
+                     (select-keys (assembly-error-data
+                                    #(rf.image-assembly/assemble
+                                       [first-img second-img]
+                                       [(reg-desc "c.core" :event :c/e ::c) bad]))
+                                  [:rf.error/id :image]))]
+    (is (= [{:rf.error/id :rf.error/image-missing-reference :image :img/second}
+            {:rf.error/id :rf.error/image-unsupported-kind  :image :img/second}]
+           [(error-of (assoc (reg-desc "a.core" :event :a/e ::a) :interceptors [:icpt/missing]))
+            (error-of (reg-desc "a.core" :bogus :a/x ::a))]))))
+
 (deftest duplicate-image-id-across-composition-fails-loud
   (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
                (reg-desc "b.core" :fx :checkout.http/post ::b)]
