@@ -308,9 +308,10 @@ nav:
       - "re-frame.fresco.overlay": api/re-frame.fresco.overlay.md
       - "re-frame.fresco.motion": api/re-frame.fresco.motion.md
       - "re-frame.fresco.native": api/re-frame.fresco.native.md
-    - "Reagent and UIx adapters":
+    - "Adapters":
       - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
       - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
+      - "re-frame.substrate.plain-atom": api/re-frame.substrate.plain-atom.md
     - "Server rendering":
       - "re-frame.ssr": api/re-frame.ssr.md
       - "re-frame.ssr.head": api/re-frame.ssr.head.md

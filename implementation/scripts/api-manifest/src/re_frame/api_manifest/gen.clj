@@ -174,6 +174,11 @@
     [re-frame.performance entry-id]
     [re-frame.performance build-name]
     [re-frame.performance mark-and-measure]
+    ;; The headless adapter an app or test passes to `(rf/init! …)`. Only the
+    ;; var, not the namespace: its other publics (`make-derived-value`,
+    ;; `set-hiccup-emitter!`) are plumbing the SSR adapter and `re-frame.ssr`
+    ;; reach, not surfaces an app authors against.
+    [re-frame.substrate.plain-atom adapter]
     ;; Managed-HTTP registry and interceptor-chain reaches that tests call
     ;; through the artefact's door. Implementation tier: not a supported surface.
     [re-frame.http.managed clear-all-in-flight!]

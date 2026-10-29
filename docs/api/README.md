@@ -15,7 +15,9 @@ to build an application, use the [Core guide](../core/introduction.md).
 `re-frame.core`, required as `rf`, supplies events, subscriptions, effects and
 frames. Install an adapter at boot; the example uses Reagent. A Fresco app also
 requires [`re-frame.fresco`](re-frame.fresco.md) for its view functions and can
-install [Fresco's own adapter](re-frame.fresco.substrate.md).
+install [Fresco's own adapter](re-frame.fresco.substrate.md). Tests and headless
+scripts install the [plain-atom adapter](re-frame.substrate.plain-atom.md), which
+renders nothing.
 
 ## Which page
 
