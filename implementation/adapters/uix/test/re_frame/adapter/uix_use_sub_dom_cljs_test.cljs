@@ -9,7 +9,8 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.react-shared-suite :as rf.adapter.react-shared-suite]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser? react-act]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -415,44 +416,35 @@
   (rf.adapter.react-shared-suite/assert-unmount-sentinel-leaves-root-children-alone
     {:substrate-kw :uix :name "UIx"}))
 
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
-(defn- get-act []
-  (when (exists? (.-act React)) (.-act React)))
-
 ;; Multiple trailing children exercise the native $ marshalling path.
 (deftest frame-provider-trailing-children-propagate-frame
   (testing "UIx — ($ frame-provider {:frame :f} c1 c2) trailing children propagate :frame + render"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (let [act-fn (get-act)]
-        (if (nil? act-fn)
-          (is true "act() not reachable from this runner; skipping")
-          (let [frame-kw :rf.uix-use-sub-test/frame-provider-frame
-                query-v  [:rf.uix-use-sub-test/k]]
-            (binding [rf.frame/*current-frame* nil]
-              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-              (reset! probe-frame-provider-observed [])
-              (rf/make-frame {:id frame-kw :doc "trailing-children frame-provider probe"})
-              (rf/reg-event ::dollar-shape-seed (fn [_ _] {:db {:k :wrapped}}))
-              (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
-              (rf/reg-sub (first query-v) (fn [db _] (:k db)))
-              (let [mount-node (.createElement js/document "div")
-                    root       (react-dom-client/createRoot mount-node)]
-                (try
-                  (act-fn
-                    (fn []
-                      (.render root
-                        ($ rf.adapter.uix/frame-provider
-                           {:frame frame-kw}
-                           ($ ProbeFrameProvider)
-                           ($ ProbeFrameProvider)))))
-                  (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
-                      "both trailing children rendered and read the wrapped frame's value, not :rf/default")
-                  (finally
-                    (try (.unmount root) (catch :default _ nil))))))))))))
+      (let [act-fn (react-act)
+            frame-kw :rf.uix-use-sub-test/frame-provider-frame
+            query-v  [:rf.uix-use-sub-test/k]]
+        (binding [rf.frame/*current-frame* nil]
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+          (reset! probe-frame-provider-observed [])
+          (rf/make-frame {:id frame-kw :doc "trailing-children frame-provider probe"})
+          (rf/reg-event ::dollar-shape-seed (fn [_ _] {:db {:k :wrapped}}))
+          (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
+          (rf/reg-sub (first query-v) (fn [db _] (:k db)))
+          (let [mount-node (.createElement js/document "div")
+                root       (react-dom-client/createRoot mount-node)]
+            (try
+              (act-fn
+                (fn []
+                  (.render root
+                    ($ rf.adapter.uix/frame-provider
+                       {:frame frame-kw}
+                       ($ ProbeFrameProvider)
+                       ($ ProbeFrameProvider)))))
+              (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
+                  "both trailing children rendered and read the wrapped frame's value, not :rf/default")
+              (finally
+                (try (.unmount root) (catch :default _ nil))))))))))
 
 (def ^:private churn-frame :rf.uix-use-sub-test/churn-frame)
 (def ^:private churn-query [:rf.uix-use-sub-test/churn])
@@ -466,30 +458,28 @@
             one per mount"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (let [act-fn (get-act)]
-        (if (nil? act-fn)
-          (is true "act() not reachable from this runner; skipping")
-          (do
-            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (rf/make-frame {:id churn-frame :doc "use-sub disposal-callback churn probe"})
-            (rf/reg-event ::churn-seed (fn [_ _] {:db {:churn 1}}))
-            (rf/dispatch-sync [::churn-seed] {:frame churn-frame})
-            (rf/reg-sub (first churn-query) (fn [db _] (:churn db)))
-            (let [held-node (.createElement js/document "div")
-                  held      (react-dom-client/createRoot held-node)
-                  churn     (react-dom-client/createRoot (.createElement js/document "div"))
-                  reaction  #(:reaction (get @(:sub-cache (rf.frame/frame churn-frame)) churn-query))]
-              (try
-                (act-fn (fn [] (.render held ($ ChurnReader))))
-                (dotimes [_ 20]
-                  (act-fn (fn [] (.render churn ($ ChurnReader))))
-                  (act-fn (fn [] (.render churn nil))))
-                (is (= "1" (.-textContent held-node)) "premise: the long-lived reader still renders")
-                (is (= 1 (some-> ^js (reaction) .-rfRemovableOnDispose .-size))
-                    "only the mounted reader's disposal callback is still armed on the shared reaction")
-                (finally
-                  (try (.unmount churn) (catch :default _ nil))
-                  (try (.unmount held) (catch :default _ nil)))))))))))
+      (let [act-fn (react-act)]
+        (do
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+          (rf/make-frame {:id churn-frame :doc "use-sub disposal-callback churn probe"})
+          (rf/reg-event ::churn-seed (fn [_ _] {:db {:churn 1}}))
+          (rf/dispatch-sync [::churn-seed] {:frame churn-frame})
+          (rf/reg-sub (first churn-query) (fn [db _] (:churn db)))
+          (let [held-node (.createElement js/document "div")
+                held      (react-dom-client/createRoot held-node)
+                churn     (react-dom-client/createRoot (.createElement js/document "div"))
+                reaction  #(:reaction (get @(:sub-cache (rf.frame/frame churn-frame)) churn-query))]
+            (try
+              (act-fn (fn [] (.render held ($ ChurnReader))))
+              (dotimes [_ 20]
+                (act-fn (fn [] (.render churn ($ ChurnReader))))
+                (act-fn (fn [] (.render churn nil))))
+              (is (= "1" (.-textContent held-node)) "premise: the long-lived reader still renders")
+              (is (= 1 (some-> ^js (reaction) .-rfRemovableOnDispose .-size))
+                  "only the mounted reader's disposal callback is still armed on the shared reaction")
+              (finally
+                (try (.unmount churn) (catch :default _ nil))
+                (try (.unmount held) (catch :default _ nil))))))))))
 
 (deftest use-sub-reacquires-after-eviction
   (rf.adapter.react-shared-suite/assert-use-sub-reacquires-after-eviction cfg))
@@ -531,52 +521,50 @@
   (testing "UIx — a mounted use-sub reads and listens to a same-id successor frame"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (let [act-fn (get-act)]
-        (if (nil? act-fn)
-          (is true "act() not reachable from this runner; skipping")
-          (binding [rf.frame/*current-frame* nil]
-            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (reset! reincarnation-observed [])
-            (reset! reincarnation-set-tick nil)
-            (rf/reg-event ::reincarnation-set (fn [_ [_ n]] {:db {:n n}}))
-            (rf/reg-sub (first reincarnation-query) (fn [db _] (:n db)))
-            (rf/make-frame {:id reincarnation-frame :doc "use-sub reincarnation probe — A"})
-            (rf/dispatch-sync [::reincarnation-set 1] {:frame reincarnation-frame})
-            (let [mount-node (.createElement js/document "div")
-                  root       (react-dom-client/createRoot mount-node)
-                  re-render! #(act-fn (fn [] (@reincarnation-set-tick inc)))]
-              (try
-                (act-fn
-                  (fn []
-                    (.render root
-                      ($ rf.adapter.uix/frame-provider {:frame reincarnation-frame}
-                         ($ ProbeReincarnationParent)))))
-                (is (= [1 1] (peek @reincarnation-observed)) "mounted against A")
+      (let [act-fn (react-act)]
+        (binding [rf.frame/*current-frame* nil]
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+          (reset! reincarnation-observed [])
+          (reset! reincarnation-set-tick nil)
+          (rf/reg-event ::reincarnation-set (fn [_ [_ n]] {:db {:n n}}))
+          (rf/reg-sub (first reincarnation-query) (fn [db _] (:n db)))
+          (rf/make-frame {:id reincarnation-frame :doc "use-sub reincarnation probe — A"})
+          (rf/dispatch-sync [::reincarnation-set 1] {:frame reincarnation-frame})
+          (let [mount-node (.createElement js/document "div")
+                root       (react-dom-client/createRoot mount-node)
+                re-render! #(act-fn (fn [] (@reincarnation-set-tick inc)))]
+            (try
+              (act-fn
+                (fn []
+                  (.render root
+                    ($ rf.adapter.uix/frame-provider {:frame reincarnation-frame}
+                       ($ ProbeReincarnationParent)))))
+              (is (= [1 1] (peek @reincarnation-observed)) "mounted against A")
 
-                (testing "control: a re-render under the same incarnation keeps
+              (testing "control: a re-render under the same incarnation keeps
                           the two durable references and the value"
-                  (re-render!)
-                  (is (= [[1 1] 2] [(peek @reincarnation-observed) (reincarnation-ref-count)])))
+                (re-render!)
+                (is (= [[1 1] 2] [(peek @reincarnation-observed) (reincarnation-ref-count)])))
 
-                (rf/destroy-frame! reincarnation-frame)
-                (rf/make-frame {:id reincarnation-frame :doc "use-sub reincarnation probe — B"})
-                (rf/dispatch-sync [::reincarnation-set 2] {:frame reincarnation-frame})
+              (rf/destroy-frame! reincarnation-frame)
+              (rf/make-frame {:id reincarnation-frame :doc "use-sub reincarnation probe — B"})
+              (rf/dispatch-sync [::reincarnation-set 2] {:frame reincarnation-frame})
 
-                (testing "the next render of the SAME instance reads the successor,
+              (testing "the next render of the SAME instance reads the successor,
                           in the ambient and the explicit form alike"
-                  (re-render!)
-                  (is (= [2 2] (peek @reincarnation-observed))))
+                (re-render!)
+                (is (= [2 2] (peek @reincarnation-observed))))
 
-                (testing "and listens to it: a later write to the successor
+              (testing "and listens to it: a later write to the successor
                           re-renders the instance"
-                  (act-fn (fn [] (rf/dispatch-sync [::reincarnation-set 3]
-                                                   {:frame reincarnation-frame})))
-                  (is (= [3 3] (peek @reincarnation-observed))))
+                (act-fn (fn [] (rf/dispatch-sync [::reincarnation-set 3]
+                                                 {:frame reincarnation-frame})))
+                (is (= [3 3] (peek @reincarnation-observed))))
 
-                (testing "and the successor's sub-cache references balance: two
+              (testing "and the successor's sub-cache references balance: two
                           while mounted, none after unmount"
-                  (is (= 2 (reincarnation-ref-count)))
-                  (act-fn (fn [] (.unmount root)))
-                  (is (zero? (reincarnation-ref-count))))
-                (finally
-                  (try (.unmount root) (catch :default _ nil)))))))))))
+                (is (= 2 (reincarnation-ref-count)))
+                (act-fn (fn [] (.unmount root)))
+                (is (zero? (reincarnation-ref-count))))
+              (finally
+                (try (.unmount root) (catch :default _ nil))))))))))

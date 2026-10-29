@@ -71,7 +71,7 @@
             [re-frame.views]
             [re-frame.epoch]
             [re-frame.adapter.context :as rf.adapter.context]
-            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
+            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support :refer [browser? react-act with-browser-act]]
             [re-frame.performance :as rf.performance]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.spine :as rf.substrate.spine]
@@ -1581,20 +1581,9 @@
 ;; runs there). The real assertions run under :browser-test.
 ;; ===========================================================================
 
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
 (defn- make-mount-node! []
   (when (browser?)
     (.createElement js/document "div")))
-
-(defn- get-act
-  "Return React's act() if available, else nil. React 19 — the adapter
-  floor — hosts act on the React namespace proper. Absent only from
-  React's production bundle, which omits act by design."
-  []
-  (when (exists? (.-act React)) (.-act React)))
 
 (defn- enable-react-act-env!
   "React's act() helper warns / behaves as a no-op unless the runner
@@ -1605,20 +1594,6 @@
   []
   (when (browser?)
     (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
-
-(defn- with-browser-act
-  "Run the standard DOM-twin gate ladder: skip under :node-test (no DOM)
-  and skip if act() is unreachable from this runner; otherwise enable the
-  act env and call `(f act-fn)`. A plain HOF (not a macro) — this is a
-  .cljs file, so a same-file macro is not available at runtime."
-  [f]
-  (if-not (browser?)
-    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (let [act-fn (get-act)]
-      (if (nil? act-fn)
-        (is true "act() not reachable from this runner; skipping")
-        (do (enable-react-act-env!)
-            (f act-fn))))))
 
 ;; ---- the provisional horizon -----------------------------------------------
 ;;
@@ -2307,41 +2282,39 @@
   (testing (str name " — flush-render! synchronously commits a pending render")
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (let [act-fn (get-act)]
-        (if (nil? act-fn)
-          (is true "act() not reachable from this runner; skipping")
-          (do
-            (enable-react-act-env!)
-            (reset! refcount-target fr-frame)
-            (rf/make-frame {:id fr-frame :doc "flush-render! synchronous-commit probe frame"})
-            (rf/reg-event ::fr-seed (fn [_ _] {:db {:n 1}}))
-            (rf/reg-event ::fr-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-            (rf/dispatch-sync [::fr-seed] {:frame fr-frame})
-            (rf/reg-sub fr-query (fn [db _] (:n db)))
-            (let [mount-node (make-mount-node!)
-                  root       (react-dom-client/createRoot mount-node)
-                  flush!     (:flush-render! adapter)]
-              (try
-                (is (fn? flush!)
-                    "the adapter map exposes :flush-render! (contract slot)")
-                ;; Initial mount under act so the test env commits the
-                ;; seeded value cleanly.
-                (act-fn (fn [] (.render root (probe-element))))
-                (is (= "n=1" (.-textContent mount-node))
-                    "committed DOM shows the seeded value n=1")
-                ;; THE PROOF. Leave the act environment so the next commit
-                ;; cannot be attributed to act()'s flush. Dispatch the state
-                ;; change AS the flush-render! thunk and assert the DOM has
-                ;; the new value the instant flush-render! returns — i.e. the
-                ;; commit was SYNCHRONOUS, not rAF/microtask-deferred.
-                (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                (flush! (fn [] (rf/dispatch-sync [::fr-inc] {:frame fr-frame})))
-                (is (= "n=2" (.-textContent mount-node))
-                    "DOM reflects the dispatched change SYNCHRONOUSLY after
+      (let [act-fn (react-act)]
+        (do
+          (enable-react-act-env!)
+          (reset! refcount-target fr-frame)
+          (rf/make-frame {:id fr-frame :doc "flush-render! synchronous-commit probe frame"})
+          (rf/reg-event ::fr-seed (fn [_ _] {:db {:n 1}}))
+          (rf/reg-event ::fr-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+          (rf/dispatch-sync [::fr-seed] {:frame fr-frame})
+          (rf/reg-sub fr-query (fn [db _] (:n db)))
+          (let [mount-node (make-mount-node!)
+                root       (react-dom-client/createRoot mount-node)
+                flush!     (:flush-render! adapter)]
+            (try
+              (is (fn? flush!)
+                  "the adapter map exposes :flush-render! (contract slot)")
+              ;; Initial mount under act so the test env commits the
+              ;; seeded value cleanly.
+              (act-fn (fn [] (.render root (probe-element))))
+              (is (= "n=1" (.-textContent mount-node))
+                  "committed DOM shows the seeded value n=1")
+              ;; THE PROOF. Leave the act environment so the next commit
+              ;; cannot be attributed to act()'s flush. Dispatch the state
+              ;; change AS the flush-render! thunk and assert the DOM has
+              ;; the new value the instant flush-render! returns — i.e. the
+              ;; commit was SYNCHRONOUS, not rAF/microtask-deferred.
+              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+              (flush! (fn [] (rf/dispatch-sync [::fr-inc] {:frame fr-frame})))
+              (is (= "n=2" (.-textContent mount-node))
+                  "DOM reflects the dispatched change SYNCHRONOUSLY after
                      flush-render! returns — no act(), no rAF wait")
-                (finally
-                  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-                  (try (.unmount root) (catch :default _ nil)))))))))))
+              (finally
+                (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+                (try (.unmount root) (catch :default _ nil))))))))))
 
 ;; ---- the ambient hook under react-dom/server -------------------------------
 ;;

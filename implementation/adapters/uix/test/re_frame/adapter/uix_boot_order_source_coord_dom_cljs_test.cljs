@@ -8,7 +8,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [with-browser-act]]))
 
 (def ^:private probe-frame :rf.uix-boot-order-coord/frame)
 
@@ -27,24 +28,6 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
-(defn- get-act []
-  (when (exists? (.-act React)) (.-act React)))
-
-(defn- with-browser-act
-  "Run with React act in a browser."
-  [f]
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
-    (let [act-fn (get-act)]
-      (if (nil? act-fn)
-        (is true "act() not reachable from this runner; skipping")
-        (do (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (f act-fn))))))
 
 (defn- element-attr
   "Read an attribute from a headless React element."

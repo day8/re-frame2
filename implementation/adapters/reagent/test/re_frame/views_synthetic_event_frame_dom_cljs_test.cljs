@@ -31,14 +31,9 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling])
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.react-test-support :refer [browser?]])
   (:require-macros [re-frame.core :refer [reg-view]]))
-
-;; ---- browser gate ----------------------------------------------------------
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 ;; ---- deferred-teardown await ----------------------------------
 ;;

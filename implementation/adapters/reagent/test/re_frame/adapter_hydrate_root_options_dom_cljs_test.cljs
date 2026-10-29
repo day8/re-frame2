@@ -16,17 +16,14 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 ;; Async rows need the map-form fixture. The trees are plain hiccup, so no
 ;; ambient frame.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- host!
   "A fresh container attached to the document (hydration needs a connected

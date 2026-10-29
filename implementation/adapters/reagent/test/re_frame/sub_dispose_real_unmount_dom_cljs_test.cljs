@@ -43,7 +43,8 @@
             ;; would spell this ns's alias out in full, which reads worse at
             ;; every call site than the two bare helper names do.
             [re-frame.frame-provider-context-dom-cljs-test
-             :refer [await-teardown! settle-macrotasks]]))
+             :refer [await-teardown! settle-macrotasks]]
+            [re-frame.adapter.react-test-support :refer [browser? react-act]]))
 
 ;; `:ambient-frame nil`: an ambient :rf/default would shadow the
 ;; frame-provider the probe's `subscribe` must resolve.
@@ -53,20 +54,9 @@
 
 ;; ---- browser gate ----------------------------------------------------------
 
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
 (defn- make-mount-node! []
   (when (browser?)
     (.createElement js/document "div")))
-
-(defn- get-act
-  "React's `act()` if reachable, else nil. `act` is what drives StrictMode's
-  mount → simulated-unmount → remount deterministically; `flushSync` does NOT
-  run the StrictMode remount synchronously."
-  []
-  (when (exists? (.-act React)) (.-act React)))
 
 ;; ---- cache + trace probes --------------------------------------------------
 
@@ -199,7 +189,7 @@
             render-count (atom 0)
             done?        (atom false)
             done!        (fn [] (when (compare-and-set! done? false true) (done)))
-            act-fn       (get-act)]
+            act-fn       (react-act)]
         (rf/make-frame {:id frame-kw :doc "StrictMode real-unmount probe frame"})
         (rf/reg-event :rf.ty246.reagent/sseed (fn [_ _] {:db {:n 1}}))
         (rf/dispatch-sync [:rf.ty246.reagent/sseed] {:frame frame-kw})
@@ -228,45 +218,42 @@
                            (rf.trace.tooling/unregister-listener! ::strict-disposes)
                            (rf.trace.tooling/unregister-listener! ::strict-unmounts)
                            (done!))]
-          (if (nil? act-fn)
-            (do (is true "act() not reachable from this runner; StrictMode scenario skipped")
-                (finish))
-            (-> (js/Promise.resolve
-                  (act-fn
-                    (fn []
-                      (rdc/render root
-                                  [:> (.-StrictMode React)
-                                   [rf/frame-provider {:frame frame-kw}
-                                    [render-fn]]]))))
-                (.then (fn [_] (settle-macrotasks 3)))
-                (.then
-                  (fn [_]
-                    (is (>= @render-count 2)
-                        (str "StrictMode double-invoked the render body (got "
-                             @render-count " renders) — the simulated unmount ran"))
-                    (is (= ["n=1" true] [(.-textContent mount-node) (some? (slot frame-kw query-v))])
-                        "after the strict double-mount the view shows the seed and its own slot is live")
-                    (let [before-disposes (count (dispose-events-for @disposes query-v))
-                          before-unmounts (count @unmounts)]
-                      (-> (js/Promise.resolve (act-fn (fn [] (rdc/unmount root))))
-                          (.then (fn [_] (settle-macrotasks 3)))
-                          (.then
-                            (fn [_]
-                              ;; The :rf.view/unmounted delta is the decider: 0 here
-                              ;; means the per-instance holder still points at the
-                              ;; reaction the SIMULATED unmount disposed.
-                              (let [delta (drop before-disposes (dispose-events-for @disposes query-v))]
-                                (is (= [nil #{:no-more-derefers} true]
-                                       [(slot frame-kw query-v)
-                                        (set (map #(-> % :tags :rf.sub/reason) delta))
-                                        (> (count @unmounts) before-unmounts)])
-                                    (str "[slot dispose-reasons view-unmounted?] across the genuine unmount: the slot was"
-                                         " evicted, every dispose (at least one) is :no-more-derefers, and the view emitted"
-                                         " :rf.view/unmounted (before-unmount count " before-unmounts ")")))
-                              (finish)))
-                          (.catch (fn [e]
-                                    (is false (str "StrictMode unmount window rejected: " (pr-str e)))
-                                    (finish)))))))
-                (.catch (fn [e]
-                          (is false (str "StrictMode scenario rejected: " (pr-str e)))
-                          (finish))))))))))
+          (-> (js/Promise.resolve
+                (act-fn
+                  (fn []
+                    (rdc/render root
+                                [:> (.-StrictMode React)
+                                 [rf/frame-provider {:frame frame-kw}
+                                  [render-fn]]]))))
+              (.then (fn [_] (settle-macrotasks 3)))
+              (.then
+                (fn [_]
+                  (is (>= @render-count 2)
+                      (str "StrictMode double-invoked the render body (got "
+                           @render-count " renders) — the simulated unmount ran"))
+                  (is (= ["n=1" true] [(.-textContent mount-node) (some? (slot frame-kw query-v))])
+                      "after the strict double-mount the view shows the seed and its own slot is live")
+                  (let [before-disposes (count (dispose-events-for @disposes query-v))
+                        before-unmounts (count @unmounts)]
+                    (-> (js/Promise.resolve (act-fn (fn [] (rdc/unmount root))))
+                        (.then (fn [_] (settle-macrotasks 3)))
+                        (.then
+                          (fn [_]
+                            ;; The :rf.view/unmounted delta is the decider: 0 here
+                            ;; means the per-instance holder still points at the
+                            ;; reaction the SIMULATED unmount disposed.
+                            (let [delta (drop before-disposes (dispose-events-for @disposes query-v))]
+                              (is (= [nil #{:no-more-derefers} true]
+                                     [(slot frame-kw query-v)
+                                      (set (map #(-> % :tags :rf.sub/reason) delta))
+                                      (> (count @unmounts) before-unmounts)])
+                                  (str "[slot dispose-reasons view-unmounted?] across the genuine unmount: the slot was"
+                                       " evicted, every dispose (at least one) is :no-more-derefers, and the view emitted"
+                                       " :rf.view/unmounted (before-unmount count " before-unmounts ")")))
+                            (finish)))
+                        (.catch (fn [e]
+                                  (is false (str "StrictMode unmount window rejected: " (pr-str e)))
+                                  (finish)))))))
+              (.catch (fn [e]
+                        (is false (str "StrictMode scenario rejected: " (pr-str e)))
+                        (finish)))))))))

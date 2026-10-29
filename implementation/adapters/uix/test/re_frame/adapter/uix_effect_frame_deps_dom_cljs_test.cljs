@@ -1,30 +1,16 @@
 (ns re-frame.adapter.uix-effect-frame-deps-dom-cljs-test
   "An imperative listener follows a provider swap without remounting its component."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [with-browser-act]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.uix/adapter}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
-(defn- with-browser-act
-  "Run with React act in a browser."
-  [f]
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
-    (if-let [act-fn (and (exists? (.-act React)) (.-act React))]
-      (do (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-          (f act-fn))
-      (is true "act() not reachable from this runner; skipping"))))
 
 (def ^:private frame-a :rf.uix-effect-frame-deps/frame-a)
 (def ^:private frame-b :rf.uix-effect-frame-deps/frame-b)

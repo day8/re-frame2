@@ -43,7 +43,8 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views])
+            [re-frame.views]
+            [re-frame.adapter.react-test-support :refer [browser?]])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (def ^:private frame-id ::frame)
@@ -99,10 +100,6 @@
   (map #(str "a" %) (range n)))
 
 ;; ---- mounting ---------------------------------------------------------------
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- mount
   "Mount `[(rf/view view-id) & args]` under a `frame-provider` for `frame-id`,

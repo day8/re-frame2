@@ -17,15 +17,12 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter :async? true :ambient-frame nil}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- host!
   "A fresh container attached to the document, pre-filled with `html`."

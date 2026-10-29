@@ -15,16 +15,12 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
+            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support :refer [browser?]]
             [re-frame.core :as rf]
             [re-frame.performance :as rf.performance]
             [re-frame.test-support :as rf.test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [reg-view]]))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (def ^:private view-id :rf.devtools-dom/mounted-name)
 

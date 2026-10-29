@@ -27,7 +27,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views]))
+            [re-frame.views]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -38,10 +39,6 @@
 (def ^:private render-query [::render-value])
 (def ^:private source-query [::source-value])
 (def ^:private lifecycle-query [::lifecycle-value])
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- get-act []
   ;; Keep this synchronous: returning React 19's act() thenable from a plain

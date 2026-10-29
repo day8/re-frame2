@@ -18,7 +18,8 @@
             [reagent.dom.server :as rds]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 (def ^:private seen
   "What each `::init` step resolved: `{:frame-id … :captured …}`."
@@ -69,10 +70,6 @@
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
      :async?        true}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- creator
   "A plain view that creates `child-id` with one setup step on its first

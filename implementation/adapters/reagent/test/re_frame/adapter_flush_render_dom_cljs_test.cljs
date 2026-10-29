@@ -12,7 +12,8 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views]))
+            [re-frame.views]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 ;; `:ambient-frame nil`: the render runs inside the test body's dynamic
 ;; extent, where an ambient :rf/default would shadow the frame-provider.
@@ -20,10 +21,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
      :ambient-frame nil}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- make-mount-node! []
   (when (browser?)

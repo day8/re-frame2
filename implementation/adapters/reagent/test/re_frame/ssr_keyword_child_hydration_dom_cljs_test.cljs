@@ -39,13 +39,13 @@
   construction** — `npm run test:browser` is where it asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.ssr.install :as rf.ssr.install]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser? react-act]]))
 
 (def ^:private test-frame :ssr-keyword-child-hydration/frame)
 
@@ -66,13 +66,6 @@
   ;; would leak into sibling namespaces rather than fail here. Resetting
   ;; unconditionally keeps that trap shut.
   (fn [f] (rf.ssr.install/reset-installed-payloads!) (f)))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
-(defn- get-act []
-  (when (exists? (.-act React)) (.-act React)))
 
 ;; ---------------------------------------------------------------------------
 ;; The harness
@@ -101,7 +94,7 @@
     (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
     (set! (.-error js/console) record!)
     (set! (.-warn js/console) record!)
-    (let [act-fn (get-act)
+    (let [act-fn (react-act)
           root   (atom nil)]
       (try
         ;; React is driven DIRECTLY here rather than through
