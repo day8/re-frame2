@@ -150,6 +150,9 @@
         "control: the vacating record holds the output in its before slots alone")
     (is (not (contains? (rf.elision/sensitive-declarations :rf/default) token-path))
         "the live policy has dropped the vacated output's claim")
+    (is (= [true 1] ((juxt :rf.epoch/sensitive? :rf.epoch/redacted-modified-paths-count) record))
+        "the rollups read the policy the record keeps, under which the classified
+         output went from present to absent")
     (let [projected (rf/project-egress record)]
       (is (= [[:db-before :rf/redacted] [:frame-state-before :rf/redacted]]
              (values-at projected token-path))
@@ -169,6 +172,8 @@
         "control: the old path is in the before slots, the new one in the after slots")
     (is (not (contains? (rf.elision/sensitive-declarations :rf/default) [:out :token]))
         "the live policy has dropped the old path's claim")
+    (is (= [true 2] ((juxt :rf.epoch/sensitive? :rf.epoch/redacted-modified-paths-count) record))
+        "under the policy the record keeps, both the old path and the new one changed")
     (let [projected (rf/project-egress record)]
       (is (= [[[:db-before :rf/redacted] [:frame-state-before :rf/redacted]]
               [[:db-after :rf/redacted] [:frame-state-after :rf/redacted]]]

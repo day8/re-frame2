@@ -83,6 +83,7 @@
         (is (= [10] @log))
 
         (write! 20)
+        (r/flush)
         (is (= [10 20] @log))
 
         (write! 30)
