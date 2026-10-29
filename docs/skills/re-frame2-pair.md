@@ -80,8 +80,9 @@ Two steps, both on your side, before the first session:
     server, and the skill cannot work without it. Three changes, dev builds only:
 
     - Put the `preload/` directory on the build's classpath, in whichever file
-      owns the classpath: an activated alias's `:extra-paths` in `deps.edn` for
-      a `:deps` app, `:source-paths` in `project.clj` for a `:lein` app, or
+      owns the classpath: for a `:deps` app, the skill directory as a
+      `:local/root` dependency in an activated alias's `:extra-deps` in
+      `deps.edn`; `:source-paths` in `project.clj` for a `:lein` app; or
       `:source-paths` in `shadow-cljs.edn` only for a standalone shadow app.
       Under `:deps` and `:lein`, shadow ignores a `shadow-cljs.edn`
       `:source-paths` key and warns about it, so a preload put there never loads.
@@ -126,9 +127,9 @@ Runtime refusals carry `{:ok? false :reason …}`; the skill reports the reason 
 | `:ambiguous-frame` | Two or more app frames and no frame chosen. | Name one — the skill pins it with `set-operating-frame`. |
 | `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | If you want time-travel and state injection, add `--allow-writes` to the server's `args` and start a fresh session. |
 
-A successful discovery is ready for reads when `:freshness :liveness` is `:fresh`. With `:stale-build` (old code in the tab) or `:no-runtime` (no live runtime), the hint names the URL to reload. The skill reloads it only when it has browser controls and the page is one it opened for the task; otherwise it asks you to. With `:unknown`, freshness could not be verified, so reads may work but are unverified; the reply says what could not be read and names one next step. Don't answer `:unknown` with `npx shadow-cljs stop`: it stops every shadow-cljs server on the machine, other projects' watches included.
+A successful discovery is ready for reads when `:freshness :liveness` is `:fresh`. With `:stale-build` (old code in the tab) or `:no-runtime` (no live runtime), the hint names the URL to reload. The skill reloads it only when it has browser controls and the page is one it opened for the task; otherwise it asks you to. With `:unknown`, freshness could not be verified, so reads may work but are unverified; the reply says what could not be read and names one next step. Don't answer `:unknown` with `npx shadow-cljs stop`: it ends the whole shadow-cljs process of the project it runs in, every build that process watches.
 
-If epoch reads stay `[]` after the app has dispatched, check that the build is a development build and that epoch history depth is positive — `discover-app` does not check either. Without recording, `dispatch-dry-run`, `restore-epoch`, `replay-epoch` and `replace-app-db` refuse too. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
+If epoch reads stay `[]` after the app has dispatched, check that epoch history depth is positive: `discover-app` refuses a production build (`:debug-disabled`) but does not check the depth. Without recording, `dispatch-dry-run`, `restore-epoch`, `replay-epoch` and `replace-app-db` refuse too. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
 Fresco evidence depends on what the running build has loaded, not on its adapter. Without `re-frame.fresco.tool` loaded, the three Fresco reads return `:evidence-tier-unavailable`; outside a debug build they return `:evidence-tier-inactive`. Those replies mean the evidence is unavailable, not that no views are mounted. An app on any adapter can load the namespace — Xray's preload does — and then gets valid envelopes about its Fresco boundaries only, so an empty roster says nothing about Reagent or UIx views and does not show a Fresco migration. DOM reads and the frame-level tools work whatever the adapter.
 

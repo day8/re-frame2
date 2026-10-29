@@ -73,7 +73,7 @@ Ops refuse with a `:reason` rather than guessing. Beyond `:ambiguous-frame` and 
 
 ## A structured read came back blank
 
-A structured read (`read-dom`, `read-ui`, `read-sub`, `get-path`) returning an empty / blank / `:*-blank-result` value — or an unexpected `nil` — is **usually a broken OP or eval form, NOT a stale connection.** Do **not** act on a "reload the tab / reconnect" hint on this signal alone (a misleading `read-dom` hint cost real debug time).
+A structured read (`read-dom`, `read-ui`, `read-sub`, `get-path`) returning an empty / blank / `:blank-eval-result` value — or an unexpected `nil` — is **usually a broken OP or eval form, NOT a stale connection.** Do **not** act on a "reload the tab / reconnect" hint on this signal alone (a misleading `read-dom` hint cost real debug time).
 
 Recovery: **confirm the runtime is answering** before blaming the connection:
 

@@ -65,7 +65,7 @@ mcp__re-frame2-pair__eval-cljs {
 ;; => {:status :pass :passed? true :failures []}
 ```
 
-The resolved run-result is the frozen spec/017 §Run-result contract: `:status` (`:pass` | `:fail` | `:cannot-run` | `:error` — read via `re-frame.story/result-status`; `result-passed?` is true only for `:pass`, a `:cannot-run` is NOT a pass), `:assertions` (the unified records, each with `:status` / `:passed?` / `:expected` / `:actual` / `:reason`), `:checks`, plus optional `:app-db` / `:elapsed-ms` / `:narrative` / `:effects` / `:sub-runs` / `:renders`. To inspect the whole result, `await` the bare `(re-frame.story/run-variant …)` form instead of the projection.
+The resolved run-result is the shape `tools/story/spec/017-Testing-Story.md` §Unified run result specifies: `:status` (`:pass` | `:fail` | `:cannot-run` | `:error` — read via `re-frame.story/result-status`; `result-passed?` is true only for `:pass`, a `:cannot-run` is NOT a pass), `:assertions` (the unified records, each with `:status` / `:passed?` / `:expected` / `:actual` / `:reason`), `:checks`, plus optional `:app-db` / `:elapsed-ms` / `:narrative` / `:effects` / `:sub-runs` / `:renders`. To inspect the whole result, `await` the bare `(re-frame.story/run-variant …)` form instead of the projection.
 
 **The variant frame needs the app's adapter booted.** Enumerating is free; *running* is not. `run-variant` allocates the variant's frame, and frame allocation goes through `make-state-container` (in `re-frame.substrate.adapter`), which requires an installed re-frame adapter. Nothing installs one for you — per [`spec/006-ReactiveSubstrate.md`](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) the substrate choice belongs to the app. A normally-booted tab already satisfies this, so you meet it in two narrow cases, and they are different ids with different remedies: `:rf.error/no-adapter-installed` when the app threw before `(rf/init! ...)`, `:rf.error/adapter-disposed` when a REPL experiment called `(rf/destroy-adapter!)`. Both name the delegation surface that demanded the adapter and repeat the id as a trailing `[:rf.error/...]` token in the message. Boot the adapter the app actually renders with — `(rf/init! reagent/adapter)`, not `plain-atom`, which renders nothing.
 
@@ -148,7 +148,7 @@ mcp__re-frame2-pair__eval-cljs {
 
 **Procedure:**
 
-1. Capture the pre-edit `baseline` **before** touching the file — a probe whose value must change once the new body loads, e.g. the variant's own registration line:
+1. Capture the pre-edit `baseline` **before** touching the file — a probe whose value must change once the new body loads, e.g. the variant body's `:script`, which step 3 edits:
    ```
    mcp__re-frame2-pair__eval-cljs {
      form: "(pr-str (:script (re-frame.story/variant->edn :story.counter/loaded)))"
