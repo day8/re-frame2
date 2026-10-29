@@ -282,12 +282,17 @@
 
 (defn- instance-declaration-paths
   "The absolute `{:sensitive [paths] :large [paths]}` one entry contributes:
-  `spec`'s `:data` declarations re-rooted under the entry's `key-id`."
+  `spec`'s `:data` declarations re-rooted under the entry's `key-id`, and a
+  coarse `:sensitive?` / `:large?` claim as the entry's whole `:data`, a
+  sensitive claim winning."
   [key-id spec]
   (let [data-prefix (entry-data-prefix key-id)
         ->abs       (fn [k] (mapv #(into data-prefix %) (:data (split-projection-paths spec k))))]
-    {:sensitive (->abs :sensitive)
-     :large     (->abs :large)}))
+    {:sensitive (cond-> (->abs :sensitive)
+                  (true? (:sensitive? spec)) (conj data-prefix))
+     :large     (cond-> (->abs :large)
+                  (and (true? (:large? spec)) (not (true? (:sensitive? spec))))
+                  (conj data-prefix))}))
 
 ;; A mutation instance keeps the raw values (success-path `:invalidates` /
 ;; `:patches` / `:populates` read them); only egress redacts.
@@ -324,14 +329,29 @@
                     [id (select-keys spec [:sensitive :large])]))))
         (rf.registrar/registrations kind)))
 
+(defn- collect-resources
+  "Each resource registration that declares a classification path or claims
+  `:sensitive?` / `:large?` — `{id {:sensitive … :large … :sensitive? …
+  :large? …}}`, through the bound frame view. Spec 016 §Resource
+  registration spec: projection applies the coarse claims at every egress
+  boundary, runtime-db included."
+  []
+  (into {}
+        (keep (fn [[id desc]]
+                (let [spec (get desc :rf/resource)]
+                  (when (or (seq (:sensitive spec)) (seq (:large spec))
+                            (true? (:sensitive? spec)) (true? (:large? spec)))
+                    [id (select-keys spec [:sensitive :large :sensitive? :large?])]))))
+        (rf.registrar/registrations :resource)))
+
 (defn runtime-classification
   "The `:resources/runtime-classification` hook for the
   `:rf.runtime/resources` root. Collect, `[]`: each registered resource's
   declaration, keyed by resource id. Apply, `[resources decls]`: every cache
   entry under `resources` (the root's value) names its resource by
-  `:resource/key`, and that resource's `:data` declaration is re-rooted onto
-  the entry's `:data` (`instance-declaration-paths`). Pure."
-  ([] (collect :resource :rf/resource))
+  `:resource/key`, and that resource's declaration is re-rooted onto the
+  entry's `:data` (`instance-declaration-paths`). Pure."
+  ([] (collect-resources))
   ([resources decls]
    (reduce-kv (fn [acc key-id entry]
                 (if-let [decl (get decls (second (:resource/key entry)))]

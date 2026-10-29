@@ -320,29 +320,19 @@
                             "dependency is a planning error, not silent ordering. "
                             "Per Spec 016 §Route integration.")
                        {:resource-id (:resource entry) :recovery :fix-after
-                        :missing-after (vec missing) :local-id (entry-id entry)}))))
-        ;; A pass that emits nothing while entries remain is a cycle.
-        max-pass-count (count entries)]
+                        :missing-after (vec missing) :local-id (entry-id entry)}))))]
     (loop [remaining (vec entries)
            emitted   []
-           seen-ids  #{}
-           pass-count 0]
-      (cond
-        (empty? remaining) emitted
-        (> pass-count max-pass-count)
-        (throw (planning-error
-                 (str "route resources have a cyclic :after dependency among "
-                      (pr-str (into #{} (keep entry-id) remaining))
-                      " — a planning error, not silent declaration-order "
-                      "fallthrough. Per Spec 016 §Route integration.")
-                 {:recovery :fix-after
-                  :cycle (into #{} (keep entry-id) remaining)}))
-        :else
+           seen-ids  #{}]
+      (if (empty? remaining)
+        emitted
         (let [{ready true held false}
               (group-by (fn [entry]
                           (every? #(contains? seen-ids %)
                                   (entry-dependencies entry)))
                         remaining)]
+          ;; a pass that emits nothing while entries remain is a cycle, so
+          ;; every pass that recurs shrinks `remaining`
           (if (empty? ready)
             (throw (planning-error
                      (str "route resources have a cyclic :after dependency among "
@@ -353,8 +343,7 @@
                       :cycle (into #{} (keep entry-id) remaining)}))
             (recur (vec held)
                    (into emitted ready)
-                   (into seen-ids (keep entry-id ready))
-                   (inc pass-count))))))))
+                   (into seen-ids (keep entry-id ready)))))))))
 
 ;; ---- effective parent-chain composition -------------------------------------
 ;; `branch` is `[{:route-id :route-meta} …]`, parent-most first. Every

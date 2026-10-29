@@ -4,9 +4,10 @@
   besides the current owner spec, a `:rf.sub/prev-value` takes the claims the
   policy it was computed with makes on the inputs it was computed from, while
   a `:rf.sub/value` computed after the re-registration follows the current
-  registration. Two boundaries are pinned: a coarse `:sensitive?` root claim is
-  not a path claim, so it is not recovered, and the live value of a recompute
-  is classified by the registration current when it is computed. A scenario
+  registration. A coarse `:sensitive?` root claim is the entry's whole-`:data`
+  claim in that policy, so it is recovered like a path claim. One boundary is
+  pinned: the live value of a recompute is classified by the registration
+  current when it is computed. A scenario
   runs re-registered and unchanged, the unchanged run its control, with two
   exceptions: a prior result across a clear takes its control from the read-sub
   egress suite, and prior data across a remove needs none, because its
@@ -241,22 +242,21 @@
     (assert-prior-previous-projection-redacted {})))
 
 ;; ===========================================================================
-;; 4. The documented residue: a coarse root claim is not recovered
+;; 4. A coarse root claim is recovered like a path claim
 ;; ===========================================================================
 
-(deftest a-coarse-resource-re-registered-without-its-claim-ships-its-prior-data
+(deftest a-coarse-resource-re-registered-without-its-claim-keeps-its-prior-data-redacted
   (testing "control: unchanged, the coarse claim redacts the whole prior data"
     (let [[_ window] (remove-profile {:sensitive? true} nil)]
       (when rf.interop/debug-enabled?
         (is (= redacted (:rf.sub/prev-value
                           (last-run-tags [:rf.resource/data profile-q] window)))))))
-  (testing "PINNED RESIDUE: re-registered without it, the prior data ships raw,
-            because a coarse `:sensitive?` claim is read off the current owner
-            spec, never off the policy the prior value was computed with
-            (Spec 016 §Resource registration spec)"
+  (testing "re-registered without it, the prior data stays redacted: the coarse
+            claim is the entry's whole-:data claim in the policy the prior value
+            was computed with (Spec 016 §Resource registration spec)"
     (let [[_ window] (remove-profile {:sensitive? true} {})]
       (when rf.interop/debug-enabled?
-        (is (= {:name "Ann" :ssn ssn-1}
+        (is (= redacted
                (:rf.sub/prev-value (last-run-tags [:rf.resource/data profile-q] window))))))))
 
 ;; ===========================================================================

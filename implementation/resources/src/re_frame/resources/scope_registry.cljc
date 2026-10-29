@@ -153,12 +153,12 @@
                   "slot: (reg-resource-scope " scope-id " {…} resolve-fn). Move "
                   "the resolver out of the metadata map into the value slot.")
              {:scope-id scope-id :value (:resolve metadata)})))
-  (when-not (fn? resolve-fn)
+  (when-not (rf.resources.state/callable? resolve-fn)
     (throw (registration-error
              :rf.error/invalid-resource-scope-spec
              'rf/reg-resource-scope
              (str "resource-scope " scope-id "'s resolver (the THIRD slot) must "
-                  "be a fn, got " (pr-str (type resolve-fn)) ". The grammar is "
+                  "be a fn or a Var, got " (pr-str (type resolve-fn)) ". The grammar is "
                   "(reg-resource-scope " scope-id " {:inputs {name [:db path]}} "
                   "(fn [inputs ctx] -> scope|nil)). Per Spec 016 §The "
                   ":inputs grammar.")

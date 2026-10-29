@@ -2,8 +2,10 @@
   "Read completion continuations: a call-site `:reply-to` on
   `:rf.resource/ensure` / `:rf.resource/refetch` fires once per accepted
   terminal reply (or at once on a fresh cache hit), fans out to joined
-  targets, is handed over to a superseding attempt, and is never fired by a
-  stale reply (Spec 016 §Read completion continuations)."
+  targets, is handed over to whatever attempt displaces its own, and is never
+  fired by a stale reply (Spec 016 §Read completion continuations). A reply
+  whose settle throws fails its attempt and answers the continuation with
+  the error (Spec 016 §Status semantics)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -204,3 +206,63 @@
     (reply-success! @last-managed-args page-0)
     (is (= [{:value all-items :cache-hit? false}]
            (mapv #(select-keys % [:value :cache-hit?]) (replies))))))
+
+(deftest reply-to-hands-over-from-a-released-attempt-to-the-next-ensure
+  ;; A's release leaves the attempt `:abort-requested`, and B's ensure in the
+  ;; same drain, ahead of the abort reply, displaces it. The ownerless read's
+  ;; continuation moves to B's attempt and fires once, from B's reply.
+  (rf/reg-resource :rr/article article-spec article-request)
+  (ensure-article! [:view :a])
+  (ensure-article! nil [:test/read-replied])
+  (let [released-args @last-managed-args]
+    (rf/reg-event :test/remount
+      (fn [_ _] {:fx [[:dispatch [:rf.resource/release-owner {:owner [:view :a]}]]
+                      [:dispatch [:rf.resource/ensure
+                                  {:resource :rr/article :scope :rf.scope/global
+                                   :params {:slug "w"} :owner [:view :b]}]]]}))
+    (rf/dispatch-sync [:test/remount])
+    (is (not= released-args @last-managed-args) "B's ensure started its own attempt")
+    (reply-success! @last-managed-args {:title "fresh"})
+    (reply-failure! released-args {:kind :rf.http/aborted :reason :user})
+    (is (= [{:status :ok :value {:title "fresh"}}]
+           (mapv #(select-keys % [:status :value]) (replies))))))
+
+;; ---- a settle that throws fails the attempt ---------------------------------
+
+(deftest a-reply-whose-tags-fn-throws-fails-the-attempt
+  ;; Left live, the attempt would be joined by every later ensure and never
+  ;; settle. Failing it surfaces the error, answers the continuation, and lets
+  ;; the next ensure fetch again.
+  (rf/reg-resource :rr/article
+                   (assoc article-spec :tags (fn [_ _] (throw (ex-info "tags blew up" {}))))
+                   article-request)
+  (let [errors (atom [])]
+    (rf.trace.tooling/register-listener!
+      ::errors (fn [ev] (when (= :rf.error/handler-exception (:operation ev)) (swap! errors conj ev))))
+    (try
+      (ensure-article! [:view :a] [:test/read-replied])
+      (reply-success! @last-managed-args {:title "Welcome"})
+      (finally (rf.trace.tooling/unregister-listener! ::errors)))
+    (let [e (entry rkey)]
+      (is (= [:error nil nil] [(:status e) (:current-work e) (:data e)]))
+      (is (= {:kind :rf.http/decode-failure :stage :resource-settle :cause "tags blew up"}
+             (select-keys (:error e) [:kind :stage :cause]))))
+    (is (= [:rf.resource.internal/succeeded]
+           (mapv #(get-in % [:tags :failing-id]) @errors))
+        "the throw is still reported, on the reply event")
+    (is (= [:error] (mapv :status (replies))) "the continuation hears the failure")
+    (reset! last-managed-args nil)
+    (ensure-article! [:view :b])
+    (is (some? @last-managed-args) "a later ensure fetches again")))
+
+(deftest a-feed-reply-whose-items-merge-throws-fails-the-page
+  ;; An enveloped page with no `:page->items` cannot merge into the
+  ;; continuation's `:value`; the page-0 attempt fails with the accessor error
+  ;; rather than staying live.
+  (rf/reg-resource :cm/feed (dissoc feed-spec :page->items) feed-request)
+  (ensure-feed! [:view :a] [:test/read-replied])
+  (reply-success! @last-managed-args (feed-page [{:id 1}] nil))
+  (let [e (entry (rf.resources.state/scoped-resource-key :rf.scope/global :cm/feed {:filter :recent}))]
+    (is (= [:error nil :rf.error/infinite-missing-page-accessor]
+           [(:status e) (:current-work e) (get-in e [:error :rf.error/id])])))
+  (is (= [:error] (mapv :status (replies)))))

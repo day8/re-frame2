@@ -12,6 +12,7 @@
   Spec 016 §Events (map payloads, not positional argument vectors)"
   (:require [clojure.set :as set]
             [re-frame.error :as rf.error]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.reply :as rf.reply]
             [re-frame.resources.registry :as rf.resources.registry]
             [re-frame.resources.reply :as rf.resources.reply]
@@ -162,7 +163,7 @@
 
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
-(declare revalidation-cause?)
+(declare revalidation-cause? background-revalidation-cause?)
 
 (defn- ensure-load
   "Shared core of ensure and refetch. Resolves scope and canonical params to
@@ -294,8 +295,11 @@
                           hit-cont-fx (conj hit-cont-fx))]
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id scoped-key gc-delay-ms)}
             (seq fx) (assoc :fx fx))))
-      ;; dedupe: join the live in-flight attempt, no new generation
-      (and joinable? (not force-new?))
+      ;; dedupe: join the live in-flight attempt, no new generation. A
+      ;; background revalidation joins too: it has nothing to supersede, and
+      ;; two focus signals queued in one drain would otherwise start a second
+      ;; request and abort the first.
+      (and joinable? (or (not force-new?) (background-revalidation-cause? cause)))
       (let [joined (-> (rf.resources.state/attach-owner entry owner)
                        (rf.resources.work-ledger/update-attempt
                          prior-work rf.resources.work-ledger/join-owner+cause owner cause)
@@ -344,12 +348,11 @@
             page-index 0
             req-ctx    (when infinite? (page-request-ctx page-param page-index))
             superseding? (and in-flight? force-new?)
-            ;; A superseded attempt hands its `:reply-to` targets to its
-            ;; successor: left on the suppressed summary, no delivery site
-            ;; could reach them.
-            superseded-targets (when superseding?
-                                 (:reply-targets
-                                   (rf.resources.work-ledger/live-attempt entry prior-work)))
+            ;; Whatever attempt this start displaces, live or `:abort-requested`,
+            ;; hands its `:reply-to` targets to the successor: left on the
+            ;; suppressed summary, no delivery site could reach them.
+            displaced  (rf.resources.work-ledger/live-attempt entry prior-work)
+            superseded-targets (:reply-targets displaced)
             record     (rf.resources.work-ledger/work-record
                          {:work-id      work-id
                           :generation   generation
@@ -373,8 +376,8 @@
             ;; superseded; its targets are handed over rather than copied, so
             ;; its summary never advertises targets it can no longer deliver.
             entry'     (cond-> started
-                         superseding? (rf.resources.work-ledger/update-attempt
-                                        prior-work dissoc :reply-targets)
+                         displaced (rf.resources.work-ledger/update-attempt
+                                     prior-work dissoc :reply-targets)
                          true (rf.resources.work-ledger/start-attempt record))
             rdb'       (-> runtime-db
                            (assoc-in (rf.resources.state/entry-path scoped-key) entry')
@@ -441,6 +444,63 @@
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
 
 ;; ---- load-more — extend an infinite feed by one page -----------------------
+
+(defn- start-page-attempt
+  "Starts the fetch of page `page-index` at `page-param` on the feed `entry`:
+  a load-more's next page or a sweep leg's refresh. Mints the attempt at the
+  recorded generation allocation, starts it on the entry, lowers the request
+  with its reply addressed to the page handlers, and emits the start pair,
+  after `announce` (a fn of the generation and work id, or nil). A page fetch
+  mints no owner: the feed's holders own it. Returns the effects map.
+  Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
+  [{:keys [runtime-db frame-id gen-allocation time-ms spec resource cparams
+           scoped-key entry cause where page-param page-index announce]}]
+  (let [generation   (rf.resources.state/allocated-generation gen-allocation)
+        work-id      (rf.resources.work-ledger/resource-work-id resource generation)
+        request-id   (rf.resources.work-ledger/managed-request-id frame-id work-id)
+        transport-id rf.resources.transport/managed-http-transport
+        started      (rf.resources.state/entry-start-load
+                       entry {:generation generation :work-id work-id :request-id request-id})
+        record       (rf.resources.work-ledger/work-record
+                       {:work-id      work-id
+                        :generation   generation
+                        :transport    transport-id
+                        :owners       (:active-owners started)
+                        :cause        cause
+                        ;; from the token, so replay mints the same deadline
+                        :started-at   time-ms
+                        :deadline-at  (when-let [ms (:timeout-ms spec)] (+ time-ms ms))
+                        ;; a positive index is what tells `:fetching-next?`
+                        ;; apart from a whole-feed refresh
+                        :page-index   page-index})
+        entry'       (rf.resources.work-ledger/start-attempt started record)
+        lower-fx     (rf.resources.transport.http/lower
+                       {:http-args     ((:request spec) cparams (page-request-ctx page-param page-index))
+                        :request-id    request-id
+                        :work-id       work-id
+                        :resource/key  scoped-key
+                        :frame-id      frame-id
+                        :generation    generation
+                        :where         where
+                        :on-success-id page-succeeded-reply
+                        :on-failure-id page-failed-reply
+                        :reply-payload (infinite-page-reply-payload
+                                         generation work-id page-param page-index)})]
+    (when announce (announce generation work-id))
+    (rf.trace/emit! :rf.event :rf.resource/work-started
+                 {:rf.frame/id frame-id :resource/key scoped-key
+                  :generation generation :work/id work-id
+                  :status :running :owner nil :cause cause})
+    (rf.trace/emit! :rf.event :rf.resource/fetch-started
+                 {:rf.frame/id frame-id :resource/id resource
+                  :generation generation :work/id work-id
+                  :status (:status entry') :owner nil :cause cause})
+    {:rf.db/runtime (assoc-in runtime-db (rf.resources.state/entry-path scoped-key) entry')
+     :fx [[:rf.resource/commit-generation {:value generation}]
+          [:rf.resource/record-work-handle
+           {:frame-id frame-id :work-id work-id
+            :transport transport-id :request-id request-id}]
+          lower-fx]}))
 
 (defn- load-more-loaded
   "Core of `:rf.resource/load-more`: fetches the next page (param derived
@@ -516,75 +576,17 @@
         {:rf.db/runtime rdb'})
 
       :else
-      (let [generation (rf.resources.state/allocated-generation gen-allocation)
-            work-id    (rf.resources.work-ledger/resource-work-id resource generation)
-            request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
-            started-at time-ms
-            deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
-            transport-id rf.resources.transport/managed-http-transport
-            started    (rf.resources.state/entry-start-load
-                         entry {:generation generation :work-id work-id
-                                :request-id request-id :owner owner})
-            record     (rf.resources.work-ledger/work-record
-                         {:work-id      work-id
-                          :generation   generation
-                          :transport    transport-id
-                          ;; mints no owner, but the feed's holders need the page
-                          :owners       (:active-owners started)
-                          :cause        cause
-                          :started-at   started-at
-                          :deadline-at  deadline
-                          ;; a positive index is what tells `:fetching-next?`
-                          ;; apart from a whole-feed refresh
-                          :page-index   page-index})
-            entry'     (rf.resources.work-ledger/start-attempt started record)
-            owner-newly-attached? (and (some? owner)
-                                       (not (contains? (:active-owners entry) owner)))
-            rdb'       (-> runtime-db
-                           (assoc-in (rf.resources.state/entry-path scoped-key) entry')
-                           (cond->
-                             owner (update-in (rf.resources.state/owner-index-path)
-                                              update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
-            req-ctx    (page-request-ctx next-param page-index)
-            http-args  (let [req-fn (:request spec)]
-                         (req-fn cparams req-ctx))
-            lower-fx   (rf.resources.transport.http/lower
-                         {:http-args    http-args
-                          :request-id   request-id
-                          :work-id      work-id
-                          :resource/key scoped-key
-                          :frame-id     frame-id
-                          :generation   generation
-                          :where        where
-                          :on-success-id page-succeeded-reply
-                          :on-failure-id page-failed-reply
-                          :reply-payload (infinite-page-reply-payload
-                                           generation work-id
-                                           next-param page-index)})]
-        (rf.trace/emit! :rf.event :rf.resource/load-more
-                     {:rf.frame/id frame-id :resource/id resource
-                      :generation generation :work/id work-id
-                      :page-param next-param :page-index page-index
-                      :page-count page-index :owner owner :cause cause})
-        (rf.trace/emit! :rf.event :rf.resource/work-started
-                     {:rf.frame/id frame-id :resource/key scoped-key
-                      :generation generation :work/id work-id
-                      :status :running :owner owner :cause cause})
-        (rf.trace/emit! :rf.event :rf.resource/fetch-started
-                     {:rf.frame/id frame-id :resource/id resource
-                      :generation generation :work/id work-id
-                      :status (:status entry') :owner owner :cause cause})
-        (when owner-newly-attached?
-          (rf.trace/emit! :rf.event :rf.resource/owner-attached
-                       {:rf.frame/id frame-id :resource/key scoped-key
-                        :generation generation :owner owner :cause cause
-                        :work/id work-id :joined-in-flight? false}))
-        {:rf.db/runtime rdb'
-         :fx [[:rf.resource/commit-generation {:value generation}]
-              [:rf.resource/record-work-handle
-               {:frame-id frame-id :work-id work-id
-                :transport transport-id :request-id request-id}]
-              lower-fx]}))))
+      (start-page-attempt
+        {:runtime-db runtime-db :frame-id frame-id :gen-allocation gen-allocation
+         :time-ms time-ms :spec spec :resource resource :cparams cparams
+         :scoped-key scoped-key :entry entry :cause cause :where where
+         :page-param next-param :page-index page-index
+         :announce (fn [generation work-id]
+                     (rf.trace/emit! :rf.event :rf.resource/load-more
+                                  {:rf.frame/id frame-id :resource/id resource
+                                   :generation generation :work/id work-id
+                                   :page-param next-param :page-index page-index
+                                   :page-count page-index :owner owner :cause cause}))}))))
 
 (defn load-more-handler
   "`:rf.resource/load-more`: extend an infinite feed by one page, appended on
@@ -601,7 +603,8 @@
 (defn- refetch-page-loaded
   "Core of `:rf.resource.internal/refetch-page`: re-fetches the page at the
   payload's page param and index, which replaces that page in place on
-  success. A vanished feed, or a page index past the feed's end, is a no-op."
+  success. A vanished feed, a page index past the feed's end, or live work on
+  the feed is a no-op."
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
@@ -632,61 +635,23 @@
                       :owner owner :cause cause})
         {:rf.db/runtime runtime-db})
 
-      :else
-      (let [generation (rf.resources.state/allocated-generation gen-allocation)
-            work-id    (rf.resources.work-ledger/resource-work-id resource generation)
-            request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
-            started-at time-ms
-            deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
-            transport-id rf.resources.transport/managed-http-transport
-            started    (rf.resources.state/entry-start-load
-                         entry {:generation generation :work-id work-id
-                                :request-id request-id :owner owner})
-            record     (rf.resources.work-ledger/work-record
-                         {:work-id      work-id
-                          :generation   generation
-                          :transport    transport-id
-                          :owners       (:active-owners started)
-                          :cause        cause
-                          :started-at   started-at
-                          :deadline-at  deadline
-                          :page-index   page-index})
-            entry'     (rf.resources.work-ledger/start-attempt started record)
-            rdb'       (-> runtime-db
-                           (assoc-in (rf.resources.state/entry-path scoped-key) entry')
-                           (cond->
-                             owner (update-in (rf.resources.state/owner-index-path)
-                                              update owner (fnil conj #{}) (rf.resources.state/key-id scoped-key))))
-            req-ctx    (page-request-ctx page-param page-index)
-            http-args  (let [req-fn (:request spec)]
-                         (req-fn cparams req-ctx))
-            lower-fx   (rf.resources.transport.http/lower
-                         {:http-args    http-args
-                          :request-id   request-id
-                          :work-id      work-id
-                          :resource/key scoped-key
-                          :frame-id     frame-id
-                          :generation   generation
-                          :where        where
-                          :on-success-id page-succeeded-reply
-                          :on-failure-id page-failed-reply
-                          :reply-payload (infinite-page-reply-payload
-                                           generation work-id
-                                           page-param page-index)})]
-        (rf.trace/emit! :rf.event :rf.resource/work-started
+      ;; A leg queued behind a refetch or ensure finds that attempt live, and
+      ;; it re-armed its own sweep, so the leg drops rather than displacing it.
+      (rf.resources.work-ledger/live-work? entry)
+      (do
+        (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
                      {:rf.frame/id frame-id :resource/key scoped-key
-                      :generation generation :work/id work-id
-                      :status :running :owner owner :cause cause})
-        (rf.trace/emit! :rf.event :rf.resource/fetch-started
-                     {:rf.frame/id frame-id :resource/id resource
-                      :generation generation :work/id work-id
-                      :status (:status entry') :owner owner :cause cause})
-        {:rf.db/runtime rdb'
-         :fx [[:rf.resource/commit-generation {:value generation}]
-              [:rf.resource/record-work-handle
-               {:frame-id frame-id :work-id work-id
-                :transport transport-id :request-id request-id}]
-              lower-fx]}))))
+                      :reason :in-flight :work/id (:current-work entry)
+                      :page-count (rf.resources.state/page-count entry)
+                      :owner owner :cause cause})
+        {:rf.db/runtime runtime-db})
+
+      :else
+      (start-page-attempt
+        {:runtime-db runtime-db :frame-id frame-id :gen-allocation gen-allocation
+         :time-ms time-ms :spec spec :resource resource :cparams cparams
+         :scoped-key scoped-key :entry entry :cause cause :where where
+         :page-param page-param :page-index page-index}))))
 
 (defn refetch-page-handler
   "`:rf.resource.internal/refetch-page`: one leg of a multi-page refetch
@@ -716,12 +681,19 @@
   stops when the last real owner releases. Spec 016 §Polling"
   :poll)
 
+(defn- background-revalidation-cause?
+  "True for focus, reconnect and a poll tick: refetches that ask only for
+  fresher data, so live work already answers them (`ensure-load` joins it).
+  An invalidation is not one: its in-flight request may predate the write."
+  [cause]
+  (contains? #{focus-cause reconnect-cause poll-cause} cause))
+
 (defn- revalidation-cause?
   "True for the causes of the framework's automatic refetches: focus,
   reconnect, a poll tick, or an invalidation (`[:invalidate …]`). Such a
   refetch never re-creates an entry that has left the cache (`ensure-load`)."
   [cause]
-  (or (contains? #{focus-cause reconnect-cause poll-cause} cause)
+  (or (background-revalidation-cause? cause)
       (and (vector? cause) (= :invalidate (first cause)))))
 
 (defn- entry-revalidation-in-flight?
@@ -1434,13 +1406,52 @@
   (rf.resources.reply-handlers/live-slot-for-reply
     runtime-db receiving-frame-id entry-path-for-reply payload))
 
-(defn succeeded-handler
-  "`:rf.resource.internal/succeeded`: on a verified reply, settles the entry
-  `:loaded` with the decoded value as `:data` (the old value kept when `=`),
-  `:loaded-at` from the reply token, `:stale-at` and the produced `:tags`;
-  resolves invalidations that landed meanwhile, arms timers, and fans out to
-  `:reply-to` targets last. A stale reply is suppressed. Event `[_
-  <verification-payload> <http-result>]`. Spec 016 §Status semantics"
+(declare failed-handler page-failed-handler)
+
+(defn- settle-error-envelope
+  "The failure envelope for a reply whose settle threw `e`: the decoded body
+  is one the resource's own fns cannot take, so `:rf.http/decode-failure` at
+  `:stage :resource-settle`, carrying the thrown `:rf.error/id` when it has
+  one. Spec 016 §Status semantics"
+  [e]
+  (let [error-id (:rf.error/id (ex-data e))]
+    (cond-> {:kind                       :rf.http/decode-failure
+             :stage                      :resource-settle
+             :cause                      (rf.error/ex-message-safe e)
+             :schema-validation-failure? false}
+      error-id (assoc :rf.error/id error-id))))
+
+(defn- settle-or-fail
+  "`(settle cofx event)`, a success reply's handler body. Its accepted branch
+  calls the resource's own fns (`:tags`, `:next-page-param`, `:page->items`),
+  and a throw from one would write nothing, leaving the attempt live for
+  every later ensure to join. So a throw settles the reply through
+  `fail-handler` under `fail-event-id` instead, with a
+  `settle-error-envelope`, and is reported loudly as
+  `:rf.error/handler-exception` on the reply event. Spec 016 §Status semantics"
+  [settle fail-handler fail-event-id cofx [event-id reply-payload :as event]]
+  (try
+    (settle cofx event)
+    (catch #?(:clj Throwable :cljs :default) e
+      (let [frame-id (:rf.frame/id cofx)
+            msg      (rf.error/ex-message-safe e)]
+        (rf.error-emit/emit-error-both!
+          :rf.error/handler-exception event event-id frame-id e 0 (:rf/time-ms cofx)
+          {:event-id          event-id
+           :event             event
+           :frame             frame-id
+           :failing-id        event-id
+           :handler-id        event-id
+           :phase             :before
+           :exception         e
+           :exception-message (str msg)
+           :reason            (str "A resource fn threw while its reply settled; "
+                                   "the attempt settled as a failure.")
+           :recovery          :settled-as-failure})
+        (fail-handler cofx [fail-event-id reply-payload {:error (settle-error-envelope e)}])))))
+
+(defn- succeeded-settle
+  "The body of `succeeded-handler`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id reply-payload http-result]]
   (let [runtime-db (or rt {})
@@ -1524,6 +1535,17 @@
               fx        (into fx cont-fxs)]
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
+
+(defn succeeded-handler
+  "`:rf.resource.internal/succeeded`: on a verified reply, settles the entry
+  `:loaded` with the decoded value as `:data` (the old value kept when `=`),
+  `:loaded-at` from the reply token, `:stale-at` and the produced `:tags`;
+  resolves invalidations that landed meanwhile, arms timers, and fans out to
+  `:reply-to` targets last. A stale reply is suppressed, and a settle that
+  throws fails the attempt instead (`settle-or-fail`). Event `[_
+  <verification-payload> <http-result>]`. Spec 016 §Status semantics"
+  [cofx event]
+  (settle-or-fail succeeded-settle failed-handler :rf.resource.internal/failed cofx event))
 
 (defn- entry-abort-settled
   "Settles a live entry whose attempt was aborted, a cancellation rather
@@ -1658,12 +1680,8 @@
 ;; load-more failure is the third error channel (`:page-error`). Verification
 ;; is the same, so a stale page reply never touches a newer feed.
 
-(defn page-succeeded-handler
-  "`:rf.resource.internal/page-succeeded`: on a verified reply, writes the
-  page at its index (an append at the tail, otherwise an in-place replace),
-  records its page param, and returns the feed to `:loaded`; chains the next
-  refetch-sweep leg when one is armed. A stale reply is suppressed.
-  Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
+(defn- page-succeeded-settle
+  "The body of `page-succeeded-handler`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id reply-payload http-result]]
   (let [runtime-db   (or rt {})
@@ -1772,6 +1790,16 @@
               fx        (into fx cont-fxs)]
           (cond-> {:rf.db/runtime (open-gc-window rdb' frame-id resource-key gc-delay-ms)}
             (seq fx) (assoc :fx fx)))))))
+
+(defn page-succeeded-handler
+  "`:rf.resource.internal/page-succeeded`: on a verified reply, writes the
+  page at its index (an append at the tail, otherwise an in-place replace),
+  records its page param, and returns the feed to `:loaded`; chains the next
+  refetch-sweep leg when one is armed. A stale reply is suppressed, and a
+  settle that throws fails the page instead (`settle-or-fail`).
+  Spec 016 §Causal event — `:rf.resource/load-more` (R2)"
+  [cofx event]
+  (settle-or-fail page-succeeded-settle page-failed-handler page-failed-reply cofx event))
 
 (defn page-failed-handler
   "`:rf.resource.internal/page-failed`: on a verified reply, the settlement

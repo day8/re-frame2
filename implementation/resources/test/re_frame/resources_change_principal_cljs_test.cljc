@@ -52,7 +52,7 @@
   (rf/reg-resource-scope :t/viewer
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
-      (when username [:rf.scope/viewer {:username username}])))
+      (when username [:app.scope/viewer {:username username}])))
   ;; stale the instant it loads, polled, tagged — every trigger's precondition
   (rf/reg-resource :t/doc
     {:scope            {:from-db :t/viewer}
@@ -92,7 +92,7 @@
 (defn- plan-slot [] (get-in (runtime-db) [:rf.runtime/routing :resource-plan (:nav-token (slice))]))
 (defn- owner-index [owner] (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) owner)))
 
-(defn- viewer [u] [:rf.scope/viewer {:username u}])
+(defn- viewer [u] [:app.scope/viewer {:username u}])
 (defn- doc-key [u page] (rf.resources.state/scoped-resource-key (viewer u) :t/doc {:page page}))
 
 (def ^:private app-owner [:app :dashboard 1])
@@ -146,11 +146,12 @@
 (deftest change-principal-refuses-a-malformed-from-before-clearing-anything
   (let [k   (owned-loaded! "ann" "a")
         cofx {:rf.db/runtime (runtime-db) :rf.frame/id :rf/default :db {} :rf/time-ms 1}]
-    (testing "a scope tuple passed bare reads as its members, and the reserved head is refused"
+    (testing "a bare scope tuple reads as its members, and an unknown :rf.scope/* head among them is refused"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
             (rf.resources.events/change-principal-handler
-              cofx [:rf.resource/change-principal {:from (viewer "ann") :cause :logout}]))))
+              cofx [:rf.resource/change-principal {:from [:rf.scope/viewer {:username "ann"}]
+                                                   :cause :logout}]))))
     (testing "a non-vector :from is refused"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"

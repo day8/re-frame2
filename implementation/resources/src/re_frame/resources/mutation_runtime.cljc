@@ -345,8 +345,10 @@
   `:restore` and put back the pre-read `:generation` / `:current-work` and
   `:work`, the read's own valid reply would then be suppressed, and its owner
   dropped. The terminal tail rides with them, so an attempt settled while the
-  mutation was pending keeps its summary."
-  [:generation :current-work :request-id :attempt :active-owners :work :recent-work])
+  mutation was pending keeps its summary, and so does an infinite feed's
+  refetch-sweep cursor, which that refetch armed without a `:revision` bump."
+  [:generation :current-work :request-id :attempt :active-owners :work :recent-work
+   :refetch-sweep :sweep-covers-invalidation?])
 
 (defn reconcile-restored-entry
   "The entry a `:restore` seats: `before` carrying `current`'s

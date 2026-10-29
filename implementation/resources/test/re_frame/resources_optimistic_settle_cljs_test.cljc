@@ -417,6 +417,24 @@
     (is (nil? (restore (rf.resources.state/empty-entry :r/article article-key)))
         "control: with no read in flight the seeded key is removed")))
 
+(deftest a-restore-keeps-the-sweep-a-refetch-armed-while-the-write-was-pending
+  ;; Arming a feed's refetch sweep bumps no :revision, so the rollback picks
+  ;; :restore; the cursor is the live refetch's, not a fact the apply wrote.
+  (let [before  (assoc (rf.resources.state/empty-infinite-entry :r/feed article-key)
+                       :status :loaded :data [[:a] [:b] [:c]])
+        current (assoc before
+                       :status :fetching :refetch-sweep [["c1" 1] ["c2" 2]]
+                       :sweep-covers-invalidation? true)
+        e       (rf.resources.mutation-runtime/reconcile-restored-entry before current)]
+    (is (= [[["c1" 1] ["c2" 2]] true]
+           [(:refetch-sweep e) (:sweep-covers-invalidation? e)]))
+    (is (= [false false]
+           [(contains? (rf.resources.mutation-runtime/reconcile-restored-entry current before)
+                       :refetch-sweep)
+            (contains? (rf.resources.mutation-runtime/reconcile-restored-entry current before)
+                       :sweep-covers-invalidation?)])
+        "control: a sweep the live entry no longer carries is not restored")))
+
 (deftest optimistic-seed-uncovered-by-the-reply-arms-its-gc-timer
   ;; A seeded entry is ownerless and no read path armed its timers. When the
   ;; reply's :patches/:populates/:removes do not cover the key, the settle must
