@@ -546,14 +546,20 @@
 
          The request rides the page's one `data-load-request-id`, so
          clicking a second load while the first is still in flight
-         supersedes it rather than racing it — see that def."}
+         supersedes it rather than racing it — see that def.
+
+         The reply decodes against `[:vector Todo]`, the shape the
+         machine's `:items` holds, so a malformed payload fails the fetch
+         and the :data region lands in :error. Left to the machine's own
+         `:data` schema, it would only refuse the `:fetch-succeeded` that
+         carries it, and the region would wait in :loading."}
   (fn handler-demo-load [_ [_ {:keys [n]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
            {:request    {:method :get
                          :url    "/api/todos"
                          :params {:n (or n 0)}}
-            :decode     :json
+            :decode     [:vector Todo]
             :request-id data-load-request-id
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
@@ -567,7 +573,7 @@
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
            {:request    {:method :get :url "/api/todos/fail"}
-            :decode     :json
+            :decode     [:vector Todo]
             :request-id data-load-request-id
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
@@ -602,14 +608,18 @@
 
 (rf/reg-event :new-todo/edit-field
   {:doc  "The user typed in a field. Update the :draft, mark the field as
-          touched (so its errors are allowed to show), and broadcast :edit
-          into the machine — which gently returns the :form region from
-          :correct or :incorrect back to :neutral."
+          touched (so its errors are allowed to show), drop the field's
+          last verdict, and broadcast :edit into the machine — which gently
+          returns the :form region from :correct or :incorrect back to
+          :neutral. The verdict goes with it: an error from the last submit
+          says nothing about what the field holds now, and the next submit
+          judges it again."
    :schema [:cat [:= :new-todo/edit-field] :keyword :string]}
   (fn handler-new-todo-edit-field [{:keys [db]} [_ field value]]
     {:db (-> db
              (assoc-in  [:new-todo :draft field] value)
-             (update-in [:new-todo :touched]    conj field))
+             (update-in [:new-todo :touched]    conj field)
+             (update-in [:new-todo :errors]     dissoc field))
      :fx [[:dispatch [:ui/nine-states [:edit]]]]}))
 
 (rf/reg-event :new-todo/submit

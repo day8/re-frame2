@@ -183,22 +183,22 @@
         (finally (rf/unregister-listener! :trace ::join-failure))))))
 
 ;; ============================================================================
-;; MACHINE :data SCHEMA BOUNDARY
+;; PAYLOAD AND SCHEMA BOUNDARIES
 ;; ============================================================================
 ;;
-;; The singleton `:app/boot` machine attaches a `[:schemas :data]` schema
-;; (`boot.schema/BootData`) that validates the snapshot's `:data` slot at the
-;; `:where :machine-data` boundary (Spec 005 §Schema validation). These
-;; tests prove the schema is attached, rejects malformed `:data`, fires the
-;; boundary trace + rolls back on a real violating macrostep, and that the
-;; app-db slice schemas (`reg-app-schema [:config]` etc.) keep validating the
-;; app-db partition independently.
+;; A payload is checked where it enters. Each loader decodes its reply
+;; against its asset's schema (`boot.schema/Config` and siblings), so a
+;; malformed payload fails the fetch, in every build, and the boot reaches
+;; `:failed` — it never reaches the `:app/boot` machine's `:data`, whose
+;; `[:schemas :data]` (`BootData`) would only refuse the fold and leave the
+;; boot waiting. The app-db slice schemas (`reg-app-schema [:config]` etc.)
+;; validate the app-db partition independently.
 
-(deftest boot-malformed-data-fails-boundary
-  (testing "a config child returning a malformed Config drives :promote-staged to write bad :data, failing the :machine-data boundary"
+(deftest boot-malformed-payloads-fail-at-their-boundary
+  (testing "a malformed /config.json fails its loader's decode, so the boot reaches :failed and nothing malformed reaches the boot machine's :data"
     ;; The backend answers a structurally-WRONG config (missing
     ;; :env / :build / :title) for /config.json; the other URLs are
-    ;; never reached because the config macrostep fails first.
+    ;; never reached because the config load fails first.
     (let [bad-config (answering-by-url
                        (fn [url]
                          (if (re-find #"/config\.json$" (str url))
@@ -208,12 +208,13 @@
           traces     (rf.integration-support/collect-machine-data-traces!
                        #(reset! frame (boot-frame! bad-config)))]
       (try
-        ;; `:recovery` rides the trace ENVELOPE, not :tags, as on the
-        ;; :where :app-db projection.
-        (let [boot-trace (some #(when (= :app/boot (-> % :tags :machine-id)) %) traces)]
-          (is (= :no-recovery (:recovery boot-trace))
-              (str "a :where :machine-data trace naming :app/boot fires, :no-recovery; got "
-                   (pr-str traces))))
+        (let [db (rf/frame-state-value @frame)]
+          (is (= [:failed :rf.http/decode-failure nil []]
+                 [(rf/compute-sub [:app.boot/state] db)
+                  (:kind (rf/compute-sub [:app.boot/error] db))
+                  (rf/compute-sub [:app/config] db)
+                  (filterv #(= :app/boot (-> % :tags :machine-id)) traces)])
+              "the decode failure took the boot to :failed, recorded as its error, with no :machine-data rejection on the way"))
         (finally (when @frame (rf/destroy-frame! @frame))))))
 
   (testing "the app-db slice schema validates the app-db partition independently of the machine :data boundary"
