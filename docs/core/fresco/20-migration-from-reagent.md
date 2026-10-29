@@ -164,8 +164,8 @@ place.
 | Form-3 or `r/create-class` lifecycle | callback refs or a named native component |
 | `r/track`, `reaction`, `r/cursor` | layered subscriptions |
 | `^{:key k}` metadata | `:key` in the props map |
-| `[:> Component ...]` | remains legal; repair its prop dialect and declare repeated crossings with `h/defhost` |
-| `r/adapt-react-class` | direct `[:>]` or a declared host |
+| `[:> Component ...]` | remains legal; repair its prop dialect, and keep a repeated crossing as `[:>]` until [step 4](#4-apply-the-mechanical-codemod)'s `--rewrite --write` has run on its file, then declare it with `h/defhost` |
+| `r/adapt-react-class` | direct `[:>]`, or a declared host for a repeated crossing, on the same terms as the row above |
 | `r/as-element` inside a render prop | `h/render-fn` at the render prop, returning the Hiccup |
 | `r/reactify-component` | `h/as-component`, the outward bridge |
 
@@ -483,6 +483,15 @@ callback rewrite. Everything else stays in the report.
 
 A second run leaves the files byte-for-byte unchanged. Re-run shadow
 comparison on the screens the diff touched.
+
+Then declare each repeated crossing with `h/defhost`. The written crossings
+already carry the strings and camel-cased keys a declared host passes through
+as they stand. Hoist only after the write: the codemod reads only `[:>]`-family
+vectors, so a crossing declared first gets no report entry, and its props
+cross unconverted — a keyword value as a Keyword, a nested map's keys as
+written. At the call sites of a host declared before the write, make W3, W2
+and W4's changes by hand: a keyword value becomes its name string, a nested
+map's keys become camelCase, and an `r/partial` becomes a plain `fn`.
 
 ## What remains manual
 

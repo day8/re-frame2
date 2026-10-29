@@ -2449,7 +2449,7 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
  :states  {:fan-out {:invoke-all {:children [{:id :a :machine-id :loader/a}
                                               {:id :b :machine-id :loader/b}]
                                   :join     :all
-                                  :on-all-complete :rendered}}}}
+                                  :on-all-complete [:rendered]}}}}
 ```
 
 **Rewrite.**
@@ -2464,7 +2464,7 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
  :states  {:fan-out {:spawn-all {:children [{:id :a :machine-id :loader/a}
                                              {:id :b :machine-id :loader/b}]
                                  :join     :all
-                                 :on-all-complete :rendered}}}}
+                                 :on-all-complete [:rendered]}}}}
 ```
 
 **Mechanical sweep.** A repository-wide text rename over the table above will land the change. Order longer keys before shorter (`:invoke-all` before `:invoke`, `:rf/invoke-all-id` before `:rf/invoke-id`); the `:rf.machine.invoke-all/` and `:rf.machine.invoke/` trace-op prefixes rewrite to `:rf.machine.spawn-all/` and `:rf.machine.spawn/` respectively (the new prefix sits in the `:rf.machine.*` namespace and does NOT collide with the existing `:rf.machine/spawn` fx-id since they live in different namespaces).
