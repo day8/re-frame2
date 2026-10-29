@@ -40,13 +40,13 @@
       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
       (let [original (.. js/window -location -href)
             app      (.createElement js/document "div")]
-        (set! (.-id app) "app")
         (set! (.. app -style -width) "800px")
         (set! (.. app -style -height) "600px")
         (.appendChild (.-body js/document) app)
         (try
           (.replaceState js/history nil "" (fragment :demo/first))
-          (act-fn (fn [] (viewer/run)))
+          ;; The runner page owns an `#app` of its own, so mount on ours.
+          (act-fn (fn [] (viewer/run app)))
           (is (= ":demo/first" (shown-machine-id app)))
           (.replaceState js/history nil "" (fragment :demo/second))
           (hashchange! act-fn)
