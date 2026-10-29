@@ -72,8 +72,8 @@
 
 (defn- claims-at
   "The runtime-db-absolute `claims` re-rooted at `path`: a claim at or above
-  `path` covers the whole value (`[]`), and one below it keeps the segments
-  past `path`."
+  `path` covers the whole value (`[]`), one below it keeps the segments past
+  `path`, and one on another branch, of any length, contributes nothing."
   [claims path]
   (let [n (count path)]
     (keep (fn [claim]
@@ -81,7 +81,7 @@
                   m     (count claim)]
               (cond
                 (and (<= m n) (= claim (subvec path 0 m))) []
-                (= path (subvec claim 0 n))                (subvec claim n))))
+                (and (> m n) (= path (subvec claim 0 n)))  (subvec claim n))))
           claims)))
 
 (defn- elide-input
