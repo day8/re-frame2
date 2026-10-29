@@ -61,9 +61,11 @@
 ;; that no CI job runs, so nothing would turn its drift red, and a developer
 ;; running it would get a green that skips live JVM-only contracts.
 ;;
-;; There is no `tools/shadow-cljs.edn` for the same reason: every tool with a
-;; CLJS surface owns an adjacent `shadow-cljs.edn`, and those are what CI and
-;; the npm scripts run.
+;; There is no `tools/shadow-cljs.edn` for the same reason. Each CLJS lane is
+;; declared where its classpath lives: beside the artefact for machines-viz,
+;; mcp-base and re-frame2-pair-mcp, and in `implementation/shadow-cljs.edn`
+;; for xray, story and testbed-support. Those are what CI and the npm scripts
+;; run.
 ;;
 ;; ## Why template is NOT in the base :deps map
 ;;

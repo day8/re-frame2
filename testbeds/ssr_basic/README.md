@@ -51,7 +51,7 @@ cljs vars.
 This surface is a dev / Xray observation target — it is not staged
 by any smoke gate. The adapter-smoke orchestrator
 (`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`)
-compiles + serves only the 3 adapter smokes under
+compiles + serves only the adapter smokes, one per shipped adapter, under
 `implementation/adapters/<name>/testbed/`; top-level `testbeds/**` stay
 in-tree as observation targets. Build and view this one by hand.
 

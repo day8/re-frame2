@@ -92,18 +92,20 @@ Story (18):
 
 ## Running
 
-From `implementation/`:
+No gate runs this page. The derived compile sweep
+(`node scripts/check-examples-compile.cjs` from `implementation/`)
+compiles the `testbeds/http-toggle` build, and nothing stages or
+serves it: the build has no `:dev-http` entry. To view it by hand,
+from `implementation/`:
 
 ```bash
-shadow-cljs watch testbeds/http-toggle
-# Or full orchestrator:
-npm run test:adapter-smokes
+npm run dev -- :testbeds/http-toggle
 ```
 
-The shadow-cljs build id is `testbeds/http-toggle`; output lands in
-`implementation/out/testbeds/http-toggle/`. The `api/success.json`
-asset is staged next to `main.js` by the orchestrator (one
-`extraFiles` entry in `serve-and-run-adapter-smokes.cjs`).
+The output lands in `implementation/out/testbeds/http-toggle/`. Serve
+that `main.js` from one directory with this directory's `index.html`
+and `api/`: the page loads `main.js` beside itself, and the `:success`
+outcome fetches `api/success.json` from the same origin.
 
 ## Cross-references
 
