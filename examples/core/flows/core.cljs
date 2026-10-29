@@ -148,8 +148,9 @@
 
 ;; And here's the payoff — a handler reading a flow's output. This one reads
 ;; [:cart :total] as plain app-db data, alongside the items it summarises.
-;; A handler can also read a subscription with `rf/subscribe-once`; a flow
-;; earns its place here by keeping the total in the durable cart snapshot.
+;; A handler can also compute a subscription purely, with `rf/compute-sub`
+;; against its `db` coeffect; a flow earns its place here by keeping the total
+;; in the durable cart snapshot.
 (rf/reg-event :checkout/place-order
   {:doc "Place the order. Reads the materialised :cart/total straight off
          app-db — the flow's output is just ordinary application state."}
