@@ -78,7 +78,7 @@ are UNREACHABLE and return a machine-readable capability-unavailable error
 (`:rf.error/story-mcp-capability-unavailable`) rather than a false-empty
 success. Capability absence is represented separately from an empty
 answer — an agent must never read 'the host cannot look' as 'the answer
-is empty' (rf2-3fc89f.21). A future remote bridge would supply the
+is empty'. A future remote bridge would supply the
 provider seam these reads gate on — a new transport contract, not an
 implementation detail of the current server.
 

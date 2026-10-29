@@ -79,7 +79,7 @@ socket, or JVM-to-browser bridge. The JVM server can run Story's CLJC
 headless surface, but CLJS-only state such as registered browser
 substrates and the a11y-panel atom is not reachable, so a read of one
 returns an explicit capability-unavailable error rather than a
-false-empty result (rf2-3fc89f.21) — the host reports that it cannot
+false-empty result — the host reports that it cannot
 look, never that the answer is empty. Browser-attached inspection belongs
 to a pair tool that actually owns such a connection; Story-MCP does not
 imply one.

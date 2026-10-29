@@ -5,7 +5,7 @@
 > paragraph per tool. The wire-shape for each tool (input schema,
 > output shape) lives in [`API.md`](API.md); this document is the
 > orientation read. The canonical 19-tool name list ships as the
-> shared fixture `test/fixtures/tool-names.json` (rf2-36upq TE7); JVM
+> shared fixture `test/fixtures/tool-names.json`; JVM
 > and Node test corpora compare against it so the spec text and the
 > running registry can't drift independently.
 
@@ -86,7 +86,7 @@ the declared tuple and runs no lifecycle.
 
 The Testing run/read tools (`run-variant`, `read-failures`) and the Dev
 `preview-variant` tool return the SAME unified run-result the human
-Story UI reads (rf2-ba86n.17, spec/017 §Run result) — not a parallel
+Story UI reads (spec/017 §Run result) — not a parallel
 agent-only result vocabulary. The headline is the top-level `:status` ∈
 `#{:pass :fail :cannot-run :error}`; the result also carries the unified
 `:assertions` records (each with a derived `:status`), the `:checks`
@@ -97,7 +97,7 @@ assembles this shape through `re-frame.story.result/run-result`; the MCP
 handlers project its slots (scrubbing the value-bearing ones at egress)
 rather than re-deriving a verdict.
 
-**Frozen, schema-backed contract (rf2-3nbl5.6).** This unified shape is a
+**Frozen, schema-backed contract.** This unified shape is a
 **frozen public contract** — the ONE result language spoken IDENTICALLY
 across the CLJS test surface, the Story UI Test mode, and these MCP tools.
 A result object crosses the MCP boundary with **NO semantic translation**:
@@ -168,7 +168,7 @@ not only the top-level `:assertions` vec. `preview-variant` /
 maps the top level does — so dropping a stamped record from one slot
 while shipping it in the other is precisely the silent-swallow mode
 above, with the indicator count asserting the omission that did not
-happen (rf2-gwye.60). Two things are deliberately left alone: each check
+happen. Two things are deliberately left alone: each check
 keeps its own authoritative `:status` (hiding a failing record must not
 recompute its check as a vacuous pass), and `:dropped-sensitive` stays
 the count of UNIQUE top-level records, since one record can appear in
@@ -190,14 +190,14 @@ data, so each payload is one of two classes:
 
 | Class | Tools / slots | Egress |
 |---|---|---|
-| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:snapshot`, `:effective-args`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM) | path-based `project-egress` for `:app-db`; `run-variant`'s top-level epoch rows (`:effects` / `:sub-runs` / `:renders`) and its `:narrative` beats are epoch data and cross the `:rf/epoch-record` arm of that door, the projector the pair MCP sends epochs through — an effect's `:args` redact, a sub-run's query vectors keep only their ids, a beat's `:db-before` / `:db-after` redact by app-db path and its event args redact; the opt-in below lifts only the app-db axes inside that projection, for the rows and the beats alike, and never bypasses it; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification policy the path walker reads — `reg-classification`-, flow- and subsystem-sourced declarations (`:classification` / `:flow` / subsystem), unioned in the policy. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
-| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain-variant`'s ENTIRE `:explain` map — plan-STRUCTURE (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) AND the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. `explain-variant` is a NO-RUN projection over the registry side-table (rf2-7k5mce, Mike 2026-07-08): even its plan-RESOLVED value slots are static author data resolved from the variant's own registration, so the WHOLE `:explain` map ships raw like `get-variant` / `variant->edn` — the over-redaction of resolved args / setup-order / network stubs to `:rf/redacted` on the common no-run inspection path is retired. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:snapshot`, `:effective-args`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM) | path-based `project-egress` for `:app-db`; `run-variant`'s top-level epoch rows (`:effects` / `:sub-runs` / `:renders`) and its `:narrative` beats are epoch data and cross the `:rf/epoch-record` arm of that door, the projector the pair MCP sends epochs through — an effect's `:args` redact, a sub-run's query vectors keep only their ids, a beat's `:db-before` / `:db-after` redact by app-db path and its event args redact; the opt-in below lifts only the app-db axes inside that projection, for the rows and the beats alike, and never bypasses it; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification policy the path walker reads — `reg-classification`-, flow- and subsystem-sourced declarations (`:classification` / `:flow` / subsystem), unioned in the policy. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
+| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain-variant`'s ENTIRE `:explain` map — plan-STRUCTURE (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) AND the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. `explain-variant` is a NO-RUN projection over the registry side-table: even its plan-RESOLVED value slots are static author data resolved from the variant's own registration, so the WHOLE `:explain` map ships raw like `get-variant` / `variant->edn` — the over-redaction of resolved args / setup-order / network stubs to `:rf/redacted` on the common no-run inspection path is retired. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
 
 The value-bearing tools (`preview-variant` / `run-variant` /
 `read-failures` / `read-a11y-violations`) advertise
 the `:include-sensitive` opt-in slot in `tools/list` only when the
 `--allow-sensitive-reads` gate is open; the docs-discovery tools —
-`explain-variant` included, since it ships author data raw (rf2-7k5mce) —
+`explain-variant` included, since it ships author data raw —
 never advertise it (they have no value-bearing slot to gate). Within the
 runtime/captured-VALUE class the egress scrubs are uniform — a
 declared-sensitive value redacts and a declared-large value elides
@@ -208,7 +208,7 @@ matters: its plan-RESOLVED value slots are static author data, so a
 `:sensitive?` declaration on a matching app-db path does **not** redact
 them — the whole `:explain` map ships raw, and there is no
 `:include-sensitive` escape hatch because there is nothing gated to
-release (rf2-7k5mce). A secret that must not cross the wire must not be
+release. A secret that must not cross the wire must not be
 written into a variant's registration. **Non-live posture:** one surface
 (`read-a11y-violations`'s axe
 DOM nodes) carries an inherently RE-KEYED runtime payload whose path-scrub is a
@@ -247,8 +247,8 @@ installed re-frame adapter it refuses with
 `:rf.error/no-adapter-installed`, per
 [§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter-rf2-c9t52)
 — and it accepts the SAME tunable `:timeout-ms` end-to-end
-deadline (rf2-ovmc5e): default 10 s, hard ceiling 30 s (matches
-`:rf.http/timeout-ms` per rf2-it1cd), caller values above the ceiling
+deadline: default 10 s, hard ceiling 30 s (matches
+`:rf.http/timeout-ms`), caller values above the ceiling
 clamp DOWN rather than reject. The MCP request loop is single-threaded
 so an unbounded lifecycle call would park unrelated calls; both
 lifecycle tools resolve the slot through the shared
@@ -279,7 +279,7 @@ Wire-egress posture: `:app-db` is routed through
 classification policy; declared-sensitive paths land
 `:rf/redacted` by default. Pass `:include-sensitive true` to opt
 out — BUT the opt-in is honoured only when the server was started
-with `--allow-sensitive-reads` (rf2-g9fje); when that gate is
+with `--allow-sensitive-reads`; when that gate is
 closed (the default), the `:include-sensitive` slot is omitted
 from the `tools/list` schema entirely and any caller-supplied
 value is silently ignored at egress.
@@ -310,9 +310,9 @@ Differs from `run-variant` in EXTRA slots, not in result vocabulary:
 adds `:share-url` / `:effective-args`); `run-variant`
 (in the Testing category) is the "execute and report the verdict" call.
 Both speak the same unified run-result — `preview-variant` does NOT ship a
-third result dialect (rf2-ba86n.17).
+third result dialect.
 
-**Annotation (rf2-8h778, rf2-e6knrq).** `preview-variant` carries
+**Annotation.** `preview-variant` carries
 `:destructiveHint true` **and `:openWorldHint true`** — the same
 annotations as `run-variant`. Both tools invoke the same
 `(story/run-variant vk opts)` lifecycle under the covers; they dispatch
@@ -323,7 +323,7 @@ not change the side-effect surface, and the annotation must reflect that
 side-effect surface (agent hosts that auto-approve `readOnlyHint true`
 would otherwise auto-approve a call that mutates the frame).
 
-The **open-world** hint (rf2-e6knrq finding 2) is load-bearing: these
+The **open-world** hint is load-bearing: these
 two tools run the author's `:setup` / `:script` events through the live
 re-frame2 dispatch+fx pipeline. Story's fx-stubbing (`:fx-overrides`,
 the `:force-fx-stub` decorator, `:network`) is an **opt-in authoring
@@ -354,15 +354,15 @@ genuinely holds nothing: EMPTY means the registry answered and held
 none, UNAVAILABLE means the host could not look, and a reader who takes
 the first for the second concludes no substrates are registered when
 nothing ever consulted the registry. Read the set from a browser-local
-Story host (rf2-3fc89f.21).
+Story host.
 
 ## Docs — for agents reading the story library
 
 Ten introspection tools — the seven core read primitives
 (`list-stories`, `get-story`, `get-variant`, `list-tags`,
 `list-modes`, `list-assertions`, `variant->edn`) plus
-`list-decorators` (rf2-mqp1u), `get-docs-markdown` (rf2-i0kyy), and
-`explain-variant` (rf2-ba86n.17 — the agent mirror of the human Explain
+`list-decorators`, `get-docs-markdown`, and
+`explain-variant` (the agent mirror of the human Explain
 panel).
 
 ### `list-stories`
@@ -372,7 +372,7 @@ intersection (`{:tags [...]}`). A supplied `:tags` filter is always
 honoured: an entry naming no registered tag is dropped from the
 intersection and echoed back in an `:ignored-tags` slot, so an
 unknown-only filter returns an empty `:stories`, never the full
-catalogue (rf2-wu1o2d).
+catalogue.
 
 ### `get-story`
 
@@ -390,14 +390,14 @@ projection). The EDN form is the canonical artefact contract from
 Canonical + project-custom tags split. The `:canonical` set is the
 bounded 12-entry vector — the seven spec/007 inclusion tags
 (`:dev :docs :test :screenshot :experimental :internal :agent`) plus
-the five rf2-k1k87 `:state/*` magnitude tags
+the five `:state/*` magnitude tags
 (`:state/empty :state/small :state/medium :state/large :state/special`).
 
 ### `list-modes`
 
 `(story/registrations :mode)` enumeration.
 
-### `list-decorators` (rf2-mqp1u)
+### `list-decorators`
 
 Read-only `(story/registrations :decorator)` enumeration. Each entry carries
 `:id`, `:kind`, `:doc` plus the kind-specific pure-data slots —
@@ -422,7 +422,7 @@ their `:observed-cause-count` diagnostic and premise semantics —
 `{:require-cause? false}` the one opt-out (`:require-cause?` is rejected on
 `:rf.assert/caused`). The `:registered` slot carries
 the FULL vocabulary the Story plan compiler accepts
-(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the ten
+(`re-frame.story.assertions/known-assertion-ids`) — the ten
 canonical ids PLUS the browser-tier families the canonical doc-vec does
 not cover: the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`)
 and the visual / a11y oracles (`:rf.assert/visual-snapshot`,
@@ -436,7 +436,7 @@ headless runner — never a silent pass).
 
 Canonical EDN form in the wire-canonical `:content` text slot (the
 byte-stable `pr-str` form, to avoid lossy JSON encoding of EDN) PLUS a
-matching `structuredContent` carrying the same body map (rf2-vyacl).
+matching `structuredContent` carrying the same body map.
 The descriptor declares an `:outputSchema`; the official MCP SDK's
 high-level `callTool` rejects an outputSchema-declaring tool that
 returns no `structuredContent` (JSON-RPC -32600), so the structured
@@ -446,9 +446,9 @@ truth for round-tripping — for DATA. A supported
 in an author's body; it crosses as the bounded
 `{:rf.story-mcp/unencodable "<class name>"}` marker in both slots, so
 the text stays readable EDN and the callable is named rather than
-reconstructible (rf2-gwye.58). See [`API.md`](API.md) §`variant->edn`.
+reconstructible. See [`API.md`](API.md) §`variant->edn`.
 
-### `get-docs-markdown` (rf2-i0kyy)
+### `get-docs-markdown`
 
 GitHub-flavoured Markdown projection of a story's documentation —
 the story `:doc` + per-variant `:doc` + args / argtypes / tags /
@@ -459,7 +459,7 @@ human collaborator (issue tracker, chat, README excerpt). The
 markdown rides both the wire-canonical `:content` text slot and a
 structured `:markdown` slot for hosts that distinguish.
 
-### `explain-variant` (rf2-ba86n.17)
+### `explain-variant`
 
 The agent mirror of the human Explain panel — the variant-plan
 `:explain` projection (spec/017 §Explain API), a thin wrapper over the
@@ -550,16 +550,16 @@ this REFUSES up front with `:rf.error/no-adapter-installed` and no
 [§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter-rf2-c9t52).
 
 The top-level `:status` is the headline "did this pass?" answer
-(rf2-ba86n.17 clean break — the retired `:passing?` boolean is gone).
-`:cannot-run` is the distinct third verdict the old boolean could not
+(there is no `:passing?` boolean).
+`:cannot-run` is the distinct third verdict a boolean could not
 express — the runner could not even attempt the plan; an agent handles it
 as "not runnable here", NOT as a fail. `:cannot-run` refusals are surfaced
 on a `:cannot-run` slot when present.
 
-`:timeout-ms` is clamped DOWN to 30 s (rf2-g9fje); the MCP server's
+`:timeout-ms` is clamped DOWN to 30 s; the MCP server's
 stdio loop is single-threaded so an unbounded `:timeout-ms` would
 park unrelated calls. 30 s matches the `:rf.http/timeout-ms`
-baseline (rf2-it1cd) — one ceiling, one number an agent learns.
+baseline — one ceiling, one number an agent learns.
 
 ### `snapshot-identity`
 
@@ -592,7 +592,7 @@ clean bill. The slot is additive (`:violations` keeps its shape) and is
 omitted when the provider cannot supply it, never answered as a false-empty
 `[]`.
 
-Wire-egress posture (rf2-q8ebq.2): the `:violations` vec is LIVE RUNTIME
+Wire-egress posture: the `:violations` vec is LIVE RUNTIME
 observed state — the rendered DOM of the variant frame, normalised from
 axe-core's JS violation objects. Each violation NODE carries `:html` (the
 violating element's outerHTML), `:target` (CSS selectors) and
@@ -600,7 +600,7 @@ violating element's outerHTML), `:target` (CSS selectors) and
 `<input value="<token>">`, a `data-*` attribute, a PII text node) lands
 verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime
 payload class, so `:violations` route through the named
-`egress/scrub-re-keyed-runtime` exception (rf2-jwggld). Under a LIVE variant frame
+`egress/scrub-re-keyed-runtime` exception. Under a LIVE variant frame
 **EP-0025 FAIL-OPEN** holds: a sensitive value rendered into a node `:html`
 is a RE-KEYED DOM position the classification path cannot reach, so it ships
 RAW — value-match was removed; classify the app-db PATH to redact a value
@@ -620,8 +620,8 @@ last-run state without paying the cost of a fresh `run-variant`.
 Returns `{:variant-id <kw> :status <verdict> :total <int> :failures
 [record …] :assertions [record …]}`.
 
-Rides the SAME unified assertion records `run-variant` emits
-(rf2-ba86n.17): each record is normalized to carry a derived `:status`,
+Rides the SAME unified assertion records `run-variant` emits:
+each record is normalized to carry a derived `:status`,
 `:status` is the aggregate verdict over the records, and `:failures` is
 filtered to the genuine failure statuses (`:fail` / `:error`) — a
 `:cannot-run` record is not a failure (the runner proved nothing) and
@@ -636,21 +636,21 @@ by default; `:include-sensitive true` opts back in subject to the
 same `--allow-sensitive-reads` boot gate as `preview-variant` /
 `run-variant`.
 
-## Sensitive-read boot gate (`--allow-sensitive-reads`, rf2-g9fje)
+## Sensitive-read boot gate (`--allow-sensitive-reads`)
 
 The tools that surface live observed frame VALUES
 (`preview-variant`, `run-variant`, `read-failures`,
 `read-a11y-violations`) all accept a per-call
 `:include-sensitive` boolean to opt out of the default redaction
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
-§Direct-read privacy posture). Per the rf2-uaymx (b) decision that
+§Direct-read privacy posture). That
 opt-in is itself gated by a server-side boot flag — the default-OFF
 posture is the cross-MCP convention for privacy gates (raw reads can
 pour the entire app-db into a wire log without the operator ever
 typing the secret). (Cross-MCP note: re-frame2-pair-mcp's eval-cljs
-gate took the opposite path in rf2-a0z0h — default ON with `--no-eval`
+gate takes the opposite default — ON, with `--no-eval`
 as the opt-out — because eval is the REPL primitive of a pair-debug
-session and a default-OFF eval gate did not add a protection separable
+session and a default-OFF eval gate would add no protection separable
 from `--allow-writes`. Sensitive-reads here are NOT in that position.)
 
 The wire-key shape (`:include-sensitive`, no `?`) is the form the
@@ -674,7 +674,7 @@ Closed by default. When closed:
   frame VALUES (`preview-variant`, `run-variant`,
   `read-failures`, `read-a11y-violations`),
   i.e. every descriptor that carries the slot. (`explain-variant` is NOT
-  among them — it ships author data raw, rf2-7k5mce.) Agents never see an
+  among them — it ships author data raw.) Agents never see an
   opt-in they couldn't exercise.
 - The wire-egress scrubbers silently ignore any caller-supplied
   `:include-sensitive true` — declared-sensitive `:app-db` paths
@@ -708,10 +708,10 @@ Invokes `re-frame.story/unregister! :variant <id>`. Symmetric to
 
 Each of these is a deliberate omission:
 
-- **No `record-as-variant`** — RETIRED (rf2-5saz7, 2026-09-01). The
-  blocking recorder bridge advertised a successful capture while making
-  the actor that must produce the events unreachable: its handler ran
-  `start-recording!`, slept the server's ONLY stdio dispatch loop for
+- **No `record-as-variant`**. A
+  blocking recorder bridge would advertise a successful capture while making
+  the actor that must produce the events unreachable: its handler would run
+  `start-recording!`, sleep the server's ONLY stdio dispatch loop for
   `:duration-ms`, then `stop-recording!` — so no MCP client could drive
   a dispatch during the window, the shipped headless JVM has no
   JVM-to-browser bridge, and the tool could only ever return a green
@@ -745,6 +745,6 @@ Each of these is a deliberate omission:
 - [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md) —
   how the Write category gates.
 - [`API.md`](API.md) — per-tool input / output schemas.
-- [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md) §Test Codegen — the Story recorder primitives (in-process/browser recording; their MCP bridge was retired under rf2-5saz7).
+- [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md) §Test Codegen — the Story recorder primitives (in-process/browser recording; they have no MCP bridge).
 - [`tools/story/spec/006-MCP-Surface.md`](../../story/spec/006-MCP-Surface.md) —
   Story's side of the read/write primitives.

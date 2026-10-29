@@ -22,7 +22,7 @@ gate*. So `-Drf.story-mcp.allow-writes=false` overrides an inherited
 is not consulted), letting an operator lock down a gate the environment
 would otherwise open. The env var is consulted only when the sysprop is
 absent; the boot-config read resolves by *source presence*, not by
-boolean OR over parsed truthiness (rf2-09rfpu). The CLI flag is
+boolean OR over parsed truthiness. The CLI flag is
 presence-only (`--allow-writes`, no `=value` form) and merges on top of
 the sysprop/env result.
 
@@ -52,8 +52,7 @@ calls a write tool, the response is:
 
 The `:tool` slot names the gated tool that tripped the gate
 (`register-variant` / `unregister-variant`), so an
-agent inspecting the structured payload sees which call was refused
-(rf2-c52j0 — the slot was once hardcoded and lied about its origin).
+agent inspecting the structured payload sees which call was refused.
 
 Note `isError: true` — this is a **tool-execution error**, not a
 JSON-RPC protocol error. The agent's conversation survives; the

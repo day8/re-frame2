@@ -46,7 +46,7 @@ wire cap). `preview-variant` and `run-variant` additionally accept
 `:rf.mcp/dedup-table` to decode before reading its fields. See
 [the wire-budget and dedup contracts](Principles.md#tight-token-budget-per-response).
 
-## Run options (rf2-sw1d)
+## Run options
 
 `preview-variant`, `run-variant` and `snapshot-identity` share one
 run-option tuple — `:substrate`, `:active-modes`, `:cell-overrides` —
@@ -79,7 +79,7 @@ known subset is itself the "different scenario" the rule exists to
 prevent. Modes are validated before `:cell-overrides` keys, because the
 override allowlist is the variant's effective arg keys *under the active
 modes* (an arg introduced only by an active mode is a legitimate
-override target, rf2-to3q7).
+override target).
 
 Rejection preserves the no-intern posture that motivated the original
 drop: unknown identifiers are reported as raw strings and the membership
@@ -119,8 +119,8 @@ tuple.
 
 `:timeout-ms` is the END-TO-END deadline for the lifecycle run.
 `preview-variant` blocks on the SAME `story/run-variant` lifecycle as
-`run-variant`, so it exposes the SAME tunable knob (rf2-ovmc5e): default
-10 s, hard ceiling 30 s (matches `:rf.http/timeout-ms` per rf2-it1cd),
+`run-variant`, so it exposes the SAME tunable knob: default
+10 s, hard ceiling 30 s (matches `:rf.http/timeout-ms`),
 caller values above the ceiling clamp DOWN rather than reject. Both
 tools resolve it through the shared `tools.args/resolve-timeout-ms`
 helper so their blocking policy cannot drift.
@@ -145,7 +145,7 @@ ends, its variant frame is destroyed so its late writes reach no later
 call.
 
 `:include-sensitive` is honoured ONLY when the server was started
-with `--allow-sensitive-reads` (rf2-g9fje); when that boot gate is
+with `--allow-sensitive-reads`; when that boot gate is
 closed (the default) the slot is omitted from `tools/list` and any
 caller-supplied value is silently ignored at egress.
 
@@ -158,7 +158,7 @@ the idiom belongs on the predicate, not on the data key whose wire
 form disallows it.
 
 **Output.** The unified run-result + the preview-specific slots
-(rf2-ba86n.17 — `preview-variant` speaks the SAME result vocabulary as
+(`preview-variant` speaks the SAME result vocabulary as
 `run-variant`):
 
 ```clojure
@@ -182,7 +182,7 @@ the same no-adapter-installed host prerequisite `run-variant` carries
 (`:rf.error :rf.error/no-adapter-installed` — see §Host boundary):
 preview runs the SAME lifecycle, so it refuses in the same state. Also
 on an unknown `:substrate` / `:active-modes` id / `:cell-overrides` key
-— see [§Run options](#run-options-rf2-sw1d). Preview builds `:share-url`
+— see [§Run options](#run-options). Preview builds `:share-url`
 from that same tuple, so a dropped identifier would hand out a link to a
 scenario that was never requested.
 
@@ -197,12 +197,11 @@ browser-local Story host; `[]` when the registry genuinely holds none).
 The JVM stdio server cannot access the CLJS substrate registry, so it
 returns the **capability-unavailable error** instead (`isError true`,
 `:rf.error :rf.error/story-mcp-capability-unavailable`, `:capability
-"substrate-registry"`) — never a false-empty `{:substrates []}`
-(rf2-3fc89f.21).
+"substrate-registry"`) — never a false-empty `{:substrates []}`.
 
 ## Docs tools
 
-### Pagination (rf2-76sf6)
+### Pagination
 
 The five Docs-category `list-*` tools accept the cross-MCP pagination contract
 per spec/Principles.md §"Tight token budget":
@@ -219,8 +218,8 @@ encoding lives in
 `tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc`.
 
 When the entry count fits on one page (≤ `:limit`), the response is
-the bare tool payload — no pagination metadata, byte-identical to
-the pre-rf2-76sf6 shape. When pagination kicks in, the response
+the bare tool payload, with no pagination metadata at all.
+When pagination kicks in, the response
 adds:
 
 ```clojure
@@ -243,7 +242,7 @@ that violates this range (a negative offset, or an offset past the
 total) is treated as malformed and recovers through the SAME
 `:rf.mcp/cursor-stale` envelope — it never feeds the slice a bad index
 (which would throw a generic handler exception) nor silently returns an
-empty page that skips registry rows (rf2-to3q7). This is the wire-
+empty page that skips registry rows. This is the wire-
 boundary range gate on the opaque cursor; the `:sig` fingerprint
 separately catches a registry that changed under a structurally-valid
 cursor.
@@ -264,7 +263,7 @@ pagination metadata when active (see "Pagination" above). A supplied
 `:tags` entry naming no registered tag is dropped from the intersection
 and echoed back as `:ignored-tags [string ...]` (raw wire strings, never
 interned); an unknown-only filter returns `:stories []`, never the full
-catalogue (rf2-wu1o2d).
+catalogue.
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Docs.
 
@@ -291,11 +290,11 @@ catalogue (rf2-wu1o2d).
 
 **Output.** `{:canonical [...] :custom [...] :all [...]}`. The
 `:canonical` set is the bounded 12-entry canonical-tag vector (the
-seven spec/007 inclusion tags plus the five rf2-k1k87 `:state/*`
+seven spec/007 inclusion tags plus the five `:state/*`
 magnitude tags) and is always returned in full. `:all` is the FULL tag
 catalogue — canonical ∪ ALL custom — and is likewise always returned in
-full (rf2-3jqwlh); a field named `:all` that omitted un-fetched custom
-tags under pagination was a semantic trap. Only `:custom`
+full: a field named `:all` that omitted un-fetched custom
+tags under pagination would be a semantic trap. Only `:custom`
 (project-registered tags) paginates per the contract above when the
 custom-tag count exceeds `:limit` — the `:has-more?` / `:next-cursor`
 cursor drives that one slot.
@@ -307,7 +306,7 @@ cursor drives that one slot.
 **Output.** `{:modes [{:id keyword :args map ...}]}`, plus
 pagination metadata when active.
 
-### `list-decorators` (rf2-mqp1u)
+### `list-decorators`
 
 **Input.** `{:kind "hiccup" | "frame-setup" | "fx-override" (optional)
                 :limit integer (optional) :cursor string (optional)}`.
@@ -320,8 +319,8 @@ plus pagination metadata when active. Per-kind slots: `:has-wrap?`
 The `:kind` filter is an **enum** — a SUPPLIED value outside
 `{"hiccup" "frame-setup" "fx-override"}` returns an `isError: true`
 diagnostic (`:rf.error :rf.story-mcp/unknown-decorator-kind`), NOT a
-silent widen to the full catalogue (rf2-cdavyf). Resolving a typo
-(`"hicup"`) to `nil` and treating `nil` as no-filter used to return
+silent widen to the full catalogue. Resolving a typo
+(`"hicup"`) to `nil` and treating `nil` as no-filter would return
 EVERY decorator, hiding the caller's mistake behind a successful-looking
 result. An ABSENT `:kind` (the slot was never sent) is the legitimate
 no-filter path; only a present-but-unrecognised value rejects. The
@@ -344,13 +343,13 @@ dispatched canonical assertions plus the three tape-evaluated —
 `:observed-cause-count` diagnostic and the no-cascade premise requirement
 + `{:require-cause? false}` opt-out) is bounded and always returned in full.
 `:registered` is the FULL vocabulary the Story plan compiler accepts
-(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the ten
+(`re-frame.story.assertions/known-assertion-ids`) — the ten
 canonical ids plus the DOM (`:rf.assert/dom-*`) and visual/a11y
 (`:rf.assert/visual-snapshot` / `:rf.assert/a11y` /
 `:rf.assert/a11y-structural`) families — and
 is paginated per the contract above.
 
-### `get-docs-markdown` (rf2-i0kyy)
+### `get-docs-markdown`
 
 **Input.** `{:story-id keyword (required)}`.
 
@@ -368,7 +367,7 @@ that surface it separately.
 **Output.** Canonical EDN form in the wire-canonical `:content` text
 slot (the byte-stable `pr-str` form — keyword keys preserved — for
 agents that want strict EDN diffing) PLUS a matching
-`structuredContent` carrying the same body map (rf2-vyacl). The
+`structuredContent` carrying the same body map. The
 descriptor declares an `:outputSchema`, and the official MCP SDK's
 high-level `callTool` rejects an outputSchema-declaring tool that
 returns no `structuredContent` (JSON-RPC -32600), so the structured
@@ -380,14 +379,14 @@ A supported `[:assert-db path :pred fn-or-sym]` assertion
 ([`tools/story/spec/001-Authoring.md`](../../story/spec/001-Authoring.md))
 may put a live function in an author's body, and it crosses both slots as
 the bounded `{:rf.story-mcp/unencodable "<class name>"}` marker
-(rf2-gwye.58) — the text stays readable EDN, and the callable is NAMED
-rather than reconstructible. Before that projection the raw function
-reached the JSON encoder and took the whole response down as a `-32603`
+— the text stays readable EDN, and the callable is NAMED
+rather than reconstructible. Without that projection the raw function
+would reach the JSON encoder and take the whole response down as a `-32603`
 server fault, body and run verdict with it.
 
 **Errors.** `isError: true` when `:variant-id` is not registered.
 
-### `explain-variant` (rf2-ba86n.17)
+### `explain-variant`
 
 **Input.** `{:variant-id keyword (required)}`.
 
@@ -443,7 +442,7 @@ on the common no-run inspection path; that boundary is retired for
 ```
 
 `:timeout-ms` is clamped to 30 s (matches `:rf.http/timeout-ms`
-baseline per rf2-it1cd; rf2-g9fje). `:include-sensitive` follows
+baseline). `:include-sensitive` follows
 the same `--allow-sensitive-reads` gate as `preview-variant`.
 `:include-trace-events true` ships each `:narrative` beat's raw
 `:trace-events`; by default a beat carries their `:trace-event-count`
@@ -459,7 +458,7 @@ the same projector, so each reads as it does in its beat: an effect's
 `:include-sensitive` they still cross it, and still equal their beat's
 rows: the query vectors ship as recorded, the effect args stay redacted.
 
-**Output.** The unified run-result (rf2-ba86n.17 clean break — the same
+**Output.** The unified run-result (the same
 shape the human Story UI reads; `re-frame.story.result/run-result`):
 
 ```clojure
@@ -496,7 +495,7 @@ before the lifecycle runs and carries no `:status`. The four-verdict
 `:status :error` covers in-run failures within a successful envelope.
 An unknown `:substrate` / `:active-modes` id / `:cell-overrides` key
 likewise refuses before the lifecycle runs — see
-[§Run options](#run-options-rf2-sw1d).
+[§Run options](#run-options).
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Testing.
 
@@ -521,7 +520,7 @@ Because both `:active-modes` and `:cell-overrides` are identity-bearing
 here, an unknown identifier in either is refused rather than hashed
 without — otherwise the returned `:content-hash` would key a
 visual-regression baseline against a different tuple than the caller
-believes. See [§Run options](#run-options-rf2-sw1d).
+believes. See [§Run options](#run-options).
 
 **Output.**
 
@@ -551,7 +550,7 @@ The `:violations` vec is live runtime DOM state — each axe-core node
 carries `:html` (the violating element's outerHTML), so a value
 rendered into the DOM lands verbatim there. axe DOM nodes are an
 inherently RE-KEYED runtime payload class, so `:violations` route through
-the named re-keyed-runtime egress exception (rf2-jwggld). Under a LIVE variant frame
+the named re-keyed-runtime egress exception. Under a LIVE variant frame
 **EP-0025 FAIL-OPEN** holds: a value rendered into a node `:html` is a
 RE-KEYED DOM position the classification path cannot reach, so it ships
 RAW — value-match was removed; classify the app-db PATH to redact a value
@@ -560,10 +559,10 @@ process) the nodes ship raw under the documented carve-out — path-scrub is a
 no-op even live, so fail-closing would destroy the tool with zero
 leak-delta. `:include-sensitive true` opts out, following the
 same `--allow-sensitive-reads` boot gate as `preview-variant`
-(rf2-g9fje) — one of the four value-surfacing tools that carry the
+— one of the four value-surfacing tools that carry the
 opt-in (the others: `preview-variant`, `run-variant`, `read-failures`;
 `explain-variant` is NOT among them — it ships author
-data raw, rf2-7k5mce).
+data raw).
 
 **Output.** `{:variant-id keyword :violations [map] :incomplete [map]}` from a
 REACHED a11y provider (a browser-local consumer of this `.cljc` helper).
@@ -577,7 +576,7 @@ as a false-empty `[]`. The JVM stdio server cannot access the CLJS `violations-b
 atom, so it returns the **capability-unavailable error** instead (`isError
 true`, `:rf.error :rf.error/story-mcp-capability-unavailable`,
 `:capability "a11y-panel-state"`) — never a false-empty `{:violations []}`
-an agent could read as 'zero accessibility violations' (rf2-3fc89f.21).
+an agent could read as 'zero accessibility violations'.
 
 ### `read-failures`
 
@@ -589,7 +588,7 @@ an agent could read as 'zero accessibility violations' (rf2-3fc89f.21).
 ```
 
 **Output.** The unified assertion records `run-variant` emits, plus the
-aggregate verdict (rf2-ba86n.17):
+aggregate verdict:
 
 ```clojure
 {:variant-id keyword            ; the frame the failures came from
@@ -629,8 +628,8 @@ Two tools form the Write category. `register-variant` and
 `unregister-variant` require the `allow-writes?` gate to be true
 outright. See
 [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md).
-(The former third write tool, the blocking recorder bridge
-`record-as-variant`, was retired under rf2-5saz7 — see
+(There is no blocking recorder bridge such as
+`record-as-variant` — see
 [`002-Tool-Registry.md`](002-Tool-Registry.md) §What's NOT in the
 registry.)
 
@@ -643,8 +642,7 @@ registry.)
  :body       map | string (required — map preferred; string is EDN)}
 ```
 
-When `:body` is a string, it's parsed as EDN under a hardened policy
-(rf2-g9fje):
+When `:body` is a string, it's parsed as EDN under a hardened policy:
 
 - **No custom tagged literals.** `:readers {}` is empty and the `:default`
   handler throws — `#inst` / `#uuid` (EDN built-ins) parse normally;
@@ -657,7 +655,7 @@ When `:body` is a string, it's parsed as EDN under a hardened policy
   walks the input. The unit is bytes and not `count`'s UTF-16 code units,
   so a body of multibyte characters is charged what it costs on the wire —
   30,000 em-dashes are 90,000 bytes and are refused, even though they are
-  only 30,000 code units (rf2-2rtt6.131).
+  only 30,000 code units.
 - **64-level depth ceiling.** Variant bodies top out at 3-4 levels;
   deeper inputs short-circuit cleanly.
 
@@ -692,16 +690,16 @@ slot (`{:compnent ["disallowed key"]}`), per
 [`spec/010-Schemas.md`](../../../spec/010-Schemas.md) §humanize hook.
 
 The raw Malli `:explain` map is **never** relayed. Its `:schema` entries
-are live reified `malli.core/Schema` objects, and shipping them made the
-JSON encoder throw *past* the tool handler — the client got a
+are live reified `malli.core/Schema` objects, and shipping them would make the
+JSON encoder throw *past* the tool handler — the client would get a
 protocol-level `-32603` naming a Malli class instead of this error
-result, on the commonest authoring mistake there is (rf2-2z9u3). Every
+result, on the commonest authoring mistake there is. Every
 handler that copies `ex-data` onto `:structuredContent` runs it through
 `tools.result/wire-safe-ex-data` for that reason.
 
 That projection is total, and total by SHAPE rather than by naming the
-slots known to misbehave — `:explain` was the first, and the next opaque
-value arrived under a different key (rf2-ia904). Any value outside the
+slots known to misbehave, because the next opaque
+value can arrive under any key. Any value outside the
 EDN value space, at any depth and in key position, is replaced by
 `{:rf.story-mcp/unencodable "<class name>"}`. `:explain` is still named,
 but only because `:explain-humanized` is a better answer than a marker,
