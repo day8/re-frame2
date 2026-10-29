@@ -33,12 +33,13 @@
 ;; `re-frame.http.decode` and refuses the request when it is absent, so
 ;; apps that use schemas add the schemas artefact (which carries Malli).
 ;;
-;; org.clojure/clojurescript is intentionally NOT a dep of this artefact: no
-;; JVM-loadable core namespace requires `cljs.*`, so a JVM consumer (an SSR
-;; server) is not handed the CLJS compiler and its Closure tree, and a CLJS
-;; build keeps the compiler its own tool brings (shadow-cljs pins one). No
-;; core test needs it either; the test classpaths carry it only through
-;; `day8/re-frame2-test-quiet`.
+;; org.clojure/clojurescript is intentionally NOT a runtime dep of this
+;; artefact: no JVM-loadable core namespace requires `cljs.*`, so a JVM
+;; consumer (an SSR server) is not handed the CLJS compiler and its Closure
+;; tree, and a CLJS build keeps the compiler its own tool brings (shadow-cljs
+;; pins one). No core test needs it either. The `:test` / `:slow-test` aliases
+;; still pin it, because this file is the version the generated-app template
+;; declares, and tools/template's lockstep test reads the pin from here.
 ;;
 ;; `resources` is on :paths, and on `:clein/build`'s `:src-dirs`, for ONE
 ;; reason: the clj-kondo export (`resources/clj-kondo.exports/day8/re-frame2/`)
@@ -121,7 +122,10 @@
                        ;; asserts; the published core jar carries none of it.
                        day8/re-frame2-resources  {:local/root "../resources"}
                        ;; Silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                       ;; The version pin the template lockstep test reads
+                       ;; (see the header); not a runtime dep.
+                       org.clojure/clojurescript {:mvn/version "1.12.145"}}
          ;; The default PR/local gate (incl. the fast-PR
          ;; spine `scripts/test-fast-pr.sh`, which runs this artefact)
          ;; EXCLUDES the heavy `^:stress` namespace
@@ -235,7 +239,8 @@
                  day8/re-frame2-http       {:local/root "../http"}
                  day8/re-frame2-ssr        {:local/root "../ssr"}
                  day8/re-frame2-resources  {:local/root "../resources"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                 org.clojure/clojurescript {:mvn/version "1.12.145"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deploy. The release workflow runs `clojure -M:clein deploy`
