@@ -155,19 +155,8 @@
 (rf/defmachine profile-machine
   {:type :parallel
 
-   ;; The banner's latest error map. The profile/article items live in
-   ;; app-db slices.
-   :data {:error nil}
-
-   :actions
-   {:set-error
-    (fn action-set-error [{data :data [_ {:keys [failure]}] :event}]
-      {:data (assoc data :error failure)})
-
-    :clear-error
-    (fn action-clear-error [{data :data}]
-      {:data (assoc data :error nil)})}
-
+   ;; No `:data`: the banner, the lists and their errors all live in app-db
+   ;; slices, and the machine only names where each lifecycle is.
    :regions
    {;; ---- :data region — the data lifecycle for the banner ----
     :data
@@ -181,8 +170,8 @@
       :loading
       ;; First fetch in flight; banner not yet rendered.
       {:tags #{:data/loading :data/transient}
-       :on   {:fetch-succeeded {:target :loaded :action :clear-error}
-              :fetch-failed    {:target :error  :action :set-error}
+       :on   {:fetch-succeeded :loaded
+              :fetch-failed    :error
               :reset           :nothing}}
 
       :refreshing
@@ -191,8 +180,8 @@
       ;; :data/refreshing tag is there if a view wants to show a subtle
       ;; "updating" hint.
       {:tags #{:data/loaded :data/refreshing :data/transient}
-       :on   {:fetch-succeeded {:target :loaded :action :clear-error}
-              :fetch-failed    {:target :error  :action :set-error}
+       :on   {:fetch-succeeded :loaded
+              :fetch-failed    :error
               :reset           :nothing}}
 
       :loaded
@@ -328,7 +317,7 @@
         {:db (-> db
                  (assoc-in [:profile :status] :error)
                  (assoc-in [:profile :error] message))
-         :fx [[:dispatch [:ui/profile [:fetch-failed {:failure message}]]]]}))))
+         :fx [[:dispatch [:ui/profile [:fetch-failed]]]]}))))
 
 (rf/reg-event :profile.articles/load
   {:doc "Fetch the articles this user wrote. Public; house retry. Also
@@ -463,12 +452,14 @@
 ;; way back are all one fact. It is the same move comments.cljs's
 ;; `:article/toggle-follow-author` makes with `[:article :slug]`.
 ;;
-;; No `:request-id` here, deliberately, and the same for every other mutation
-;; in this app. It WOULD make a rapid Follow→Unfollow supersede its
+;; No shared `:request-id` here, deliberately, and the same for every other
+;; mutation in this app. One WOULD make a rapid Follow→Unfollow supersede its
 ;; predecessor, but supersede aborts the request as well as suppressing the
 ;; reply, and abort-mid-write is a decision a POST deserves to have made about
 ;; it on purpose: an aborted request is no proof the server declined to perform
-;; the write.
+;; the write. (The settings save carries an id no other request shares, which
+;; supersedes nothing and serves only to correlate its reply — settings.cljs
+;; §SAVE IDS.)
 ;;
 ;; SERIALISING THE TOGGLE
 ;;
@@ -678,6 +669,15 @@
 (rf/reg-sub :profile.favorites/error
   (fn [db _] (:error (list-for-current-profile db :profile.favorites))))
 
+;; And whether a list is on its FIRST load, through the same gate. The banner
+;; settles the `:ui/profile` machine on its own schedule, so the page renders
+;; while a list is still in flight; a refresh (`:fetching`) keeps its rows up.
+(rf/reg-sub :profile.articles/loading?
+  (fn [db _] (= :loading (:status (list-for-current-profile db :profile.articles)))))
+
+(rf/reg-sub :profile.favorites/loading?
+  (fn [db _] (= :loading (:status (list-for-current-profile db :profile.favorites)))))
+
 (rf/reg-sub :profile/own-profile?
   {:doc "Is the reader looking at their OWN profile? Guarded on `me` exactly
          the way `:article/own?` is (comments.cljs), and for the same reason:
@@ -738,6 +738,17 @@
     (case (get-in snap [:state :tab])
       :favorites favorited-error
       authored-error)))
+
+(rf/reg-sub :profile/current-loading?
+  {:doc "Is the active tab's list on its first load? The same tab-driven pick
+         `:profile/current-error` makes, over the gated loading subs."
+   :inputs [[:rf/machine :ui/profile]
+            [:profile.articles/loading?]
+            [:profile.favorites/loading?]]}
+  (fn sub-current-loading? [[snap authored-loading? favorited-loading?] _]
+    (case (get-in snap [:state :tab])
+      :favorites favorited-loading?
+      authored-loading?)))
 
 ;; ---- pagination (official RealWorld limit/offset) ----
 
@@ -809,6 +820,7 @@
         on-favs?     @(subscribe [:rf.machine/has-tag? :ui/profile :tab/favorites])
         articles*    @(subscribe [:profile/current-articles])
         list-error   @(subscribe [:profile/current-error])
+        list-loading? @(subscribe [:profile/current-loading?])
         current-page @(subscribe [:profile/current-page])
         page-count   @(subscribe [:profile/page-count])]
     [:<>
@@ -850,14 +862,18 @@
                                 :params {:username (:username profile)}
                                 :class  (str "nav-link" (when on-favs? " active"))}
             "Favorited Articles"]]]]
-        ;; A list whose fetch FAILED is not an empty list. Rendering the
-        ;; official "No articles here yet." marker for a request that fell over
-        ;; tells the reader this user has written nothing — a wrong answer where
-        ;; the honest one is "we could not find out".
+        ;; A list whose fetch FAILED, or has not answered yet, is not an empty
+        ;; list. Rendering the official "No articles here yet." marker for
+        ;; either tells the reader this user has written nothing — a wrong
+        ;; answer where the honest one is "we could not find out" or "still
+        ;; loading".
         (cond
           list-error
           [:div.article-preview.error
            (str "Couldn't load articles: " list-error)]
+
+          list-loading?
+          [:div.article-preview "Loading articles…"]
 
           (seq articles*)
           (for [article articles*]

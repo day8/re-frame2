@@ -119,15 +119,20 @@
 
 (deftest failure->message-projects-every-taxonomy-branch
   (testing "the server's own words win when present: the first {:errors {:body [...]}}
-            message, a keyed {:errors {field [...]}} as field: message, or a string
-            body verbatim"
-    (is (= ["email or password is invalid" "username: has already been taken" "raw upstream text"]
+            message, or a keyed {:errors {field [...]}} as field: message"
+    (is (= ["email or password is invalid" "username: has already been taken"]
            (map wh/failure->message
                 [{:kind :rf.http/http-4xx :http-status 422
                   :body {:errors {:body ["email or password is invalid"]}}}
                  {:kind :rf.http/http-4xx :http-status 422
-                  :body {:errors {:username ["has already been taken"]}}}
-                 {:kind :rf.http/http-5xx :http-status 502 :body "raw upstream text"}]))))
+                  :body {:errors {:username ["has already been taken"]}}}]))))
+  (testing "a raw-text error body, such as a load balancer's HTML error page, is never
+            the message: the category sentence is"
+    (is (= ["Server error (status 502)." "Request rejected (status 404)."]
+           (map wh/failure->message
+                [{:kind :rf.http/http-5xx :http-status 502
+                  :body "<html><body><h1>502 Bad Gateway</h1></body></html>"}
+                 {:kind :rf.http/http-4xx :http-status 404 :body "Not Found"}]))))
   (testing "otherwise a category message keyed off the closed :rf.http/* taxonomy;
             a cross-origin transport failure names CORS as a possible cause rather
             than the raw browser TypeError text the failure carries"

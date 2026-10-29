@@ -18,10 +18,10 @@
  * Declared independently in each, TodoMVC's base.css/index.css would live as
  * BOTH staged destinations AND scanner `localAssets`, redeclared verbatim — free
  * to drift with nothing to catch it. This module is the single side-effect-free
- * owner. Each entry binds
- * a build id (staging's key) to a source page (the scanner's key), the assets
- * to stage, the shared-asset exemptions the page may omit, and one reason. Both
- * consumers PROJECT their view out of it (stagedAssetsByBuild / pageExemptions /
+ * owner. Each entry binds a source page — the key BOTH consumers read, so
+ * they cannot key the same example two ways — to the assets to stage, the
+ * shared-asset exemptions the page may omit, and one reason. Both consumers
+ * PROJECT their view out of it (stagedAssetsByPage / pageExemptions /
  * stagedDestsByPage), so the staged destinations and the scanner's accepted
  * page-local refs are derived from ONE declaration and cannot diverge. The
  * scanner also holds pages TO it: a page-local asset a page loads must be a
@@ -36,14 +36,12 @@
 // The manifest. Each entry declares ONE example's departure from the
 // index.html + _shared staging baseline.
 //
-//   build           — the shadow-cljs build id (colon-stripped coord, as
-//                      listStandaloneExamples() returns) the STAGING consumer
-//                      keys assets by.
-//   page            — the source index.html the SCANNER keys shared-asset
-//                      exemptions by (REPO_ROOT-relative, forward-slashed).
-//                      Recorded for every entry; only entries with a
-//                      scanner-relevant exception (a shared-asset exemption or
-//                      an html-linked staged asset) surface in pageExemptions().
+//   page            — the example's source index.html (REPO_ROOT-relative,
+//                      forward-slashed): the STAGING consumer keys staged
+//                      assets by it and the SCANNER keys shared-asset
+//                      exemptions by it. Only entries with a scanner-relevant
+//                      exception (a shared-asset exemption or an html-linked
+//                      staged asset) surface in pageExemptions().
 //   reason          — one human-readable justification for the exception.
 //   assetExemptions — required _shared asset hrefs this page may OMIT (it
 //                      references something else instead). Empty for a
@@ -64,7 +62,6 @@
 // ---------------------------------------------------------------------------
 const EXAMPLE_ASSET_MANIFEST = [
   {
-    build: 'examples/todomvc',
     page: 'examples/core/todomvc/index.html',
     reason:
       'TodoMVC uses the official TodoMVC CSS packages (todomvc-common base.css ' +
@@ -81,7 +78,6 @@ const EXAMPLE_ASSET_MANIFEST = [
     ],
   },
   {
-    build: 'examples/managed-http-counter',
     page: 'examples/core/managed_http_counter/index.html',
     reason:
       'managed-http-counter fetches api/inc.json on its success path; the ' +
@@ -95,7 +91,6 @@ const EXAMPLE_ASSET_MANIFEST = [
     ],
   },
   {
-    build: 'examples/realworld',
     page: 'examples/real-apps/realworld_http/index.html',
     reason:
       'RealWorld falls a nil/blank avatar back to default-avatar.svg served ' +
@@ -109,7 +104,6 @@ const EXAMPLE_ASSET_MANIFEST = [
     ],
   },
   {
-    build: 'examples/realworld-resources',
     page: 'examples/real-apps/realworld_resources/index.html',
     reason:
       'The RealWorld resources variant falls a nil/blank avatar back to ' +
@@ -125,16 +119,16 @@ const EXAMPLE_ASSET_MANIFEST = [
 ];
 
 // ---------------------------------------------------------------------------
-// Projection for the STAGING consumer (examples-staging.cjs): build id ->
+// Projection for the STAGING consumer (examples-staging.cjs): page relIndex ->
 // [{ from, src, dest }]. EVERY declared asset is staged (staging copies them
 // all regardless of htmlLinked; htmlLinked only concerns the scanner). This is
 // the staging helper's PER_EXAMPLE_ASSETS.
 // ---------------------------------------------------------------------------
-function stagedAssetsByBuild(manifest = EXAMPLE_ASSET_MANIFEST) {
+function stagedAssetsByPage(manifest = EXAMPLE_ASSET_MANIFEST) {
   const out = {};
   for (const entry of manifest) {
-    if (!entry.assets || entry.assets.length === 0) continue;
-    out[entry.build] = entry.assets.map(({ from, src, dest }) => ({ from, src, dest }));
+    if (!entry.page || !entry.assets || entry.assets.length === 0) continue;
+    out[entry.page] = entry.assets.map(({ from, src, dest }) => ({ from, src, dest }));
   }
   return out;
 }
@@ -182,7 +176,7 @@ function stagedDestsByPage(manifest = EXAMPLE_ASSET_MANIFEST) {
 
 module.exports = {
   EXAMPLE_ASSET_MANIFEST,
-  stagedAssetsByBuild,
+  stagedAssetsByPage,
   pageExemptions,
   stagedDestsByPage,
 };

@@ -6,10 +6,15 @@ const assert = require('assert/strict');
 const net = require('net');
 
 const {
+  DEFAULT_BASE_PORT,
+  DERIVED_PORT_SPAN,
+  MAX_PORT_ATTEMPTS,
   findAvailablePort,
   parseExplicitPort,
   resolveStoryFeatureLoadPort,
 } = require('../../examples/scripts/story-feature-load-port.cjs');
+const { DEV_HTTP } = require('./dev-testbed.cjs');
+const { DEFAULT_PORT: EXAMPLES_PORT } = require('../../examples/scripts/examples-port.cjs');
 
 const tests = [];
 
@@ -34,6 +39,23 @@ test('explicit STORY_FEATURE_LOAD_PORT parses strictly', async () => {
   assert.equal(parseExplicitPort(undefined), null);
   assert.throws(() => parseExplicitPort('0'), /1\.\.65535/);
   assert.throws(() => parseExplicitPort('8031.5'), /1\.\.65535/);
+});
+
+// A fixed port inside the hashed band, or inside the forward scan beyond it,
+// is one a `watch` can take while a gate is serving there.
+test('the derived band and its forward scan miss every fixed dev/test port', async () => {
+  const lo = DEFAULT_BASE_PORT;
+  const hi = DEFAULT_BASE_PORT + DERIVED_PORT_SPAN + MAX_PORT_ATTEMPTS;
+  const fixed = [
+    ...Object.entries(DEV_HTTP).map(([build, { port }]) => [build, port]),
+    ['examples orchestrator', EXAMPLES_PORT],
+    ['shadow-cljs UI', 9630],
+  ];
+  assert.deepEqual(
+    fixed.filter(([, port]) => port >= lo && port < hi),
+    [],
+    `fixed ports inside ${lo}..${hi - 1}`,
+  );
 });
 
 test('automatic resolution skips an occupied preferred port', async () => {

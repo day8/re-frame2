@@ -119,14 +119,15 @@
   [failure]
   (let [body     (:body failure)
         ;; A 4xx/5xx with a JSON Content-Type carries its error body parsed at
-        ;; :body (Conduit's `{:errors {...}}`), with the raw text at
-        ;; :body-text; any other error body arrives at :body as the raw
-        ;; string. Try either shape.
+        ;; :body (Conduit's `{:errors {...}}`), and those words are shown. Any
+        ;; other error body arrives at :body as raw text — a proxy's or load
+        ;; balancer's HTML error page, say (Spec 014 §The error body) — which
+        ;; is no message for a banner, so it falls through to the category
+        ;; sentence below.
         body-msg (cond
                    (and (map? body) (-> body :errors :body first)) (-> body :errors :body first)
                    (and (map? body) (-> body :errors first))       (let [[k v] (first (:errors body))]
                                                                      (str (name k) ": " (first v)))
-                   (string? body) body
                    :else nil)]
     (or body-msg
         ;; The closed `:rf.http/*` set, exhaustively. A transport failure

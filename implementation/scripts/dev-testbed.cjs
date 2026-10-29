@@ -95,6 +95,11 @@ const { runShadow } = require('./lib/shadow.cjs');
 //                                         runtime for that reason: the page
 //                                         and shadow's devtools websocket
 //                                         must share an origin.
+//   8200-8699   Story feature-load +      NOT :dev-http: DEFAULT_BASE_PORT
+//               play-script gates         plus a worktree hash in examples/
+//                                         scripts/story-feature-load-port.cjs
+//                                         (forward scan; STORY_FEATURE_LOAD_
+//                                         PORT pins one).
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
 // Every band whose Notes above read `:dev-http (shadow-cljs.edn)` is

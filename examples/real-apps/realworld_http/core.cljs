@@ -282,14 +282,12 @@
 ;; it would against a server.
 ;; ----------------------------------------------------------------------------
 
-;; The React root lives in an atom and gets created lazily inside `run`, so
-;; that merely loading this namespace touches no DOM. That restraint earns
-;; its keep: several example namespaces share a single `#app` mount point in
-;; the browser-test bundle, and creating the root at load time would race two
-;; roots onto the same container — one example's mount bleeding into another's
-;; tests, with React grumbling "createRoot called twice" the whole way. The
-;; name `app-root` (not `root`) keeps it distinct from the `root-view`
-;; above.
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. The rule: loading a namespace must touch no
+;; DOM, because the `:node-test` bundle co-requires this namespace where there
+;; is no `js/document` at all. See examples/TESTING.md, "mount-isolation". The
+;; name `app-root` (not `root`) keeps it distinct from the `root-view` above.
 (defonce app-root (rf.adapter.reagent/client-root))
 
 ;; ============================================================================

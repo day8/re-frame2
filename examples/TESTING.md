@@ -122,6 +122,25 @@ shared ids must be disambiguated first (distinct `:images` per frame, or prefixe
 stems); a naive co-load fails loud at frame creation rather than clobbering
 silently.
 
+#### The RealWorld twins share ids and a JS runtime
+
+The two RealWorld apps, [`real-apps/realworld_http`](real-apps/realworld_http/)
+and [`real-apps/realworld_resources`](real-apps/realworld_resources/), register
+dozens of the same ids by design — `:auth/flow`, `:settings/submit` and
+`:realworld/home` among them — because the side-by-side comparison both READMEs
+teach reads one app's handler against the other's under the same name, and their
+docs cite those ids.
+
+Unlike the pairs above, these two **do** share a JS runtime: the `:node-test`
+bundle loads both apps' suites. What keeps them apart is the `:app-ns` option of
+`make-reset-runtime-fixture` (the "bundle co-load hygiene" note in
+`implementation/core/src/re_frame/test_support.cljc`): the fixture captures an
+app's registrations as its suite loads and reinstates them around each test, so
+every test sees exactly one twin. So **every suite that loads either twin
+declares its `:app-ns`** — `"realworld-http."` or `"realworld-resources."` — on
+its fixture. A suite that leaves it out finds the app's ids missing, or raises
+`:rf.error/ambiguous-registration` where its frame uses a shared id.
+
 ## Adding a tested example
 
 1. **Mount in `mount!`, not at ns-load** — per the convention above.

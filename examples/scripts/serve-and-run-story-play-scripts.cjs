@@ -13,10 +13,11 @@
  *
  * The roster
  * ----------
- * `TESTBEDS` is the list of testbeds this runner drives, modelled on the
- * roster/clean/compile/stage loop the sibling
- * `serve-and-run-story-feature-load-tests.cjs` keeps. Each entry owns its build id, HTML source, output dir, base path
- * AND ITS OWN NON-VACUITY FLOOR — the floors differ on purpose:
+ * `TESTBEDS` is the list of testbeds this runner drives, cleaned, compiled
+ * and staged by examples-staging.cjs `prepareTestbeds`, as the sibling
+ * `serve-and-run-story-feature-load-tests.cjs` roster is. Each entry owns its
+ * build id, HTML source, output dir, base path AND ITS OWN NON-VACUITY FLOOR —
+ * the floors differ on purpose:
  *
  *   counter-with-stories  four rows, both sides. It owns proof of THIS
  *                         RUNNER's pass/fail semantics, so its seeded
@@ -67,7 +68,6 @@
 
 'use strict';
 
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -75,9 +75,8 @@ const {
   startLocalHttpServer,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
-const { cleanStageDirs } = require('./examples-staging.cjs');
+const { prepareTestbeds } = require('./examples-staging.cjs');
 const { navigate, reloadPage } = require('./spec-helpers.cjs');
-const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
@@ -128,59 +127,12 @@ function loadChromium() {
   return require(require.resolve('playwright', { paths: [IMPL_ROOT] })).chromium;
 }
 
+// Signal handlers are installed by main(), so requiring this module for its
+// pure helpers changes nothing about the requiring process.
 const cleanup = createHarnessCleanup();
-cleanup.installSignalHandlers();
 
 function log(line) {
   process.stdout.write(`${line}\n`);
-}
-
-// Clean-stage boundary: remove + recreate each testbed's output
-// dir BEFORE shadow-cljs compiles into it, so every served file is produced
-// from the current source this run — no stale file from a previous run can
-// satisfy a browser request the current testbed does not produce. Cleans
-// only the roster's own dirs (not the shared OUT_ROOT); the helper
-// path-guards every target to live strictly under OUT_ROOT.
-function cleanTestbedOutDirs() {
-  cleanStageDirs(TESTBEDS.map((t) => t.outDir), OUT_ROOT);
-}
-
-function compileTestbeds() {
-  // The shared shadow-cljs launcher (build lane, owned process tree) under
-  // THIS node binary, shell-free — never npx/npx.cmd/cmd.exe (the Windows
-  // command-hijack accident class). Quiet-on-success: the compiler's stdout is
-  // captured and surfaced only on failure (or under RF2_VERBOSE_TESTS);
-  // stderr passes through, so a `waiting for build lane` line shows while it
-  // waits. ONE invocation for the whole roster — shadow-cljs compiles the
-  // builds against a single JVM, so the second testbed costs a fraction of
-  // the first.
-  const builds = TESTBEDS.map((t) => t.build);
-  const args = [SHADOW_CLI, 'compile', ...builds];
-  const result = spawnSync(process.execPath, args, {
-    cwd: IMPL_ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
-  const output = `${result.stdout || ''}${result.stderr || ''}`;
-  if (VERBOSE || result.status !== 0) {
-    process.stdout.write(output);
-  }
-  if (result.status !== 0) {
-    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
-    throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
-  }
-}
-
-function stageTestbedHtml() {
-  for (const testbed of TESTBEDS) {
-    if (!fs.existsSync(testbed.outDir)) {
-      throw new Error(`Build output dir missing: ${testbed.outDir}`);
-    }
-    if (!fs.existsSync(testbed.htmlSrc)) {
-      throw new Error(`HTML source missing: ${testbed.htmlSrc}`);
-    }
-    fs.copyFileSync(testbed.htmlSrc, path.join(testbed.outDir, 'index.html'));
-  }
 }
 
 /**
@@ -236,20 +188,9 @@ async function navigateToVariant(page, baseUrl, basePath, variantId) {
   });
 }
 
-async function readRunStateOnce(page, variantId) {
-  return page.evaluate((vid) => {
-    const ci = window.__rf2_story_ci;
-    if (!ci || typeof ci.readRunState !== 'function') return null;
-    try {
-      return ci.readRunState(vid);
-    } catch (e) {
-      return { error: String(e && e.message ? e.message : e) };
-    }
-  }, variantIdToParam(variantId));
-}
-
 /**
- * Per-play state read for multi-play rows.
+ * Per-play state read. A single-script row has no play key and reads with
+ * `''`, which the CI hook takes as the `:script` slot.
  */
 async function readPlayRunStateOnce(page, variantId, playKey) {
   return page.evaluate(
@@ -274,7 +215,7 @@ async function readPlayRunStateOnce(page, variantId, playKey) {
  * `cannot-run` is a genuine terminal run status (the
  * runner core finishes a play as cannot-run when every unmet step is a
  * capability/refusal row). Treating only pass/fail as terminal would make an
- * honest cannot-run look like a hang — the wait loops below would burn the
+ * honest cannot-run look like a hang — the wait loop below would burn the
  * full STORY_PLAY_SCRIPT_TERMINAL_TIMEOUT_MS per affected row before
  * the (no-state-change) timeout surfaced the failure. Accepting it here
  * returns immediately so `expectedStatusFor` can mark it as an
@@ -283,19 +224,6 @@ async function readPlayRunStateOnce(page, variantId, playKey) {
  */
 function isTerminalStatus(status) {
   return status === 'pass' || status === 'fail' || status === 'cannot-run';
-}
-
-async function waitForTerminalState(page, variantId) {
-  const deadline = Date.now() + TERMINAL_TIMEOUT_MS;
-  let last = null;
-  while (Date.now() < deadline) {
-    last = await readRunStateOnce(page, variantId);
-    if (last && isTerminalStatus(last.status)) {
-      return last;
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return last;
 }
 
 /**
@@ -393,6 +321,9 @@ function summariseResults(results) {
     lines.push(
       `${tag} ${bed}${r.variantId}${playLabel}  expected=${r.expected} actual=${actual}  steps=${r.runState ? r.runState.total : '?'}`,
     );
+    if (!r.matched && r.runState && r.runState.message) {
+      lines.push(`     ${r.runState.message}`);
+    }
     if (!r.matched) {
       // The CLJS `project-state` serialises `:passed?` as the literal
       // string key `"passed?"` (keyword → name preservation); read it
@@ -439,7 +370,6 @@ function summariseResults(results) {
 function writeFailureReport(failures, allResults, browserMessages, pageErrors = []) {
   const report = {
     gate: 'story-play-scripts',
-    bead: 'rf2-5x1wt.7 / rf2-315cf',
     capturedAt: new Date().toISOString(),
     totalRows: allResults.length,
     unexpectedOutcomes: failures.length,
@@ -700,12 +630,33 @@ function groupRowsByVariant(rows) {
 }
 
 /**
+ * The row a testbed contributes when it cannot run its plays at all: its shell
+ * failed to boot, discovery failed, or discovery was vacuous. It never matches,
+ * so the verdict is red, and the summary and the failure report both name it.
+ */
+function testbedErrorRow(testbed, err) {
+  return {
+    testbed: testbed.label,
+    variantId: '(testbed)',
+    playKey: null,
+    expected: 'pass',
+    matched: false,
+    runState: {
+      status: 'testbed-error',
+      message: String(err && err.message ? err.message : err),
+    },
+  };
+}
+
+/**
  * Drive ONE roster entry: boot its shell, discover its rows, guard them
  * against ITS floor, and run every play.
  *
  * Returns `{ results, browserMessages, pageErrors }` for the caller to
  * aggregate; the verdict is computed once, over the whole roster, so a red
- * from either testbed reds the gate and neither can mask the other.
+ * from either testbed reds the gate and neither can mask the other. It never
+ * throws: a testbed that cannot run adds a `testbedErrorRow` instead, so the
+ * roster's later entries still run.
  *
  * Each entry gets its OWN browser context, which is what keeps the decks
  * independent: localStorage (the Story shell's help-dialog prime and its
@@ -713,8 +664,7 @@ function groupRowsByVariant(rows) {
  * shell can neither hydrate from nor leak into the next one's.
  */
 async function runTestbed(browser, baseUrl, testbed) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  const results = [];
   const browserMessages = [];
   // pageErrors are tracked SEPARATELY from browserMessages
   // so an uncaught browser/runtime exception can flip the gate verdict
@@ -722,20 +672,23 @@ async function runTestbed(browser, baseUrl, testbed) {
   // -only (and only populated when VERBOSE); pageErrors is the fatal
   // signal fed to computeExitCode below.
   const pageErrors = [];
-  page.on('console', (msg) => {
-    if (VERBOSE) browserMessages.push(`[browser:${msg.type()}] ${msg.text()}`);
-  });
-  page.on('pageerror', (err) => {
-    const message = `[browser:pageerror] ${err.message}`;
-    pageErrors.push(message);
-    // Mirror into browserMessages so the diagnostics dump and
-    // the failure-report's `browserDiagnostics` slice surface it too.
-    browserMessages.push(message);
-  });
-
   const basePath = basePathFor(testbed);
+  let context = null;
 
   try {
+    context = await browser.newContext();
+    const page = await context.newPage();
+    page.on('console', (msg) => {
+      if (VERBOSE) browserMessages.push(`[browser:${msg.type()}] ${msg.text()}`);
+    });
+    page.on('pageerror', (err) => {
+      const message = `[browser:pageerror] ${err.message}`;
+      pageErrors.push(message);
+      // Mirror into browserMessages so the diagnostics dump and
+      // the failure-report's `browserDiagnostics` slice surface it too.
+      browserMessages.push(message);
+    });
+
     log('');
     log(`--- ${testbed.label} (${testbed.build}) at ${basePath} ---`);
     await bootShell(page, baseUrl, basePath);
@@ -746,12 +699,15 @@ async function runTestbed(browser, baseUrl, testbed) {
       );
     }
     const variants = discovery.variants;
-    // Prefer the per-play `rows` enumeration; fall back to the
-    // per-variant shape when the CI hook carries no `rows`.
-    const rows =
-      discovery.context && Array.isArray(discovery.context.rows)
-        ? discovery.context.rows
-        : variants.map((vid) => ({ 'variant-id': vid, 'play-key': null, name: null }));
+    // The CI hook's `ciContext()` always carries one row per play
+    // (re-frame.story.play.ci-runner/ci-context), so a context without `rows`
+    // is a hook that drifted, and is refused rather than guessed at.
+    const rows = discovery.context && discovery.context.rows;
+    if (!Array.isArray(rows)) {
+      throw new Error(
+        `${testbed.label}: the CI hook's ciContext() carried no rows array: ${JSON.stringify(discovery.context)}`,
+      );
+    }
     log(
       `${testbed.label}: discovered ${variants.length} variant(s) with :script / :plays — ${rows.length} play row(s)`,
     );
@@ -780,7 +736,6 @@ async function runTestbed(browser, baseUrl, testbed) {
       );
     }
 
-    const results = [];
     const grouped = groupRowsByVariant(rows);
     for (const [vid, variantRows] of grouped.entries()) {
       let navOk = true;
@@ -807,17 +762,28 @@ async function runTestbed(browser, baseUrl, testbed) {
         const playKey = row['play-key'];
         const expected = expectedStatusFor(vid, playKey);
 
-        if (!row['auto-run?']) {
-          // Manual play — trigger it explicitly. The CI hook routes
-          // through runtime/rerun!, a fresh run of just this play (the
-          // reset clears the other plays' states); we read this play's
-          // state straight after triggering it, below.
-          await triggerPlay(page, vid, playKey);
+        // Manual play — trigger it explicitly. The CI hook routes through
+        // runtime/rerun!, a fresh run of just this play (the reset clears the
+        // other plays' states); we read this play's state straight after
+        // triggering it, below. A trigger the hook refused fails the row at
+        // once, rather than after a terminal wait that times out naming no
+        // cause.
+        if (!row['auto-run?'] && !(await triggerPlay(page, vid, playKey))) {
+          results.push({
+            testbed: testbed.label,
+            variantId: vid,
+            playKey,
+            expected,
+            matched: false,
+            runState: {
+              status: 'trigger-error',
+              message: 'window.__rf2_story_ci.runPlay is missing or threw',
+            },
+          });
+          continue;
         }
 
-        const runState = playKey
-          ? await waitForPlayTerminalState(page, vid, playKey)
-          : await waitForTerminalState(page, vid);
+        const runState = await waitForPlayTerminalState(page, vid, playKey);
         const actual = (runState && runState.status) || null;
         results.push({
           testbed: testbed.label,
@@ -830,10 +796,14 @@ async function runTestbed(browser, baseUrl, testbed) {
       }
     }
 
-    return { results, browserMessages, pageErrors };
+  } catch (err) {
+    log(`${testbed.label}: could not run its plays — ${err && err.message ? err.message : err}`);
+    results.push(testbedErrorRow(testbed, err));
   } finally {
-    await context.close();
+    if (context) await context.close().catch(() => {});
   }
+
+  return { results, browserMessages, pageErrors };
 }
 
 /**
@@ -880,15 +850,17 @@ async function runAllVariants(browser, baseUrl) {
 }
 
 async function main() {
+  cleanup.installSignalHandlers();
+  prepareTestbeds(TESTBEDS, { outRoot: OUT_ROOT, quiet: !VERBOSE });
+
+  // Resolved after the compile, so a dev-http server a `watch` starts while
+  // this run waits on the build lane cannot take the port between the probe
+  // and the serve.
   const port = await resolveStoryFeatureLoadPort({
     env: process.env,
     repoRoot: REPO_ROOT,
   });
   const baseUrl = `http://127.0.0.1:${port}`;
-
-  cleanTestbedOutDirs();
-  compileTestbeds();
-  stageTestbedHtml();
 
   // Serve implementation/out/examples on loopback. The shared harness owns
   // the http-server spawn, teardown tracking, early-exit abort, bounded
@@ -952,6 +924,10 @@ module.exports = {
   // browser (symmetric with the computeExitCode unit coverage).
   checkRowsNonVacuous,
   MIN_PLAY_ROWS,
+  // One testbed that cannot run becomes a red row rather than the end of the
+  // run: exported so the policy gate can drive it with a browser that fails.
+  runTestbed,
+  testbedErrorRow,
   // The roster, exported so the script-policy gate can assert
   // it names BOTH testbeds and that each entry carries its own floor —
   // a deck silently dropped from the roster is a gate that stopped

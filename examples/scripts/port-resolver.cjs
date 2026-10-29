@@ -15,8 +15,10 @@
  * POLICY differs between them (default/preferred port, the env-var name,
  * and the exact user-facing wording). This module owns the shared
  * mechanism so each resolver file is just its distinguishing policy
- * expressed over these primitives, rather than a second copy of the
- * bind-probe loop.
+ * expressed over these primitives. The probe and the port-range rule
+ * themselves are the browser harness's (`isPortFree` /
+ * `isValidExplicitPort`, implementation/scripts/lib/local-browser-harness.cjs),
+ * so every runner judges a port the same way.
  *
  * The `actionable` flag threads through to errors so a caller's bottom
  * .catch can print `err.message` (no stack) for a port clash. The
@@ -26,7 +28,10 @@
 
 'use strict';
 
-const net = require('net');
+const {
+  isPortFree,
+  isValidExplicitPort,
+} = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 const MAX_PORT_ATTEMPTS = 200;
 
@@ -46,7 +51,7 @@ function makeParseExplicitPort(envVarName, { actionable = false } = {}) {
   return function parseExplicitPort(raw) {
     if (raw == null || String(raw).trim() === '') return null;
     const n = Number(String(raw).trim());
-    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    if (!isValidExplicitPort(n)) {
       throw portError(
         `${envVarName} must be an integer in 1..65535; got ${JSON.stringify(raw)}`,
         { actionable },
@@ -56,30 +61,15 @@ function makeParseExplicitPort(envVarName, { actionable = false } = {}) {
   };
 }
 
-// Bind-and-release probe on 127.0.0.1 (by default). Resolves true when
-// the port is free and false when it cannot be bound. The latter includes
-// EADDRINUSE on Mac/Linux and EACCES for a dual-stack listener on Windows;
-// callers intentionally treat every bind failure as "unavailable".
-function canListen(port, host = '127.0.0.1') {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', () => resolve(false));
-    server.listen(port, host, () => {
-      server.close(() => resolve(true));
-    });
-  });
-}
-
 // Scan forward from `startPort` to the first free port. `opts.exhausted`
 // is a `(startPort, attempts) => Error` builder for the all-busy case so
 // each resolver can supply its own actionable wording.
 async function findAvailablePort(startPort, opts = {}) {
-  const host = opts.host || '127.0.0.1';
   const attempts = opts.attempts || MAX_PORT_ATTEMPTS;
   for (let i = 0; i < attempts; i += 1) {
     const port = startPort + i;
     if (port > 65535) break;
-    if (await canListen(port, host)) return port;
+    if (await isPortFree(port)) return port;
   }
   const exhausted =
     opts.exhausted ||
@@ -90,8 +80,8 @@ async function findAvailablePort(startPort, opts = {}) {
 
 module.exports = {
   MAX_PORT_ATTEMPTS,
-  canListen,
   findAvailablePort,
+  isPortFree,
   makeParseExplicitPort,
   portError,
 };

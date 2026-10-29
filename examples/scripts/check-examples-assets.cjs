@@ -99,8 +99,10 @@
  *      image fails the gate. Navigation refs (<a href>, <base href>) are exempt.
  *
  *   2. Asserts the REQUIRED _shared asset contract: every example must
- *      reference _shared/img/favicon.svg, _shared/img/og.png, and
- *      _shared/css/style.css — UNLESS the page is exempt from a specific
+ *      LOAD _shared/img/favicon.svg (a `<link rel="icon">`), _shared/img/og.png
+ *      (the og:image) and _shared/css/style.css (a `<link rel="stylesheet">`),
+ *      so a page that merely mentions one does not pass — UNLESS the page is
+ *      exempt from a specific
  *      asset (see ALLOWLIST, the page-opt-out projection of the shared
  *      examples asset/exception manifest). The TodoMVC stylesheet opt-out is
  *      encoded in that manifest: it is exempt from style.css (it links the
@@ -221,6 +223,26 @@ const REQUIRED_SHARED_ASSETS = [
 const SOCIAL_PREVIEW_RASTER_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
 const SOCIAL_PREVIEW_REQUIRED = '_shared/img/og.png';
 
+// How a page must LOAD each required shared asset, read off the inventory's
+// tagged `assets` view: the favicon as a `<link rel~=icon>`, the card as the
+// og:image, the stylesheet as a `<link rel~=stylesheet>`. A page that only
+// MENTIONS the path — an `<a href>`, a preload, a `rel` typo — is not dressed
+// by it, so it does not satisfy the contract.
+const linkRelHas = (asset, token) => (asset.rels || []).includes(token);
+const REQUIRED_ASSET_LOADS = {
+  '_shared/img/favicon.svg': { as: '<link rel="icon">', loads: (a) => linkRelHas(a, 'icon') },
+  '_shared/img/og.png': { as: '<meta property="og:image">', loads: (a) => a.source === 'og:image' },
+  '_shared/css/style.css': { as: '<link rel="stylesheet">', loads: (a) => linkRelHas(a, 'stylesheet') },
+};
+
+// Does the tagged `assets` view load `need` the way REQUIRED_ASSET_LOADS says
+// it must? An asset with no declared loader counts as loaded by any load-time
+// reference to it.
+function loadsRequiredAsset(assets, need) {
+  const how = REQUIRED_ASSET_LOADS[need];
+  return assets.some((a) => a.ref === need && (!how || how.loads(a)));
+}
+
 // ---------------------------------------------------------------------------
 // Allowlisted exceptions — the page-opt-out PROJECTION of the single examples
 // asset/exception manifest (examples-asset-manifest.cjs), the shared owner the
@@ -331,56 +353,14 @@ function loadsBuildEntrypoint(assets) {
 }
 
 // ---------------------------------------------------------------------------
-// Example host-page enumeration. Walk the examples/ tree for the HTML host
-// pages every staged example serves, skipping the _shared tree itself (it
-// holds assets, not example pages) and node_modules / build-output dirs.
-//
-// A "host page" is the page's own `index.html` OR an auxiliary showcase host
-// page named `<prefix>.index.html`. That second shape is enumerated
-// PROSPECTIVELY: no example under examples/ carries one, because the Story
-// showcase builds serve their example's own `index.html` (`#/stories` is a hash
-// route on that page). The shape is enumerated so that a `<prefix>.index.html`
-// is held to the SAME shared-asset contract as its sibling index.html
-// (favicon + OG card + style.css) the moment it lands.
-//
-// STANDALONE example projects are pruned. Every gallery example
-// is monorepo-STAGED: it is source-only, built from implementation/'s shadow
-// config with a central `:examples/*` build id, and the orchestrator copies
-// _shared into its output dir — so the shared-design-system contract (favicon +
-// OG card + style.css) applies. A standalone scaffold is the opposite: it
-// carries its OWN shadow-cljs.edn / package.json / deps.edn, serves its own
-// host page from resources/public/, and is deliberately NOT on the monorepo
-// classpath (it is "the tree you would have created yourself"). It links none
-// of _shared — nor should it, a minimal user-facing scaffold is not a gallery
-// showcase — and its host-page contract is owned end-to-end by its own
-// scaffold smoke. No standalone scaffold is in the tree — nothing under
-// examples/ carries its own shadow-cljs.edn — so
-// the rule below is prospective. Enumerating one here would force the
-// gallery chrome onto a page that must stay minimal, so a project root bearing
-// its own shadow-cljs.edn is pruned from this walk (any future standalone
-// scaffold under examples/ is excluded by the same marker, no per-path list).
+// Example host-page enumeration. Walk the examples/ tree for the `index.html`
+// host page every staged example serves, skipping the _shared tree itself (it
+// holds assets, not example pages) and node_modules. Every example is
+// monorepo-STAGED — built from implementation/'s shadow config with a central
+// `:examples/*` build id, its output dir given a copy of _shared — so the
+// shared-design-system contract (favicon + OG card + style.css) applies to
+// each page found.
 // ---------------------------------------------------------------------------
-
-// True for the HTML host-page filenames the asset contract enumerates: the
-// bare `index.html` and any `<prefix>.index.html` auxiliary showcase host page
-// (e.g. `stories.index.html`).
-function isExampleHostPage(name) {
-  return name === 'index.html' || name.endsWith('.index.html');
-}
-
-// True when `dir` is the root of a STANDALONE example project — one that carries
-// its own shadow-cljs.edn (a self-contained shadow build), as opposed to a
-// monorepo-staged gallery example built from implementation/'s central config.
-// The gallery shared-asset contract does not apply to a standalone scaffold
-// (see the enumeration note above), so its whole subtree is pruned from the
-// host-page walk. `io.existsSync` is used when the injected io provides it (the
-// real fs, and the fs-backed test io both do); the fail-closed readdir-only test
-// io does not, so this falls back to the real fs there — a standalone marker is
-// a property of the on-disk tree, never of a synthetic readdir fixture.
-function isStandaloneExampleProject(dir, io = fs) {
-  const exists = typeof io.existsSync === 'function' ? io.existsSync.bind(io) : fs.existsSync;
-  return exists(path.join(dir, 'shadow-cljs.edn'));
-}
 
 // Enumerate every example host page under `root`, FAIL-CLOSED. A directory that
 // cannot be read is NOT silently dropped (catching and continuing would turn a
@@ -393,11 +373,8 @@ function listExampleIndexHtml(root = EXAMPLES_ROOT, { io = fs } = {}) {
   const { items, walkErrors } = walkDir({
     roots: [root],
     io,
-    skipDir: (name, full) =>
-      name === 'node_modules' ||
-      name === '_shared' ||
-      isStandaloneExampleProject(full, io),
-    acceptFile: (name) => isExampleHostPage(name),
+    skipDir: (name) => name === 'node_modules' || name === '_shared',
+    acceptFile: (name) => name === 'index.html',
   });
   assertWalkComplete(walkErrors, 'check-examples-assets host-page enumeration');
   return items.sort();
@@ -602,9 +579,9 @@ function extractHtmlReferenceInventory(html) {
     const c = clean(raw);
     if (c) bucket.push(c);
   };
-  const addAsset = (bucket, raw, source) => {
+  const addAsset = (bucket, raw, source, extra) => {
     const c = clean(raw);
-    if (c) bucket.push({ ref: c, source });
+    if (c) bucket.push({ ref: c, source, ...extra });
   };
   const mediaEls = new Set(['img', 'source', 'video', 'audio', 'track']);
 
@@ -629,11 +606,12 @@ function extractHtmlReferenceInventory(html) {
     } else if (el === 'link') {
       const rel = (attr(tag, 'rel') || '').toLowerCase().trim();
       const label = rel || '(none)';
-      const isAsset = rel.split(/\s+/).filter(Boolean).some((t) => ASSET_LINK_RELS.has(t));
+      const rels = rel.split(/\s+/).filter(Boolean);
+      const isAsset = rels.some((t) => ASSET_LINK_RELS.has(t));
       // A `<link rel="preload" as="image" imagesrcset=...>` carries a responsive
       // candidate list (like <img srcset>) and often has NO href, so imagesrcset
       // is asset-bearing independently of the href/rel gate.
-      if (isAsset) addAsset(linkAssets, attr(tag, 'href'), `<link rel="${label}" href>`);
+      if (isAsset) addAsset(linkAssets, attr(tag, 'href'), `<link rel="${label}" href>`, { rels });
       for (const u of parseSrcset(srcsetAttr(tag, 'imagesrcset') || '')) {
         addAsset(linkAssets, u, `<link rel="${label}" imagesrcset>`);
       }
@@ -1588,17 +1566,19 @@ function scanPage(io, indexAbsPath, opts = {}) {
     }
   }
 
-  // 2) Required shared-asset contract: every page references each required
-  //    asset unless explicitly exempt (allowlist). An exemption that is not
-  //    actually exercised (the page DOES reference the "exempt" asset) is a
-  //    stale allowlist entry — flag it so the allowlist can't rot.
-  const refSet = new Set(refs);
+  // 2) Required shared-asset contract: every page LOADS each required asset
+  //    the way REQUIRED_ASSET_LOADS names, unless explicitly exempt
+  //    (allowlist). An exemption that is not actually exercised (the page DOES
+  //    load the "exempt" asset) is a stale allowlist entry — flag it so the
+  //    allowlist can't rot.
   for (const need of required) {
     const isExempt = exemptAssets.has(need);
-    const present = refSet.has(need);
+    const present = loadsRequiredAsset(assets, need);
     if (!present && !isExempt) {
+      const how = REQUIRED_ASSET_LOADS[need];
       errors.push(
-        `${relIndex}: missing required shared asset reference '${need}'. ` +
+        `${relIndex}: missing required shared asset reference '${need}'` +
+          `${how ? ` (loaded as ${how.as})` : ''}. ` +
           `Either add it to the page's <head>, or (if intentional) encode ` +
           `the exemption for this page in the examples asset/exception ` +
           `manifest (examples/scripts/examples-asset-manifest.cjs) with a reason.`,
@@ -2003,6 +1983,7 @@ module.exports = {
   EXAMPLES_ROOT,
   SHARED_ROOT,
   REQUIRED_SHARED_ASSETS,
+  REQUIRED_ASSET_LOADS,
   SOCIAL_PREVIEW_RASTER_EXTS,
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
@@ -2012,8 +1993,6 @@ module.exports = {
   ASSET_LINK_RELS,
   BUILD_OUTPUTS,
   listExampleIndexHtml,
-  isExampleHostPage,
-  isStandaloneExampleProject,
   isExternalRef,
   isNetworkRef,
   extractHtmlReferenceInventory,
@@ -2073,7 +2052,7 @@ if (require.main === module) {
   if (indexes.length < 10) {
     console.error(
       `check-examples-assets: only ${indexes.length} example host page(s) ` +
-        `(index.html / *.index.html) found under examples/ — expected the ` +
+        `(index.html) found under examples/ — expected the ` +
         `full set. Walk or layout drift; refusing to pass a vacuous gate.`,
     );
     process.exit(1);
@@ -2083,7 +2062,7 @@ if (require.main === module) {
 
   console.log(
     `check-examples-assets: scanning ${pages.length} example host page(s) ` +
-      `(index.html + *.index.html showcase pages) + the _shared tree.`,
+      `(index.html) + the _shared tree.`,
   );
 
   if (listOnly) {

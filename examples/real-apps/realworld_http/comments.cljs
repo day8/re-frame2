@@ -823,6 +823,13 @@
         [:i.ion-plus-round] " "
         (if (:following author) "Unfollow " "Follow ") (:username author)])]))
 
+(reg-view ^{:doc "The article's markdown body, in a view of its own: a
+                  keystroke in the comment box re-renders the article page, and
+                  an unchanged `body` lets this view skip the markdown parse and
+                  sanitising walk."}
+          article-body [body]
+  [:div {:data-testid "article-body"} (md/render body)])
+
 (reg-view article-page []
   (let [article        @(subscribe [:article/data])
         article-status @(subscribe [:article/status])
@@ -889,7 +896,7 @@
            [:ul.error-messages [:li article-error]])
          [:div.row.article-content
           [:div.col-md-12
-           [:div {:data-testid "article-body"} (md/render (:body article))]
+           [article-body (:body article)]
            [:ul.tag-list
             (for [tag (:tagList article)]
               ^{:key tag}

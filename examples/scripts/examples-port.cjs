@@ -40,8 +40,8 @@
 
 const {
   MAX_PORT_ATTEMPTS,
-  canListen,
   findAvailablePort: findAvailablePortShared,
+  isPortFree,
   makeParseExplicitPort,
   portError,
 } = require('./port-resolver.cjs');
@@ -83,7 +83,7 @@ function findAvailablePort(startPort, opts = {}) {
 async function resolveExamplesPort({ env = process.env } = {}) {
   const explicit = parseExplicitPort(env.EXAMPLES_PORT);
   if (explicit != null) {
-    if (!(await canListen(explicit))) {
+    if (!(await isPortFree(explicit))) {
       // Deliberately NO port list here. A transcribed :dev-http
       // enumeration goes stale in silence as the map grows, and a test
       // pinning it would certify the drift. Point at the two authorities
@@ -107,7 +107,6 @@ async function resolveExamplesPort({ env = process.env } = {}) {
 module.exports = {
   DEFAULT_PORT,
   MAX_PORT_ATTEMPTS,
-  canListen,
   findAvailablePort,
   parseExplicitPort,
   resolveExamplesPort,

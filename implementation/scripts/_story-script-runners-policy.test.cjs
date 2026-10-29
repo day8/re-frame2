@@ -33,6 +33,7 @@ const {
   checkRowsNonVacuous,
   MIN_PLAY_ROWS,
   TESTBEDS,
+  runTestbed,
 } = require(PLAY_SCRIPTS_RUNNER);
 
 const { test, run } = createPolicyTestSuite('story-script-runners-policy');
@@ -86,13 +87,80 @@ test('isTerminalStatus: pass / fail / cannot-run are terminal, anything else is 
   );
 });
 
-test('both wait loops gate on isTerminalStatus (rf2-wf5al.3)', () => {
-  const src = fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8');
-  const matches = src.match(/isTerminalStatus\(last\.status\)/g) || [];
-  assert.ok(
-    matches.length >= 2,
-    'waitForTerminalState and waitForPlayTerminalState must both gate on ' +
-      'isTerminalStatus(last.status).',
+test('the terminal-state wait loop gates on isTerminalStatus', () => {
+  const src = stripComments(fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8'));
+  assert.match(
+    src,
+    /isTerminalStatus\(last\.status\)/,
+    'waitForPlayTerminalState must gate on isTerminalStatus(last.status).',
+  );
+});
+
+// ---- one testbed that cannot run is a red row, not the end of the run ----
+//
+// A fake browser whose page answers each `evaluate` by what the evaluated
+// function reads, so runTestbed runs without Playwright. runTestbed is async
+// and the suite's runner is not, so these run after it, each awaited.
+const asyncTests = [];
+function asyncTest(name, fn) {
+  asyncTests.push({ name, fn });
+}
+
+function fakeBrowser({ gotoError = null, rows, triggered = true }) {
+  const page = {
+    on() {},
+    async goto() {
+      if (gotoError) throw gotoError;
+    },
+    async reload() {},
+    async evaluate(fn) {
+      const src = String(fn);
+      if (src.includes('Boolean(window.__rf2_story_ci)')) return true;
+      if (src.includes('listVariants')) {
+        return { variants: ['story.fake/a'], context: rows === undefined ? {} : { rows } };
+      }
+      if (src.includes('runPlay')) return triggered;
+      if (src.includes('readPlayRunState')) return { status: 'pass', total: 1, results: [] };
+      return undefined;
+    },
+  };
+  return { newContext: async () => ({ newPage: async () => page, close: async () => {} }) };
+}
+
+const FAKE_TESTBED = {
+  label: 'fake',
+  build: 'examples/fake',
+  dirName: 'fake',
+  vacuity: { minRows: 1, requireBothSides: false },
+};
+
+asyncTest('runTestbed: a shell that fails to boot becomes one testbed-error row, and returns', async () => {
+  const { results } = await runTestbed(
+    fakeBrowser({ gotoError: new Error('boot timeout') }),
+    'http://127.0.0.1:1',
+    FAKE_TESTBED,
+  );
+  assert.deepEqual(
+    results.map((r) => [r.testbed, r.matched, r.runState.status, /boot timeout/.test(r.runState.message)]),
+    [['fake', false, 'testbed-error', true]],
+  );
+});
+
+asyncTest('runTestbed: a CI context without a rows array is refused, not guessed at', async () => {
+  const { results } = await runTestbed(fakeBrowser({}), 'http://127.0.0.1:1', FAKE_TESTBED);
+  assert.deepEqual(
+    results.map((r) => [r.runState.status, /no rows array/.test(r.runState.message)]),
+    [['testbed-error', true]],
+  );
+});
+
+asyncTest('runTestbed: a manual play whose trigger the hook refuses fails at once', async () => {
+  const rows = [{ 'variant-id': 'story.fake/a', 'play-key': 'second', 'auto-run?': false }];
+  const refused = await runTestbed(fakeBrowser({ rows, triggered: false }), 'http://127.0.0.1:1', FAKE_TESTBED);
+  const accepted = await runTestbed(fakeBrowser({ rows }), 'http://127.0.0.1:1', FAKE_TESTBED);
+  assert.deepEqual(
+    [refused, accepted].map(({ results }) => results.map((r) => [r.matched, r.runState.status])),
+    [[[false, 'trigger-error']], [[true, 'pass']]],
   );
 });
 
@@ -209,3 +277,21 @@ test('play-scripts runner drives every roster entry (rf2-kttom)', () => {
 });
 
 run();
+
+(async () => {
+  let failed = 0;
+  for (const { name, fn } of asyncTests) {
+    try {
+      await fn();
+    } catch (err) {
+      failed += 1;
+      console.error(`FAIL ${name}`);
+      console.error(err && err.stack ? err.stack : err);
+    }
+  }
+  if (failed > 0) {
+    console.error(`story-script-runners-policy async tests: ${failed} failed.`);
+    process.exit(1);
+  }
+  console.log(`story-script-runners-policy async tests: ${asyncTests.length} passed.`);
+})();

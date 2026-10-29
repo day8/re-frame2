@@ -279,8 +279,14 @@ it('stagePerExampleAssets FAILS LOUD on a missing declared asset source (rf2-cq6
     const outDir = path.join(tmpRoot, 'out');
     fs.mkdirSync(emptySrc, { recursive: true });
     fs.mkdirSync(outDir, { recursive: true });
-    // The real manifest declares default-avatar.svg as a :src asset of this build.
-    assert.throws(() => stagePerExampleAssets({ build: 'examples/realworld', outDir, srcDir: emptySrc }));
+    // The real manifest declares default-avatar.svg as a :src asset of this
+    // page. The assets are keyed by the page, so a build id the manifest never
+    // names stages (here: fails on) exactly what the page declares.
+    const htmlSrc = path.join(EXAMPLES_ROOT, 'real-apps', 'realworld_http', 'index.html');
+    assert.throws(
+      () => stagePerExampleAssets({ build: 'examples/renamed', htmlSrc, outDir, srcDir: emptySrc }),
+      /required asset for 'examples\/real-apps\/realworld_http\/index\.html' is missing/,
+    );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

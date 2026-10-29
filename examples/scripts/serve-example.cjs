@@ -72,7 +72,13 @@
 
 const path = require('path');
 const { resolveExamplesPort } = require('./examples-port.cjs');
-const { stageExample, listStandaloneExamples, cleanStageDirs } = require('./examples-staging.cjs');
+const {
+  stageExample,
+  listStandaloneExamples,
+  cleanStageDirs,
+  parseExampleBuilds,
+  readShadowEdn,
+} = require('./examples-staging.cjs');
 const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 const {
   createHarnessCleanup,
@@ -358,9 +364,17 @@ async function main() {
 
   const entry = examples.find((e) => e.build === build);
   if (!entry) {
+    // A real shadow-cljs build this runner cannot serve is one whose source
+    // lives outside examples/ (the Xray and Story testbeds under tools/), and
+    // their dev server is `npm run dev`, which serves each one's :dev-http.
+    const elsewhere = parseExampleBuilds(readShadowEdn()).some((d) => d.build === build);
     console.error(
-      `serve-example: '${build}' is not a known standalone example build.\n` +
-        'Run with --list to see the available builds.',
+      elsewhere
+        ? `serve-example: '${build}' is a shadow-cljs build whose source lives ` +
+            'outside examples/, so it has no standalone host page to stage.\n' +
+            `Serve it with: npm run dev -- :${build}`
+        : `serve-example: '${build}' is not a known standalone example build.\n` +
+            'Run with --list to see the available builds.',
     );
     return 1;
   }
@@ -376,8 +390,8 @@ async function main() {
   // Clean-stage boundary: remove + recreate the
   // SELECTED build's output dir BEFORE any compile or staging, so every served
   // file is produced from the CURRENT source this run — exactly the contract
-  // the CI/Story orchestrators honour (serve-and-run-adapter-smokes.cjs
-  // cleanSelectedOutDirs, the Story load/play runners). Without this the dev
+  // the CI/Story orchestrators honour (the adapter smokes and the Story
+  // load/play runners, through prepareTestbeds). Without this the dev
   // runner would overlay index.html + _shared onto whatever a PRIOR run left
   // behind, so a stale main.js (or an asset the manifest does not produce)
   // would stay serveable — and in watch mode the browser could render that old
