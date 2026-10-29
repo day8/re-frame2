@@ -7,7 +7,9 @@
 
   One resource id can sit in a plan under several identities; that read
   throws, naming them, and never picks one. An id the active plan does not
-  hold reads `:status :unplanned`. Alongside, `:params-schema` is optional: a
+  hold reads `:status :unplanned`. Off-box, its `:rf.sub/run` trace carries
+  its owner's classification exactly as `[:rf/resource …]`'s does, because it
+  carries the same view-model. Alongside, `:params-schema` is optional: a
   resource without one caches and reads normally, and its params still refuse
   host values at the cache-key boundary."
   (:require
@@ -16,6 +18,8 @@
    [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
+   [re-frame.interop :as rf.interop]
+   [re-frame.privacy :as rf.privacy]
    [re-frame.resources]
    [re-frame.resources.registry :as rf.resources.registry]
    [re-frame.resources.route :as rf.resources.route]
@@ -149,6 +153,79 @@
   (testing "an id with no registration"
     (is (= :rf.error/resource-not-registered
            (:rf.error/id (thrown-data #(route-read :t/nope)))))))
+
+;; ===========================================================================
+;; off-box, the read carries its owner's classification
+;; ===========================================================================
+
+(def ^:private balance "rrte-balance-SECRET")
+
+(defn- account-key [acct] (rf.resources.state/scoped-resource-key :rf.scope/global :t/account {:acct acct}))
+
+(defn- capture-traces
+  "Run `f` and return every trace event emitted meanwhile."
+  [f]
+  (let [captured (atom [])]
+    (rf/register-listener! :trace ::capture (fn [ev] (swap! captured conj ev)))
+    (try
+      (f)
+      @captured
+      (finally
+        (rf/unregister-listener! :trace ::capture)))))
+
+(defn- sub-runs [events]
+  (filterv #(= :rf.sub/run (:operation %)) events))
+
+(defn- off-box-value
+  "The `:rf.sub/value` of the LAST `:rf.sub/run` trace for `query-v` in `events`."
+  [query-v events]
+  (let [runs (filterv #(= query-v (get-in % [:tags :rf.sub/query-v])) (sub-runs events))]
+    (is (seq runs) (str query-v " recomputed inside the window"))
+    (get-in (peek runs) [:tags :rf.sub/value])))
+
+(deftest a-route-bound-read-carries-its-owners-claims-off-box
+  (rf/reg-resource :t/account
+    {:scope :rf.scope/global :sensitive? true :params-schema [:map [:acct :string]]}
+    (fn [{:keys [acct]} _] {:request {:method :get :url (str "/accounts/" acct)}}))
+  ;; the undeclared `:t/article` beside it is the raw control
+  (rf/reg-route :t/account
+    {:params    [:map [:acct :string]]
+     :resources [{:resource :t/account :keep-previous? true
+                  :params   (fn [route] {:acct (get-in route [:params :acct])})}
+                 {:resource :t/article
+                  :params   (fn [route] {:slug (get-in route [:params :acct])})}]}
+    "/account/:acct")
+  (navigate! :t/account {:acct "a"})
+  (let [account-q  [:rf/route-resource :t/account]
+        article-q  [:rf/route-resource :t/article]
+        explicit-q [:rf/resource {:resource :t/account :params {:acct "a"}}]
+        held       (mapv rf/subscribe [account-q article-q explicit-q])
+        read!      #(mapv deref held)
+        _          (read!)
+        loaded     (capture-traces
+                     (fn []
+                       (settle-loaded! (account-key "a") {:balance balance})
+                       (settle-loaded! (article-key "a") {:title "A"})
+                       (read!)))
+        ;; `:keep-previous?` projects the account the route left
+        previous   (capture-traces
+                     (fn []
+                       (navigate! :t/account {:acct "b"})
+                       (read!)))
+        [account]  (read!)]
+    (is (= [:loading {:balance balance} (account-key "a")]
+           ((juxt :status :previous-data :previous-key) account))
+        "the in-process read stays raw")
+    (when rf.interop/debug-enabled?
+      (is (= [rf.privacy/redacted-sentinel rf.privacy/redacted-sentinel {:title "A"}]
+             (mapv #(:data (off-box-value % loaded)) [account-q explicit-q article-q]))
+          "the sensitive route-bound read redacts as the explicit read does; the undeclared one rides raw")
+      (let [v (off-box-value account-q previous)]
+        (is (= [rf.privacy/redacted-sentinel :t/account true]
+               [(:previous-data v) (second (:previous-key v)) (contains? (nth (:previous-key v) 2) :rf/redacted)])
+            "the previous data redacts, and the previous key's params carry the owner's coarse claim"))
+      (is (not-any? #(str/includes? (pr-str (sub-runs %)) balance) [loaded previous])
+          "no sub run in either window carries the balance, current or prior"))))
 
 ;; ===========================================================================
 ;; :params-schema is optional
