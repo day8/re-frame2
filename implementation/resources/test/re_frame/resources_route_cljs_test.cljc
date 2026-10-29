@@ -233,6 +233,49 @@
         (is (= [:idle #{}] [(:transition (slice)) (blocking-slot token-2)])
             "the fresh reply drains the slot — no hang on the aborted work")))))
 
+(defn- write-during-first-load!
+  "Navigate to the blocking article route, then execute `:m/save`, registered
+  with `mutation-spec`, over its entry while the first load is in flight;
+  `settle!` gets the captured write args. Returns the route `:transition`
+  after the execute and after `settle!`."
+  [mutation-spec settle!]
+  (let [writes (atom [])]
+    (rf.fx/reg-fx :rf.http/managed
+      (fn [_ctx args] (when (not= :get (get-in args [:request :method])) (swap! writes conj args)) nil))
+    (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+    (reg-article-route! {:blocking? true})
+    (rf/reg-mutation :m/save
+      (merge {:scope :rf.scope/global :params-schema [:map [:slug :string]]} mutation-spec)
+      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/api/articles/" slug)}}))
+    (navigate-article! "intro")
+    (is (= [:loading :loading] [(:transition (slice)) (:status (entry (article-key "intro")))])
+        "FIXTURE — the blocking first load holds the route")
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "intro"} :instance :w1}])
+    (let [after-execute (:transition (slice))]
+      (settle! (peek @writes))
+      [after-execute (:transition (slice))])))
+
+(def ^:private intro-target
+  {:resource :article/by-slug :params {:slug "intro"} :scope :rf.scope/global})
+
+;; A write that gives a blocking entry its data supersedes the read in flight,
+;; whose late reply is then stale, so only the write's own handler can
+;; re-project the route. Spec 012 §Route readiness is a resource projection
+
+(deftest a-populating-mutation-releases-a-blocked-route
+  (is (= [:loading :idle]
+         (write-during-first-load!
+           {:populates (fn [_params result] {intro-target result})}
+           #(rf/dispatch-sync (conj (:on-success %) {:status :ok :value {:title "Intro (saved)"}}))))
+      "the populated entry releases the route when the write settles"))
+
+(deftest an-optimistic-seed-releases-a-blocked-route
+  (is (= [:idle :idle]
+         (write-during-first-load!
+           {:optimistic (fn [_params] {intro-target (fn [_old] {:title "Intro (draft)"})})}
+           #(rf/dispatch-sync (conj (:on-success %) {:status :ok :value {:title "Intro (saved)"}}))))
+      "the seeded entry releases the route at execute"))
+
 (deftest when-false-gates-the-resource-out
   (rf/reg-resource :comments/list (article-spec {}) article-spec-request)
   (reg-article-route! {:resource :comments/list :when (fn [_route _ctx] false)})
