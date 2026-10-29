@@ -86,7 +86,9 @@
 ;; `BootData` describes the `:data` slot only — not the whole
 ;; `{:state … :data …}` snapshot — and attaches through the machine's
 ;; `[:schemas :data]` slot on `reg-machine` (see `boot.cljs`). Every payload
-;; slot is `:maybe`, because it's nil right up until `:hydrating` fills it in.
+;; slot is `:maybe`, because it's nil until its loader's `:on-done` fold fills
+;; it in, during `:configuring` or `:loading-deps`; `:hydrating` then copies
+;; the filled slots out to app-db.
 
 (def BootData
   [:map

@@ -121,8 +121,9 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
-;; We park the React root in an atom and create it lazily, inside `run` —
-;; never at namespace load. The rule is: requiring a namespace should touch
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at namespace load, and the first `render!` through it,
+;; inside `mount!`, creates the Root. The rule is: requiring a namespace should touch
 ;; the DOM exactly zero times. Otherwise, the moment another example
 ;; co-requires this one, two `create-root` calls race for `#app` and you get
 ;; the kind of bug that only shows up on Tuesdays.

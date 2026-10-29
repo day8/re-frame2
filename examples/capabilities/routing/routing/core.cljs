@@ -168,12 +168,14 @@
 ;; MOUNT (+ router wiring)
 ;; ============================================================================
 
-;; We stash the React root in an atom and create it lazily inside `run`,
-;; rather than at namespace load. The rule (see examples/TESTING.md, the
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at namespace load, and the first `render!` through it,
+;; inside `mount!`, creates the Root. The rule (see examples/TESTING.md, the
 ;; mount-isolation convention) is that loading a namespace must touch no DOM:
 ;; the test harness loads several example namespaces side by side, and if each
-;; eagerly grabbed `#app` they'd trample one another's `create-root`. Lazy
-;; means whoever calls `run` wins the element, and only then.
+;; eagerly grabbed `#app` they'd trample one another's `create-root`. Deferring
+;; to the first render means whoever calls `run` wins the element, and only
+;; then.
 (defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The id of the one frame this whole app runs under: `:rf/default`, the

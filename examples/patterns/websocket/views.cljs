@@ -36,9 +36,8 @@
                   disconnected — decides which word wins.
 
                   Next to it sits a plain `ws-reconnect-attempts` counter
-                  showing `:retries` directly: the RECONNECTING window can
-                  flash by too fast to see in the pill, but the counter
-                  just sits there showing it happened."}
+                  showing `:retries` directly: the reconnect attempt the
+                  machine is on, back to 0 once a connection lands."}
           status-pill []
   (let [connected?      @(subscribe [:ws/connected?])
         authenticating? @(subscribe [:ws/authenticating?])
@@ -58,8 +57,8 @@
      (when err
        [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])
      ;; This counter is always on screen, no matter what the pill is doing.
-     ;; It advances after a Drop, showing the reconnect machinery ran even
-     ;; when the pill never had time to show RECONNECTING.
+     ;; It counts the attempts of the reconnect in progress, and every
+     ;; `:connected` entry resets it to 0.
      [:span.reconnect-attempts {:data-testid "ws-reconnect-attempts"}
       (str retries)]]))
 

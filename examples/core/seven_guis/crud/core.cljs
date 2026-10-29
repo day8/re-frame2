@@ -222,11 +222,12 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; We stash the React root in an atom and create it lazily inside `run`, never at
-;; ns-load time. The rule: loading this namespace must touch no DOM. Several
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. The rule: loading this namespace must touch no DOM. Several
 ;; example namespaces get required into one test page, and if each grabbed the
-;; shared `#app` on load they'd trample each other. Deferring to `run` keeps them
-;; out of each other's way. See examples/TESTING.md (Example mount-isolation).
+;; shared `#app` on load they'd trample each other. Deferring to the first render
+;; keeps them out of each other's way. See examples/TESTING.md (Example mount-isolation).
 (defonce app-root (rf.adapter.reagent/client-root))
 
 ;; The frame's whole life happens in one place: the `frame-root {:id app-frame …}`

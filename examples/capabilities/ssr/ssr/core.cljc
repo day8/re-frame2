@@ -109,11 +109,21 @@
 ;; real decode included, end to end without a
 ;; single packet leaving the building. Both boots issue the same fetch: the
 ;; server's per-request init, and the client's bootstrap on a plain load.
+;;
+;; Only the browser has a page to resolve a relative URL against. On the JVM a
+;; bare "/api/articles" fails as `:rf.http/transport` before any request goes
+;; out, so the server reads its API origin from configuration while the
+;; browser keeps the page-relative path. See
+;; docs/async/http.md#running-on-the-jvm.
+
+(def api-origin
+  #?(:clj  (or (System/getenv "API_ORIGIN") "http://127.0.0.1:3001")   ;; the server needs an absolute URL
+     :cljs ""))                                                         ;; the browser resolves against the page
 
 (def ^:private load-articles
   "The article fetch, as the effect both boots return."
   [:rf.http/managed
-   {:request    {:method :get :url "/api/articles"}
+   {:request    {:method :get :url (str api-origin "/api/articles")}
     :decode     :json
     :on-success [:ssr.articles/loaded]
     :on-failure [:ssr.articles/load-failed]}])

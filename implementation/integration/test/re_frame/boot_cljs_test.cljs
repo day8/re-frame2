@@ -182,6 +182,28 @@
                      "tore down both in-flight siblings, aborting their held requests"))))
         (finally (rf/unregister-listener! :trace ::join-failure))))))
 
+(deftest boot-failure-reason-is-the-server-message
+  (testing "the failure screen's reason reads the server's message off a status failure's body, and a transport failure's own :message"
+    (let [user-answering (fn [answer]
+                           (rf.http.stub-transport/route-transport
+                             (fn [{:keys [url]}]
+                               (if (re-find #"/user\.json$" url) answer {:body (payload-for url)}))))]
+      (with-new-frame [f (boot-frame! (user-answering {:status      503
+                                                       :status-text "Service Unavailable"
+                                                       :body        {:message "Simulated /user.json outage."}}))]
+        (let [db (rf/frame-state-value f)]
+          (is (= [:failed "Simulated /user.json outage."]
+                 [(rf/compute-sub [:app.boot/state] db)
+                  (rf/compute-sub [:app.boot/failure-reason] db)])
+              "a 503 whose JSON body carries a message shows that message, not the failure's kind")))
+      (with-new-frame [f (boot-frame! (user-answering {:failure {:kind    :rf.http/transport
+                                                                 :message "Network unreachable."}}))]
+        (let [db (rf/frame-state-value f)]
+          (is (= [:failed "Network unreachable."]
+                 [(rf/compute-sub [:app.boot/state] db)
+                  (rf/compute-sub [:app.boot/failure-reason] db)])
+              "a transport failure, which carries no body, shows its own :message"))))))
+
 ;; ============================================================================
 ;; PAYLOAD AND SCHEMA BOUNDARIES
 ;; ============================================================================

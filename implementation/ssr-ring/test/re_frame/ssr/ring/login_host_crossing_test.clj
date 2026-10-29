@@ -49,6 +49,7 @@
   proves a key the JVM projects reaches the render although the bundle's
   entry table names no keys, and stays out of `__rf_payload`."
   (:require [clojure.data.json :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -273,7 +274,8 @@
             hand the render the state that decides which of the page's three
             faces it draws. The shipped host drives nothing, so nothing
             crosses; drive the machine from `:initial-events` and the
-            snapshot rides the runtime partition."
+            snapshot rides the runtime partition, into the render and the
+            payload both."
     (with-open [renderer (rf.ssr.ring.node/renderer
                            {:module       @login-module
                             :entry        policy/root-entry
@@ -296,9 +298,14 @@
             "the machine partition crossed")
         (is (str/includes? (str (marked body "login-machines")) ":submitting")
             "carrying the state the JVM drove the flow into")
-        (is (not (str/includes? (str (payload-edn-of body)) ":rf.runtime/machines"))
-            "and it is render state, not payload: the browser's allowlist is
-             app-db keys and names none of this")))))
+        (is (= :submitting
+               (get-in (edn/read-string (payload-edn-of body))
+                       [:rf/runtime-db :rf.runtime/machines :snapshots
+                        :auth.login/flow :state]))
+            "and the payload carries it too: `:payload` names app-db keys
+             alone, and durable runtime-db, machine snapshots included, rides
+             `__rf_payload`'s `:rf/runtime-db` (Spec 011 §Payload scope), which
+             is how the hydrating client adopts the face the server drew")))))
 
 (deftest ^:crossing a-key-the-entry-never-names-renders
   (testing "a key the host's :render-state projects reaches the render

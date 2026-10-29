@@ -168,7 +168,9 @@ examples/patterns/nine_states/
                        table + :ui/render sub, per-state views, mount.
   index.html           the host page — for BOTH builds. It carries the
                        `[data-rf-xray-host]` aside Xray's inline mount
-                       needs, so Ctrl+Shift+C works on the served page.
+                       needs, but only the Story showcase build
+                       (examples/nine-states-with-stories) loads Xray,
+                       so Ctrl+Shift+C works there alone.
   stories.cljs         Story showcase: one variant per canonical render
                        keyword, plus the fetch-lifecycle story (auxiliary;
                        see below).

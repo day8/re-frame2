@@ -161,8 +161,9 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root, kept in an atom and created lazily inside `run`. We create
-;; it there rather than at ns-load so several example namespaces can share one
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. Deferring the DOM work to that render means several example namespaces can share one
 ;; browser-test bundle without two of them racing `create-root` onto the same
 ;; `#app` element.
 (defonce app-root (rf.adapter.reagent/client-root))

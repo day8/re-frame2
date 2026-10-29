@@ -45,6 +45,8 @@ The canonical states form a hierarchical machine. `:connecting`, `:authenticatin
 :active / :connecting   --:ws/opened-->          :active / :authenticating
 :active / :authenticating --:ws/auth-ok-->       :active / :connected
 :active / :authenticating --:ws/auth-failed-->   :failed
+:active / :connecting   --:after handshake-->    :reconnecting
+:active / :authenticating --:after handshake-->  :reconnecting
 :active / *             --:ws/closed-->          :reconnecting
 :active / *             --:ws/fatal-->           :failed
 :active / *             --:ws/disconnect-->      :disconnected
@@ -62,7 +64,7 @@ Per [005 §Transition resolution — deepest-wins with parent fallthrough](005-S
 The connection machine composes the locked substrate:
 
 - **Hierarchical states** ([005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)) — `:active` is the parent of three connection-leaves; the parent owns the socket actor.
-- **`:after`** ([005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — exponential backoff timer in `:reconnecting`, expressed as a **fn-form delay** `(fn [{:keys [snapshot]}] ms)` that reads the current `:retries` and `:base-ms` from the snapshot's `:data`. The `:after`-epoch invariant ([005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) guarantees stale timers from prior `:reconnecting` visits are silently dropped on transitions away.
+- **`:after`** ([005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — exponential backoff timer in `:reconnecting`, expressed as a **fn-form delay** `(fn [{:keys [snapshot]}] ms)` that reads the current `:retries` and `:base-ms` from the snapshot's `:data`. The `:after`-epoch invariant ([005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) guarantees stale timers from prior `:reconnecting` visits are silently dropped on transitions away. The two handshake leaves, `:connecting` and `:authenticating`, each carry a fixed `:after` deadline as well: a server can accept the socket and never finish opening it, or never answer the auth frame, and without a deadline the connection would sit in the handshake for good with nothing to retry it. A deadline that fires counts as a lost socket, taking the same `:on-socket-lost` path to `:reconnecting` as a drop.
 - **`:always`** ([005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)) — max-retries guard fires immediately on entry to `:reconnecting` if `:retries` exceeds the limit, transitioning straight to `:failed`. Also used to flush queued messages on entry to `:connected`.
 - **Machine-scoped `:guards` / `:actions`** ([005 §Registration — the machine IS the event handler](005-StateMachines.md#registration--the-machine-is-the-event-handler)) — for `:max-retries-exceeded?`, `:has-queued-messages?`, `:on-socket-lost`, `:flush-queue`, `:current-socket?`, etc.
 - **`:spawn`** ([005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — `:active` invokes a `:websocket/socket` actor that owns the actual `WebSocket` object; the actor's lifetime is bound to the `:active` parent. Any transition that exits `:active` (to `:reconnecting`, to `:failed`, or to `:disconnected`) destroys the actor; re-entering `:active` after `:after` backoff spawns a fresh socket.
@@ -124,6 +126,11 @@ The connection machine composes the locked substrate:
                          [:dispatch (conj reply-event
                                           (local-failure rid :ws/connection-lost))])))
                (:in-flight data))})
+
+;; How long each handshake leaf waits for the socket to move it on. A server
+;; that accepts the socket and never opens it, or never answers the auth frame,
+;; raises no `:ws/closed`, so without this deadline nothing would ever retry.
+(def handshake-timeout-ms 10000)
 
 (rf/reg-machine :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
@@ -474,14 +481,23 @@ The connection machine composes the locked substrate:
 
      :states
      {:connecting
-      ;; Guarded like every socket-sourced lifecycle event: an :ws/opened
-      ;; from a socket we've already replaced (a slow open landing after a
-      ;; disconnect+reconnect) must not advance THIS connection.
-      {:on {:ws/opened {:guard  :current-socket?
-                        :target :authenticating}}}
+      ;; A handshake step that outlives its deadline is a lost socket: count
+      ;; the retry and back off, exactly as a drop does. Leaving :active
+      ;; destroys the actor, which closes the socket.
+      {:after {handshake-timeout-ms {:target [:reconnecting]
+                                     :action :on-socket-lost}}
+       ;; Guarded like every socket-sourced lifecycle event: an :ws/opened
+       ;; from a socket we've already replaced (a slow open landing after a
+       ;; disconnect+reconnect) must not advance THIS connection.
+       :on    {:ws/opened {:guard  :current-socket?
+                           :target :authenticating}}}
 
       :authenticating
       {:entry :send-auth
+       ;; The same deadline, for a server that opened the socket and never
+       ;; answers the auth frame.
+       :after {handshake-timeout-ms {:target [:reconnecting]
+                                     :action :on-socket-lost}}
        ;; Both auth outcomes are epoch-guarded: a straggler :ws/auth-ok from
        ;; a replaced socket must not prematurely mark us :connected, and a
        ;; straggler :ws/auth-failed must not tear a fresh attempt to :failed.

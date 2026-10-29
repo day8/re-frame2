@@ -161,7 +161,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   `:spawn` desugars to a `:rf.machine/destroy` on exit), and the runtime
   clears its id from that `:spawned` record — so the connection machine needs
   no `:exit` action to forget the id. The actor itself does carry one: an
-  `:exit :close-socket` on its `:open` state returns the `:ws.socket/close`
+  `:exit :close-socket` on its `:live` state returns the `:ws.socket/close`
   effect that closes the host `WebSocket` on the way down, because a live
   socket is a handle the runtime can't drop for you. The runtime runs an
   `:exit`'s effects on every way the actor ends — destroyed by its parent,

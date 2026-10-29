@@ -94,12 +94,13 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; We hold the React root in an atom and create it lazily inside `run`,
-;; never at ns-load. The reason is mundane but real: several example
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. The reason is mundane but real: several example
 ;; namespaces share one `#app` element in the browser-test bundle, and
 ;; creating roots at ns-load would race several of them onto the same
-;; container. Building it in `run` keeps loading this namespace free of
-;; DOM side effects.
+;; container. Leaving it to the first render keeps loading this namespace free
+;; of DOM side effects.
 
 (defonce app-root (rf.adapter.reagent/client-root))
 
