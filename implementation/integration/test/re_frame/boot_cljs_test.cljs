@@ -12,6 +12,7 @@
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.integration-adapter :as rf.integration-adapter]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
             ;; the `:where :machine-data` boundary routes through; boot.core
@@ -193,18 +194,6 @@
 ;; app-db slice schemas (`reg-app-schema [:config]` etc.) keep validating the
 ;; app-db partition independently.
 
-(defn- collect-machine-data-traces!
-  "Run `thunk` while collecting `:rf.error/schema-validation-failure` traces
-   with `:where :machine-data`. Returns the captured (filtered) vector."
-  [thunk]
-  (let [traces (atom [])]
-    (rf/register-listener! :trace ::collect (fn [ev] (swap! traces conj ev)))
-    (try (thunk)
-         (finally (rf/unregister-listener! :trace ::collect)))
-    (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
-                   (= :machine-data (-> % :tags :where)))
-             @traces)))
-
 (deftest boot-malformed-data-fails-boundary
   (testing "a config child returning a malformed Config drives :promote-staged to write bad :data, failing the :machine-data boundary"
     ;; The backend answers a structurally-WRONG config (missing
@@ -216,7 +205,7 @@
                            {:api-base "/api"}     ;; missing :env :build :title → violates Config
                            {})))
           frame      (atom nil)
-          traces     (collect-machine-data-traces!
+          traces     (rf.integration-support/collect-machine-data-traces!
                        #(reset! frame (boot-frame! bad-config)))]
       (try
         ;; `:recovery` rides the trace ENVELOPE, not :tags, as on the
