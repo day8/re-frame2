@@ -154,7 +154,7 @@ Typical improvements:
 ### Wire-size caps and pagination
 
 Signals:
-- a truncated, capped, or deduped page was read as a complete answer
+- a truncated, capped, or deduped page was read as a complete answer — including an empty `trace-window` / `watch-epochs` page whose `:advisory` names the cause (`:record-exceeds-max-tokens`, `:pred-excludes-history`, `:window-excludes-history`)
 - the same read was re-run instead of passing the previous response's cursor
 - a `:rf.mcp/dedup-table` payload was reasoned about undecoded
 
@@ -237,7 +237,7 @@ Signals:
 Typical improvements:
 - when proposing a fix that adds or renames a tool, cross-reference the live catalogue — that check is `re-frame2-pair`'s job (the retro itself never probes the runtime; a result the session never produced stays unknown/incomplete)
 
-If the session itself ran `discover-app`, its result carries the live build's id, its health fields and a `:freshness` liveness token, and with the server's `tools/list` sanity-checks "tool X was actually available". A failed probe is the [attach-ladder class](#attach-failures-and-the-diagnostic-ladder) above.
+If the session itself ran `discover-app`, its result carries the live build's id, its health fields and a `:freshness` liveness token, and with the server's `tools/list` sanity-checks "tool X was actually available". An `:unknown-tool` refusal settles it too: its `:available-tools` is that server's catalogue, and `:did-you-mean` names the near miss. A failed probe is the [attach-ladder class](#attach-failures-and-the-diagnostic-ladder) above.
 
 ### Source-coordinate availability
 
