@@ -261,7 +261,8 @@
   allocation — no DOM work, no React call — so a load-time `defonce` costs
   nothing, and the FIRST render through it creates or adopts the Root while
   every later one updates that same Root. That is what lets the boot and the
-  reload hook be one call with no root state of the page's own."}
+  reload hook be one call; the only root state the page keeps is the frame
+  boundary in `!boundary`, below."}
   app-root
   (rf.fresco/client-root))
 
@@ -272,8 +273,7 @@
   hands React has no frame at all. Held rather than rebuilt because the two
   boot paths choose DIFFERENT heads (`frame-provider` after SSR, `frame-root`
   client-only), and re-rendering with the other one is a React type change:
-  the subtree unmounts and remounts, discarding exactly the DOM, subscriptions
-  and component state this hook exists to preserve.
+  the whole subtree unmounts and remounts, edited views or not.
 
   The boundary is held; the VIEW is not. `root-view` is read fresh on every
   re-render, so the reload's newly minted head is what meets the position."}
@@ -282,10 +282,11 @@
 
 ;; Shadow's cue to re-run this after each reload. A later `rf.fresco/render!`
 ;; through a live handle UPDATES the Root it already owns, reconciling the new
-;; tree against the DOM already on the page, so edited views meet their own
-;; nodes and the frame beneath them is untouched. The create-once half of the
-;; handle contract is what rules out a second `createRoot` throwing away every
-;; node, subscription and scrap of component state.
+;; tree against the DOM already on the page: the frame is untouched, and so is
+;; every component whose type did not change. An edited `defview` is a new
+;; component type, so React remounts it and what is beneath it. The
+;; create-once half of the handle contract is what rules out a second
+;; `createRoot` throwing the whole tree away.
 ;;
 ;; The mount point is named again and READ AGAIN BY NOBODY: `render!` takes it
 ;; on the first call through a handle only. It is passed because the door's
@@ -335,8 +336,11 @@
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById app-element-id))]
     (rf.http.stub-transport/install-transport! frame-id model/demo-backend)
-    (let [payload (rf.ssr/read-server-payload)
-          opts    {:identifier-prefix identifier-prefix}]
+    (let [payload      (rf.ssr/read-server-payload)
+          opts         {:identifier-prefix identifier-prefix}
+          frame-config (merge {:id  frame-id
+                               :doc "Login (Fresco) demo frame."}
+                              model/frame-config)]
       (if (some? payload)
         ;; SSR: STATE COMES FIRST, and that is why this branch — and only
         ;; this branch — still calls `rf/make-frame` by hand. `rf.ssr/hydrate!`
@@ -349,9 +353,7 @@
         ;; its first pass — which is exactly the mistake the frame-root /
         ;; frame-provider split exists to name. (It would not overwrite the
         ;; payload; re-ensuring a live frame preserves app-db.)
-        (do (rf/make-frame (merge {:id  frame-id
-                                   :doc "Login (Fresco) demo frame."}
-                                  model/frame-config))
+        (do (rf/make-frame frame-config)
             (hydrate-client! frame-id payload)
             (reset! !boundary [rf.fresco/frame-provider {:frame frame-id}])
             (rf.fresco/render! app-root
@@ -360,12 +362,9 @@
               (assoc opts :hydrate? true)))
         ;; Client-only: the tree ENSUREs, with the whole `make-frame` option
         ;; map on the head.
-        (let [ensure (merge {:id  frame-id
-                             :doc "Login (Fresco) demo frame."}
-                            model/frame-config)]
-          (reset! !boundary [rf.fresco/frame-root ensure])
-          (rf.fresco/render! app-root
-            [rf.fresco/frame-root ensure [root-view]]
-            el
-            opts)))))
+        (do (reset! !boundary [rf.fresco/frame-root frame-config])
+            (rf.fresco/render! app-root
+              [rf.fresco/frame-root frame-config [root-view]]
+              el
+              opts)))))
   nil)

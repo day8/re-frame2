@@ -92,10 +92,12 @@ is adopting. Both are named constants at the top of [`core.cljs`](core.cljs);
 the server renderer creates its own per-request frame.
 
 One verb, not four. The first `rf.fresco/render!` through `app-root` creates the Root;
-every later one updates it, so the `^:dev/after-load` hook is the same call and
-the page keeps no root state of its own. `{:hydrate? true}` on that first call
-makes it adopt the server's DOM instead — which is the SSR route below, and the
-only difference between the two boots.
+every later one updates it, so the `^:dev/after-load` hook is the same call. The
+one piece of root state the page keeps is `!boundary`, the frame boundary it
+booted with, so the reload hook re-renders under the same head. `{:hydrate? true}`
+on that first call makes it adopt the server's DOM instead — the SSR route below,
+which also makes its frame by hand and scopes it with `frame-provider`, for the
+reason given below.
 
 Fresco is a view layer, not a
 [substrate](../../../../docs/core/glossary.md#substrate): it owns Hiccup
@@ -112,17 +114,12 @@ takes the `rf/make-frame` option map rather than a curated subset. The fake
 backend is not config: `model/demo-backend` is a stub transport, installed on
 the frame before it renders, so the example needs no server.
 
-This example used to be the odd one out. The root door's config was closed at
-three keys, `:fx-overrides` was not among them, and keys outside the three were
-dropped in silence — so the boot had to call `rf/make-frame` first and mount to
-JOIN the frame it had already made, and this section had to explain why. The
-in-tree boundary retired the detour (rf2-kuky.58): the frame is named once,
-where it is used, and the root door now refuses a frame option rather than
-ignoring it.
+So the client-only boot names its frame once, where it is used, and the root
+door takes root options only, refusing a frame option rather than ignoring it.
 
-**The SSR branch still makes the frame by hand, and that is not the same
-detour.** `rf.ssr/hydrate!` dispatches the server's payload INTO a frame; it
-does not make one. So an adopting boot makes the frame with its config, installs
+**The SSR branch makes the frame by hand.** `rf.ssr/hydrate!` dispatches the
+server's payload INTO a frame; it does not make one. So an adopting boot makes
+the frame with its config, installs
 the payload, and then SCOPEs it with `[rf.fresco/frame-provider {:frame …}]` — state
 first, DOM second. An `rf.fresco/frame-root` there would be the wrong shape: its ENSURE
 is commit-owned, so its first render emits no descendant subtree, where an
@@ -130,8 +127,10 @@ adopting root must render the server's element shape on its first pass.
 
 Hot reload is the SAME `rf.fresco/render!` call through the same handle: a later render
 updates the Root that handle already owns rather than building a second one, so
-every node, subscription and scrap of component state survives. There is no
-second verb that could `createRoot` twice by mistake.
+the frame and its app-db survive, along with the state of every component whose
+type did not change. An edited `defview` is a new component type, so React
+remounts it and everything beneath it. There is no second verb that could
+`createRoot` twice by mistake.
 
 ## Files
 
@@ -275,6 +274,14 @@ different one and the adapter refuses an answer that comes back with one:
 npx shadow-cljs release examples/login-fresco-server   --config-merge '{:closure-defines {fresco.login.server/build-id "2026-09-02-a1b2c3"}}'
 ```
 
+The host reads its side from `LOGIN_FRESCO_BUILD_ID`, and without it expects
+the development id `login-fresco-dev`, so export the same string in the shell
+that boots the JVM below:
+
+```bash
+export LOGIN_FRESCO_BUILD_ID=2026-09-02-a1b2c3
+```
+
 Then boot the JVM and serve `host.clj`'s `app`. Start it from
 `implementation/ssr-ring/`, not from `implementation/`: the host needs
 `fresco.login.host`, the shared `login.model` and a Ring adapter on one
@@ -310,8 +317,10 @@ clojure -Sdeps '{:aliases {:repl {:main-opts ["-r"]}}}' -M:test:repl
 
 ;; Launch the Node sidecar on the server bundle and wait until it is ready.
 ;; A missing bundle, or one stamped with another build id, fails HERE.
-;; `(.close renderer)` stops it; so does leaving the REPL.
-(def renderer (host/renderer))
+;; `(.close renderer)` stops it; so does leaving the REPL. `defonce`, because
+;; each `renderer` call launches its own sidecar, so a re-evaluated `def`
+;; would leave the last one running.
+(defonce renderer (host/renderer))
 
 ;; `host/app`, not `host/make-handler`. The handler is the SSR handler alone,
 ;; and an SSR handler renders a document for EVERY request it is given —

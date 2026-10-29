@@ -10,8 +10,9 @@
   (`re-frame.ssr.render-state/restore!`) and the wire domain.
 
       npx shadow-cljs compile :examples/login-fresco-server
-      node implementation/ssr-node/bin/serve.cjs \\
-        --module implementation/out/examples/login-fresco-server/server.js
+
+  There is no sidecar to start by hand: the JVM host's `renderer`
+  (`host.clj`) launches the sidecar on this bundle and supervises it.
 
   ## What crosses, and what does not
 
