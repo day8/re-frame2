@@ -49,7 +49,6 @@
                                                 "-d" (.getAbsolutePath ^java.io.File dir)]
                                                runner-args))
         child-env       (.environment builder)]
-    (.remove child-env "RF2_MIN_TESTS")
     (.remove child-env "RF2_VERBOSE_TESTS")
     (doseq [[k v] env] (.put child-env k v))
     (drain-process (.start builder))))
@@ -226,15 +225,6 @@
         (is (= 1 exit) err)
         (is (str/includes? err "below the floor of 1") err)))))
 
-(deftest floor-above-the-real-count-is-red
-  (with-fixture-dir
-    (fn [dir]
-      (write-fixture! dir "floor_raised_fixture_test" "floor-raised-fixture-test"
-                      "(deftest a-passing-test (is (= 1 1)))")
-      (let [{:keys [exit err]} (invoke-runner {:roots [dir] :dir dir :env {"RF2_MIN_TESTS" "2"}})]
-        (is (= 1 exit) err)
-        (is (str/includes? err "executed 1 test(s), below the floor of 2") err)))))
-
 (deftest probe-lane-with-zero-tests-is-green
   (with-fixture-dir
     (fn [dir]
@@ -252,12 +242,6 @@
       (let [{:keys [exit err]} (invoke-quiet-runner dir "--probe")]
         (is (= 1 exit) err)
         (is (str/includes? err "declared a classpath probe") err)))))
-
-(deftest malformed-floor-is-a-configuration-error
-  (with-fixture-dir
-    (fn [dir]
-      (let [{:keys [exit out err]} (invoke-runner {:roots [dir] :dir dir :env {"RF2_MIN_TESTS" "1O"}})]
-        (is (= 2 exit) (str out err))))))
 
 (deftest an-undiscoverable-file-refuses-the-run
   (with-fixture-dir

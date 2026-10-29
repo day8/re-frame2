@@ -68,24 +68,8 @@ test('run-browser-tests: the executed-test count is part of the verdict, not jus
   const src = read('run-browser-tests.cjs');
   assert.match(
     src,
-    /ranCounts\.tests\s*<\s*minTests[\s\S]{0,700}?return\s+1\s*;/,
+    /ranCounts\.tests\s*<\s*MIN_TESTS[\s\S]{0,700}?return\s+1\s*;/,
     'must fail the run (return 1) when the executed-test count is below the floor',
-  );
-});
-
-test('run-browser-tests: a malformed floor is refused, never a silent default (rf2-qqzmf)', () => {
-  const src = read('run-browser-tests.cjs');
-  // A floor that silently fell back to the default on `RF2_MIN_TESTS=1O` would
-  // disable the gate that catches silent non-execution.
-  assert.match(
-    src,
-    /Number\.isInteger\(\s*n\s*\)/,
-    'must validate the floor as an integer',
-  );
-  assert.match(
-    src,
-    /if\s*\(\s*minTests\s*===\s*null\s*\)\s*return\s+2\s*;/,
-    'a malformed floor must exit 2 (configuration error), distinct from 1 (red)',
   );
 });
 
