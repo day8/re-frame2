@@ -75,12 +75,14 @@
 (deftest live-action-outcome-redacts-while-action-reads-raw
   (let [read (atom ::none)
         seen (atom [])]
-    ;; `[1 :value]` classifies the routed event's payload; `[:data :secret]` the
-    ;; snapshot slot the action writes, and so its `:outcome` echo.
+    ;; The opts `[1 :value]` classifies the routed event's payload; the spec's
+    ;; `[:data :secret]` the snapshot slot the action writes, and so its
+    ;; `:outcome` echo.
     (rf/reg-machine mid
-      {:sensitive [[1 :value] [:data :secret]]}
-      {:initial :idle
-       :data    {:secret "seed"}
+      {:sensitive [[1 :value]]}
+      {:initial   :idle
+       :sensitive [[:data :secret]]
+       :data      {:secret "seed"}
        :actions {:save! (fn [{:keys [data event]}]
                           {:data (assoc data :secret (get-in event [1 :value]))})
                  :read! (fn [{:keys [data]}]
