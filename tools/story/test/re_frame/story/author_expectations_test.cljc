@@ -39,6 +39,8 @@
             [:rf.assert/schema-error {:where :event :event :user/save}]]
            [{:kind :schema-error :operands {}}
             [:rf.assert/schema-error]]
+           [{:kind :schema-error :operands {:where-spec "[:where :event]"}}
+            nil]
            [{:kind :app-db-equals :operands {:path "[:a" :expected "5"}}
             nil]]]
     (is (= expected (rf.story.author-expectations/expectation->atom row)) (pr-str row))))

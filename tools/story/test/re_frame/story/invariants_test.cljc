@@ -193,6 +193,13 @@
                          (rf/dispatch-sync [:dec] {:frame :test/main})))]
          (is (zero? (count (filter #(= :fail (:type %)) reports))))))))
 
+#?(:clj
+   (deftest with-invariants-that-observed-no-epoch-fails
+     (testing "a body that commits no epoch checked nothing, so it is not a pass"
+       (let [reports (with-captured-reports
+                       (fn [] (with-invariants [(fn [_] true)] nil)))]
+         (is (= [:fail] (mapv :type reports)))))))
+
 ;; spec/017 promises the sentinel works with fresh and destroyed frames.
 #?(:clj
    (deftest with-invariants-works-with-destroyed-frame

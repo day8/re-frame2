@@ -319,6 +319,21 @@
      :message  (str "invariant " (pr-str invariant-id) " held across all epochs")})
   nil)
 
+(defn report-unobserved!
+  "Report an invariant whose sentinel observed no committed epoch as a
+  `:fail` via `do-report`: it checked nothing, so a `:pass` would be a
+  false green — the shape of a body whose dispatches settle after it
+  returns (an async `rf/dispatch` on CLJS). Never throws."
+  [invariant-id]
+  (ctest/do-report
+    {:type     :fail
+     :message  (str "invariant " (pr-str invariant-id)
+                    " observed no committed epoch, so nothing was checked"
+                    " (a dispatch that settles after the body returns is not observed)")
+     :expected :at-least-one-epoch
+     :actual   0})
+  nil)
+
 ;; ===========================================================================
 ;; LISTENER ORCHESTRATION  (the live sentinel core)
 ;; ===========================================================================
@@ -391,18 +406,23 @@
   (let [coerced (coerce-invariants invariants)
         state   (atom {:seen #{} :violations []})
         key     (keyword "rf.story.invariants" (str (gensym "sentinel-")))]
-    (rf/register-listener! :epoch key (fn [epoch] (on-epoch! state coerced epoch)))
+    (rf/register-listener! :epoch key (fn [epoch]
+                                        (swap! state update :epochs (fnil inc 0))
+                                        (on-epoch! state coerced epoch)))
     (try
       (body-fn)
       (finally
         (rf/unregister-listener! :epoch key)
-        ;; Per spec/017 §Invariant sentinels — a green sentinel is visible: report a
-        ;; `:pass` for every invariant that recorded no violation across
-        ;; the whole run.
+        ;; Per spec/017 §Invariant sentinels — a green sentinel is visible:
+        ;; report a `:pass` for every invariant that recorded no violation
+        ;; across the whole run, and a `:fail` for each when no epoch was
+        ;; observed at all.
         (let [violated (into #{} (map :invariant) (:violations @state))]
           (doseq [{:keys [id]} coerced
                   :when (not (contains? violated id))]
-            (report-pass! id)))))))
+            (if (pos? (:epochs @state 0))
+              (report-pass! id)
+              (report-unobserved! id))))))))
 
 ;; ===========================================================================
 ;; with-invariants  (the public fixture macro)

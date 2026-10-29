@@ -103,6 +103,16 @@
       (catch #?(:clj Exception :cljs :default) e
         [false #?(:clj (.getMessage ^Exception e) :cljs (str e))]))))
 
+(defn- read-edn-map
+  "`read-edn` for an operand that must be a map. Anything else is a parse
+  error, so a mistyped schema-error spec is refused rather than silently
+  widening to the bare any-violation `[:rf.assert/schema-error]`."
+  [s]
+  (let [[ok? v :as res] (read-edn s)]
+    (if (and ok? (not (map? v)))
+      [false "a spec map, e.g. {:where :event :event :user/save}"]
+      res)))
+
 (defn- parse-path
   "Parse an app-db path operand string into a vector. Accepts the printed
   vector form `[:a :b]` (read as EDN) or a bare keyword `:a` (lifted to
@@ -220,7 +230,7 @@
     :assertion-id :rf.assert/schema-error
     :doc          "Assert the run is EXPECTED to emit one schema-validation failure on a named surface (:rf.assert/schema-error)."
     :operands     [{:field :where-spec :label "spec map" :placeholder "{:where :event :event :user/save}"
-                    :parse read-edn :optional? true}]}])
+                    :parse read-edn-map :optional? true}]}])
 
 (defn kind-descriptor
   "The catalog descriptor for `kind`, or nil. Pure data → data."
@@ -302,10 +312,9 @@
         :a11y-structural  [:rf.assert/a11y-structural]
         :a11y             [:rf.assert/a11y]
         :visual-snapshot  [:rf.assert/visual-snapshot]
-        :schema-error     (let [spec (:where-spec values)]
-                            (if (map? spec)
-                              [:rf.assert/schema-error spec]
-                              [:rf.assert/schema-error]))
+        :schema-error     (if-let [spec (:where-spec values)]
+                            [:rf.assert/schema-error spec]
+                            [:rf.assert/schema-error])
         nil))))
 
 ;; ===========================================================================
