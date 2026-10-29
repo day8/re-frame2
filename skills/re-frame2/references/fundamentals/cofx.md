@@ -144,9 +144,9 @@ Pick by what the fact is and whether the write that consumes it is durable.
 
 ## Reading a sub from a handler — `subscribe-once`, wrapped as an ambient cofx
 
-A handler that needs a sub's current value **must not** open a **reactive** subscription (`@(rf/subscribe ...)`) from its body — that leaks a reaction. The shipped one-shot read is **`rf/subscribe-once`** (Spec 006): subscribe, deref, unsubscribe in one call, no reaction left behind. A bare `(rf/subscribe-once [:some/sub])` in a handler body is correct and supported. **Not in a machine guard / action**, though: an in-callback read is unrecorded and breaks replay — a machine declares the machines-only recordable source `{:rf/sub query-v :as fact-id}` on a named entry instead ([`../state-machines/reg-machine.md` §Guard / action contract](../state-machines/reg-machine.md#guard--action-contract)); on a `reg-event` that form is `:rf.error/cofx-request-invalid`.
+A handler that needs a sub's current value does not read it from its body. A **reactive** `@(rf/subscribe ...)` there leaks a reaction. The one-shot **`rf/subscribe-once`** (Spec 006: subscribe, deref, unsubscribe in one call) leaks nothing, but it is still a read the handler never declared, so the handler is no longer a pure function of its coeffects. Take the value through a declared cofx that calls `subscribe-once` (below), or compute it purely with `(rf/compute-sub query-v db)` against the handler's `:db` — against `:rf.db/runtime` for a framework sub such as `[:rf/machine id]`. **Never `subscribe-once` in a machine guard / action**: an in-callback read is unrecorded and breaks replay — a machine declares the machines-only recordable source `{:rf/sub query-v :as fact-id}` on a named entry instead ([`../state-machines/reg-machine.md` §Guard / action contract](../state-machines/reg-machine.md#guard--action-contract)); on a `reg-event` that form is `:rf.error/cofx-request-invalid`.
 
-The **preferred** shape, when the read should be reusable / parameterised / stubbable / named, is to wrap the `subscribe-once` read as an ambient cofx:
+The cofx form wraps the `subscribe-once` read as an ambient cofx, so the read is declared, named and stubbable:
 
 ```clojure
 (rf/reg-cofx :user/current

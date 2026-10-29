@@ -213,7 +213,7 @@ the sensitive/large paths there — the same vocabulary, relative to the payload
    :large     [[:body :upload]]}
   managed-handler)
 
-(rf/reg-fx :rf.ws/send {:sensitive [[:auth]]} ws-handler)
+(rf/reg-fx :ws/send {:sensitive [[:auth]]} ws-handler)
 
 (rf/reg-event :auth/login {:sensitive [[:password]]}
   (fn [{:keys [db]} [_ {:keys [user password]}]] …))

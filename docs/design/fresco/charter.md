@@ -338,7 +338,7 @@ dignified, and informative.
 Deliberate trades, with compensations: boundary discipline replaces
 split-a-component tuning (`r/track`, reactions, and cursors are gone — the subs
 layer is the tool); `@`-anywhere is gone (`sub` is render-scoped; handlers use
-cofx or `subscribe-once`); React's truths are visible (StrictMode, keys-as-props,
+a cofx or `compute-sub`, utility code `subscribe-once`); React's truths are visible (StrictMode, keys-as-props,
 hooks at host edges); quick interop is declare-first
 ([authoring.md](authoring.md)). Maturity gaps that time closes or the kill gates
 expose: the input long tail beyond R-A1/A2, and the unproven bulk/narrow story

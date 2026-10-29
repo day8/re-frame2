@@ -83,7 +83,7 @@ A **transient payload** (event args, fx args, cofx values, sub output) is owned 
    :large     [[:request :body :upload]]}
   managed-handler)
 
-(rf/reg-fx :rf.ws/send {:sensitive [[:auth]]} ws-handler)
+(rf/reg-fx :ws/send {:sensitive [[:auth]]} ws-handler)
 
 (rf/reg-cofx :session {:recordable? false :sensitive [[:token]]}
   (fn [] {:user "alice" :token (read-token)}))
