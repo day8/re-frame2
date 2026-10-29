@@ -83,7 +83,7 @@ A fixture whose capabilities aren't a subset of the claim is **not** simply "ski
 - **Intentional out-of-claim** — the capability is on the explicit `known-skipped` allowlist, with a reason. Reported "skipped (out-of-claim)"; does not fail the suite.
 - **Typo / claim-set drift** — the capability is in neither set. The suite **MUST FAIL** naming it. The remedy is to add it to the claim (with runtime backing) or to `known-skipped` (an explicit decision) — a harness that silently skips unknown capabilities is the shape the spec forbids.
 
-A **v1-required** family is in neither flavour, and that is the point. `:core/*`, `:identity/*`, `:flow/*` and `:data-classification/*` are always claimed, so their fixtures are never out of claim: allowlisting one is not an "intentional" skip but the claim itself being wrong, and the required-family floor above refuses it. So the second remedy above — "or to `known-skipped`" — is available for a genuinely optional capability, and for nothing else.
+A **v1-required** family is in neither flavour: its fixtures are never out of claim, so allowlisting one means the claim itself is wrong, and the required-family floor above refuses it. The `known-skipped` remedy is for a genuinely optional capability only.
 
 ### Static hosts and dynamic-host-only fixtures
 
