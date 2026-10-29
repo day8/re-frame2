@@ -1240,6 +1240,29 @@ test('every skill-fixture :local/root arms skills_structural, and only src + dep
   );
 });
 
+// The tool trees a skills-structural test READS: the pair skill's prompt suite
+// pins ops.md against pair-mcp's generated tool-descriptors.edn, and the setup
+// skill's suites load tools/template's hooks and resources. mcp-base reaches
+// the pair suite only through a regenerated manifest, and the template's own
+// test/ tree is read by no skill test.
+const SKILL_READ_TOOL_FILES = pinnedRoster('skill-read tool files', [
+  'tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/server.cljs',
+  'tools/re-frame2-pair-mcp/tool-descriptors.edn',
+  'tools/template/src/day8/re_frame2_template/hooks.clj',
+  'tools/template/resources/day8/re_frame2_template/template.edn',
+]);
+test('a tool file a skill test reads arms skills_structural', () => {
+  for (const file of SKILL_READ_TOOL_FILES) {
+    assert.equal(classify(file).skills_structural, 'true', `a skills-structural test reads ${file}`);
+  }
+  for (const file of [
+    'tools/mcp-base/src/re_frame/mcp_base/descriptor_manifest.cljc',
+    'tools/template/test/day8/re_frame2_template/template_test.clj',
+  ]) {
+    assert.equal(classify(file).skills_structural, 'false', `no skills-structural test reads ${file}`);
+  }
+});
+
 // The reverse-edge dispatches above only ever SET their outputs, so they cannot
 // narrow a per-feature artefact's production routing. Pinned per artefact,
 // because a refactor into an arm of the big first-match `case` would keep the
