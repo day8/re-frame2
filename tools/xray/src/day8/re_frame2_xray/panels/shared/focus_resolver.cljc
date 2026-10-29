@@ -63,6 +63,13 @@
   The 2-arities keep head-fallback; only a caller that passes the pinned
   `:dispatch-id` can see `:no-epoch`.
 
+  ## `:withheld` — the pinned bundle whose epoch the egress gate kept out
+
+  One cause IS knowable: the ingest gate (`epoch/assoc-history`) leaves the
+  `:dispatch-id` of every record it withholds in `:rf.xray/epoch-withheld`.
+  The 4-arity takes that set and answers `:withheld` for a pinned bundle in
+  it, and panels say the egress policy withheld the epoch (`withheld-copy`).
+
   ## Pure-data + JVM-testable
 
   Both fns are pure data → data with no `:require` on the framework
@@ -71,16 +78,22 @@
 
 ;; ---- focus-status resolver ----------------------------------------------
 
+(def withheld-copy
+  "The empty-state line every panel shows for `:withheld`."
+  "The selected event's epoch is withheld by the egress policy.")
+
 (defn resolve-focus-status
   "Classify the focus + history pair into one of the three focus
   statuses panels consume. Pure data → keyword; JVM-testable.
 
       :no-focus       — focus carries no :epoch-id AND epoch-history
                         is empty (cold start, no event-bundles yet)
+      :withheld       — focus PINS a :dispatch-id the ingest gate
+                        withheld an epoch for (4-arity only)
       :no-epoch       — focus PINS a :dispatch-id but carries no
                         :epoch-id, and history is non-empty: the
                         operator selected an event bundle that settled
-                        no epoch (3-arity only)
+                        no epoch (3-arity and up)
       :epoch-evicted  — focus has :epoch-id but no matching record
                         survives in epoch-history
       :focused        — focus has :epoch-id and matches a record, OR
@@ -88,7 +101,8 @@
                         one record (head-fallback)
 
   `focus-epoch-id` is `(:epoch-id focus)`; `focus-dispatch-id` (3-arity)
-  is `(:dispatch-id focus)`. `epoch-history` is the vector of
+  is `(:dispatch-id focus)`; `withheld` (4-arity) is
+  `:rf.xray/epoch-withheld`. `epoch-history` is the vector of
   `:rf/epoch-record` maps the framework keeps (oldest-first per
   `re-frame.epoch/epoch-history`).
 
@@ -97,7 +111,15 @@
   ([focus-epoch-id epoch-history]
    (resolve-focus-status focus-epoch-id nil epoch-history))
   ([focus-epoch-id focus-dispatch-id epoch-history]
+   (resolve-focus-status focus-epoch-id focus-dispatch-id epoch-history #{}))
+  ([focus-epoch-id focus-dispatch-id epoch-history withheld]
    (cond
+     ;; Tested first: a withheld epoch is the one cause the pinned bundle's
+     ;; missing record is known to have, even when it left history empty.
+     (and (nil? focus-epoch-id)
+          (some? focus-dispatch-id)
+          (contains? withheld focus-dispatch-id)) :withheld
+
      ;; An EMPTY history is `:no-focus` whichever way focus is set —
      ;; tested FIRST so a stale pinned `:dispatch-id` cannot turn the
      ;; cold-start empty state into `:no-epoch`. `:rf.xray/sync-epoch-

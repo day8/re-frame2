@@ -907,6 +907,9 @@
   ;; for the other three.
   (empty-state-message :no-epoch "The selected event settled no epoch."))
 
+(defn- empty-state-withheld []
+  (empty-state-message :withheld focus/withheld-copy))
+
 (defn- empty-state-epoch-evicted []
   (empty-state-message
     :epoch-evicted
@@ -969,6 +972,7 @@
         :no-events     (empty-state-no-events)
         :no-focus      (empty-state-no-focus)
         :no-epoch      (empty-state-no-epoch)
+        :withheld      (empty-state-withheld)
         :epoch-evicted (empty-state-epoch-evicted)
         nil
         ;; The feed container keeps the `rf-xray-trace-feed` testid as the
@@ -1259,15 +1263,17 @@
     {:inputs [[:rf.xray/focus]
               [:rf.xray/epoch-history]
               [:rf.xray/observed-frame]
-              [:rf.xray.trace/focused-event-bundle]]}
-    (fn [[focus epoch-history observed-frame focused-event-bundle] _query]
+              [:rf.xray.trace/focused-event-bundle]
+              [:rf.xray/epoch-withheld]]}
+    (fn [[focus epoch-history observed-frame focused-event-bundle withheld] _query]
       (let [focus-epoch-id    (:epoch-id focus)
             focus-dispatch-id (:dispatch-id focus)]
         (if (and (= :ungrouped focus-dispatch-id) focused-event-bundle)
           (h/project-feed-from-ungrouped focused-event-bundle)
           (let [focus-status (focus/resolve-focus-status focus-epoch-id
                                                          focus-dispatch-id
-                                                         epoch-history)
+                                                         epoch-history
+                                                         withheld)
                 record       (focus/find-epoch-record focus-epoch-id
                                                       focus-dispatch-id
                                                       epoch-history)]

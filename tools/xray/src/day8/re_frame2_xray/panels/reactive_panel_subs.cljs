@@ -694,8 +694,9 @@
     {:inputs [[:rf.xray/focus]
               [:rf.xray/epoch-history]
               [:rf.xray/reactive-show-unchanged?]
-              [:rf.xray/setting :general :show-unchanged-subs?]]}
-    (fn [[focus history panel-unchanged? config-unchanged?] _query]
+              [:rf.xray/setting :general :show-unchanged-subs?]
+              [:rf.xray/epoch-withheld]]}
+    (fn [[focus history panel-unchanged? config-unchanged? withheld] _query]
       ;; Pass the PINNED `:dispatch-id` as well as the `:epoch-id`.
       ;; Reading `:epoch-id` alone would discard the discriminator at this
       ;; call, so a bundle that settled no epoch would head-fall-back and
@@ -731,7 +732,8 @@
                 ;; which of the no-record cases this is (spec/021 §10.7).
                 :status       (focus/resolve-focus-status (:epoch-id focus)
                                                           (:dispatch-id focus)
-                                                          history)
+                                                          history
+                                                          withheld)
                 :triggered-by (when record (triggered-by record))
                 :show-unchanged?   (boolean (or panel-unchanged? config-unchanged?))
                 :has-event-bundle? (some? record)}))))

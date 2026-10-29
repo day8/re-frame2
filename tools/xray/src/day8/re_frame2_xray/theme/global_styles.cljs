@@ -25,12 +25,12 @@
 
   ## Why a separate ns from `shell.cljs`
 
-  `shell.cljs` already carries `inject-scrollbar-style!` scoped to the
-  L2 list. The styles installed here are *global* (every paint of the
-  shell needs the fonts resolved; every animation downstream reads
-  from the `:root` motion-scale seam) so they want their own lifetime
-  + a clean test surface. Owning a dedicated ns also keeps the public
-  contract obvious: a single `install!` call from `ShellView`.
+  The styles installed here are *global* (every paint of the shell
+  needs the fonts resolved; every animation downstream reads from the
+  `:root` motion-scale seam) so they want their own lifetime + a clean
+  test surface. Owning a dedicated ns also keeps the public contract
+  obvious: a single `install!` call from `ShellView`, and one
+  `install-into!` per document the shell renders in.
 
   ## Lifetime
 
@@ -1583,6 +1583,83 @@
                       (str react-flow-base-css
                            react-flow-xray-theme-css)))
 
+;; ---- chrome sheet: the L2 scrollbar + pop-out chrome --------------------
+
+(def ^:private chrome-style-id
+  "rf-xray-chrome")
+
+(def ^:private chrome-css
+  "Rules that need a real stylesheet rather than an inline style:
+
+  - the WebKit/Blink slim-scrollbar pseudo-elements for the L2 event list
+    (Firefox takes the inline `scrollbar-width` / `-color` the list sets).
+    Colours echo `(:border-subtle tokens)` / `(:text-tertiary tokens)`;
+  - the `⛶` pop-out button hidden inside the pop-out shell, which is
+    already popped out. `!important` because the button sets its
+    `display` inline."
+  (str "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar"
+       " { width: 6px; height: 6px; }"
+       "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar-track"
+       " { background: transparent; }"
+       "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar-thumb"
+       " { background: rgba(107, 112, 128, 0.4); border-radius: 3px; }"
+       "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar-thumb:hover"
+       " { background: rgba(107, 112, 128, 0.7); }"
+       "[data-rf-xray-mode=\"popout\"] [data-testid=\"rf-xray-icon-popout\"]"
+       " { display: none !important; }"))
+
+;; ---- host-supplied theme override ---------------------------------------
+;;
+;; The public `core/load-theme!` entry point lets an embedding host swap the
+;; Xray shell's palette by handing in a CSS string (e.g. editor-driven
+;; palette sync). The override is held here and written as a single
+;; dedicated `<style>` block that is ALWAYS the last child of `<head>` in
+;; every document Xray styles, so its rules win on authoring order against
+;; the built-in blocks: `install-into!` re-appends it after injecting them,
+;; so a `load-theme!` made before Xray first paints still wins. An empty /
+;; nil string clears it.
+
+(def ^:private host-theme-style-id
+  "rf-xray-host-theme")
+
+(defonce ^:private host-theme-css
+  ;; The current override, so a document styled later (the pop-out, or the
+  ;; host page on Xray's first paint) gets it too.
+  (atom nil))
+
+(defonce ^:private styled-documents
+  ;; Every document `install-into!` has styled, so a later override reaches
+  ;; an open pop-out as well as the host page.
+  (atom []))
+
+(defn- live-document?
+  "True while `doc`'s window is open — a closed pop-out's document is
+  dropped rather than written."
+  [doc]
+  (try (let [win (.-defaultView doc)]
+         (and (some? win) (not (.-closed win))))
+       (catch :default _ false)))
+
+(defn- write-host-theme!
+  "Make `doc`'s host-theme `<style>` match `host-theme-css`, as the last
+  child of `<head>`. No-op outside a DOM."
+  [doc]
+  (when (and (some? doc)
+             (.-head doc)
+             (.-createElement doc)
+             (.-getElementById doc))
+    (let [css      @host-theme-css
+          existing (.getElementById doc host-theme-style-id)]
+      (if (or (nil? css) (= "" (.trim (str css))))
+        (when existing (.remove existing))
+        (let [node (or existing
+                       (doto (.createElement doc "style")
+                         (set! -id host-theme-style-id)))]
+          (set! (.-textContent node) (str css))
+          ;; Appending an attached node moves it, so it ends up last.
+          (.appendChild (.-head doc) node)))))
+  nil)
+
 ;; ---- public entry ------------------------------------------------------
 
 (defonce ^:private installed?
@@ -1616,7 +1693,11 @@
     ;; this preload path never runs in a production bundle.
     (inject-react-flow-style! doc)
     (inject-themes-style! doc tokens/themes)
-    (inject-grain-style! doc))
+    (inject-grain-style! doc)
+    (inject-style-node! doc chrome-style-id chrome-css)
+    (swap! styled-documents
+           (fn [docs] (if (some (partial identical? doc) docs) docs (conj docs doc))))
+    (write-host-theme! doc))
   nil)
 
 (defn install!
@@ -1634,44 +1715,18 @@
     (reset! installed? true))
   nil)
 
-;; ---- host-supplied theme override ---------------------------------------
-;;
-;; The public `core/load-theme!` entry point lets an embedding host swap the
-;; Xray shell's palette by handing in a CSS string (e.g. editor-driven
-;; palette sync). The override rides in a single dedicated `<style>` block
-;; appended LAST to `<head>`, so its rules win on authoring order against
-;; the built-in `inject-themes-style!` block. Re-injecting REPLACES the
-;; node's text (not append), so successive calls swap cleanly and an empty
-;; / nil string clears the override.
-
-(def ^:private host-theme-style-id
-  "rf-xray-host-theme")
-
 (defn set-host-theme-css!
-  "Install (or replace) the host-supplied theme override `<style>` block.
-  `css` is an arbitrary CSS string — typically a block re-declaring the
-  `--rf-xray-*` custom properties the shell reads. Idempotent on id:
-  successive calls overwrite the same node so the theme swaps in place.
-  A nil / blank string clears the override. No-op outside a DOM."
+  "Install (or replace) the host-supplied theme override. `css` is an
+  arbitrary CSS string — typically a block re-declaring the `--rf-xray-*`
+  custom properties the shell reads. Held for every document Xray styles
+  later, and written now into the host page and every open document Xray
+  has already styled (an open pop-out). Successive calls swap the theme in
+  place; a nil / blank string clears it."
   [css]
-  (when (and (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document)
-             (.-getElementById js/document))
-    (let [existing (.getElementById js/document host-theme-style-id)]
-      (cond
-        ;; Clear: blank / nil drops the override node entirely.
-        (or (nil? css) (= "" (.trim (str css))))
-        (when existing (.remove existing))
-
-        ;; Replace the text of the existing node.
-        existing
-        (set! (.-textContent existing) (str css))
-
-        ;; First install — append last so it outranks the built-in block.
-        :else
-        (let [node (.createElement js/document "style")]
-          (set! (.-id node) host-theme-style-id)
-          (.appendChild node (.createTextNode js/document (str css)))
-          (.appendChild (.-head js/document) node)))))
+  (reset! host-theme-css css)
+  (swap! styled-documents (fn [docs] (into [] (filter live-document?) docs)))
+  (doseq [doc (distinct (cons (when (exists? js/document) js/document)
+                              @styled-documents))
+          :when (some? doc)]
+    (write-host-theme! doc))
   nil)

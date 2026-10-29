@@ -899,7 +899,7 @@
   ## The re-seed passes the privacy gate
 
   `epoch-history-for-frame` is the framework's RAW ring, so the slot is
-  written through `epoch/redact-history` — the same ingest gate
+  written through `epoch/assoc-history` — the same ingest gate
   `:rf.xray/set-target-frame` and `:rf.xray/epoch-recorded` apply.
   Writing the bare `vec` would put every sensitive record the gate keeps
   out straight back into the slot on a picker change."
@@ -911,8 +911,8 @@
                :frame frame-id
                :dispatch-id nil
                :mode :live)
-       (assoc :target-frame  frame-id
-              :epoch-history (epoch/redact-history epoch-history-for-frame)))))
+       (assoc :target-frame frame-id)
+       (epoch/assoc-history epoch-history-for-frame))))
 
 (defn reseed-epoch-history-for-frame
   "Pure reducer: re-key the Xray app-db's per-frame `:epoch-history`
@@ -982,7 +982,7 @@
   history; the gallery seeded it for the frame now being focused.
 
   The cross-frame re-key writes the ring through
-  `epoch/redact-history`, exactly as `set-frame-reducer` does, so a
+  `epoch/assoc-history`, exactly as `set-frame-reducer` does, so a
   cross-frame click cannot put a record the ingest gate dropped back
   into the slot. Every committed-focus caller (`:rf.xray/focus-event`,
   its prev/next steps, `:rf.xray/focus-epoch` and
@@ -1001,9 +1001,9 @@
       (assoc db :target-frame frame-id)
       ;; Cross-frame re-key → switch target + load that frame's ring.
       :else
-      (assoc db
-             :target-frame  frame-id
-             :epoch-history (epoch/redact-history epoch-history-for-frame)))))
+      (-> db
+          (assoc :target-frame frame-id)
+          (epoch/assoc-history epoch-history-for-frame)))))
 
 (defn preview-event-reducer
   "Pure reducer for `:rf.xray/preview-event <id>`. A preview is a

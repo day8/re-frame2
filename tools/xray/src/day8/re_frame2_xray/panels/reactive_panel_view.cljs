@@ -70,6 +70,7 @@
             [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.panels.shared.view-highlight :as view-highlight]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack with-alpha]]))
@@ -701,6 +702,7 @@
    [:p (case (:status data)
          :epoch-evicted "This epoch has been evicted from the history buffer."
          :no-epoch      "The selected event settled no epoch."
+         :withheld      focus/withheld-copy
          "No event focused.")]])
 
 ;; ---- panel root --------------------------------------------------------

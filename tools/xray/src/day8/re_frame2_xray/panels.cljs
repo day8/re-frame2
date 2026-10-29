@@ -137,11 +137,15 @@
   ## Frame-provider opt — `:frame` defaults to `:rf/xray`
 
   The default `opts` map is `{:frame :rf/xray}` — Xray's own
-  state-isolation frame. Hosts that embed a panel to observe a
-  specific app frame pass `{:frame :my-app/cart}` per the embedding
-  contract — the panel's subscribes still resolve to `:rf/xray` for
-  Xray's own UI state, while the panel-internal frame-selection sub
-  (`:rf.xray/observed-frame`) drives the data axis.
+  state-isolation frame. `:frame` always names a frame XRAY owns: the
+  mount seats it with Xray's image, and its app-db holds Xray's UI
+  state. It is never the host frame being inspected — that is the
+  target frame, chosen by the frame picker or `core/set-target-frame!`
+  and held in `:rf.xray/target-frame` inside the own frame's db
+  (`008-Embedding-Contract.md` §Own frame vs target frame). A host that
+  wants a second, isolated panel passes a fresh id of its own, such as
+  `{:frame :my-app/xray-side}`; passing its app frame is refused,
+  because seating would replace that frame's image with Xray's.
 
   ## `:instance-id` opt — the mount fns whose panel view takes it
 

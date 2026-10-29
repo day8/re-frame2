@@ -162,3 +162,42 @@
         (is (= [:detach :attach :detach] @calls)
             "the embed host's `configure!` surrender switch reaches the listener")
         (config/set-keybinding-enabled! true)))))
+
+;; ---- attached documents: the pop-out's own <html> ------------------------
+
+(defn- stub-root
+  "An element surface the DOM settings write: a class set, style
+  properties and attributes, each recorded in an atom."
+  []
+  (let [classes (atom #{})
+        props   (atom {})
+        attrs   (atom {})]
+    {:classes classes
+     :props   props
+     :attrs   attrs
+     :el      (js-obj
+                "classList"       (js-obj "add"    #(swap! classes conj %)
+                                          "remove" #(swap! classes disj %))
+                "style"           (js-obj "setProperty" #(swap! props assoc %1 %2))
+                "setAttribute"    #(swap! attrs assoc %1 %2)
+                "removeAttribute" #(swap! attrs dissoc %))}))
+
+(deftest attached-document-takes-the-dom-settings-now-and-later
+  (testing "the pop-out has its own <html>: attaching it applies the
+            persisted theme and density, and later changes reach it until it
+            is detached"
+    (let [{:keys [classes props el]} (stub-root)
+          doc (js-obj "documentElement" el)]
+      (try
+        (config/update-setting! :theme nil :dark)
+        (effects/attach-document! doc)
+        (is (contains? @classes "rf-xray-theme-dark"))
+        (is (= "13px" (get @props tokens/font-size-var-name)))
+        (effects/apply-theme! :light)
+        (is (= #{"rf-xray-theme-light"} (set (filter #(re-find #"theme" %) @classes)))
+            "a later theme change reaches the attached document")
+        (effects/detach-document! doc)
+        (effects/apply-theme! :dark)
+        (is (contains? @classes "rf-xray-theme-light")
+            "a detached document is no longer written")
+        (finally (effects/detach-document! doc))))))

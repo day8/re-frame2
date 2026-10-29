@@ -155,7 +155,8 @@
   ;;
   ;; `:status` is the shared resolver's 3-arity answer
   ;; (`focus/resolve-focus-status`). A focus pinned to an evicted epoch
-  ;; (`:epoch-evicted`) or to a bundle that settled no epoch (`:no-epoch`)
+  ;; (`:epoch-evicted`), to a bundle that settled no epoch (`:no-epoch`) or to
+  ;; one whose epoch the ingest gate withheld (`:withheld`)
   ;; carries no value at all, so the body renders that state's placeholder
   ;; (tools/xray/spec/021 §10.7) instead of passing the LIVE db off as the
   ;; selected event's.
@@ -183,10 +184,11 @@
               [:rf.xray/target-frame-runtime-db]
               [:rf.xray/epoch-history]
               [:rf.xray/focus]
-              [:rf.xray/observed-frame]]}
-    (fn [[db runtime-db history focus observed-frame] _query]
+              [:rf.xray/observed-frame]
+              [:rf.xray/epoch-withheld]]}
+    (fn [[db runtime-db history focus observed-frame withheld] _query]
       (let [epoch-id (:epoch-id focus)
-            status   (focus/resolve-focus-status epoch-id (:dispatch-id focus) history)
+            status   (focus/resolve-focus-status epoch-id (:dispatch-id focus) history withheld)
             record   (some-> (when epoch-id (find-epoch-in-history history epoch-id))
                              (local-render/local-render-record-state observed-frame))]
         (cond
@@ -210,7 +212,7 @@
            ;; and the chip renders only on a positive integer.
            :redacted-modified (:rf.epoch/redacted-modified-paths-count record)}
 
-          (#{:epoch-evicted :no-epoch} status)
+          (#{:epoch-evicted :no-epoch :withheld} status)
           {:status status}
 
           :else
@@ -236,7 +238,7 @@
   (rf/reg-sub :rf.xray/app-db-state
     {:inputs [[:rf.xray/app-db-current+diff]]}
     (fn [[{:keys [status value before runtime-value runtime-before redacted-modified]}] _query]
-      (if (#{:epoch-evicted :no-epoch} status)
+      (if (#{:epoch-evicted :no-epoch :withheld} status)
         {:status status}
         ;; Diff-mode is entered iff a real app-db pre-image is present: an
         ;; absent / nil `:db-before` (cold boot, or a record with no

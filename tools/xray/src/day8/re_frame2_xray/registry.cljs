@@ -985,13 +985,14 @@
     ;; which would assert that a focused epoch ran and carried no issues
     ;; when in truth no epoch was resolved at all.
     (rf/reg-sub :rf.xray/issues-ribbon
-      {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
-      (fn [[focus epoch-history] _query]
+      {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history] [:rf.xray/epoch-withheld]]}
+      (fn [[focus epoch-history withheld] _query]
         (let [focus-epoch-id    (:epoch-id focus)
               focus-dispatch-id (:dispatch-id focus)
               focus-status      (issues-helpers/resolve-focus-status focus-epoch-id
                                                                      focus-dispatch-id
-                                                                     epoch-history)
+                                                                     epoch-history
+                                                                     withheld)
               record            (issues-helpers/find-epoch-record focus-epoch-id
                                                                   focus-dispatch-id
                                                                   epoch-history)]
@@ -1115,6 +1116,12 @@
         ;;          Ctrl+Shift+C keybinding drives through `mount/toggle!`).
         {:db (assoc db :close-requested? true)
          :fx [[:rf.xray.fx/hide-shell]]}))
+
+    ;; The pop-out's `✕` (`defaults/close-event-for`): close the pop-out
+    ;; window and leave the opener's shell as it is.
+    (rf/reg-event :rf.xray/close-popout
+      (fn [_cofx _event]
+        {:fx [[:rf.xray.fx/close-popout]]}))
 
     ;; Install the DOM-side `:rf.xray.fx/hide-shell` effect that the
     ;; `:rf.xray/close-shell` event above fires. Idempotent — re-frame's

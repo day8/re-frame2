@@ -847,15 +847,12 @@
 ;; values are withheld. Fail-closed must not mean fail-silent — silence
 ;; is the one failure a diff panel cannot afford.
 ;;
-;; The ingest gate (`epoch/redact-history`) is UPSTREAM of
-;; this and does NOT make it redundant. That gate drops a record whole on
-;; its stamped `:rf.epoch/sensitive?` rollup; this one projects the values
-;; a SURVIVING record carries. The two answer different questions and a
-;; record can satisfy the first while failing the second — a record with no
-;; rollup slot at all (a synthetic history seeded through
-;; `:rf.xray/sync-epoch-history`, the case `redact-history`'s own docstring
-;; names), or one whose rollup was computed before the app classified the
-;; path. Those are exactly the records this seam is the only guard for.
+;; The ingest gate (`epoch/assoc-history`) is UPSTREAM of
+;; this and does NOT make it redundant. That gate withholds a record whose
+;; CASCADE is sensitive; this one projects the classified app-db values a
+;; KEPT record holds, which the gate leaves on the record by design
+;; (tools/xray/spec/013 §One policy, three ingress paths). This seam is the
+;; only guard for those values.
 
 (def ^:private redacted-sentinel
   "The scalar `rf/project-egress` substitutes for a withheld slot. Named
@@ -979,6 +976,7 @@
         empty-kind      (cond
                           (= focus-status :no-focus)      :no-focus
                           (= focus-status :no-epoch)      :no-epoch
+                          (= focus-status :withheld)      :withheld
                           (= focus-status :epoch-evicted) :epoch-evicted
                           (zero? n)                       :no-events
                           :else                           nil)]

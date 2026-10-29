@@ -250,14 +250,14 @@ owns the ingress contract; this section says only which of those gates reaches t
   other focus prints from the epoch record; there the bundle read serves the Fresco advisor and its causal
   slice, and this panel's only other use of the event-bundle path is §2's 3px status stripe, which carries a
   lifecycle colour and no text.
-- **At history read — dropped whole, not scrubbed.** `epoch/redact-history` drops an epoch record when
-  **either** signal fires: the framework-stamped `:rf.epoch/sensitive?` rollup, or a suppressed event in the
-  record's own `:trace-events` — the same `config/suppress-sensitive?` predicate the ingest gate applies, here
-  at **record** grain rather than at event grain. The record goes whole for the reason the bullet above gives
-  at bundle grain: `build-record`'s sibling slots (`:sub-runs`, `:renders`, `:effects`, `:trigger-event`,
-  `:db-before` / `:db-after`) are projections of the very events a scrub would remove, so the payload would
-  survive under another key. **So an absent rollup is not evidence of innocence** — a rollup-less record
-  carrying a sensitive event is dropped too, and that is the intended price (rf2-vaont).
+- **At history read — withheld whole, not scrubbed.** `epoch/assoc-history` withholds an epoch record when a
+  suppressed event rides the record's own `:trace-events` — the trace-event half of the framework rollup, here
+  at **record** grain rather than at event grain; a record that lost `:trace-events` to the keep-window falls
+  back to the whole `:rf.epoch/sensitive?` rollup. The record goes whole for the reason the bullet above gives
+  at bundle grain: `build-record`'s sibling slots (`:sub-runs`, `:renders`, `:effects`, `:trigger-event`) are
+  projections of the very events a scrub would remove, so the payload would survive under another key. A
+  classified app-db value the record merely HOLDS does not withhold it; the render-side projections redact
+  that ([013 §One policy, three ingress paths](./013-Trace-Consumer.md#one-policy-three-ingress-paths-rf2-y8doi13)).
 - **At render, for the db rows.** §10.1's per-path diff re-seats each triple's `:before` / `:after` on
   **whole-db projections** of the record's `db-before` / `db-after` under `:rf.xray/observed-frame`'s
   classification policy — the same `local-render-value` seam the App-DB tab applies. `:op` and `:path` are

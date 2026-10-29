@@ -153,6 +153,40 @@
       (.-documentElement js/document))
     (catch :default _ nil)))
 
+(defonce ^:private attached-documents
+  ;; The pop-out's document, while one is open. It has its own `<html>`,
+  ;; which the opener's root writes never reach.
+  (atom []))
+
+(defn- root-elements
+  "Every element a DOM setting is written to: the inline shell root, the
+  opener's `<html>`, and the `<html>` of each attached document. Nils are
+  dropped."
+  []
+  (into []
+        (remove nil?)
+        (concat [(shell-root-element) (html-root-element)]
+                (map (fn [doc] (try (.-documentElement doc) (catch :default _ nil)))
+                     @attached-documents))))
+
+(declare apply-dom-settings!)
+
+(defn attach-document!
+  "Attach `doc` — the pop-out's document — so the DOM settings (theme,
+  density, text size, reduced motion, system colours) reach its `<html>`
+  now and on every later change. Idempotent."
+  [doc]
+  (when (some? doc)
+    (swap! attached-documents #(if (some (partial identical? doc) %) % (conj % doc)))
+    (apply-dom-settings!))
+  nil)
+
+(defn detach-document!
+  "Stop writing DOM settings to `doc`."
+  [doc]
+  (swap! attached-documents (fn [docs] (into [] (remove (partial identical? doc)) docs)))
+  nil)
+
 ;; ---- text-size ----------------------------------------------------------
 
 (def text-size-css-var
@@ -172,10 +206,8 @@
   element is present (test runtimes)."
   [px]
   (let [value (str px "px")]
-    (when-let [root (shell-root-element)]
-      (.setProperty (.-style root) text-size-css-var value))
-    (when-let [html (html-root-element)]
-      (.setProperty (.-style html) text-size-css-var value)))
+    (doseq [el (root-elements)]
+      (.setProperty (.-style el) text-size-css-var value)))
   nil)
 
 ;; ---- density ------------------------------------------------------------
@@ -243,10 +275,8 @@
   popout, fullscreen) honours the knob."
   [density]
   (let [value (str (density->px density) "px")]
-    (when-let [root (shell-root-element)]
-      (.setProperty (.-style root) tokens/font-size-var-name value))
-    (when-let [html (html-root-element)]
-      (.setProperty (.-style html) tokens/font-size-var-name value)))
+    (doseq [el (root-elements)]
+      (.setProperty (.-style el) tokens/font-size-var-name value)))
   nil)
 
 ;; ---- theme --------------------------------------------------------------
@@ -263,8 +293,7 @@
   element is present."
   [theme]
   (let [klass (str theme-class-prefix (name (or theme :light)))]
-    (doseq [el [(shell-root-element) (html-root-element)]
-            :when el]
+    (doseq [el (root-elements)]
       (let [cl (.-classList el)]
         ;; Drop any existing theme class so the toggle is exclusive.
         (doseq [c [(str theme-class-prefix "dark")
@@ -308,8 +337,7 @@
   (let [target (or override :os)
         klass  (when (contains? #{:always :never} target)
                  (str motion-override-class-prefix (name target)))]
-    (doseq [el [(shell-root-element) (html-root-element)]
-            :when el]
+    (doseq [el (root-elements)]
       (let [cl (.-classList el)]
         ;; Drop both options first so the assertion below is exclusive.
         (doseq [c [(str motion-override-class-prefix "always")
@@ -367,8 +395,7 @@
   `document`)."
   [on?]
   (let [active? (boolean on?)]
-    (doseq [el [(shell-root-element) (html-root-element)]
-            :when el]
+    (doseq [el (root-elements)]
       (try
         (if active?
           (.setAttribute el force-colors-attribute force-colors-active-value)
@@ -742,6 +769,19 @@
   nil)
 
 ;; ---- bulk apply ---------------------------------------------------------
+
+(defn- apply-dom-settings!
+  "Apply the persisted settings that live on DOM roots — theme, density,
+  text size, reduced motion and system colours — to every root, so a
+  document attached after boot catches up."
+  []
+  (let [s (config/get-settings)]
+    (apply-text-size!                (get-in s [:general :text-size]))
+    (apply-theme!                    (get s :theme))
+    (apply-density-font-size!        (get-in s [:general :density]))
+    (apply-reduced-motion-override!  (get-in s [:general :reduced-motion-override]))
+    (apply-use-system-colors!        (get-in s [:general :use-system-colors?])))
+  nil)
 
 (defn apply-all!
   "Apply every persisted setting to the live shell. Called from the

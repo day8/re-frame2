@@ -234,6 +234,7 @@
         empty-kind       (cond
                            (= focus-status :no-focus)      :no-focus
                            (= focus-status :no-epoch)      :no-epoch
+                           (= focus-status :withheld)      :withheld
                            (= focus-status :epoch-evicted) :epoch-evicted
                            (empty? all-issues)             :no-issues
                            :else                           nil)]

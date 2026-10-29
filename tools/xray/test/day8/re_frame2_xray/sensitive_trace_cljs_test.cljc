@@ -31,6 +31,8 @@
             #?(:cljs [re-frame.test-support :as rf.test-support])
             #?(:cljs [day8.re-frame2-xray.epoch :as xray-epoch])
             #?(:cljs [day8.re-frame2-xray.panels.fresco-reads :as fresco-reads])
+            #?(:cljs [day8.re-frame2-xray.panels.local-render :as local-render])
+            #?(:cljs [day8.re-frame2-xray.panels.shared.focus-resolver :as focus-resolver])
             #?(:cljs [day8.re-frame2-xray.spine :as spine])
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
 
@@ -215,10 +217,11 @@
 ;; ---- (5) the two INGEST gates ----------------------------------------------
 ;;
 ;; (a) `:epoch-history`: the framework epoch ring retains RAW records whose
-;;     `:trace-events` are verbatim, and `epoch/redact-history` gates every
-;;     write to the slot. It drops a record WHOLE (on the rollup or on a
-;;     sensitive event), because `build-record` derives sibling slots from
-;;     the same events.
+;;     `:trace-events` are verbatim, and `epoch/assoc-history` gates every
+;;     write to the slot. It withholds a record WHOLE when its cascade
+;;     carries a sensitive event, because `build-record` derives sibling
+;;     slots from the same events, and leaves the withheld record's
+;;     `:dispatch-id` behind as its stub.
 ;; (b) `panels.fresco-reads/trace-windows`, Xray's seam-side reader of the
 ;;     framework rings, which reads the gated `bundles-for-frame`.
 ;;
@@ -252,6 +255,28 @@
                           [(dissoc (producer-record) :rf.epoch/sensitive?)])))
              "the absent rollup is not a licence to keep the record, or to
               keep it with only its `:trace-events` scrubbed")))))
+
+#?(:cljs
+   (deftest epoch-history-ingest-leaves-a-stub-for-a-withheld-record
+     (with-host
+       (fn []
+         (xray-epoch/install!)
+         (rf/make-frame {:id :rf/xray})
+         (rf/with-frame :rf/xray
+           (rf/dispatch-sync
+             [:rf.xray/sync-epoch-history
+              [{:epoch-id 1 :dispatch-id 7 :frame host-frame
+                :trace-events [{:op-type :event :operation :rf.event/run-end
+                                :sensitive? true
+                                :tags {:frame host-frame :rf.trace/dispatch-id 7}}]}]])
+           (let [withheld @(rf/subscribe [:rf.xray/epoch-withheld])]
+             (is (= [] @(rf/subscribe [:rf.xray/epoch-history])))
+             (is (= #{7} withheld) "the withheld record leaves its dispatch-id")
+             (is (= :withheld (focus-resolver/resolve-focus-status nil 7 [] withheld))
+                 "so a panel pinned to that bundle says the egress policy
+                  withheld its epoch, not that it settled none")
+             (is (= :no-epoch (focus-resolver/resolve-focus-status nil 8 [{:epoch-id 2}] withheld))
+                 "control: a bundle the gate never saw still settled no epoch")))))))
 
 #?(:cljs
    (deftest epoch-history-ingest-keeps-an-ordinary-rollup-less-record
@@ -316,7 +341,9 @@
    (defn- record-sensitive-ring!
      "Fill `re-seed-app`'s epoch ring with three REAL records: a clean tick,
      a login that writes the secret at a path classified `:sensitive`, and a
-     second tick carrying the classified leaf. Returns the ring,
+     second tick carrying the classified leaf. None of the three cascades is
+     sensitive — app-db only HOLDS the secret — so the gate keeps all three
+     and the render-side projection redacts the leaf. Returns the ring,
      oldest-first."
      []
      (rf/reg-classification ::re-seed-auth {:sensitive [[:auth :token]]})
@@ -341,9 +368,16 @@
 
 #?(:cljs
    (defn- assert-slot-gated! [slot ring]
-     (is (= [(:epoch-id (first ring))] (mapv :epoch-id slot))
-         "exactly the clean record reaches the slot")
-     (is (not (str/includes? (pr-str slot) re-seed-secret)))))
+     (is (= (mapv :epoch-id ring) (mapv :epoch-id slot))
+         "every record reaches the slot: holding a classified value in app-db
+          does not make a later tick's cascade sensitive")
+     (let [rendered (mapv #(local-render/local-render-record-state % re-seed-app) slot)]
+       (is (= :rf/redacted (get-in (peek rendered) [:db-after :auth :token]))
+           "the tick after login renders with its token redacted")
+       (is (= 2 (get-in (peek rendered) [:db-after :ticks]))
+           "and the rest of its state intact")
+       (is (not (str/includes? (pr-str rendered) re-seed-secret))
+           "no rendered epoch carries the secret"))))
 
 #?(:cljs
    (deftest set-frame-re-seed-keeps-sensitive-records-out
@@ -367,7 +401,7 @@
              (rf/dispatch-sync [:rf.xray/set-target-frame re-seed-other])
              (rf/dispatch-sync [:rf.xray/focus-event (:dispatch-id login) re-seed-app])
              (assert-slot-gated! @(rf/subscribe [:rf.xray/epoch-history]) ring)
-             (is (not= (:epoch-id login)
-                       (:epoch-id @(rf/subscribe [:rf.xray/focus-slot])))
-                 "focusing the sensitive row does not pin the epoch-id of a
-                  record the gate keeps out of the slot")))))))
+             (is (= (:epoch-id login)
+                    (:epoch-id @(rf/subscribe [:rf.xray/focus-slot])))
+                 "the login's cascade is not sensitive, so its epoch is kept
+                  and focusing its row pins it")))))))

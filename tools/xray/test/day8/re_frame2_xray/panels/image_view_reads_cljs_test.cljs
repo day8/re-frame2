@@ -18,6 +18,7 @@
   sealed generations (the fail-soft seam) so the projection runs end-to-end on
   the values `make-frame` / `assemble` actually produce."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.image :as rf.image]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.frame :as rf.frame]
@@ -202,3 +203,28 @@
     ;; A second call must NOT throw :rf.error/live-frame-id-conflict.
     (is (nil? (reads/seat-xray-frame! :rf.xray/seat-c xray-pool))
         "re-seat is a skip (returns nil), not a re-create")))
+
+(deftest seat-xray-frame-refuses-a-host-frame
+  (testing "seating an existing host frame would replace its image with Xray's,
+            so it throws :rf.xray/foreign-frame and leaves the frame untouched"
+    (rf.live-frame/make-frame {:id :app/main :images [target-image]} target-pool)
+    (let [before (rf.frame/frame-generation :app/main)
+          ex     (try (reads/seat-xray-frame! :app/main xray-pool) nil
+                      (catch :default e e))]
+      (is (= :rf.xray/foreign-frame (:rf.error/id (ex-data ex)))
+          "an image-loaded host frame is refused")
+      (is (identical? before (rf.frame/frame-generation :app/main))
+          "the host frame keeps its own generation")
+      (is (false? (reads/xray-frame-seated? :app/main))
+          "a live frame on another image is not Xray-seated")))
+  (testing "a bare frame that already holds app state is refused too"
+    (rf/make-frame {:id :app/plain})
+    (rf.frame/replace-app-db! :app/plain {:n 1})
+    (is (= :rf.xray/foreign-frame
+           (:rf.error/id (ex-data (try (reads/seat-xray-frame! :app/plain xray-pool) nil
+                                       (catch :default e e))))))
+    (is (= {:n 1} (rf/app-db-value :app/plain))))
+  (testing "control: a bare, empty frame is an id made for Xray, and seats"
+    (rf/make-frame {:id :rf.xray/seat-a})
+    (is (some? (reads/seat-xray-frame! :rf.xray/seat-a xray-pool)))
+    (is (true? (reads/xray-frame-seated? :rf.xray/seat-a)))))
