@@ -1,5 +1,7 @@
 # conformance
 
+**Contents:** [What the corpus is](#what-the-corpus-is) · [The harness](#the-harness) · [Capability tagging](#capability-tagging) · [Out-of-claim flavours](#the-two-out-of-claim-flavours) · [Static hosts](#static-hosts-and-dynamic-host-only-fixtures) · [Diagnosis](#diagnosis--spec-gap-vs-implementation-bug) · [Incomplete corpus](#when-the-corpus-itself-is-incomplete) · [Reporting](#reporting-conformance)
+
 How the port consumes the conformance corpus — the **acceptance test** for "this is a re-frame2 implementation". The corpus lives at [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance); the **full contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/)** — fixture format, the handler-body DSL, capability tagging, versioning, the harness steps — and its grammar, [`spec/conformance/fixture-file.edn`](https://github.com/day8/re-frame2/blob/main/spec/conformance/fixture-file.edn), declares every key, op and tag. This leaf is the operational walk: what to build, how to derive the claimable set, and how to diagnose a failure. Read the README, like every owner, from the verified checkout at your pin (cardinal rule 1) — the links here are citations of live main. Where this leaf and the corpus README disagree, the README (at your pin) wins.
 
 ## What the corpus is
