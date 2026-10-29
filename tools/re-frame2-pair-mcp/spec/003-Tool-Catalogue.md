@@ -1147,7 +1147,7 @@ declared-sensitive app-db leaves in projected epochs; transient payload and runt
 The `frame` arg is colon-tolerant (rf2-ldfnx): both the documented
 colon-prefixed id (`":rf/xray"` — the form discover-app surfaces, §Id
 representation) and the bare-name form (`"rf/xray"`) coerce to the same
-`:rf/xray`. It routes through the shared `fresh-keyword` coercion, the
+`:rf/xray`. It routes through the shared `fresh-keyword-checked` coercion, the
 SAME path `eval-cljs` / `snapshot` / `get-path` / `replace-app-db` use,
 so a frame-targeted dispatch lands on the named frame in a multi-frame
 app. (The pre-rf2-ldfnx shape used raw `(keyword …)`, which minted the

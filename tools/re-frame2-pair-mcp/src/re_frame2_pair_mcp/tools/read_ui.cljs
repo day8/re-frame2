@@ -174,7 +174,7 @@
         ;; the shared coercer every sibling read tool uses
         ;; (get-path/read-sub/read-dom/handler-meta), NOT a locally
         ;; reimplemented `str/replace`. `args/->frame-keyword` (->
-        ;; `base-args/fresh-keyword`) accepts a string or keyword and
+        ;; `base-args/fresh-keyword-checked`) accepts a string or keyword and
         ;; falls back to nil for anything else (number/boolean/array/
         ;; object) instead of throwing a raw TypeError on a malformed
         ;; client's non-string :frame.

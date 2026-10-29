@@ -65,7 +65,7 @@
         ms        (or (second ms-r) 1000)
         build-id  (wire/arg-build conn raw-args)
         ;; Coerce `:frame` via the colon-tolerant
-        ;; `->frame-keyword` (the shared `fresh-keyword` path), not a
+        ;; `->frame-keyword` (the shared `fresh-keyword-checked` path), not a
         ;; raw `(keyword ...)`. A documented `:rf/default`
         ;; / `:foo` frame-id passed with its leading colon must resolve
         ;; rather than minting the malformed `::rf/default`, which matches

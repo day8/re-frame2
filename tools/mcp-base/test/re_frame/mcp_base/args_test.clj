@@ -33,8 +33,8 @@
     ##NaN                        50
     1.0E20                       50))
 
-(deftest fresh-keyword-coerces-agent-ids
-  (are [raw expected] (= expected (rf.mcp-base.args/fresh-keyword raw))
+(deftest fresh-keyword-checked-coerces-agent-ids
+  (are [raw expected] (= expected (rf.mcp-base.args/fresh-keyword-checked raw (constantly true)))
     :foo                    :foo
     ":foo"                  :foo
     "rf.assert/path-equals" :rf.assert/path-equals

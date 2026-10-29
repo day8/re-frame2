@@ -223,7 +223,7 @@
 
   So this is the single AI-facing wire shape: both the fx-id key and the
   override target are colon-tolerant strings (`\":http\"` / `\":stub-http\"`),
-  coerced here via `fresh-keyword` (the shared colon-stripping path) to
+  coerced here via `fresh-keyword-checked` (the shared colon-stripping path) to
   the keywords `:http` / `:stub-http`. `null`/absent value ⇒ nil (the
   documented no-op placeholder). Anything else for the target — a bare
   non-colon string, a number, a nested object/array — is REJECTED with a
@@ -320,7 +320,7 @@
   keyword id, or a parameterized `[id arg]` 2-vector. A bracket-shaped
   string (`\"[:rf.interceptor/path [:cart]]\"`) is read as EDN and must
   parse to a 2-vector whose head is a keyword; anything else (a bare
-  name) is a colon-tolerant keyword id via `fresh-keyword` (the same
+  name) is a colon-tolerant keyword id via `fresh-keyword-checked` (the same
   colon-stripping path `->frame-keyword` / `parse-fx-overrides` use).
   Returns `::invalid` when the input isn't a string, a bracket string
   fails to read, or a bracket string doesn't shape-check as `[keyword
@@ -590,7 +590,7 @@
   or keywords.
 
   Slice-key coercion delegates to `->frame-keyword` (which routes
-  through `re-frame.mcp-base.args/fresh-keyword`); per-slice mode
+  through `re-frame.mcp-base.args/fresh-keyword-checked`); per-slice mode
   coercion delegates to `re-frame.mcp-base.args/parse-mode` with a
   sentinel default so unrecognised values can be detected and
   dropped rather than coerced to the global default."

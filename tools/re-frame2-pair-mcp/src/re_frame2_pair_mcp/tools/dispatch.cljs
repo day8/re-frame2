@@ -322,7 +322,7 @@
         queued?      (boolean (and (wire/arg args :queued)
                                    (not trace?) (not sync?) (not settle?)))
         ;; Coerce `frame` via the colon-tolerant `->frame-keyword` (the
-        ;; shared `fresh-keyword` path), NOT a raw `(keyword ...)`.
+        ;; shared `fresh-keyword-checked` path), NOT a raw `(keyword ...)`.
         ;; The documented `frame` arg is the
         ;; colon-prefixed id (`":rf/xray"`, `":foo"` — Tool-Catalogue §Id
         ;; representation). Raw `(keyword ":rf/xray")` would mint the

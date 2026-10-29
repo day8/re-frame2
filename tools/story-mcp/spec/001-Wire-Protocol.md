@@ -157,11 +157,10 @@ before the bounded allowlists run.** Concretely:
     — is validated against the canonical `:story.<path>/<name>` grammar
     on the STRING shape (`mcp-base.args/fresh-keyword-checked` +
     `re-frame.story.schemas/variant-id-shape?`, single-sourced with the
-    keyword-level `variant-id?`) BEFORE interning (rf2-tag30h). The
-    earlier `fresh-keyword` interned first and let the registrar's
-    downstream `assert-id!` reject on grammar — but that reject ran AFTER
-    the intern, so an invalid id (which correctly returned an MCP error)
-    still cost an intern for input the server was about to refuse. The
+    keyword-level `variant-id?`) BEFORE interning, because a registrar
+    reject on grammar runs only AFTER an intern, so an invalid id (which
+    correctly returns an MCP error) would still cost an intern for input
+    the server was about to refuse. The
     pre-intern shape check
     fails closed with no intern: a rejected id leaves the keyword table
     unchanged.
