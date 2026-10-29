@@ -41,6 +41,70 @@
                                    #"[\\^$.|?*+()\[\]{}]"
                                    #(str "\\" %))))
 
+;; ---- literal segments: one decoded text, every URL spelling ---------------
+;; Spec 012 §Path-pattern grammar rule 6. A literal segment is its decoded
+;; text: `/café` and `/caf%C3%A9` are one literal, and a URL segment matches it
+;; when the segment percent-decodes to that text. Registration stores the
+;; pattern with every character a URL path cannot carry raw percent-encoded,
+;; so `route-url` emits the spelling a browser would, and the matcher accepts
+;; any spelling of the decoded text against the RAW path, so capture spans
+;; still index the URL as written.
+
+(defn- code-points
+  "`s` as a vector of one-code-point strings; a surrogate pair stays whole."
+  [^String s]
+  #?(:clj  (mapv #(String. (Character/toChars (int %))) (.toArray (.codePoints s)))
+     :cljs (vec (js/Array.from s))))
+
+(defn- char-code [c]
+  #?(:clj (int (.charAt ^String c 0)) :cljs (.charCodeAt c 0)))
+
+(defn- url-path-char?
+  "True when the one-code-point string `c` can stand raw in a URL path: a
+  printable ASCII character other than space, `\"`, `#`, `<`, `>` and
+  backtick. A URL parser percent-encodes every other character."
+  [c]
+  (and (= 1 (count c))
+       (< 32 (char-code c) 127)
+       (not (contains? #{\" \# \< \> \`} (first c)))))
+
+(defn- percent-byte
+  "The `%XX` escape of the one-character ASCII string `c`."
+  [c]
+  (let [n   (char-code c)
+        hex "0123456789ABCDEF"]
+    (str "%" (nth hex (quot n 16)) (nth hex (rem n 16)))))
+
+(defn- escape-run-regex
+  "A regex matching the percent-escape run `escaped` with each hex digit in
+  either case."
+  [escaped]
+  (clojure.string/replace escaped #"[A-F]" #(str "[" % (clojure.string/lower-case %) "]")))
+
+(defn- literal-text
+  "The decoded text of literal segment `text`; `text` itself when it does not
+  decode, which only route metadata installed outside `reg-route` can carry."
+  [text]
+  (or (rf.routing.url/safe-url-decode text) text))
+
+(defn- literal-regex
+  "A regex fragment matching every URL spelling of literal segment `text`:
+  each character of its decoded text raw or percent-encoded, hex digits in
+  either case. A decoded `/` or `%` matches only encoded, since raw it would
+  end the segment or open an escape. A literal that does not decode matches
+  as written."
+  [text]
+  (if-some [decoded (rf.routing.url/safe-url-decode text)]
+    (apply str
+           (map (fn [c]
+                  (let [encoded (rf.routing.url/url-encode c)
+                        encoded (escape-run-regex (if (= encoded c) (percent-byte c) encoded))]
+                    (if (or (= c "/") (= c "%"))
+                      encoded
+                      (str "(?:" (regex-escape c) "|" encoded ")"))))
+                (code-points decoded)))
+    (regex-escape text)))
+
 ;; ---- route-pattern validation -------------------------------------------
 ;; Spec 012's path-pattern grammar is deliberately small. Enforce it at
 ;; registration time so invalid patterns fail at the authoring boundary
@@ -89,6 +153,13 @@
     (route-pattern-error!
       route-id pattern
       "literal path segments must percent-encode reserved characters (: * { } ?)"
+      start)
+
+    ;; A literal matches by its decoded text, and a stray `%` decodes to none.
+    (nil? (rf.routing.url/safe-url-decode segment))
+    (route-pattern-error!
+      route-id pattern
+      "literal path segments must be well-formed percent-encoding; spell a literal `%` as `%25`"
       start)))
 
 (defn- validate-optional-group!
@@ -154,7 +225,8 @@
   enforced: leading `/`; no empty segments; named params (`:name`) and
   splats (`*name`) occupy a whole segment with bare-identifier names; at
   most one splat, which must be final; literal segments percent-encode
-  the reserved chars (`: * { } ?`); and `{...}?` optional groups close
+  the reserved chars (`: * { } ?`) and are well-formed percent-encoding;
+  and `{...}?` optional groups close
   with `}?`, are non-empty, non-nested, wrap a slash-prefixed sub-pattern
   (the canonical slash-inside spelling, `{/:id}?`), follow no literal `/`
   (`/a/{/:id}?` would emit `/a//id`), and contain no splats. A pattern may also OPEN with a leading optional
@@ -258,7 +330,10 @@
   "Canonicalise an author-supplied `:path` pattern for registration:
   strips trailing slashes so `/cart` and `/cart/` register the same
   route (Spec 012 trailing-slash equivalence), with `/` itself
-  preserved. `reg-route` runs this before parsing so the stored pattern
+  preserved, and percent-encodes every character a URL path cannot carry
+  raw (`/café` → `/caf%C3%A9`), so `route-url` emits the spelling a browser
+  would. None of those characters is grammar syntax. `reg-route` runs this
+  before parsing so the stored pattern
   is already canonical; the incoming-URL side normalises identically via
   `registry/normalize-match-path` (both are thin wrappers over the
   shared `rf.routing.url/strip-trailing-slashes`, so the two surfaces cannot
@@ -270,7 +345,9 @@
   ;; `rf.routing.url/strip-trailing-slashes` (a non-string :path is caught by
   ;; `validate-route-pattern!`).
   (if (string? pattern)
-    (rf.routing.url/strip-trailing-slashes pattern)
+    (->> (code-points (rf.routing.url/strip-trailing-slashes pattern))
+         (map #(if (url-path-char? %) % (rf.routing.url/url-encode %)))
+         (apply str))
     pattern))
 
 ;; ---- single-pass pattern parser ------------------------------------------
@@ -410,7 +487,7 @@
                   counts' (cond-> counts
                             (zero? depth) (-> (update :static inc)
                                               (update :total inc)))]
-              (recur end depth (conj parts (regex-escape static-seg)) names
+              (recur end depth (conj parts (literal-regex static-seg)) names
                      inner group-stack counts'))))))))
 
 ;; ---- pattern co-matchability ----------------------------------------------
@@ -430,8 +507,9 @@
 ;;
 ;; The segment model mirrors the compiled-regex semantics `match-against`
 ;; applies, at segment granularity:
-;;   - a literal segment matches exactly its canonical text (case-sensitive,
-;;     %-encoding compared as written — exactly the `regex-escape`d literal);
+;;   - a literal segment matches exactly its decoded text (case-sensitive),
+;;     whichever spelling the URL carries — exactly what `literal-regex`
+;;     accepts;
 ;;   - a `:name` param matches exactly ONE arbitrary non-empty segment
 ;;     (`[^/]+`);
 ;;   - a final `*name` / bare `*` splat matches ONE OR MORE remaining
@@ -455,7 +533,7 @@
   (mapv (fn [seg]
           (if (clojure.string/starts-with? seg ":")
             :param
-            [:lit seg]))
+            [:lit (literal-text seg)]))
         (rest (clojure.string/split body #"/"))))
 
 (defn- segment-tokens
@@ -509,7 +587,7 @@
                                 (= \{ (.charAt pattern j)))
                           j
                           (recur (inc j))))]
-              (recur end (conj tokens [:lit (subs pattern i end)])))))))))
+              (recur end (conj tokens [:lit (literal-text (subs pattern i end))])))))))))
 
 (defn- tokens->nfa
   "Compile segment tokens into a tiny epsilon-NFA over the segment
@@ -575,7 +653,7 @@
 (defn- labels-compatible?
   "True when some single URL segment satisfies BOTH edge labels: `:any`
   (splat) and `:param` match every non-empty segment; two literals are
-  compatible iff their canonical texts are identical."
+  compatible iff their decoded texts are identical."
   [label-a label-b]
   (or (= :any label-a) (= :any label-b)
       (= :param label-a) (= :param label-b)

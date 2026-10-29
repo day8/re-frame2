@@ -14,7 +14,7 @@
   The rest of the file pins the round trips that rest on the same emission
   rules: namespaced query keys, a namespaced `:query-defaults` key, string
   fragments, and `:uuid` captures, which canonicalise to lowercase on both
-  hosts.
+  hosts and coerce only from the 8-4-4-4-12 hex spelling.
 
   Named `*-cljs-test.cljc` so the JVM runner and the `:node-test` build both
   run it; on CLJS a raw `#js {}` and a `js/Date` are the host values a
@@ -127,3 +127,16 @@
           :validation-failed? false}
          (select-keys (rf.routing/match-url "/articles/550E8400-E29B-41D4-A716-446655440000")
                       [:route-id :params :validation-failed?]))))
+
+;; JVM `parse-uuid` is `UUID/fromString`, which also takes short groups and a
+;; sign, where CLJS `parse-uuid` takes only the 8-4-4-4-12 hex spelling. Text
+;; outside that spelling stays a string on both hosts, for the `:params` schema
+;; to refuse.
+
+(deftest uuid-path-non-canonical-text-stays-a-string-on-both-hosts
+  (rf/reg-route :route/art {:params [:map [:id :uuid]]} "/articles/:id")
+  (is (= [["1-1-1-1-1" true]
+          ["+0000000-0000-0000-0000-000000000000" true]]
+         (mapv #((juxt (comp :id :params) :validation-failed?)
+                 (rf.routing/match-url (str "/articles/" %)))
+               ["1-1-1-1-1" "+0000000-0000-0000-0000-000000000000"]))))

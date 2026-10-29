@@ -198,17 +198,31 @@ on the `:rf.route/commit-nav-counter` fx (host high-water `max` bump).
 Recorded so record+replay re-presents the same nav-token verbatim
 (replay-determinism). Per Spec 012 §Navigation tokens."})
 
+(defn- live-token-counter
+  "The counter the current frame's live route-slice token spells (`nav-N` →
+  N), or 0 when the slice holds no token of that spelling."
+  []
+  (let [token (get-in (rf.frame/frame-runtime-db-value rf.frame/*current-frame*)
+                      [:rf.runtime/routing :current :nav-token])]
+    (or (when (string? token)
+          (some-> (re-matches #"nav-(\d+)" token) second parse-long))
+        0)))
+
 (defn nav-allocation-cofx
   "Value-returning generator for the RECORDABLE `:rf.route/nav-allocation`
-  cofx (EP-0017 §5). Mints the next nav-token from the host high-water
-  snapshot, and returns
-  `{:token \"nav-N\" :counter N}`. Runs at processing-start under the
+  cofx (EP-0017 §5). Mints the next nav-token past both the host high-water
+  snapshot and the frame's live slice token, and returns
+  `{:token \"nav-N\" :counter N}`. The slice floor matters after SSR
+  hydration: the hydrated slice carries a token the server process minted,
+  which this host's counter never saw and would otherwise mint again (Spec 012
+  §Navigation tokens). Runs at processing-start under the
   router `:live` policy; the produced allocation is written back into the
   causal `:rf.cofx` record so replay re-presents it verbatim (no re-mint).
   Strict mode (replay) does not run it — an absent recorded allocation is
   `:rf.error/missing-required-cofx`."
   []
-  (let [[n token] (next-nav-token (counter-snapshot))]
+  (let [[n token] (next-nav-token (update (counter-snapshot) :nav-token-counter
+                                          (fnil max 0) (live-token-counter)))]
     {:token token :counter n}))
 
 (def pending-nav-allocation-cofx-meta
