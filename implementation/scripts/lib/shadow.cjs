@@ -21,9 +21,11 @@
  *    waiting, so a slow poller is never overtaken by a later arrival. A run that finds
  *    the lane busy prints
  *
- *        shadow-lane: waiting for build lane held by <pid> (<worktree>, <command>) since <started>; queue position <n>; lock file <path> (delete it if <pid> is not a shadow-cljs build)
+ *        shadow-lane: waiting for build lane held by <pid> (<worktree>, <command>) since <started>; queue position <n>; lock file <path> (delete it only if neither <pid> nor its compiler <child> is a shadow-cljs build)
  *
- *    where position 1 is next, and polls until its turn. A holder whose launcher and
+ *    where position 1 is next, and polls until its turn. The hint names both recorded
+ *    processes because either one alive keeps the lane held; before the compiler is
+ *    spawned it names <pid> alone. A holder whose launcher and
  *    compiler child are both gone is dead, and so is one whose pid now names a process
  *    that began after the record named it: the operating system has handed a dead
  *    holder's pid to an unrelated process. The next run reclaims a dead holder's lock with
@@ -416,7 +418,10 @@ async function acquireLane({ command, cwd = process.cwd(), pollMs = POLL_MS } = 
         const key = `${holder.unreadable ? 'unreadable' : holder.token} ${ahead.length}`;
         if (announced !== key) {
           announced = key;
-          const hint = holder.unreadable ? '' : ` (delete it if ${holder.pid} is not a shadow-cljs build)`;
+          // The lane stays held while either recorded process lives (`holderAlive`).
+          const hint = holder.unreadable ? ''
+            : holder.child ? ` (delete it only if neither ${holder.pid} nor its compiler ${holder.child} is a shadow-cljs build)`
+            : ` (delete it if ${holder.pid} is not a shadow-cljs build)`;
           log(`shadow-lane: waiting for build lane held by ${describeHolder(holder)}; queue position ${ahead.length + 1}; lock file ${lockPath}${hint}`);
         }
       }

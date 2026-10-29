@@ -284,6 +284,40 @@ test('a second run waits, names the holder, and proceeds once the holder release
   assert.equal(fs.existsSync(lock), false);
 });
 
+// Either recorded process alive keeps the lane held, so a waiting line naming only the
+// launcher would invite deleting a lane whose compiler is still building.
+test('a dead launcher whose compiler child lives still holds the lane, and the waiting line names the child', { timeout: TIMEOUT_MS }, async () => {
+  const lock = freshLock();
+  const launcher = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  await new Promise((resolve) => launcher.on('close', resolve));
+  const compiler = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  live.add(compiler);
+  const now = new Date().toISOString();
+  fs.writeFileSync(lock, `${JSON.stringify({
+    pid: launcher.pid,
+    child: compiler.pid,
+    childAt: now,
+    worktree: REPO_ROOT,
+    command: 'orphaned-compile',
+    started: now,
+    token: '0123456789abcdef',
+  })}\n`);
+  assert.equal(isAlive(launcher.pid), false, 'the launcher is gone');
+  const b = start(['take', 'successor'], { RF2_SHADOW_LANE_LOCK: lock });
+  await eventually(() => b.err.includes('waiting for build lane'), 'the waiting line', 20000);
+  assert.ok(
+    b.err.includes(`; lock file ${lock} (delete it only if neither ${launcher.pid} nor its compiler ${compiler.pid} is a shadow-cljs build)`),
+    `the waiting line names the live compiler child:\n${b.err}`,
+  );
+  await sleep(300);
+  assert.equal(b.out.includes('HELD'), false, 'the run took a lane whose compiler child lives');
+  compiler.kill('SIGKILL');
+  await b.exited;
+  assert.equal(b.code, 0, b.err);
+  assert.match(b.err, new RegExp(`reclaimed the build lane from dead holder ${launcher.pid} `));
+  assert.equal(fs.existsSync(lock), false);
+});
+
 test('a killed holder\'s lock is reclaimed by the next run with no manual step', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'doomed'], { RF2_SHADOW_LANE_LOCK: lock });
