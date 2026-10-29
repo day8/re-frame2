@@ -623,15 +623,42 @@
             [[:dispatch [parent-id inner]]]))]
     (vec (concat (or destroy-fx []) (or dispatch-fx [])))))
 
+(defn end-exited-joins
+  "Pure. `runtime-db` with `:exited? true` on each live join that `fx`, the
+  effects of a macrostep `parent-id` is committing, exits: the reducer emits
+  one `[:rf.machine/destroy {:rf/parent-id … :rf/invoke-id … :rf/spawn-all
+  true}]` per `:spawn-all` state a transition leaves, behind that
+  transition's action fx. The commit is the one point that knows the attempt
+  is over before those action fx run, which a transition back into the same
+  state needs: its committed `:state` includes the invoke node again. A slot
+  that holds no live join — unseeded yet, or a reject sentinel — is left
+  alone (Spec 005 §Join semantics)."
+  [runtime-db parent-id fx]
+  (reduce (fn [db entry]
+            (let [[fx-id args] (when (vector? entry) entry)
+                  path         (when (and (= :rf.machine/destroy fx-id)
+                                          (map? args)
+                                          (true? (:rf/spawn-all args))
+                                          (= parent-id (:rf/parent-id args)))
+                                 (rf.machines.paths/spawned-path parent-id (:rf/invoke-id args)))]
+              (if (and path (map? (:children (get-in db path))))
+                (assoc-in db (conj path :exited?) true)
+                db)))
+          runtime-db
+          fx))
+
 (defn- parent-in-join?
   "True while the join at `[parent-id invoke-id]` still has its parent in the
-  `:spawn-all` state: the parent's committed `:state` includes the invoke
-  node. A transition commits before its action fx and the leaving state's
-  `:exit` run, so a destroy issued from either sees the parent already gone
-  from the join."
+  attempt that seeded it: no committed transition has exited the attempt
+  (`end-exited-joins`), and the parent's committed `:state` includes the
+  invoke node. A transition commits before its action fx and the leaving
+  state's `:exit` run, so a destroy issued from either sees the parent already
+  gone from the join — a transition back into the state included, whose
+  destroy ends the attempt it leaves rather than resolving into the next."
   [runtime-db parent-id invoke-id]
   (let [parent (get-in runtime-db (rf.machines.paths/snapshot-path parent-id))]
     (and (some? parent)
+         (not (:exited? (get-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id))))
          (rf.machines.transition/invoke-node-active? parent invoke-id))))
 
 (defn cancel-child

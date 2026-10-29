@@ -193,6 +193,54 @@
       (is (= [nil nil nil] (mapv snapshot [:sup/torn :torn/a :torn/b])))
       (is (empty? (events-of :rf.machine.spawn-all/any-failed))))))
 
+(deftest a-destroy-in-a-re-entering-transition-ends-the-old-attempt
+  (let [kill      (fn [{[_ id] :event}] {:fx [[:rf.machine/destroy id]]})
+        spawn-all {:on-all-complete [:phase/done] :on-any-failed [:phase/failed]}
+        on        (over-on :phase/done :phase/failed)]
+    (doseq [[addressing fixed?] [["generated" false] ["fixed" true]]
+            :let [parent (keyword "sup" (str "re-enter-" addressing))]]
+      (testing (str addressing " addresses: a destroy in a :reenter? transition
+                    back into the :spawn-all state ends the attempt it leaves, and
+                    the attempt it enters neither receives that attempt's
+                    :on-any-failed nor inherits its cancellation")
+        (rf.machines.test-support/reset-captured!)
+        (let [ids (start-join! parent [:a :b] spawn-all
+                               (assoc on :cancel {:target :joining :reenter? true :action kill})
+                               {:fixed? fixed?})]
+          (rf/dispatch-sync [parent [:cancel (:a ids)]])
+          (is (= [:joining nil] [(:state (snapshot parent)) (join-event parent)]))
+          (is (empty? (events-of :rf.machine.spawn-all/any-failed)))
+          (is (empty? (events-of :rf.machine.spawn/cancelled-on-join-resolution)))
+          (let [fresh (:children (join-state parent))]
+            (is (= #{} (:cancelled (join-state parent))))
+            (is (every? some? (map snapshot (vals fresh))))
+            (doseq [id (keep #(get fresh %) [:a :b])] (rf/dispatch-sync [id [:go]]))
+            (is (= [:over [:phase/done :b :b]]
+                   [(:state (snapshot parent)) (join-event parent)])
+                "the fresh attempt resolves on its own children's completions"))))
+      (testing (str addressing " addresses, control: the same destroy leaving for
+                    another state rests there with no :on-any-failed")
+        (rf.machines.test-support/reset-captured!)
+        (let [leaver (keyword "sup" (str "leave-" addressing))
+              ids    (start-join! leaver [:a :b] spawn-all
+                                  (assoc on :cancel {:target :cancelled :action kill})
+                                  {:fixed? fixed? :states {:cancelled {:on on}}})]
+          (rf/dispatch-sync [leaver [:cancel (:a ids)]])
+          (is (= [:cancelled nil] [(:state (snapshot leaver)) (join-event leaver)]))
+          (is (empty? (events-of :rf.machine.spawn-all/any-failed)))))
+      (doseq [[shape cancel] [["targetless" {:action kill}]
+                              ["non-reentering self-targeted" {:target :joining :action kill}]]
+              :let [stayer (keyword "sup" (str "stay-" addressing "-" (count shape)))]]
+        (testing (str addressing " addresses, control: the same destroy from a " shape
+                      " transition stays in the join and fires :on-any-failed")
+          (rf.machines.test-support/reset-captured!)
+          (let [ids (start-join! stayer [:a :b] spawn-all (assoc on :cancel cancel)
+                                 {:fixed? fixed?})]
+            (rf/dispatch-sync [stayer [:cancel (:a ids)]])
+            (is (= [:over [:phase/failed :a cancellation-result]]
+                   [(:state (snapshot stayer)) (join-event stayer)]))
+            (is (= 1 (count (events-of :rf.machine.spawn-all/any-failed))))))))))
+
 (deftest destroying-a-join-child-that-strands-the-join-warns
   (testing "with no :on-any-failed, an explicit destroy of one :all child is
             tracked as a failure is: the join can no longer succeed, the advisory

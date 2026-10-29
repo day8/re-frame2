@@ -835,8 +835,12 @@
                                      (not (whole-machine-final? machine snapshot))))
           ;; Machine snapshots are durable runtime-db state:
           ;; write the new snapshot into the runtime-db partition value;
-          ;; the handler returns it under `:rf.db/runtime`, NOT `:db`.
-          new-runtime-db (assoc-in runtime-db path next-snapshot)]
+          ;; the handler returns it under `:rf.db/runtime`, NOT `:db`. The
+          ;; same write ends every join the macrostep exits, before any of
+          ;; its fx run (`join/end-exited-joins`).
+          new-runtime-db (-> runtime-db
+                             (assoc-in path next-snapshot)
+                             (rf.machines.lifecycle-fx.join/end-exited-joins machine-id merged-fx))]
       ;; The `:frame` tag is REQUIRED for epoch-capture
       ;; admission (`re-frame.epoch.capture/capture-event!` silently
       ;; drops trace events whose tags lack `:frame`). Without this
