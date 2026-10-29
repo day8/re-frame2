@@ -13,13 +13,15 @@
  *    silently: no error, no exit, no output. So a build first takes a machine-wide lock,
  *    a file in the OS temp directory (outside every worktree; `/tmp` on POSIX), created
  *    atomically by hard-linking a fully written record into place, so no reader ever sees
- *    half a holder. The record is {pid, child, worktree, command, started, token}. A run
- *    that finds the lane busy prints
+ *    half a holder. The record is {pid, child, childAt, worktree, command, started, token}.
+ *    A run that finds the lane busy prints
  *
- *        shadow-lane: waiting for build lane held by <pid> (<worktree>, <command>) since <started>
+ *        shadow-lane: waiting for build lane held by <pid> (<worktree>, <command>) since <started>; lock file <path> (delete it if <pid> is not a shadow-cljs build)
  *
  *    and polls until it is free. A holder whose launcher and compiler child are both gone
- *    is dead, and the next run reclaims its lock with no manual step; the reclaim happens
+ *    is dead, and so is one whose pid now names a process that began after the record
+ *    named it: the operating system has handed a dead holder's pid to an unrelated
+ *    process. The next run reclaims a dead holder's lock with no manual step; the reclaim happens
  *    under a short-lived guard directory, so two waiters cannot both reclaim and both
  *    proceed. The lock is released when the build ends, on Ctrl-C or a termination signal,
  *    and on process exit; a kill that gives this process no chance to run is covered by
@@ -65,6 +67,7 @@
  *   declared output; 2 for a usage error; 128+n when signal n stops this process.
  */
 
+const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -80,6 +83,13 @@ const POLL_MS = 500;
 // A reclaim guard or an unreadable lock older than this belongs to a process that died
 // mid-write; nothing healthy holds either for more than milliseconds.
 const STALE_MS = 10000;
+// How long one probe of a live pid's start time is believed. The probe spawns a process,
+// so a waiter polling the same holder reuses it, and re-probes this often so a holder that
+// dies mid-wait and has its pid handed on is still caught.
+const IDENTITY_TTL_MS = 30000;
+// A start time reported this far after the record named the pid still counts as the
+// holder's, which absorbs clock granularity; a reused pid begins long after.
+const CLOCK_SLACK_MS = 1000;
 const ONE_SHOT = new Set(['compile', 'release', 'check', 'run', 'clj-run']);
 const SIGNALS = process.platform === 'win32'
   ? ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']
@@ -109,8 +119,59 @@ function isAlive(pid) {
   }
 }
 
+// When a live process began, in ms since the epoch, or null where the OS will not say.
+function probeStartTime(pid) {
+  try {
+    if (process.platform === 'win32') {
+      const r = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `[DateTimeOffset]::new((Get-Process -Id ${pid} -ErrorAction Stop).StartTime).ToUnixTimeMilliseconds()`,
+        ],
+        { encoding: 'utf8', windowsHide: true, timeout: 15000 },
+      );
+      const ms = Number(r.stdout.trim());
+      return r.status === 0 && ms > 0 ? ms : null;
+    }
+    const r = spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
+      timeout: 15000,
+    });
+    const ms = Date.parse(r.stdout.trim());
+    return r.status === 0 && Number.isFinite(ms) ? ms : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+const probed = new Map();
+
+function startTimeOf(pid) {
+  const hit = probed.get(pid);
+  if (hit && Date.now() - hit.at < IDENTITY_TTL_MS) return hit.began;
+  const began = probeStartTime(pid);
+  probed.set(pid, { began, at: Date.now() });
+  return began;
+}
+
+// Whether `pid` still names the process a record named at `namedAt`. A live pid whose
+// process began after that is an unrelated process holding a dead holder's recycled pid,
+// which would otherwise hold the lane for as long as it lives. Where the record carries no
+// time, or the OS will not say when the process began, a live pid counts.
+function isRecordedProcess(pid, namedAt) {
+  if (!isAlive(pid)) return false;
+  const named = Date.parse(namedAt);
+  if (!Number.isFinite(named)) return true;
+  const began = startTimeOf(pid);
+  return began === null || began <= named + CLOCK_SLACK_MS;
+}
+
 function holderAlive(holder) {
-  return isAlive(holder.pid) || isAlive(holder.child);
+  return isRecordedProcess(holder.pid, holder.started) || isRecordedProcess(holder.child, holder.childAt);
 }
 
 function mtimeOf(file) {
@@ -251,7 +312,8 @@ async function acquireLane({ command, cwd = process.cwd(), pollMs = POLL_MS } = 
       const key = holder.unreadable ? 'unreadable' : holder.token;
       if (announced !== key) {
         announced = key;
-        log(`shadow-lane: waiting for build lane held by ${describeHolder(holder)}`);
+        const hint = holder.unreadable ? '' : ` (delete it if ${holder.pid} is not a shadow-cljs build)`;
+        log(`shadow-lane: waiting for build lane held by ${describeHolder(holder)}; lock file ${lockPath}${hint}`);
       }
       await sleep(pollMs);
     }
@@ -294,6 +356,7 @@ function recordChild(pid) {
   if (!lane.held || !pid) return;
   const { lockPath, record } = lane.held;
   record.child = pid;
+  record.childAt = new Date().toISOString();
   const staged = `${lockPath}.${record.token}.tmp`;
   try {
     fs.writeFileSync(staged, `${JSON.stringify(record)}\n`);
