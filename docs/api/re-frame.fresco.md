@@ -252,7 +252,8 @@ other twelve vars exist only in ClojureScript.
     - It reads in the frame of the view that is rendering.
     - Outside a view render (in an event handler, a callback or a utility) it raises
       `:rf.error/fresco-sub-outside-render`, naming the query. For a one-off read
-      there, use `rf/subscribe-once`.
+      in a callback or a utility, use `rf/subscribe-once`; an event handler takes
+      the value through a cofx or `rf/compute-sub` instead.
     - An unregistered query reads `nil` and emits `:rf.error/no-such-sub`, and a
       subscription whose body throws reads `nil` and emits `:rf.error/sub-exception`.
       Neither throws into the view.

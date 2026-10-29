@@ -48,7 +48,7 @@ page is history.
   tripwire, the ownership state machine, the survival metric — are unwaived
   and adjudicated in [hd-002-adjudication.md](hd-002-adjudication.md). `sub`
   outside a render is an error; `subscribe-once` is the sanctioned snapshot for
-  handler/utility code; framework subs (machine tags, resource/mutation state,
+  utility code (a handler reads through a cofx or `compute-sub`); framework subs (machine tags, resource/mutation state,
   route identity) read identically to app subs.
 - **Bodies are pure and re-runnable** (StrictMode runs them twice). No
   `useState`/local reactive cells for app state (HD-009); hooks belong at host
