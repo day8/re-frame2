@@ -502,6 +502,19 @@
      under any OTHER origin is one whose reference carried an origin of its own."
      "http://app.invalid"))
 
+(defn- same-document-url
+  "`url` resolved against `current-app-url` when it is a pure `?query` or
+  `#fragment` reference, the way a browser resolves one against the page it is
+  on: `?q` keeps the path and replaces the query and the fragment, `#f` keeps
+  the path and the query. Any other `url` comes back unchanged."
+  [url current-app-url]
+  (let [before   (fn [s ch] (if-let [i (clojure.string/index-of s ch)] (subs s 0 i) s))
+        document (before (or current-app-url "/") "#")]
+    (cond
+      (clojure.string/starts-with? url "?") (str (before document "?") url)
+      (clojure.string/starts-with? url "#") (str document url)
+      :else                                 url)))
+
 (defn request-url->app-url
   "Reduce an accepted `{:url …}` reference to the
   APP-RELATIVE path-form URL the rest of the cascade speaks.
@@ -527,21 +540,28 @@
   address-bar reading (`window.location.href` as the base,
   no decode) — the only configuration that reading is right for:
   under `with-base-path` or `hash-url-strategy` it would match `?tab=2` to a
-  doubled base or a different route. On the JVM, and on CLJS without a browser `Location`,
-  the reference is returned unchanged (the fail-closed lexical gate already
-  classes origin-bearing and bare-relative references as external there)."
+  doubled base or a different route. On the JVM, and on CLJS without a browser
+  `Location`, the fail-closed lexical gate admits only rooted paths and pure
+  `?query` / `#fragment` references, and those two resolve against
+  `current-app-url` by the browser's rule (`same-document-url`), so `?tab=2`
+  keeps the frame's route on every host."
   [url current-app-url decode]
   #?(:cljs
      (try
-       (if (and (exists? js/window) (.-location js/window)
-                (not (external-url? url)))
+       (cond
+         (not (and (exists? js/window) (.-location js/window)))
+         (same-document-url url current-app-url)
+
+         (external-url? url)
+         url
+
+         :else
          (let [resolved (js/URL. url (js/URL. (str app-reference-origin (or current-app-url "/"))))]
            (if (= app-reference-origin (.-origin resolved))
              (str (.-pathname resolved) (.-search resolved) (.-hash resolved))
              (let [parsed  (js/URL. url (.-href (.-location js/window)))
                    address (str (.-pathname parsed) (.-search parsed) (.-hash parsed))]
-               (if decode (decode address) address))))
-         url)
+               (if decode (decode address) address)))))
        (catch :default _ url))
      :clj
-     url))
+     (same-document-url url current-app-url)))

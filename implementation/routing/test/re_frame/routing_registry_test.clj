@@ -197,6 +197,24 @@
                 {:route-id :route/third  :shadowed-by :route/first :rank [1 1 2 1 1]}]
                (mapv #(select-keys (:tags %) [:route-id :shadowed-by :rank]) warns)))))))
 
+(deftest re-registering-a-route-keeps-its-rule-6-place
+  ;; A reload re-registers a route under the index it already had, so it
+  ;; cannot change which of two tied routes a URL resolves to.
+  (rf/reg-route :route/a {} "/x/:id")
+  (rf/reg-route :route/b {} "/x/:slug")
+  (is (= :route/a (:route-id (rf.routing/match-url "/x/1"))))
+  (let [warns (shadow-warnings #(rf/reg-route :route/a {} "/x/:id"))]
+    (is (= :route/a (:route-id (rf.routing/match-url "/x/1")))
+        "re-registering the earlier route keeps it the winner")
+    (when rf.interop/debug-enabled?
+      (is (= [{:route-id :route/b :shadowed-by :route/a}]
+             (mapv #(select-keys (:tags %) [:route-id :shadowed-by]) warns))
+          "the warning names the route that is actually shadowed")))
+  (testing "a route cleared and registered again takes a fresh, later place"
+    (rf/clear :route :route/a)
+    (rf/reg-route :route/a {} "/x/:id")
+    (is (= :route/b (:route-id (rf.routing/match-url "/x/1"))))))
+
 (deftest route-shadow-scan-registration-benchmark
   (testing "a large table of same-rank routes that never co-match — the worst
             case for the rank prefilter, since every pair ties — registers

@@ -133,3 +133,42 @@
       (reset! calls [])
       (rf/dispatch-sync [:rf.route/navigate request])
       (is (= strategies (map :strategy @calls)) (pr-str request)))))
+
+;; ---- a confirmed leave replays the blocked door's scroll default -----------
+;;
+;; Spec 012 §Scroll restoration: `:rf.route/continue` replays through
+;; `:rf.route/navigate`, whose own default is `:top`, but the blocked door's
+;; default travels with the replay, so confirming the leave after a blocked
+;; Back restores the way the unblocked Back would.
+
+(defn- pending-id []
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+          [:rf.runtime/routing :pending-navigation :id]))
+
+(deftest continue-after-a-blocked-back-restores-scroll
+  (let [calls (record-scroll-fx!)
+        back! (fn [url] (rf/dispatch-sync [:rf.route/handle-url-change url {:rf.route/cause :popstate}]))]
+    (rf/reg-route :route/list {} "/list")
+    (rf/reg-route :route/pinned {:scroll :top} "/pinned")
+    (rf/reg-route :route/editor {:can-leave :editor/can-leave?} "/editor")
+    (rf/reg-sub :editor/can-leave? (fn [db _] (not (:dirty? db))))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc db :dirty? v)}))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/list" {:rf.route/cause :initial}])
+    (let [strategies-after-continue
+          (fn [url]
+            (rf/dispatch-sync [:editor/dirty false])
+            (rf/dispatch-sync [:rf.route/navigate {:to :route/editor}])
+            (rf/dispatch-sync [:editor/dirty true])
+            (reset! calls [])
+            (back! url)
+            (rf/dispatch-sync [:rf.route/continue (pending-id)])
+            (mapv :strategy @calls))]
+      (testing "control: an unblocked Back restores"
+        (rf/dispatch-sync [:rf.route/navigate {:to :route/editor}])
+        (reset! calls [])
+        (back! "/list")
+        (is (= [:restore] (mapv :strategy @calls))))
+      (testing "the confirmed leave after a blocked Back restores too"
+        (is (= [:restore] (strategies-after-continue "/list"))))
+      (testing "a target route's own :scroll still wins over the default"
+        (is (= [:top] (strategies-after-continue "/pinned")))))))

@@ -21,11 +21,12 @@
   tag names, and the URL was pushed or not. A rejected request is rejected in
   both postures; only its diagnostic is dev-only."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
+            [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
@@ -378,10 +379,13 @@
       (reset! pushed [])
       (rf/dispatch-sync [:rf.route/navigate {:url hostile}])
       (is (= [[] :route/home] [@pushed (:route-id (nav-slice))]) (pr-str hostile)))
-    (doseq [safe ["/cart" "/a/b/c" "/cart?q=1" "/cart#frag" "?q=1" "#frag"]]
+    ;; A pure query or fragment resolves against where the frame is — here the
+    ;; not-found page for `/cart#frag`, then `/cart?q=1`.
+    (doseq [[safe url] [["/cart" "/cart"] ["/a/b/c" "/a/b/c"] ["/cart?q=1" "/cart?q=1"]
+                        ["/cart#frag" "/cart#frag"] ["?q=1" "/cart?q=1"] ["#frag" "/cart?q=1#frag"]]]
       (reset! pushed [])
       (rf/dispatch-sync [:rf.route/navigate {:url safe}])
-      (is (= [safe] @pushed) (pr-str safe)))))
+      (is (= [url] @pushed) (pr-str safe)))))
 
 (deftest navigate-url-target-fails-closed-on-ambiguous-urls-jvm
   (rf/reg-route :route/home {} "/")
@@ -660,3 +664,54 @@
                 (pr-str event)))))
       (is (empty? @pushed))
       (is (zero? @leave-calls)))))
+
+;; ---- a refused named address reports the refusal's own id -----------------
+;;
+;; Spec 012 §Param validation at the call site: only a schema verdict reports
+;; as `:rf.error/schema-validation-failure`, so an unregistered `:to` is
+;; `:rf.error/no-such-route`, the name prefetch's `:reason` gives the same
+;; address.
+
+(deftest navigate-to-an-unregistered-route-reports-no-such-route
+  (rf/reg-route :route/home {} "/")
+  (let [pushed (record-pushes!)
+        errors (atom [])]
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+    (reset! pushed [])
+    (rf/register-listener! :trace ::typo (fn [ev] (when (= :error (:op-type ev))
+                                                    (swap! errors conj ev))))
+    (try
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/typo}])
+      (rf/dispatch-sync [:rf.route/prefetch {:to :route/typo}])
+      (finally (rf/unregister-listener! :trace ::typo)))
+    (is (= [:route/home []] [(:route-id (nav-slice)) @pushed])
+        "the navigation is rejected: slice unchanged, nothing pushed")
+    (when rf.interop/debug-enabled?
+      (is (= [[:rf.error/no-such-route :route/typo nil]
+              [:rf.error/prefetch-bad-address :route/typo :no-such-route]]
+             (mapv (juxt :operation (comp :route-id :tags) (comp :reason :tags)) @errors))))))
+
+;; ---- a URL-driven rejection on the not-found page restores the user's URL --
+;;
+;; Spec 012 §Route-not-found: a not-found slice stands for the URL the user
+;; asked for, not the fallback route's own pattern, so the address-bar restore
+;; after a denied Back puts that URL back.
+
+(deftest a-denied-back-from-the-not-found-page-restores-the-requested-url
+  (let [replaced (atom [])]
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+                  (fn [_ url] (swap! replaced conj url)))
+    (rf/reg-route :rf.route/not-found {} "/404")
+    (rf/reg-route :route/account {:can-enter [:auth/ok?]} "/account")
+    (rf/reg-route :route/home {} "/home")
+    (rf/reg-sub :auth/ok? (fn [_ _] false))
+    (rf/dispatch-sync [:rf.route/handle-url-change "/nowhere" {:rf.route/cause :initial}])
+    (rf/dispatch-sync [:rf.route/handle-url-change "/account" {:rf.route/cause :popstate}])
+    (is (= [:rf.route/not-found ["/nowhere"]] [(:route-id (nav-slice)) @replaced]))
+    (is (= "/nowhere" (rf.routing.scroll/route-slice-url (nav-slice)))
+        "the scroll cache keys the page under the same URL")
+    (testing "control: the same denial from a named route restores its URL"
+      (reset! replaced [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/home" {:rf.route/cause :initial}])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/account" {:rf.route/cause :popstate}])
+      (is (= [:route/home ["/home"]] [(:route-id (nav-slice)) @replaced])))))

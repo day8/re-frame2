@@ -172,18 +172,8 @@
   `:file` / `:line` / `:column` are not accepted bare."
   #{;; routing-owned (Spec 012 §Reserved route-metadata keys)
     :doc :path :params :query :query-defaults
-    ;; There is no route `:query-retain` key (EP-0037 R5): a route
-    ;; declaring it is rejected as an unknown bare key. Carrying query
-    ;; state across routes is an APPLICATION policy spelled as an ordinary
-    ;; pure function over the destination address (Spec 012 §Carrying query
-    ;; state across routes); the framework never folds ambient current
-    ;; query into a destination the caller authored.
     ;; :can-enter is the first-class mirror of :can-leave — the target
     ;; route's enter-gate guard sub-id.
-    ;; There is no route `:on-error` key (EP-0037 R1): a route
-    ;; declaring it is rejected as an unknown bare key. Managed page-read
-    ;; readiness is `:resources` (Spec 012 §Route readiness is a resource
-    ;; projection).
     :tags :parent :on-match :scroll :can-leave :can-enter
     ;; route-owned data classification (EP-0025 — the
     ;; `reg-route` subsystem-matrix row; projection-relative `:sensitive` /
@@ -316,64 +306,34 @@
 ;; identity + route-url first — deliberately NOT smuggled in via lossy `:double`
 ;; coercion.)
 
-(defn- decimal-type-form?
-  "True when a Malli param/query slot type-form `tf` denotes a floating-point
-  (`:double`) value in any of the shapes the coercion vocabulary supports:
-  bare `:double`, an optioned `[:double {…}]`, or either wrapped in
-  `[:maybe …]`."
-  [tf]
-  (boolean
-    (cond
-      (= :double tf) true
-      (vector? tf)
-      (let [head (first tf)]
-        (cond
-          (= :double head) true
-          (= :maybe head)  (decimal-type-form? (second tf))
-          :else            false))
-      :else false)))
+(defn- schema-slot-entries
+  "The `[k type-form]` pairs of a `[:map [k type] [k {opts} type] …]` Malli
+  vector schema, in declaration order, or nil when `schema` is not a vector.
+  An entry of neither shape pairs its key with a nil type-form, so the key
+  stays declared. The one walk the coercion tables and the authoring-boundary
+  rejector read a route schema through."
+  [schema]
+  (when (vector? schema)
+    (keep (fn [entry]
+            (when (and (vector? entry) (keyword? (first entry)))
+              [(first entry) (case (count entry)
+                               2 (second entry)
+                               3 (last entry)
+                               nil)]))
+          (rest schema))))
 
-(defn- reject-decimal-route-schema!
-  "Authoring-boundary guardrail: throw
-  `:rf.error/route-decimal-unsupported` (canonical thrown-error shape, per
-  Spec 009) when `metadata` declares a `:double` / decimal-typed key in its
-  `:params` or `:query` `[:map …]` schema. Decimal routing is unsupported —
-  a float has no canonical-EDN identity, so it cannot round-trip through the
-  match-url/route-url prism and diverges across hosts (see the section
-  comment). The thrown error names the offending slot + key so the author sees
-  exactly what to fix. Fails in dev AND prod (a caller bug, not user input).
-  Runs only on the routing-owned `:params` / `:query` slots — namespaced /
-  cross-feature schema keys are not scanned."
-  [route-id metadata]
-  (doseq [slot [:params :query]]
-    (let [schema (get metadata slot)]
-      (when (vector? schema)
-        (doseq [entry (rest schema)]      ;; skip the leading `:map` head
-          (when (and (vector? entry) (keyword? (first entry)))
-            (let [k  (first entry)
-                  tf (cond
-                       (= 2 (count entry)) (second entry)   ;; [k type]
-                       (= 3 (count entry)) (last entry)      ;; [k {opts} type]
-                       :else               nil)]
-              (when (decimal-type-form? tf)
-                (throw (route-error
-                         :rf.error/route-decimal-unsupported
-                         'rf/reg-route
-                         (str "route " route-id " declares a :double / decimal-typed "
-                              (name slot) " key " k " — decimal routing is not "
-                              "supported: a floating-point value has no canonical "
-                              "EDN identity (Conventions §Canonical EDN identity), so "
-                              "it cannot round-trip through match-url / route-url "
-                              "(the EP-0012 route prism — route-url rejects a float as "
-                              ":rf.error/route-url-non-edn-value) and it diverges "
-                              "across the JVM/CLJS hosts (the Spec 011 "
-                              "hydration-mismatch class). Encode the value as a string "
-                              "(parse it in a handler) or use an :int-typed key.")
-                         {:route-id  route-id
-                          :slot      slot
-                          :param     k
-                          :type-form tf})))))))))
-  nil)
+(defn- type-form-of?
+  "True when the slot type-form `tf` is the Malli type `head` bare
+  (`:double`), optioned (`[:double {…}]`), or either wrapped in `[:maybe …]`.
+  An `[:enum …]` keyword allowlist never matches `:keyword`: its head is
+  `:enum`."
+  [head tf]
+  (cond
+    (= head tf)  true
+    (vector? tf) (let [h (first tf)]
+                   (or (= head h)
+                       (and (= :maybe h) (type-form-of? head (second tf)))))
+    :else        false))
 
 ;; ---- authoring-boundary guard: reject un-round-trippable :keyword slots ---
 ;;
@@ -396,71 +356,52 @@
 ;; un-round-trippable route data, fail LOUD at `reg-route`, steering authors to
 ;; `[:enum …]` (bounded) or `:string`.
 
-(defn- keyword-type-form?
-  "True when a Malli param/query slot type-form `tf` denotes a BARE / OPTIONED
-  (unbounded) `:keyword` value: bare `:keyword`, an optioned `[:keyword {…}]`,
-  or either wrapped in `[:maybe …]`. A `[:enum :a :b …]` keyword allowlist is
-  NOT matched (its head is `:enum`, not `:keyword`) — it round-trips via the
-  enum prism and stays supported. The `:keyword` twin of
-  `decimal-type-form?`."
-  [tf]
-  (boolean
-    (cond
-      (= :keyword tf) true
-      (vector? tf)
-      (let [head (first tf)]
-        (cond
-          (= :keyword head) true
-          (= :maybe head)   (keyword-type-form? (second tf))
-          :else             false))
-      :else false)))
+(def ^:private unroundtrippable-slot-types
+  "The slot types `reg-route` refuses, checked in this order, each as
+  `[type-head error-id message-prefix message-reason]`."
+  [[:double
+    :rf.error/route-decimal-unsupported
+    " declares a :double / decimal-typed "
+    (str " — decimal routing is not supported: a floating-point value has no "
+         "canonical EDN identity (Conventions §Canonical EDN identity), so it "
+         "cannot round-trip through match-url / route-url (the EP-0012 route "
+         "prism — route-url rejects a float as :rf.error/route-url-non-edn-value) "
+         "and it diverges across the JVM/CLJS hosts (the Spec 011 "
+         "hydration-mismatch class). Encode the value as a string (parse it in a "
+         "handler) or use an :int-typed key.")]
+   [:keyword
+    :rf.error/route-keyword-unbounded-unsupported
+    " declares a bare :keyword-typed "
+    (str " — an unbounded :keyword route slot cannot round-trip through "
+         "match-url / route-url (the EP-0012 route prism): route-url "
+         "host-stringifies the keyword (:asc -> %3Aasc) but match-url keeps the "
+         "URL segment a STRING (the keyword-interning guard), which then fails "
+         "the route's own :keyword schema. Use [:enum :a :b …] for a BOUNDED "
+         "keyword slot (it interns + round-trips via the enum allowlist) or "
+         ":string for a free-form value (parse it in a handler).")]])
 
-(defn- reject-keyword-route-schema!
-  "Authoring-boundary guardrail: throw
-  `:rf.error/route-keyword-unbounded-unsupported` (canonical thrown-error
-  shape, per Spec 009) when `metadata` declares a BARE / OPTIONED (unbounded)
-  `:keyword`-typed key in its `:params` or `:query` `[:map …]` schema. An
-  unbounded `:keyword` slot cannot round-trip through match-url / route-url:
-  `route-url` host-stringifies the keyword (`:asc` → `%3Aasc`) but `match-url`
-  keeps the segment a STRING (the keyword-interning guard), which
-  then fails the route's own `:keyword` schema — the URL `route-url` built
-  fails the SAME route's re-match. The thrown error names the offending slot +
-  key and steers the author to `[:enum …]` (bounded, round-trips via the enum
-  prism) or `:string`. Fails in dev AND prod (a caller bug, not user input).
-  Runs only on the routing-owned `:params` / `:query` slots; a `[:enum …]`
-  keyword slot is admitted (`keyword-type-form?` excludes it). Mirrors
-  `reject-decimal-route-schema!` — its `:double` un-round-trippable twin."
+(defn- reject-unroundtrippable-slots!
+  "Authoring-boundary guardrail: throw the canonical thrown-error shape (per
+  Spec 009) when `metadata`'s `:params` or `:query` `[:map …]` schema declares
+  a slot of a type `unroundtrippable-slot-types` names —
+  `:rf.error/route-decimal-unsupported` for `:double`,
+  `:rf.error/route-keyword-unbounded-unsupported` for a bare or optioned
+  `:keyword` — naming the slot and key so the author sees exactly what to fix.
+  Fails in dev AND prod (a caller bug, not user input). Only the
+  routing-owned `:params` / `:query` slots are scanned."
   [route-id metadata]
-  (doseq [slot [:params :query]]
-    (let [schema (get metadata slot)]
-      (when (vector? schema)
-        (doseq [entry (rest schema)]      ;; skip the leading `:map` head
-          (when (and (vector? entry) (keyword? (first entry)))
-            (let [k  (first entry)
-                  tf (cond
-                       (= 2 (count entry)) (second entry)   ;; [k type]
-                       (= 3 (count entry)) (last entry)      ;; [k {opts} type]
-                       :else               nil)]
-              (when (keyword-type-form? tf)
-                (throw (route-error
-                         :rf.error/route-keyword-unbounded-unsupported
-                         'rf/reg-route
-                         (str "route " route-id " declares a bare :keyword-typed "
-                              (name slot) " key " k " — an unbounded :keyword "
-                              "route slot cannot round-trip through match-url / "
-                              "route-url (the EP-0012 route prism): route-url "
-                              "host-stringifies the keyword (:asc -> %3Aasc) but "
-                              "match-url keeps the URL segment a STRING (the "
-                              "keyword-interning guard), which then "
-                              "fails the route's own :keyword schema. Use "
-                              "[:enum :a :b …] for a BOUNDED keyword slot (it "
-                              "interns + round-trips via the enum allowlist) or "
-                              ":string for a free-form value (parse it in a "
-                              "handler).")
-                         {:route-id  route-id
-                          :slot      slot
-                          :param     k
-                          :type-form tf})))))))))
+  (doseq [[head error-id prefix reason] unroundtrippable-slot-types
+          slot                          [:params :query]
+          [k tf]                        (schema-slot-entries (get metadata slot))
+          :when                         (type-form-of? head tf)]
+    (throw (route-error
+             error-id
+             'rf/reg-route
+             (str "route " route-id prefix (name slot) " key " k reason)
+             {:route-id  route-id
+              :slot      slot
+              :param     k
+              :type-form tf})))
   nil)
 
 ;; ---- registration --------------------------------------------------------
@@ -498,10 +439,11 @@
   Spec 012 §Route ranking algorithm rule 6's 'same URL family'), emits
   :rf.warning/route-shadowed-by-equal-score so tooling can flag the
   conflict. Earlier registration wins the rule-6 tiebreak at match time,
-  so the NEW route is the shadowed one: the warning's :route-id names it,
-  :shadowed-by names the existing winner, and :rank carries the tied
-  structural tuple. Equal rank alone never warns — /x/:id and /y/:slug
-  tie structurally but can never both match one URL."
+  and a re-registration keeps its original place in that order, so a NEW
+  route is the shadowed one: the warning's :route-id names the shadowed
+  route, :shadowed-by the winner, and :rank carries the tied structural
+  tuple. Equal rank alone never warns — /x/:id and /y/:slug tie
+  structurally but can never both match one URL."
   [id metadata path]
   ;; Reject non-map metadata FIRST (the authoring-boundary guard) with
   ;; the canonical `:rf.error/route-bad-metadata`. Under the 3-slot
@@ -548,25 +490,18 @@
         ;; pure reflection map. Runs only when the route declares a
         ;; classification key.
         _            (rf.routing.classification/validate+extract id metadata)
-        ;; Reject a :double / decimal-typed :params or :query key
-        ;; at the authoring boundary. A float has no canonical-EDN identity, so
-        ;; a decimal route breaks the match-url/route-url prism (match-url would
-        ;; coerce to a float route-url then refuses to emit) and diverges across
-        ;; hosts. Fail loud here rather than produce un-round-trippable route
-        ;; data — see `reject-decimal-route-schema!`.
-        _            (reject-decimal-route-schema! id metadata)
-        ;; Reject a bare / optioned (unbounded) :keyword :params /
-        ;; :query key at the authoring boundary — the un-round-trippable twin of
-        ;; the :double reject above. route-url host-stringifies a keyword value
-        ;; (:asc -> %3Aasc) but match-url keeps it a STRING (the
-        ;; keyword-interning guard), so the URL route-url builds fails the SAME
-        ;; route's re-match. Fail loud, steering to [:enum …] (bounded) or
-        ;; :string. [:enum …] keyword slots round-trip and are admitted. See
-        ;; `reject-keyword-route-schema!`.
-        _            (reject-keyword-route-schema! id metadata)
+        ;; A `:double` or unbounded `:keyword` slot cannot round-trip through
+        ;; match-url / route-url, so it fails loud here rather than producing
+        ;; un-round-trippable route data (the two section comments above).
+        _            (reject-unroundtrippable-slots! id metadata)
         pattern      (rf.routing.match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
-        idx          (swap! reg-counter inc)
+        ;; A re-registration keeps the route's place in registration order,
+        ;; so a hot reload cannot change which of two tied routes wins rule 6.
+        previous     (rf.registrar/lookup :route id)
+        idx          (if-let [previous-rank (:rf.route/rank previous)]
+                       (- (peek previous-rank))
+                       (swap! reg-counter inc))
         _            (rf.routing.match/validate-route-pattern! id pattern)
         ;; Single-pass parse: rank + regex + capture names +
         ;; per-optional-group lookup all derive from one left-to-right
@@ -622,16 +557,15 @@
     ;; its trailing element and is structurally one longer; drop that
     ;; suffix for the tie test.
     ;;
-    ;; Payload direction: earlier registration WINS the rule-6 tiebreak
-    ;; (the trailing `(- reg-index)` sorts earlier routes higher), so the
-    ;; NEW route is the shadowed one — `:route-id` names it, `:shadowed-by`
-    ;; names the existing winner, `:rank` carries the tied structural
-    ;; tuple (the Spec-Schemas `:rf/route-rank` 5-tuple). When several
-    ;; existing routes tie AND intersect, the one that actually wins at
-    ;; match time — the earliest-registered, i.e. the highest full
-    ;; 6-tuple — is named.
+    ;; Payload direction: the higher full rank wins at match time (the
+    ;; trailing `(- reg-index)` sorts earlier registrations higher), so the
+    ;; strongest tied rival is weighed against this route's full rank:
+    ;; `:route-id` names the loser, `:shadowed-by` the winner, and `:rank`
+    ;; carries the tied structural tuple (the Spec-Schemas `:rf/route-rank`
+    ;; 5-tuple). A first registration always loses; a re-registration keeps
+    ;; its index, so a reloaded earlier route is the winner.
     (when structural
-      (when-let [winner
+      (when-let [[rival rival-meta]
                  (->> (rf.registrar/registrations :route)
                       (filter (fn [[other-id other-meta]]
                                 (when-let [other-rank (:rf.route/rank other-meta)]
@@ -641,12 +575,13 @@
                                          pattern (:path other-meta))))))
                       (sort-by (fn [[_ m]] (:rf.route/rank m))
                                #(compare %2 %1))
-                      ffirst)]
-        (rf.trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
-                     {:route-id    id
-                      :shadowed-by winner
-                      :rank        structural})))
-    (let [previous (rf.registrar/lookup :route id)]
+                      first)]
+        (let [wins? (pos? (compare rank (:rf.route/rank rival-meta)))]
+          (rf.trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
+                          {:route-id    (if wins? rival id)
+                           :shadowed-by (if wins? id rival)
+                           :rank        structural}))))
+    (do
       (rf.registrar/register! :route id meta')
       ;; Cache invalidation is automatic — the registrar's `:route` map
       ;; gets a new identity on every register!, and `route-table` checks
@@ -678,16 +613,6 @@
                    {:route-id id
                     :path     (:path previous)})))
   nil)
-
-;; ---- registry-side introspection -----------------------------------------
-;; There is no `route-ids` / `route-meta` pair. "Which routes
-;; are registered, and what is route X's spec?" is the generic registrar
-;; grammar every tool already speaks:
-;;   (keys (rf/registrations {:kind :route}))
-;;   (rf/handler-meta {:kind :route :id id})
-;; A per-kind alias is a second encoding of that grammar, and the routing
-;; registrar carries its metadata at the top level of the registration —
-;; there is no inner-key projection to remember either.
 
 ;; ---- match + coerce ------------------------------------------------------
 
@@ -794,21 +719,10 @@
   table verbatim so its slot remains a declared key (string-passthrough at
   coerce time, with the Malli validator having the final say)."
   [schema]
-  (when (and schema (vector? schema))
-    (persistent!
-      (reduce
-        (fn [acc slot-entry]
-          (if (and (vector? slot-entry) (keyword? (first slot-entry)))
-            (let [k         (first slot-entry)
-                  raw       (cond
-                              (= 2 (count slot-entry)) (second slot-entry)
-                              (= 3 (count slot-entry)) (last slot-entry)
-                              :else                    nil)
-                  type-form (normalize-type-form raw)]
-              (assoc! acc k type-form))
-            acc))
-        (transient {})
-        (rest schema)))))
+  (when (vector? schema)
+    (into {}
+          (map (fn [[k raw]] [k (normalize-type-form raw)]))
+          (schema-slot-entries schema))))
 
 (def ^:private int-literal-re
   "A strict integer-literal guard for `:int` query-value
@@ -1005,7 +919,9 @@
 
 (defn- coerce-query
   "Coerce a raw `{string-key string-value}` map against a precompiled
-  `query-coerce` table (`{:keyword-key type-form}`). Returns an
+  `query-coerce` table (`{:keyword-key type-form}`) and the route's
+  `:rf.route/query-tokens` (`{url-token declared-keyword}`, nil when the route
+  declares no query vocabulary), both built once by `reg-route`. Returns an
   array-map to preserve URL key order.
 
   Only query keys named by the route's
@@ -1048,8 +964,8 @@
   `route-url` spell every entry by its URL token against this same vocabulary,
   so an undeclared key is a string key with a string value on every door, not
   only the URL ones."
-  [query-coerce defaults raw-query]
-  (let [token->declared (declared-query-tokens query-coerce defaults)]
+  [query-coerce token->declared raw-query]
+  (let [token->declared (or token->declared {})]
     (reduce-kv
       (fn [m k v]
         (if-let [kk (get token->declared k)]
@@ -1404,7 +1320,6 @@
                       ;; Spec 012:269/498.
                       params        (coerce-path (:rf.route/params-coerce route-meta) raw-params)
                       query-coerce  (:rf.route/query-coerce route-meta)
-                      defaults      (:query-defaults route-meta)
                       ;; Force the query parse on the first successful path
                       ;; match — unmatched URLs and pre-match iterations skip
                       ;; the work entirely.
@@ -1422,7 +1337,9 @@
                           ;; framework does not extend the JVM keyword-table on
                           ;; behalf of attacker-controlled URLs.
                           coerced       (when raw-query
-                                          (coerce-query query-coerce defaults raw-query))
+                                          (coerce-query query-coerce
+                                                        (:rf.route/query-tokens route-meta)
+                                                        raw-query))
                           ;; Defaults: the ONE fill rule
                           ;; (`query-with-defaults`), the same one the
                           ;; named-address doors reach through
@@ -1907,10 +1824,10 @@
   exemption. Its slice `:params` are not path captures at all — they are the
   framework's fact record of the miss (`{:url … :reason …}`, built by the one
   producer `plan/not-found-params`), so the fallback route's pattern is not
-  their source and has no say over their vocabulary. Without the exemption the
-  address-bar restore after a URL-driven rejection
-  (`decisions/current-slice->url`) would silently stop rebuilding a registered
-  not-found route's URL.
+  their source and has no say over their vocabulary. Without the exemption,
+  rebuilding a not-found slice through `route-url` (an in-place edit on the
+  not-found page, or code that rebuilds whatever slice is current) would throw
+  on that record instead of returning the fallback route's URL.
 
   Nil-safe over a non-map `:params`: such an address keeps its ordinary
   failure mode (a missing required segment) rather than throwing a host

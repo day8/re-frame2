@@ -44,8 +44,8 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.nav-fx :as rf.routing.nav-fx]
-            [re-frame.routing.registry :as rf.routing.registry]
             [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.routing.subs :as rf.routing.subs]
             [re-frame.routing.url :as rf.routing.url]
@@ -212,45 +212,19 @@
       (some? fragment) (assoc :fragment fragment))
     {:url requested-url}))
 
-(defn- current-slice->url
-  "Rebuild the URL the current route slice represents, for restoring the
-  browser address bar after a URL-driven door rejected the transition.
-  Returns the URL string, or nil when the slice cannot be rebuilt (no
-  current route, a `:rf.route/not-found` slice with no registered pattern,
-  or a `route-url` throw). Best-effort: a nil result simply omits the
-  restore fx — the slice is already correct; only the URL sync is skipped
-  in the rare unbuildable case.
-
-  Built from the slice's `:route-id` / `:params` / `:query` / `:fragment`
-  via `route-url`. The result is semantically equivalent to the URL that
-  produced the slice, but may use canonical query ordering or slash
-  spelling."
-  [current-route]
-  (let [{:keys [route-id params query fragment]} current-route]
-    (when (and route-id (keyword? route-id) (rf.registrar/lookup :route route-id))
-      (try
-        (rf.routing.registry/route-url {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
-        (catch #?(:clj Throwable :cljs :default) _ nil)))))
-
 (defn- current-app-url
   "The app URL a frame is CURRENTLY at, as the base an app reference resolves
-  against: the canonical reconstruction of its route slice
-  (`current-slice->url`); on a `:rf.route/not-found` slice — whose pattern, if
-  it has one, is not where the user is — the requested app URL the slice
-  preserves under `[:params :url]`; and `/` before the frame has any location,
-  or when neither can be rebuilt.
+  against: the URL its route slice stands for
+  (`rf.routing.scroll/route-slice-url` — the canonical reconstruction, or on a
+  `:rf.route/not-found` slice the requested URL it records), and `/` before
+  the frame has any location or when the slice cannot be rebuilt.
 
   CANONICAL, deliberately: a relative reference resolves against the
   reconstruction rather than the spelling the user arrived by, so route
   behaviour does not depend on how the URL was typed (`/users/42/` rebuilds as
   `/users/42`, so a bare `7` resolves to `/users/7`)."
   [current-route]
-  (let [route-id (:route-id current-route)
-        missed   (get-in current-route [:params :url])]
-    (cond
-      (nil? route-id)                   "/"
-      (= :rf.route/not-found route-id)  (if (string? missed) missed "/")
-      :else                             (or (current-slice->url current-route) "/"))))
+  (or (rf.routing.scroll/route-slice-url current-route) "/"))
 
 (defn request-app-url
   "Reduce a `{:url …}` reference to the app URL the
@@ -351,11 +325,11 @@
         enter-ok?    (nil? denier)
         ;; A URL-driven door has already moved the address bar (popstate,
         ;; or a host that pushed before dispatching), so both a leave block
-        ;; and an entry denial restore the current slice's URL by REPLACE —
-        ;; a replace, not a push, so no history entry is added. Forward
-        ;; doors never moved it, so they emit no restore.
+        ;; and an entry denial restore the URL the current slice stands for
+        ;; by REPLACE — a replace, not a push, so no history entry is added.
+        ;; Forward doors never moved it, so they emit no restore.
         restore-url  (when (and url-driven? (or (not leave-ok?) (not enter-ok?)))
-                       (current-slice->url current))]
+                       (rf.routing.scroll/route-slice-url current))]
     (cond
       ;; ---- stage 4 rejected: a resumable leave-only pending value -------
       (not leave-ok?)
@@ -476,15 +450,25 @@
   (`:url-restored? true` — a URL-driven transition whose address bar had
   already moved), the replay forces `:replace? true` so moving the address
   bar back to `:requested-url` preserves that door's no-extra-push
-  semantics."
+  semantics.
+
+  The replay keeps the blocked door's scroll default too. Navigate's default
+  is `:top`, so when the stored `:cause` defaults to `:restore` (a blocked
+  Back/Forward) and neither the stored `:policy` nor the target route names a
+  `:scroll`, the replay carries `:scroll :restore` — confirming the leave
+  lands where Back would have (Spec 012 §Scroll restoration)."
   [{rdb :rf.db/runtime} [_ pn-id]]
   (let [db      (or rdb {})
         pending (get-in db [:rf.runtime/routing :pending-navigation])]
     (if (and pending (= pn-id (:id pending)))
-      (let [{:keys [destination policy url-restored?]} pending
+      (let [{:keys [destination target cause policy url-restored?]} pending
+            restore? (and (= :restore (rf.routing.scroll/cause-default-strategy cause))
+                          (not (contains? policy :scroll))
+                          (nil? (:scroll (rf.registrar/lookup :route (:route-id target)))))
             request (cond-> (merge (or destination {}) (or policy {})
                                    {:bypass-leave? true})
-                      url-restored? (assoc :replace? true))]
+                      url-restored? (assoc :replace? true)
+                      restore?      (assoc :scroll :restore))]
         (cond-> {:rf.db/runtime (update-in db [:rf.runtime/routing] dissoc :pending-navigation)}
           (seq destination)
           (assoc :fx [[:dispatch [:rf.route/navigate request]]])))

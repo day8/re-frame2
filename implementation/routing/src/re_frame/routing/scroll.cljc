@@ -165,6 +165,15 @@
       (some? from-meta) from-meta
       :else             default)))
 
+(defn cause-default-strategy
+  "The implicit scroll strategy for a navigation of `cause`, step 3 of
+  `resolve-scroll-strategy`'s order: `:top` for a forward move (`:navigate`,
+  `:link`), so a new page opens at its top, and `:restore` for a move to a
+  history entry (`:popstate`, `:initial`, `:ssr`), so Back/Forward or a reload
+  puts the saved position back. Spec 012 §Scroll restoration."
+  [cause]
+  (if (#{:navigate :link} cause) :top :restore))
+
 (defn scroll-fx-entry
   "Build the [:rf.nav/scroll args] fx entry for a navigation, or nil
   when the resolved strategy is ::suppress (no fx emission).
@@ -181,27 +190,40 @@
        fragment  (assoc :fragment  fragment))]))
 
 (defn route-slice-url
-  "Best-effort CANONICAL URL reconstruction for a route-slice-shaped map
-  `{:route-id :params :query :fragment}` via `rf.routing.registry/route-url`. Returns
-  nil (rather than throwing) for a slice with no `:route-id` or one
-  `route-url` can't build (an unregistered/invalid route), so callers skip
-  rather than failing navigation.
+  "The URL a route-slice-shaped map `{:route-id :params :query :fragment}`
+  stands for, or nil when it stands for none. A named route's URL is its
+  CANONICAL `rf.routing.registry/route-url` reconstruction. A
+  `:rf.route/not-found` slice stands for the URL the user asked for, which its
+  `:params` record under `:url` (Spec 012 §Route-not-found), never the fallback
+  route's own pattern. Nil for a slice with no `:route-id`, or one `route-url`
+  cannot build (an unregistered or invalid route), so callers skip rather than
+  fail the navigation.
 
-  This is the SINGLE scroll-cache keying function, used SYMMETRICALLY on both
-  sides: CAPTURE keys the leaving slice's position under this
-  reconstruction, and RESTORE looks up under the SAME reconstruction of the
-  incoming popstate URL's resolved route. Because both sides run through
-  `route-url`, the key is canonical on both (canonical query-key order, no
-  trailing slash, canonical percent-encoding), so a non-canonically-spelled
-  history entry (`/cart/`, reordered query) still finds its saved position."
+  It keys the scroll cache on BOTH sides: CAPTURE saves the leaving slice's
+  position under its URL, and RESTORE looks up under the URL of the incoming
+  popstate's resolved target. Both keys are canonical (canonical query-key
+  order, no trailing slash, canonical percent-encoding), so a
+  non-canonically-spelled history entry (`/cart/`, reordered query) still finds
+  its saved position. It is also the URL a URL-driven rejection restores the
+  address bar to, and the base an app reference resolves against
+  (`re-frame.routing.decisions`)."
   [route-slice]
-  (when-let [id (:route-id route-slice)]
-    (try
-      (rf.routing.registry/route-url {:to       id
-                           :params   (or (:params route-slice) {})
-                           :query    (or (:query route-slice) {})
-                           :fragment (:fragment route-slice)})
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+  (let [id (:route-id route-slice)]
+    (cond
+      (nil? id)
+      nil
+
+      (= :rf.route/not-found id)
+      (let [requested (get-in route-slice [:params :url])]
+        (when (string? requested) requested))
+
+      :else
+      (try
+        (rf.routing.registry/route-url {:to       id
+                                        :params   (or (:params route-slice) {})
+                                        :query    (or (:query route-slice) {})
+                                        :fragment (:fragment route-slice)})
+        (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 (defn capture-scroll-fx-entry
   "Build the `[:rf.nav/capture-scroll {:url ...}]` fx entry that saves
