@@ -36,9 +36,6 @@
  * Non-build flags (anything not starting with `:`) pass through in place
  * and are never treated as builds for URL printing.
  *
- * Launching `npx shadow-cljs watch ...` directly also works, apart from the
- * URL printing and the build lane, which only the launcher takes.
- *
  * THE WATCH RUNS THROUGH `lib/shadow.cjs`, the launcher every shadow-cljs
  * entry shares. It holds the machine-wide build lane only until every watched
  * build has compiled once, so a watch left running all day does not block
@@ -70,45 +67,28 @@ const { runShadow } = require('./lib/shadow.cjs');
 //
 //   Band        Owner                     Notes
 //   ----------  ------------------------  ----------------------------------
-//   8030-8035   Xray testbeds             :dev-http (shadow-cljs.edn):
-//                                           8030 two-frame-isolation
-//                                           8031 standard-epochs
-//                                           8032 routes-epochs
-//                                           8033 machine-epochs
-//                                           8034 edn-inspector
-//                                           8035 managed-http
-//                                         8036 is FREE.
+//   803x        Xray testbeds             :dev-http (shadow-cljs.edn).
 //   8037        xray-feature-gate         NOT a :dev-http port, and the one
-//                                         reserved slot in the Xray run above:
+//                                         reserved slot in the Xray band:
 //                                         PREFERRED_PORT in implementation/
 //                                         scripts/serve-and-run-xray-feature-
 //                                         gate.cjs (XRAY_FEATURE_GATE_PORT),
 //                                         the gate's own http-server. Called
 //                                         out because "next slot after the
 //                                         last testbed" is the natural way to
-//                                         pick a new Xray port and would land
-//                                         here once 8036 is taken — a
-//                                         collision that only shows up when
-//                                         the gate and a watch run at once.
-//                                         The next free Xray slot is 8036,
-//                                         then 8038; 8037 is never free.
-//   8040-8045   Story showcases +         :dev-http (shadow-cljs.edn):
-//               worked examples             8040 nine-states-with-stories
-//                                           8041 login-with-stories
-//                                           8042 counter-with-stories
-//                                           8043 login-form
-//                                           8044 linearlite (plain example)
-//                                           8045 fresco-counter
-//                                         The next free slot in this band is
-//                                         8046.
+//                                         pick a new Xray port, and landing
+//                                         here collides only when the gate
+//                                         and a watch run at once. 8037 is
+//                                         never free.
+//   804x        Story showcases +         :dev-http (shadow-cljs.edn).
+//               worked examples
 //   805x        examples orchestrator     DEFAULT_PORT in
 //                                           examples/scripts/examples-port.cjs
 //                                           (8050; pre-flight + forward scan).
-//   806x        Top-level testbeds        :dev-http (shadow-cljs.edn):
-//                                           8060 tenant-switcher
-//                                           8061 fresco HMR —
-//                                         the one :dev-http port a GATE
-//                                         depends on, because the contract it
+//   806x        Top-level testbeds        :dev-http (shadow-cljs.edn). The
+//                                         fresco HMR testbed's port is the
+//                                         one :dev-http port a GATE depends
+//                                         on, because the contract it
 //                                         witnesses is what a real hot reload
 //                                         does and only `watch` can deliver
 //                                         one. Fixed rather than resolved at
@@ -119,12 +99,11 @@ const { runShadow } = require('./lib/shadow.cjs');
 //
 // Every band whose Notes above read `:dev-http (shadow-cljs.edn)` is
 // mirrored entry-for-entry in the DEV_HTTP map below (READ-only —
-// shadow-cljs.edn is hot-zone). DEV_HTTP is the roster, and is deliberately
-// NOT re-listed here: a transcribed band list goes stale in silence. A band
-// whose Notes
-// read otherwise is not in DEV_HTTP — the 805x examples band is the test-
-// orchestrator's http-server default, resolved at runtime, so it lives only
-// here + in examples-port.cjs.
+// shadow-cljs.edn is hot-zone). DEV_HTTP is the roster of its ports, and
+// the next free slot in a band is the lowest one neither it nor the Notes
+// above claim. A band whose Notes read otherwise is not in DEV_HTTP — the
+// 805x examples band is the test-orchestrator's http-server default,
+// resolved at runtime, so it lives only here + in examples-port.cjs.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -158,7 +137,7 @@ const DEV_HTTP = {
   // entry here this build is not primarily a developer surface: it is the
   // one build in the repo driven by a GATE that needs `watch`, because the
   // contract it witnesses is what a real hot reload does to a live page
-  // (scripts/serve-and-run-fresco-hmr-testbed.cjs). `npx shadow-cljs watch
+  // (scripts/serve-and-run-fresco-hmr-testbed.cjs). `npm run dev --
   // :fresco/hmr-testbed` also opens it by hand at the URL below, which is
   // how the witnesses are developed.
   ':fresco/hmr-testbed': { port: 8061 },
