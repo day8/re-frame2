@@ -97,7 +97,7 @@
                     #(rf/dispatch [:soa/seed :X] t2)
                     #(rf/dispatch-sync [:soa/seed :X] :soa/t2)])))
       (is (= [{:where 'rf/subscribe :recovery :pass-an-opts-map}
-              {:where 're-frame.router/build-envelope :recovery :pass-an-opts-map
+              {:where 're-frame.router :recovery :pass-an-opts-map
                :event-id :soa/seed}]
              [(select-keys (ex-data-of #(rf/subscribe [:soa/val] t2))
                            [:where :recovery])
