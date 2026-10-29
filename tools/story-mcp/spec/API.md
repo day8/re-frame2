@@ -15,8 +15,11 @@ one returns a machine-readable **capability-unavailable error** (`isError
 true`, `:rf.error :rf.error/story-mcp-capability-unavailable`, plus
 `:capability` / `:tool` / `:recovery`) — NOT a false-empty success.
 Capability absence is represented separately from an answer: `[]`/`#{}`
-is reserved for a REACHED provider that genuinely holds nothing
-(rf2-3fc89f.21).
+is reserved for a REACHED provider that genuinely holds nothing. Because
+those reads cannot succeed here, `tools/list` on this host omits
+`list-substrates`, `read-a11y-violations` and the `:substrate` run option
+(see [`002-Tool-Registry.md`](002-Tool-Registry.md) §Host execution
+model).
 
 A second host prerequisite applies to the two LIFECYCLE tools only.
 `run-variant` and `preview-variant` allocate a variant frame, which takes
@@ -39,8 +42,8 @@ keyword ids as strings (for example `":story.button/primary"`), and
 sets are available through EDN-string bodies rather than JSON arrays.
 Every tool also accepts `max-tokens` (default 5000; `0` disables the
 wire cap). `preview-variant` and `run-variant` additionally accept
-`dedup` (default `true`); expand a returned `:rf.mcp/dedup-table`
-before reading their result fields. See
+`dedup` (default `false`); with `true` the reply is a
+`:rf.mcp/dedup-table` to decode before reading its fields. See
 [the wire-budget and dedup contracts](Principles.md#tight-token-budget-per-response).
 
 ## Run options (rf2-sw1d)
@@ -623,7 +626,7 @@ records, and a non-zero `:dropped-sensitive` count reports the gap.
 ## Write tools (gated)
 
 Two tools form the Write category. `register-variant` and
-`unregister-variant` require `:rf.story-mcp/allow-writes?` to be true
+`unregister-variant` require the `allow-writes?` gate to be true
 outright. See
 [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md).
 (The former third write tool, the blocking recorder bridge

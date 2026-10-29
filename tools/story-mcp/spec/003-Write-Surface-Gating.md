@@ -1,6 +1,6 @@
 # Story-MCP — Write Surface Gating
 
-> The `:rf.story-mcp/allow-writes?` config gate; what's gated; how the
+> The `allow-writes?` config gate; what's gated; how the
 > gate fails (errors clean, rather than no-op).
 
 ## The gate
@@ -45,7 +45,7 @@ calls a write tool, the response is:
 
 ```json
 {"content": [{"type": "text",
-              "text": "Write surface disabled. Set `:rf.story-mcp/allow-writes?` (or `--allow-writes` CLI flag, or `-Drf.story-mcp.allow-writes=true` JVM property) to enable. ..."}],
+              "text": "Write surface disabled. Restart the server with the `--allow-writes` CLI flag, the `-Drf.story-mcp.allow-writes=true` JVM property or the `RF_STORY_MCP_ALLOW_WRITES=true` environment variable to enable it. ..."}],
  "structuredContent": {"gated": true, "tool": "register-variant"},
  "isError": true}
 ```

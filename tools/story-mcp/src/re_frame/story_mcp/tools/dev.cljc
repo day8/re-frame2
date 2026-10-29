@@ -278,6 +278,7 @@
     :handler     tool-preview-variant}
 
    {:name           "list-substrates"
+    :available?     rf.story-mcp.tools.cljs-resolve/substrate-provider-available?
     :description    (str "Report the render substrates visible to this host. Substrate registration is CLJS-only; when the browser registry is UNREACHABLE (the JVM stdio server has no browser bridge) this returns a machine-readable capability-unavailable error (`isError true`, `:rf.error :rf.error/story-mcp-capability-unavailable`), NOT a false-empty `{:substrates []}` — capability absence is distinct from a reached registry that answered empty. "
                          "Examples: "
                          "1. JVM stdio server (no browser bridge): {} -> {:isError true :content [{:text \"Capability unavailable: `list-substrates` needs the substrate-registry provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"substrate-registry\" :tool \"list-substrates\" :recovery :read-from-a-browser-local-story-host}}. "

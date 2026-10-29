@@ -26,6 +26,7 @@
   `(fn [conn args extra])`. The divergence is deliberate and is
   documented at `tools/mcp-base/spec/handler-arity.md`."
   (:require [re-frame.story-mcp.config :as rf.story-mcp.config]
+            [re-frame.story-mcp.tools.cljs-resolve :as rf.story-mcp.tools.cljs-resolve]
             [re-frame.story-mcp.tools.dev :as rf.story-mcp.tools.dev]
             [re-frame.story-mcp.tools.docs :as rf.story-mcp.tools.docs]
             [re-frame.story-mcp.tools.testing :as rf.story-mcp.tools.testing]
@@ -101,6 +102,28 @@
     (update schema :properties #(apply dissoc % gated-input-prop-keys))
     schema))
 
+(defn- advertised?
+  "True unless the tool's descriptor carries an `:available?` predicate
+  that answers false. A browser-only read is advertised only once its
+  provider is reachable (`re-frame.story-mcp.tools.cljs-resolve`), because
+  on a host without one its every call answers capability-unavailable: a
+  tool with no reachable success path is not listed. It stays registered,
+  so a `tools/call` naming it still gets that machine-readable refusal."
+  [t]
+  (if-let [available? (:available? t)]
+    (boolean (available?))
+    true))
+
+(defn- strip-substrate
+  "Remove the `:substrate` slot from a tool's `:inputSchema` properties.
+  An explicit substrate is validated against the substrate registry, so
+  with no reachable registry every value is refused and the slot is not
+  advertised."
+  [schema]
+  (if (contains? (:properties schema) :substrate)
+    (update schema :properties dissoc :substrate)
+    schema))
+
 (defn tool-descriptors
   "Build the `tools/list` response payload: each tool's name +
   description + inputSchema + typicalTokens, in registry order. The
@@ -129,23 +152,36 @@
   regardless (`explain-variant` is NOT in this set: it is
   a no-run projection over the registry, so it ships author data raw
   like `get-variant` and carries no gate knob), so the descriptor
-  strip is purely a UX improvement and a defence-in-depth signal."
+  strip is purely a UX improvement and a defence-in-depth signal.
+
+  ## Provider-backed surface
+
+  The browser-only reads (`list-substrates`, `read-a11y-violations`) are
+  listed only while their provider is reachable (`advertised?`), and the
+  `:substrate` run option only while the substrate registry is
+  (`strip-substrate`). On the JVM stdio host neither is, so `tools/list`
+  advertises only calls that can succeed there."
   []
-  (let [strip? (not (rf.story-mcp.config/sensitive-reads-allowed?))]
-    (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]
-            (cond-> {:name          name
-                     :description   description
-                     :inputSchema   (cond-> inputSchema
-                                      strip? strip-include-sensitive)
-                     :typicalTokens typicalTokens}
-              ;; Surface :outputSchema when declared. Lifted
-              ;; via cond-> so omission is forward-compatible (e.g. a
-              ;; future tool with no structured response).
-              (some? outputSchema) (assoc :outputSchema outputSchema)
-              ;; Surface :annotations when declared. Agent
-              ;; hosts read these to auto-approve reads and gate
-              ;; destructive ops behind a confirmation ceremony.
-              (some? annotations)  (assoc :annotations annotations)))
+  (let [strip?           (not (rf.story-mcp.config/sensitive-reads-allowed?))
+        strip-substrate? (not (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?))]
+    (into []
+          (comp
+            (filter advertised?)
+            (map (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]
+                   (cond-> {:name          name
+                            :description   description
+                            :inputSchema   (cond-> inputSchema
+                                             strip?           strip-include-sensitive
+                                             strip-substrate? strip-substrate)
+                            :typicalTokens typicalTokens}
+                     ;; Surface :outputSchema when declared. Lifted
+                     ;; via cond-> so omission is forward-compatible (e.g. a
+                     ;; future tool with no structured response).
+                     (some? outputSchema) (assoc :outputSchema outputSchema)
+                     ;; Surface :annotations when declared. Agent
+                     ;; hosts read these to auto-approve reads and gate
+                     ;; destructive ops behind a confirmation ceremony.
+                     (some? annotations)  (assoc :annotations annotations)))))
           tool-registry)))
 
 (defonce ^:private tool-by-name-index

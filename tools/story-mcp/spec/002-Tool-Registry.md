@@ -29,11 +29,19 @@ machine-readable capability-unavailable error (`isError true`, `:rf.error
 :rf.error/story-mcp-capability-unavailable`) rather than a false-empty
 `[]`/`{:violations []}` success. `[]`/`#{}` is reserved for a REACHED
 provider that genuinely holds nothing — capability absence is not answered
-emptiness (rf2-3fc89f.21). An explicit `:substrate` on
+emptiness. An explicit `:substrate` on
 `run-variant` / `preview-variant` / `snapshot-identity` is likewise
 validated, not silently dropped: unreachable registry → the same
 capability-unavailable error; reached-but-unknown id →
 `:rf.error/story-mcp-unknown-substrate`.
+
+Every advertised success path must be reachable, so `tools/list` lists
+`list-substrates` and `read-a11y-violations` only while their provider is
+reachable, and advertises the `:substrate` run option only while the
+substrate registry is. On the JVM stdio host neither is, so it lists 17
+of the 19 registered tools and no `:substrate` option. Both tools stay
+registered, so a `tools/call` naming one still gets the
+capability-unavailable error above rather than an unknown-tool error.
 
 ### Running a variant needs an installed adapter (rf2-c9t52)
 

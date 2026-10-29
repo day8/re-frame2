@@ -24,30 +24,24 @@
    :description "Per-call wire-boundary token cap. Must be >= 0: 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`). A negative value is rejected with an `:rf.mcp/invalid-arg` error."})
 
 (def dedup-schema
-  "Recurring fragment — every tool accepts a per-call `:dedup` opt-out
-  of the wire-boundary structural-dedup transform (mirroring
-  re-frame2-pair-mcp's `:dedup`). Default `true`.
+  "Recurring fragment — the dedup-eligible tools accept a per-call
+  `:dedup` opt-in to the wire-boundary structural-dedup transform. Default
+  `false`, because a deduped reply's `:structuredContent` is the one
+  `{:rf.mcp/dedup-table <cache-map>}` key with the headline `:status`
+  inside the cache, and an AI client reading JSON has no decoder: the
+  verdict must read without one. `true` is for a large run whose repeated
+  subtrees (`:app-db` re-keyed into `:snapshot` and the evidence slots)
+  would otherwise overflow the cap.
 
-  When deduped, the response's `:structuredContent` slot is wrapped as
-  `{:rf.mcp/dedup-table <cache-map>}` and the agent host reconstructs
-  via `(re-frame.mcp-base.dedup/expand cache-map)`. Pass `false` to skip dedup —
-  useful for ad-hoc reads when the agent host hasn't been taught to
-  call `expand`.
-
-  Cross-MCP convention with re-frame2-pair-mcp's `:dedup` arg (same
-  default, same wire shape, same opt-out semantics). The key is
-  `:dedup` (no `?`) per the Anthropic
-  `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex."
+  Same wire shape as re-frame2-pair-mcp's `:dedup` arg. The key is
+  `:dedup` (no `?`) per the Anthropic `^[a-zA-Z0-9_.-]{1,64}$`
+  input-schema property-name regex."
   {:type "boolean"
-   :description (str "Apply structural dedup to the "
-                     "response payload before the wire-cap check. "
-                     "Default true. When deduped, the structuredContent "
-                     "slot is wrapped as `{:rf.mcp/dedup-table "
-                     "<cache-map>}` and the agent host reconstructs via "
-                     "`(re-frame.mcp-base.dedup/expand cache-map)`. Pass false to "
-                     "skip dedup — useful for ad-hoc reads when the "
-                     "agent host hasn't been taught to call `expand`. "
-                     "Cross-MCP shape with re-frame2-pair-mcp's `:dedup` arg.")})
+   :description (str "Default false. true pools repeated subtrees before the wire-cap "
+                     "check and wraps structuredContent as `{:rf.mcp/dedup-table "
+                     "<cache-map>}`, with the result (`:status` included) under "
+                     "`de-dupe.cache/cache-0`, so decode it before reading fields. Use it "
+                     "when a large run overflows `max-tokens`.")})
 
 (def include-sensitive-schema
   "Recurring fragment — every tool that surfaces a live `:app-db`

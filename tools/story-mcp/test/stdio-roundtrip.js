@@ -173,19 +173,24 @@ function run() {
       console.log('OK   tools/list -> ' + TOOL_NAMES.length + ' tools:', names.join(', '));
 
       // 2b. Verify the preview-variant descriptor: required `variant-id`,
-      // optional `substrate`/`active-modes`/`cell-overrides`/`base-url`.
+      // optional `active-modes`/`cell-overrides`/`base-url`. `substrate` is
+      // absent: this host reaches no substrate registry, so every explicit
+      // value would be refused.
       const previewDesc = (list.result?.tools || []).find((t) => t.name === 'preview-variant');
       if (!previewDesc) throw new Error('preview-variant descriptor missing from tools/list');
       const previewProps = previewDesc.inputSchema?.properties || {};
-      for (const k of ['variant-id', 'substrate', 'active-modes', 'cell-overrides', 'base-url']) {
+      for (const k of ['variant-id', 'active-modes', 'cell-overrides', 'base-url']) {
         if (!(k in previewProps)) {
           throw new Error('preview-variant inputSchema missing property: ' + k);
         }
       }
+      if ('substrate' in previewProps) {
+        throw new Error('preview-variant advertises `substrate` on a host with no substrate registry');
+      }
       if (!previewDesc.inputSchema?.required?.includes('variant-id')) {
         throw new Error('preview-variant.inputSchema missing required: variant-id');
       }
-      console.log('OK   preview-variant descriptor -> variant-id (required) + substrate/active-modes/cell-overrides/base-url');
+      console.log('OK   preview-variant descriptor -> variant-id (required) + active-modes/cell-overrides/base-url, no substrate');
 
       // 2c. Verify the register-variant descriptor: required
       // `variant-id` + `body`. This is the write-gated tool per spec/003;

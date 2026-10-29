@@ -45,8 +45,9 @@
     (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)))
 
 (deftest invoke-tool-fires-dedup-on-eligible-descriptors
-  (doseq [[eligible? args wrapped?] [[true  {}             true]
-                                     [false {}             false]
+  (doseq [[eligible? args wrapped?] [[true  {}             false]
+                                     [true  {:dedup true}  true]
+                                     [false {:dedup true}  false]
                                      [true  {:dedup false} false]]]
     (testing (str "eligible " eligible? " args " args)
       (with-redefs [rf.story-mcp.tools.registry/tool-by-name

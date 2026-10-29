@@ -26,9 +26,9 @@
   [tool-name]
   (when-not (rf.story-mcp.config/writes-allowed?)
     (rf.story-mcp.tools.result/error-result
-      (str "Write surface disabled. Set `:rf.story-mcp/allow-writes?` "
-           "(or `--allow-writes` CLI flag, or "
-           "`-Drf.story-mcp.allow-writes=true` JVM property) to enable. "
+      (str "Write surface disabled. Restart the server with the `--allow-writes` "
+           "CLI flag, the `-Drf.story-mcp.allow-writes=true` JVM property or the "
+           "`RF_STORY_MCP_ALLOW_WRITES=true` environment variable to enable it. "
            "The write surface is dev-only; CI runs "
            "should leave it off.")
       {:gated true :tool tool-name})))
