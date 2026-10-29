@@ -238,16 +238,15 @@ function main() {
     if (cls.status === 'empty') {
       console.error(`[schemas-bundle] ${bundle.name}: bundle present but empty (zero top-level JS) — ${bundle.bundleDir}`);
       console.error('              The release emitted no bundle; a zero-byte arm would');
-      console.error('              make the margin meaningless. Rebuild with "shadow-cljs');
-      console.error(`              release ${bundle.name}" or clear the stale dir.`);
+      console.error('              make the margin meaningless. Rebuild with "npm run');
+      console.error('              test:schemas-bundle" or clear the stale dir.');
       bundlesOk = false;
       continue;
     }
     const total = sumGzippedBytes(bundle.bundleDir);
     if (total == null) {
       console.error(`[schemas-bundle] ${bundle.name}: bundle dir missing — ${bundle.bundleDir}`);
-      console.error('              Did you run "shadow-cljs release ' +
-                    `${bundle.name}"?`);
+      console.error('              Build it with "npm run test:schemas-bundle".');
       bundlesOk = false;
       continue;
     }
@@ -264,7 +263,7 @@ function main() {
     console.error('');
     console.error('An arm of the A/B is missing or empty, so no margin could be');
     console.error('measured. Rebuild both arms:');
-    console.error(`  shadow-cljs release ${CONTROL} ${PROBE}`);
+    console.error('  npm run test:schemas-bundle');
     process.exit(1);
   }
 

@@ -1308,11 +1308,11 @@ function main() {
       console.error('                   The release emitted no inspectable bundle, so the');
       console.error('                   sentinel-absence checks would pass vacuously. A clean');
       console.error('                   release must produce top-level *.js with real content.');
-      console.error('                   Did "shadow-cljs release examples/counter" actually build,');
+      console.error('                   Did "npm run test:bundle-isolation" actually build it,');
       console.error('                   or is this a stale empty out/ dir?');
     } else {
       console.error(`[bundle-isolation] bundle path missing — ${bundleDir}`);
-      console.error('                   Did you run "shadow-cljs release examples/counter"?');
+      console.error('                   Build it with "npm run test:bundle-isolation".');
     }
     process.exit(1);
   }
@@ -1323,7 +1323,8 @@ function main() {
     console.error(`[bundle-isolation] build manifest ${manifest.status} — ${manifest.file}`);
     if (manifest.reason) console.error(`                   ${manifest.reason}`);
     console.error('                   The graph claims are read from the manifest.edn that');
-    console.error('                   "shadow-cljs release examples/counter" writes beside main.js.');
+    console.error('                   release build of examples/counter writes beside main.js;');
+    console.error('                   rebuild it with "npm run test:bundle-isolation".');
     process.exit(1);
   }
 
