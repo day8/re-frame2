@@ -6049,15 +6049,19 @@
                                  (React/createElement "li" #js {:key i} (str i))))))
         (let [mount-node (make-mount-node!)
               root       (react-dom-client/createRoot mount-node)
+              ;; Each render clears the fixture's ambient `:rf/default`, as a
+              ;; scheduled render meets it, so the boundary is what the
+              ;; render's frame read finds.
               render!    (fn [n]
-                           (act-fn
-                             (fn []
-                               (.render root
-                                 (rf.adapter.context/provider-element
-                                   frame-kw
-                                   (React/createElement "section" nil
-                                     (React/createElement (rf/view html-id) #js {})
-                                     (React/createElement (rf/view kids-id) #js {:n n})))))))
+                           (binding [rf.frame/*current-frame* nil]
+                             (act-fn
+                               (fn []
+                                 (.render root
+                                   (rf.adapter.context/provider-element
+                                     frame-kw
+                                     (React/createElement "section" nil
+                                       (React/createElement (rf/view html-id) #js {})
+                                       (React/createElement (rf/view kids-id) #js {:n n}))))))))
               of         (fn [op id] (filter #(and (= op (:operation %))
                                                    (= id (:rf.view/id (:tags %))))
                                              @traces))]
