@@ -150,7 +150,7 @@ batch of files — where you'd reach for this.
 
 ```
 examples/patterns/long_running_work/
-  core.cljs       app entry point + :app/initialise
+  core.cljs       app entry point + :long-running-work.app/initialise
   worker.cljs     :work/processor + :work/flow registrations
   views.cljs      controls, progress bar, shard breakdown,
                   work-bench wrapper (the with-let cleanup

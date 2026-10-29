@@ -41,9 +41,9 @@ handlers](../../../../docs/core/glossary.md#event-handler),
 `run` boots the browser from the baked payload. The views and event
 handlers in between carry no reader conditionals at all — they're pure,
 so "does this run on the server?" never comes up for them. Where it
-does come up — a `localStorage` write the JVM has never heard of —
-you declare it once with `:platforms`, rather than branch at the call
-site.
+does come up — the incoming request, which only the server has — the
+coeffect that supplies it declares `:platforms #{:server}`, rather than
+the handler branching at the call site.
 
 One small file sits beside it: `mount.cljs`, holding the client's
 adopt-vs-fresh React-root decision and nothing else. It isn't a second
@@ -62,18 +62,16 @@ client picking it up:
   [app-dbs](../../../../docs/core/glossary.md#app-db) that can't see or
   race one another. The same frame isolation that's good for testing N
   apps in one process gives you request isolation for free.
-- `:app/server-init`, gated to the server. It carries `:platforms
-  #{:server}` and declares `:rf.cofx/requires [:rf.server/request]`, so
-  the request map arrives as a
+- `:ssr.app/server-init`, the server's boot. It runs only on the server
+  because only the per-request frame's `:initial-events` dispatch it —
+  `:platforms` gates effects and coeffects, not events. It declares
+  `:rf.cofx/requires [:rf.server/request]`, a coeffect gated
+  `#{:server}`, so the request map arrives as a
   [coeffect](../../../../docs/core/glossary.md#coeffect) rather than a
   global the handler reaches for. Its job here is small: start the
   article fetch.
-- Platform-gated [effects](../../../../docs/core/glossary.md#effect) via
-  `:platforms`. The session-store fx is `#{:client}`, so a server
-  drain skips it. A handler that returns it never learns which
-  runtime it's on. No `typeof window` anywhere.
 - The article fetch goes through managed HTTP, stubbed for the
-  render. `:app/server-init` returns an `:rf.http/managed` effect. The
+  render. `:ssr.app/server-init` returns an `:rf.http/managed` effect. The
   JVM smoke answers it from a stub transport, which replaces only the
   network hop, so the render exercises the full
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
@@ -111,7 +109,7 @@ client picking it up:
   carrying React's message. An attribute-only difference is not
   reported; React's development console warning is its only signal.
 - Hydration leaves the page reactive. The "Hide bodies" button
-  dispatches `:articles/toggle-bodies` against a slice that has no
+  dispatches `:ssr.articles/toggle-bodies` against a slice that has no
   server correspondent. That proves the client is fully live after the
   server's HTML is adopted, not a static snapshot.
 
@@ -123,10 +121,10 @@ exercising the load-bearing subtleties, not just the happy path:
 
 - Two frame families, one schema. SSR has a per-request server
   frame (in `handle-request`) and a fixed client hydration frame
-  (`:rf/default`, in `run`). Because
-  [`reg-app-schema`](../../../../docs/core/glossary.md#schema) is
-  frame-local, the `[:articles]` schema is held as a plain value and
-  registered explicitly against each frame at its entry point — so
+  (`:rf/default`, in `run`). The `[:articles]` schema is one top-level
+  [`reg-app-schema`](../../../../docs/core/glossary.md#schema)
+  registration, and every frame that resolves the namespace's
+  registrations validates against it, with no per-frame step — so
   the server commit and the client commit validate against the same
   contract. That validation is a development-time
   assertion on both sides: a production build performs the registration
@@ -184,13 +182,11 @@ drives the branch this example ships rather than a hand-kept copy of it
 that could quietly drift.
 
 Which is why it's a namespace of its own rather than a `defn-` inside
-`core.cljc`: the test has to reach the helper without `:require`-ing
-`ssr.core`, whose registrations (`:auth.session/store`,
-`:articles/loaded`) collide at image assembly with the other examples
-sharing that test bundle. `mount.cljs` registers nothing, so loading it
-pulls no example ids in. Everything else stays in `run` — including the
-`:ssr/client-bootstrap` dispatch on a plain client load, which is app
-logic, not mount mechanics.
+`core.cljc`: the test reaches the helper without `:require`-ing
+`ssr.core`, so it loads the one decision it proves and none of the app —
+`mount.cljs` registers nothing. Everything else stays in `run` —
+including the `:ssr.app/client-bootstrap` dispatch on a plain client
+load, which is app logic, not mount mechanics.
 
 ## How to run
 

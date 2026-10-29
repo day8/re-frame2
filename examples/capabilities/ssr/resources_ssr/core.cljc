@@ -48,7 +48,7 @@
    (`re-frame.ssr/drain-blocking-resources!`) is ROUTE-blocking-keyed — it
    waits only on resources a `reg-route` on-route-entry plan enqueued for
    the current nav-token, so on a route-free page it has nothing to read and
-   returns settled immediately without ever looking at `:articles/list`.
+   returns settled immediately without ever looking at `:resources-ssr.articles/list`.
    There is no non-route blocking-drain surface to reach for instead (Spec
    016 §SSR and hydration ties blocking to the route resource plan), so this
    example polls the one resource it cares about directly via the public
@@ -120,7 +120,7 @@
   #?(:clj  (or (System/getenv "API_ORIGIN") "http://127.0.0.1:3001")   ;; the server needs an absolute URL
      :cljs ""))                                                         ;; the browser resolves against the page
 
-(rf/reg-resource :articles/list
+(rf/reg-resource :resources-ssr.articles/list
   {:doc            "Recent articles (public, SSR-preloaded, invalidation-only freshness)."
    :params-schema  [:map]
    :scope          :rf.scope/global
@@ -133,7 +133,7 @@
 ;; SERVER-SIDE PRELOAD EVENT
 ;; ============================================================================
 ;;
-;; `:app/server-init` runs when the per-request frame is born. Its one job is to
+;; `:resources-ssr.app/server-init` runs when the per-request frame is born. Its one job is to
 ;; ensure the page resource — fetch it if the cache is cold — so that by render
 ;; time the data is already warm. The renderer then waits for it to settle
 ;; before walking the tree.
@@ -144,13 +144,13 @@
 ;; cause `:ssr-preload` is the story for the trace: why this fetch happened.
 ;; Owner = how long; cause = why. See docs/resources/glossary.md#owner--cause.
 
-(rf/reg-event :app/server-init
+(rf/reg-event :resources-ssr.app/server-init
   {:doc       "Per-request server init — preload the page resource."
    :platforms #{:server}}
   (fn [{:keys [db]} _]
     {:db db
      :fx [[:dispatch [:rf.resource/ensure
-                      {:resource :articles/list
+                      {:resource :resources-ssr.articles/list
                        :params   {}
                        ;; The request-id and nav-token are hard-coded for the
                        ;; demo; a real server would thread them off the actual
@@ -210,13 +210,13 @@
 
 (rf/reg-event :resources-ssr.app/page-opened
   {:doc       "The page's one client-side acquisition — take a live hold on
-               :articles/list under this page's app-minted owner. `run`
+               :resources-ssr.articles/list under this page's app-minted owner. `run`
                dispatches it AFTER hydrate! and BEFORE the first render, so the
                entry the first render reads is already the one this owner holds."
    :platforms #{:client}}
   (fn [_ _]
     {:fx [[:dispatch [:rf.resource/ensure
-                      {:resource :articles/list
+                      {:resource :resources-ssr.articles/list
                        :params   {}
                        :owner    page-owner
                        :cause    [:event :resources-ssr.app/page-opened]}]]]}))
@@ -244,7 +244,7 @@
 ;; The view does the simplest possible thing: it reads the resource through a
 ;; subscription and renders whatever's there. Reading never kicks off a fetch —
 ;; that is the contract, not an accident of this page. What warmed the cache is
-;; a command on each side: the server's `:app/server-init` preload, and the
+;; a command on each side: the server's `:resources-ssr.app/server-init` preload, and the
 ;; client's `:resources-ssr.app/page-opened` acquisition below. `:rf/resource`
 ;; is the runtime's own subscription; it turns a cache entry into a tidy
 ;; view-model — a status flag and the data. On the documented run the data is
@@ -254,10 +254,9 @@
 ;; promise, now over a managed resource.
 ;; See docs/ssr/glossary.md#render-to-string.
 
-(rf/reg-view ^{:rf/id :app/root} root-view []
+(rf/reg-view ^{:rf/id :resources-ssr.app/root} root-view []
   (let [state @(subscribe [:rf/resource
-                           {:resource :articles/list
-                            :scope    :rf.scope/global
+                           {:resource :resources-ssr.articles/list
                             :params   {}}])]
     [:div.page
      [:h1 "Recent articles"]
@@ -283,9 +282,9 @@
 ;; for the CURRENT nav-token (`[:rf.runtime/routing :resource-blocking
 ;; <nav-token>]`, written by the routing artefact). This page has no route
 ;; table at all — see the ns docstring — so the `[:ssr request-id nav-token]`
-;; owner `:app/server-init` ensures under never registers there, and
+;; owner `:resources-ssr.app/server-init` ensures under never registers there, and
 ;; `drain-blocking-resources!` would return `{:settled? true}` immediately,
-;; whether or not `:articles/list` had actually resolved — a route-free page
+;; whether or not `:resources-ssr.articles/list` had actually resolved — a route-free page
 ;; leaning on it reports itself settled even when the resource has not.
 ;;
 ;; For a route-free SSR page there is no non-route blocking-drain surface to
@@ -315,10 +314,7 @@
       (`Thread/sleep`) so the managed-HTTP transport's async reply lands and
       its reply event dispatches — the JVM transport issues requests via
       `HttpClient/sendAsync`, so nothing settles the entry synchronously
-      inside the `:rf.resource/ensure` dispatch itself.
-
-      `:frame` is the frame ID — `rf.resources/resource-state`'s introspection target
-      keys the frame registry directly. See the call site."
+      inside the `:rf.resource/ensure` dispatch itself."
      [{:keys [resource scope params frame]}]
      (let [deadline (+ (System/currentTimeMillis) preload-deadline-ms)]
        (loop []
@@ -335,7 +331,7 @@
 ;; ============================================================================
 ;;
 ;; This is one request, start to finish: mint a per-request frame whose
-;; `:initial-events` fire `:app/server-init`, block on the preloaded page
+;; `:initial-events` fire `:resources-ssr.app/server-init`, block on the preloaded page
 ;; resource, render to a string, and build a hydration payload carrying the
 ;; allowed resource projection under `:rf/runtime-db`. The frame is torn
 ;; down in a `finally` on every exit path — success or throw — so a request
@@ -364,23 +360,14 @@
            _   (rf.ssr/set-request! fid request)
            f   (rf/make-frame {:id fid :doc       "resources-ssr per-request frame"
                                :platform  :server
-                               :initial-events [[:app/server-init]]})]
+                               :initial-events [[:resources-ssr.app/server-init]]})]
        (try
          (rf/with-frame f
            ;; (1) Settle the blocking page resource before we render a thing.
-           ;; The `[:ssr …]`-owned ensure that `:app/server-init` kicked off has
+           ;; The `[:ssr …]`-owned ensure that `:resources-ssr.app/server-init` kicked off has
            ;; to land on :loaded before the render walk works with real data.
            ;; Failure and timeout respond without rendering the page.
-           ;;
-           ;; `:frame fid`, not `:frame f`. Most of the public surface takes a
-           ;; frame VALUE or a frame-id keyword interchangeably —
-           ;; `hydration-payload` just below is handed `f` — but `rf.resources/resource-state`'s introspection
-           ;; target is the frame ID, which is what the runtime-db read keys the
-           ;; registry by. Hand it the value and every poll reads nil: no entry
-           ;; under that key, no terminal status, and the loop burns the whole
-           ;; `preload-deadline-ms` budget on a page that was ready in
-           ;; milliseconds.
-           (let [entry (await-resource-loaded! {:resource :articles/list
+           (let [entry (await-resource-loaded! {:resource :resources-ssr.articles/list
                                               :scope    :rf.scope/global
                                               :params   {}
                                               :frame    fid})]
@@ -399,7 +386,7 @@
                      ;; `:doctype? true` here would nest a second `<!DOCTYPE html>`
                      ;; inside `#app`, and the response would be malformed HTML that
                      ;; only survives via browser parser recovery.
-                     html          (rf.ssr/render-to-string [(rf/view :app/root)])
+                     html          (rf.ssr/render-to-string [(rf/view :resources-ssr.app/root)])
                      ;; (2) Build the payload exactly the way the Ring host does:
                      ;; the app-db slice through the fail-closed allowlist, and the
                      ;; runtime-db through the SSR projection (the allowed resource
@@ -464,6 +451,9 @@
 ;; actually needs. Then the adapter renders, once.
 ;; See docs/ssr/concepts.md#the-client-side-hydrate-then-adopt.
 
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it creates the
+;; Root, so loading this namespace touches no DOM.
 #?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
 
 ;; The client's one app-frame. The app names its hydration target out loud and
@@ -488,7 +478,7 @@
      (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
        (rf.adapter.reagent/render! app-root
          [rf/frame-provider {:frame app-frame}
-          [(rf/view :app/root)]]
+          [(rf/view :resources-ssr.app/root)]]
          el))))
 
 #?(:cljs
@@ -510,7 +500,7 @@
            ;; `:loading` skeleton rather than an empty `<ul>`.
            _       (rf/dispatch-sync [:resources-ssr.app/page-opened]
                                      {:frame app-frame})
-           tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
+           tree    [rf/frame-provider {:frame app-frame} [(rf/view :resources-ssr.app/root)]]]
        (when el
          ;; The whole adopt-vs-fresh decision is one option. With a payload the
          ;; server painted the page, so the first render HYDRATES: React

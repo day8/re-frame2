@@ -68,11 +68,12 @@
 ;; INITIALISATION
 ;; ============================================================================
 ;;
-;; One boot event, two jobs to hand out. `:app/initialise` just fans out
-;; to the feature initialisers: `:work/initialise` parks the parent
-;; machine in :idle, and `:ui/initialise` flips the Show/Hide toggle on.
+;; One boot event, two jobs to hand out. `:long-running-work.app/initialise`
+;; just fans out to the feature initialisers: `:work/initialise` parks the
+;; parent machine in :idle, and `:ui/initialise` flips the Show/Hide toggle
+;; on.
 
-(rf/reg-event :app/initialise
+(rf/reg-event :long-running-work.app/initialise
   {:doc "The boot event. Doesn't do much itself — just hands off to
          each feature's own initialiser."}
   (fn handler-app-initialise [_ _]
@@ -95,8 +96,8 @@
 
 ;; The frame comes from the `frame-root {:id app-frame …}` at the
 ;; render root below. First mount creates the frame, applies its config,
-;; and runs `:initial-events` (our `[:app/initialise]` boot dispatch)
-;; exactly once; a hot reload reuses the same frame and skips the
+;; and runs `:initial-events` (our `[:long-running-work.app/initialise]` boot
+;; dispatch) exactly once; a hot reload reuses the same frame and skips the
 ;; re-seed. Every `dispatch`/`subscribe` inside the tree finds that
 ;; frame — including the work-bench wrapper's `r/with-let` cleanup over
 ;; in views.cljs, which dispatches `[:work/flow [:cancel]]` from render
@@ -110,7 +111,7 @@
                      (js/document.getElementById "app"))]
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id app-frame
-                      :initial-events [[:app/initialise]]}
+                      :initial-events [[:long-running-work.app/initialise]]}
        [views/root-view]]
       el)))
 

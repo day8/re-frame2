@@ -3,8 +3,8 @@
   (`examples/capabilities/ssr`): with a `__rf_payload` the first render
   HYDRATES — adopting the server DOM node and wiring its handlers — and without
   one it mounts a fresh root. Both run the recipe's own mount helper
-  `ssr.mount/mount!`, required instead of `ssr.core`, whose app registrations
-  collide with other examples in the shared `:node-test` bundle.
+  `ssr.mount/mount!`, required instead of `ssr.core` so the test loads the one
+  decision it proves and none of the app.
 
   The view is a plain component on `:rf/default`, so the adopt-vs-replace
   signal is read through the mount branch alone, with no view annotations.

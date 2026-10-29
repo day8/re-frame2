@@ -10,12 +10,9 @@
   regression here — dropping the `:hydrate?` option, say — turns that proof red.
 
   Why its own namespace, and not a private `defn-` inside `ssr.core`: the
-  regression has to reach the helper WITHOUT `:require`-ing `ssr.core`, whose app
-  registrations (`:auth.session/store`, `:articles/loaded`, …) share ids with
-  the login + realworld examples already in the consolidated test bundle, which
-  leaves those ids ambiguous (`:rf.error/ambiguous-registration`) for every
-  frame made without `:images`. This namespace registers nothing,
-  so a test loads only the mount logic and no example ids enter the bundle."
+  regression reaches the helper WITHOUT `:require`-ing `ssr.core`, so it
+  loads the one decision it proves and none of the app. This namespace
+  registers nothing, so no example ids enter the test bundles with it."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 (defn mount!

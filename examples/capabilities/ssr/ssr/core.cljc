@@ -15,10 +15,8 @@
    The tour, in the order you'll meet it below:
    - A fresh frame per request on the server (make-frame + with-frame), torn
      down again when the request is done.
-   - :app/server-init — the per-request boot event, dispatched as the frame
-     comes up.
-   - A client-only effect, gated with :platforms #{:client}, that the server
-     render simply skips.
+   - :ssr.app/server-init — the per-request boot event, dispatched as the
+     frame comes up.
    - The pure hiccup -> HTML emitter, rf.ssr/render-to-string. No DOM, just data
      in and a string out.
    - The hydration payload: the server's finished state, run through the
@@ -87,7 +85,7 @@
 ;; against it — each per-request frame and the client frame alike, with no
 ;; per-frame step in either entry point.
 ;;
-;; The articles slice is absent for a beat: the server's `:app/server-init`
+;; The articles slice is absent for a beat: the server's `:ssr.app/server-init`
 ;; commits a db with no articles in it (all it does is start the fetch), and a
 ;; fresh client frame is empty until hydration lands. A path schema checks a
 ;; slice only where app-db has it, so a bare `[:vector …]` lets those commits
@@ -109,23 +107,22 @@
 ;; test answers it from a stub transport, which stands in for the server
 ;; beneath the effect — so the JVM render runs the whole event pipeline, the
 ;; real decode included, end to end without a
-;; single packet leaving the building.
+;; single packet leaving the building. Both boots issue the same fetch: the
+;; server's per-request init, and the client's bootstrap on a plain load.
 
-;; Some effects only make sense in a browser. localStorage is the textbook
-;; case: there's no such thing on the server. `:platforms #{:client}` is how
-;; you say so — the server render reaches this effect, shrugs, and moves on.
-(rf/reg-fx :auth.session/store
-  {:doc       "Persist a session token in localStorage."
-   :platforms #{:client}}              ;; client-only; the server render skips it
-  (fn fx-auth-session-store [_m {:keys [token]}]
-    #?(:cljs (when-let [ls (.-localStorage js/globalThis)]
-               (.setItem ls "auth/token" token)))))
+(def ^:private load-articles
+  "The article fetch, as the effect both boots return."
+  [:rf.http/managed
+   {:request    {:method :get :url "/api/articles"}
+    :decode     :json
+    :on-success [:ssr.articles/loaded]
+    :on-failure [:ssr.articles/load-failed]}])
 
 ;; ============================================================================
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event :app/server-init
+(rf/reg-event :ssr.app/server-init
   {:doc       "Per-request server-side boot. Reads the incoming request through
                the :rf.server/request coeffect and starts the work the page
                needs. Server only. See
@@ -152,18 +149,14 @@
     ;; `handle-request` blocks on this key reaching a terminal value; the
     ;; client never reads it.
     {:db (assoc db :articles/load-state :pending)
-     :fx [[:rf.http/managed
-           {:request    {:method :get :url "/api/articles"}
-            :decode     :json
-            :on-success [:articles/loaded]
-            :on-failure [:articles/load-failed]}]]}))
+     :fx [load-articles]}))
 
 ;; When the fetch comes back, this is where it lands — the `:on-success` target
 ;; from above. It takes the decoded reply and hands back the next app-db, which
 ;; the runtime commits. Notice there's nothing server- or client-specific in
 ;; here: the very same handler runs on the server's per-request frame and again
 ;; on the client after hydration. Write it once.
-(rf/reg-event :articles/loaded
+(rf/reg-event :ssr.articles/loaded
   (fn handler-articles-loaded [{:keys [db]} [_ {:keys [value]}]]
     {:db (assoc db :articles value :articles/load-state :loaded)}))
 
@@ -171,7 +164,7 @@
 ;; SUCCESS is a page load the server waits on until its deadline, every time
 ;; the upstream is down. This handler is what turns a failed fetch into a
 ;; terminal answer `handle-request` can act on immediately.
-(rf/reg-event :articles/load-failed
+(rf/reg-event :ssr.articles/load-failed
   (fn handler-articles-load-failed [{:keys [db]} _]
     {:db (assoc db :articles/load-state :failed)}))
 
@@ -210,16 +203,16 @@
 ;; concern, so it never appears in the hydration payload; it just starts at its
 ;; default the moment the client wakes up.
 
-(rf/reg-event :articles/toggle-bodies
+(rf/reg-event :ssr.articles/toggle-bodies
   (fn [{:keys [db]} _] {:db (update db :articles/show-bodies? (fnil not true))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS / VIEWS
 ;; ============================================================================
 
-(rf/reg-sub :articles/slice (fn [db _] (:articles db)))
+(rf/reg-sub :ssr.articles/slice (fn [db _] (:articles db)))
 
-(rf/reg-sub :articles/show-bodies?
+(rf/reg-sub :ssr.articles/show-bodies?
   (fn [db _]
     ;; Default to true, so the server's render shows the bodies and the page
     ;; arrives fully fleshed out. Hiding them is a choice the reader makes
@@ -230,7 +223,7 @@
 ;; A couple of things `reg-view` is doing for us here. It auto-`def`s the
 ;; symbol and registers the view under `(keyword *ns* sym)` — so by default the
 ;; id tracks the var name. The `^{:rf/id …}` metadata overrides that, pinning
-;; the id both entry points below already expect (`:app/root`).
+;; the id both entry points below already expect (`:ssr.app/root`).
 ;;
 ;; The other gift is `subscribe`: `reg-view` injects it, and it resolves to the
 ;; frame-bound subscribe fn at *runtime*. That single detail is what lets one
@@ -239,14 +232,14 @@
 ;; a reaction, so the view re-renders whenever app-db changes underneath it.
 ;; Same code, two behaviours, picked up from the context. See
 ;; ../../../../docs/core/glossary.md#view.
-(rf/reg-view ^{:rf/id :app/root} root-view []
-  (let [arts         @(subscribe [:articles/slice])
-        show-bodies? @(subscribe [:articles/show-bodies?])]
+(rf/reg-view ^{:rf/id :ssr.app/root} root-view []
+  (let [arts         @(subscribe [:ssr.articles/slice])
+        show-bodies? @(subscribe [:ssr.articles/show-bodies?])]
     [:div.page
      [:h1 "Recent articles"]
      [:button.toggle-bodies
       {:data-testid "toggle-bodies"
-       :on-click #(dispatch [:articles/toggle-bodies])}
+       :on-click #(dispatch [:ssr.articles/toggle-bodies])}
       (if show-bodies? "Hide bodies" "Show bodies")]
      (if (seq arts)
        (into [:ul {:data-testid "articles-list"}]
@@ -262,7 +255,7 @@
 ;;
 ;; The one step people leave out. `make-frame` drains the SYNCHRONOUS event
 ;; work its `:initial-events` set in motion — and that is all it promises. The
-;; article fetch `:app/server-init` starts is not synchronous: the JVM managed
+;; article fetch `:ssr.app/server-init` starts is not synchronous: the JVM managed
 ;; transport issues it through `HttpClient/sendAsync`. So the moment
 ;; `make-frame` returns, the request is very probably still in flight, app-db
 ;; still has no `:articles`, and a render taken right there emits "No
@@ -277,7 +270,7 @@
 ;;     than the one we're fixing.
 ;;   - It settles on FAILURE too, not just success. Polling for non-nil
 ;;     `:articles` would look simpler and would hang for the full deadline on
-;;     every failed fetch — which is exactly why `:app/server-init` declares an
+;;     every failed fetch — which is exactly why `:ssr.app/server-init` declares an
 ;;     `:on-failure` target.
 ;;
 ;; (This page has no route table, so the framework's route-keyed
@@ -320,7 +313,7 @@
 ;;   2. set-request! drops it into the per-frame slot that the
 ;;      :rf.server/request coeffect will read back out.
 ;;   3. make-frame stands up a fresh frame; its :initial-events step fires
-;;      :app/server-init, which pulls the request via that coeffect.
+;;      :ssr.app/server-init, which pulls the request via that coeffect.
 ;;   4. await-page-load! blocks until the article fetch reaches a terminal
 ;;      outcome — loaded, failed, or out of time. Only `:loaded` goes on to
 ;;      render; the other two answer 503 rather than dress a pending request
@@ -342,13 +335,14 @@
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (rf.ssr/set-request! fid request)
            ;; `make-frame` runs its `:initial-events` pipeline run
-           ;; synchronously, and that run includes the `:articles` commit
-           ;; `:app/server-init` sets in motion. The frame resolves the
-           ;; top-level `ArticlesSchema` registration, so that commit is
-           ;; validated with no per-request schema step.
+           ;; synchronously. That run commits `:articles/load-state :pending`
+           ;; and starts the fetch; the `:articles` commit comes later, from
+           ;; the reply, which is what `await-page-load!` below waits for. The
+           ;; frame resolves the top-level `ArticlesSchema` registration, so
+           ;; that commit is validated with no per-request schema step.
            f   (rf/make-frame {:id fid :doc       "ssr-example per-request frame"
                                :platform  :server
-                               :initial-events [[:app/server-init]]})]
+                               :initial-events [[:ssr.app/server-init]]})]
        (try
          (rf/with-frame f
            ;; Step 4 — wait for the page load to finish before reading a thing
@@ -369,7 +363,7 @@
                    ;; renders the whole `[:html …]` document; asking for it here
                    ;; would prefix a *second* doctype onto the fragment and nest
                    ;; it inside `<div id='app'>`.
-                   html     (rf.ssr/render-to-string [(rf/view :app/root)])
+                   html     (rf.ssr/render-to-string [(rf/view :ssr.app/root)])
                    ;; You'll notice the payload carries no `:rf/frame-id`, and
                    ;; that's the intended shape. The server rendered under a
                    ;; throwaway per-request gensym (`f`); the client hydrates its
@@ -456,18 +450,24 @@
 
 ;; A quick naming note. App events live under a namespace you pick; the reserved
 ;; `:rf/*` root is the framework's. `:rf/hydrate` is framework-owned. The
-;; per-request boot event above is the app's own, `:app/server-init`, and so is
-;; this little bootstrap-for-a-plain-load — so it gets the app's own `:ssr/`
+;; per-request boot event above is the app's own, `:ssr.app/server-init`, and
+;; so is this bootstrap for a plain load — so it gets the app's own `:ssr.app/`
 ;; namespace, not `:rf/`.
-(rf/reg-event :ssr/client-bootstrap
-  {:doc "Client-side init that runs even when the server never rendered this page."}
-  (fn [{:keys [db]} _] {:db db}))
+;;
+;; A plain load is a page nobody server-rendered: no payload, an empty frame.
+;; The client then fetches the articles itself, through the same effect the
+;; server's init returns, and renders "No articles." until the reply lands.
+(rf/reg-event :ssr.app/client-bootstrap
+  {:doc "Client-side boot for a page the server never rendered: fetch the
+         articles the server would have."}
+  (fn [_ _] {:fx [load-articles]}))
 
-;; The retained React root lives in an atom and gets created lazily inside `run`,
-;; never at namespace-load. The rule is that loading a namespace must not touch
-;; the DOM — so if several example namespaces get required together, none of them
-;; can race the others to slap a root onto the shared `#app`. One root per
-;; container, reused across hot reloads.
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it creates the
+;; Root. The rule it keeps: loading a namespace must not touch the DOM, so if
+;; several example namespaces get required together, none of them can race the
+;; others to put a root onto the shared `#app`. One root per container, reused
+;; across hot reloads.
 #?(:cljs (defonce app-root (rf.adapter.reagent/client-root)))
 
 ;; The client's app-frame id. The app names its frame out loud and threads the
@@ -495,7 +495,7 @@
        ;; `subscribe` down in the view tree resolves to the frame we hydrated.
        (rf.adapter.reagent/render! app-root
          [rf/frame-provider {:frame app-frame}
-          [(rf/view :app/root)]]
+          [(rf/view :ssr.app/root)]]
          el))))
 
 #?(:cljs
@@ -522,7 +522,7 @@
      ;; payload it applied, or nil on a plain client load.
      (let [el      (and (exists? js/document) (js/document.getElementById "app"))
            payload (rf.ssr/hydrate! {:frame app-frame})
-           tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
+           tree    [rf/frame-provider {:frame app-frame} [(rf/view :ssr.app/root)]]]
        (when el
          ;; No payload means no server render — a plain first load. Run the
          ;; app's own bootstrap against the frame before the fresh mount; a
@@ -530,7 +530,7 @@
          ;; frame's state. (This is app logic, so it stays here in `run` rather
          ;; than inside the shared mount helper.)
          (when-not payload
-           (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame}))
+           (rf/dispatch-sync [:ssr.app/client-bootstrap] {:frame app-frame}))
          ;; The adopt-vs-fresh decision lives in ONE place — `ssr.mount/mount!`
          ;; — so the DOM-adoption regression executes the exact call this recipe
          ;; ships instead of a copy: payload present ⇒ the first render through
@@ -545,7 +545,7 @@
 ;; (implementation/core/test/) and run on the JVM. If you're curious what's
 ;; covered:
 ;;   - `ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch` — the
-;;     whole round trip: per-request frame, :app/server-init, the article fetch
+;;     whole round trip: per-request frame, :ssr.app/server-init, the article fetch
 ;;     answered by a stub transport, render-to-string, and a payload the client frame
 ;;     installs when it hydrates.
 ;;   - `ssr-example-handle-request-tears-down-on-throw` — the per-request frame
