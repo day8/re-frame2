@@ -210,6 +210,26 @@
     {:recovery :use-frame-provider-to-scope
      :extra    {:received frame-val}}))
 
+(defn ^:no-doc same-root-opts?
+  "True when two frame-root opts are the same configuration: equal as
+  values, with any two fns in matching positions counted equal. A fn written
+  inline in render (`:fx-overrides {:http (fn ...)}`, an interceptor built
+  per render) is a new object on every render, so comparing fns by identity
+  would refuse every parent re-render of a root that changed nothing."
+  [a b]
+  (cond
+    (identical? a b)          true
+    (and (fn? a) (fn? b))     true
+    (and (map? a) (map? b))   (and (= (count a) (count b))
+                                   (every? (fn [[k v]]
+                                             (and (contains? b k)
+                                                  (same-root-opts? v (get b k))))
+                                           a))
+    (and (sequential? a)
+         (sequential? b))     (and (= (count a) (count b))
+                                   (every? true? (map same-root-opts? a b)))
+    :else                     (= a b)))
+
 (defn ^:no-doc require-unchanged-root-opts!
   "Fail loud when a MOUNTED frame-root's `:id` / opts change. A committed
   frame-root scopes exactly one frame for its lifetime; re-pointing it at a
@@ -382,7 +402,7 @@
     ;; has committed under an opts baseline, a differing opts on a later render
     ;; is a reconfiguration attempt — fail loud rather than silently ignore it.
     (when-let [prev (.-current committed)]
-      (when-not (= prev opts)
+      (when-not (same-root-opts? prev opts)
         (require-unchanged-root-opts! prev opts 're-frame.views.frame-boundary/frame-root-fc)))
     ;; Commit-owned ENSURE: create the frame AFTER the render commits, record the
     ;; committed baseline, then mark ready so the children render. Empty deps ⇒

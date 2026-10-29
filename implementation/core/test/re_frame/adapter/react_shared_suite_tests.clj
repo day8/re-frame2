@@ -46,9 +46,11 @@
    {:test 'reg-view-react-key-preserved
     :fn   'assert-reg-view-react-key-preserved}
 
-   {:section "void-element unmount-sentinel"}
+   {:section "unmount sentinel"}
    {:test 'void-root-view-sentinel-is-fragment-sibling
     :fn   'assert-void-root-view-sentinel-is-fragment-sibling}
+   {:test 'unmount-sentinel-never-touches-root-children
+    :fn   'assert-unmount-sentinel-never-touches-root-children}
 
    {:section "frame-context corrupted (Spec 009)"}
    {:test 'frame-context-corrupted

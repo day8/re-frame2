@@ -246,10 +246,10 @@
   `:advanced` + `goog.DEBUG=false`; the unattributed base tag is emitted
   on the production path so the op-type vocabulary is the same there.
   `prev-value`/`prev-in-vals` arrive pre-resolved from the memo
-  wrapper's volatile cells — no extra cache read.
+  wrapper's cell — no extra cache read.
 
   Callers (the memo wrappers) pass `prev-value` (the wrapper's
-  `last-result` cell, `::unset` on first recompute), `prev-in-vals`
+  last result, `::unset` on first recompute), `prev-in-vals`
   (the wrapper's last-seen input value(s), `::unset` on first recompute,
   else a coll parallel to `in-vals`) and `prev-policy` (the policy
   `prev-value` was computed under, nil on first recompute)."
@@ -582,6 +582,17 @@
     source-container))
 
 ;; ---- memoisation wrappers ------------------------------------------------
+;;
+;; Each wrapper keeps its memo in ONE volatile holding `[input result policy]`,
+;; written once per recompute and read once per call. A JVM reaction can be
+;; deref'd from two threads at once (the cache's install race supports two
+;; threads on one frame and query), and with the three in separate cells a
+;; reader between two writes could pair a new input with an old result — a
+;; memo hit serving a value computed for a different db.
+
+(def ^:private unset-cell
+  "A memo cell before the first recompute: an input no value is `=` to."
+  [::unset nil nil])
 
 (defn- value-policy
   "The classification policy `frame-id` stands under as a value is computed.
@@ -611,64 +622,58 @@
   for one thing: to resolve the movement witness once at construction — see
   §The movement-witness short-circuit above."
   [body-fn query-id query-v frame-id sub-meta source-container]
-  (let [last-db     (volatile! ::unset)
-        last-result (volatile! nil)
-        last-policy (volatile! nil)
+  (let [cell        (volatile! unset-cell)
         sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
         witness-src (witnessing-source source-container)]
     (fn [db]
       (when body-fn
-        ;; `seen` is read once — the recompute branch below wants the same
-        ;; value, and re-`deref`ing a volatile nothing has written in
-        ;; between only costs field reads.
-        (if (let [seen @last-db]
-              (and (not (identical? (if witness-src
+        ;; The cell is read once, so the input, result and policy this call
+        ;; sees all belong to one recompute.
+        (let [[seen last-result last-policy] @cell]
+          (if (and (not (identical? (if witness-src
                                       (rf.movement/-moved-from witness-src)
                                       rf.movement/no-witness)
                                     seen))
-                   (= seen db)))
-          ;; Memo hit — input value-equal to last-seen, the user body
-          ;; does NOT re-run. Emit `:rf.sub/skip` so tools
-          ;; can show the "considered, no recompute" branch of the
-          ;; reactive cascade DAG. Layer-1 has no upstream
-          ;; sub inputs, so `:input-paths-unchanged` is `[]`.
-          (do
-            (emit-sub-skip! query-id query-v frame-id sub-scope [])
-            @last-result)
-          ;; Capture the prior cells BEFORE the recompute so the
-          ;; `:rf.sub/run` attribution can report value-change
-          ;; against the last computed value. Layer-1 has no upstream
-          ;; sub inputs, so `input-signals` is `[]` and cause-sub
-          ;; resolution ignores `prev-in-vals` (a layer-1 recompute is
-          ;; driven by an app-db path change, never a sub cascade). It
-          ;; still carries the last-seen source value, parallel to
-          ;; `in-vals`, because the prior value is classified by the
-          ;; registry that source carried. Only the dev-gated emit reads
-          ;; it, so production passes `unset` and allocates nothing.
-          ;;
-          ;; Pass `unset` for `prev-value` on the run that
-          ;; allocated the cache slot (the input cell `last-db` is still
-          ;; the `::unset` sentinel here — pre-vreset). `last-result`
-          ;; starts at `nil` (not `::unset`) so it cannot serve as the
-          ;; first-run discriminator alone; keying on `last-db` keeps
-          ;; the `::unset → unset` projection well-defined even when the
-          ;; first cached value happens to be `nil`. The
-          ;; `validate-and-trace` emit then stamps `:rf.sub/first-run?`
-          ;; from `(= unset prev-value)`.
-          (let [seen        @last-db
-                first-run?  (= ::unset seen)
-                prev-result (if first-run? unset @last-result)
-                computed    (validate-and-trace
-                              body-fn db (list db) query-id query-v
-                              frame-id [] sub-meta sub-scope
-                              prev-result (if (or first-run? (not rf.interop/debug-enabled?))
-                                            unset
-                                            (list seen))
-                              @last-policy)]
-            (vreset! last-db db)
-            (vreset! last-result computed)
-            (vreset! last-policy (value-policy frame-id))
-            computed))))))
+                   (= seen db))
+            ;; Memo hit — input value-equal to last-seen, the user body
+            ;; does NOT re-run. Emit `:rf.sub/skip` so tools
+            ;; can show the "considered, no recompute" branch of the
+            ;; reactive cascade DAG. Layer-1 has no upstream
+            ;; sub inputs, so `:input-paths-unchanged` is `[]`.
+            (do
+              (emit-sub-skip! query-id query-v frame-id sub-scope [])
+              last-result)
+            ;; Capture the prior cells BEFORE the recompute so the
+            ;; `:rf.sub/run` attribution can report value-change
+            ;; against the last computed value. Layer-1 has no upstream
+            ;; sub inputs, so `input-signals` is `[]` and cause-sub
+            ;; resolution ignores `prev-in-vals` (a layer-1 recompute is
+            ;; driven by an app-db path change, never a sub cascade). It
+            ;; still carries the last-seen source value, parallel to
+            ;; `in-vals`, because the prior value is classified by the
+            ;; registry that source carried. Only the dev-gated emit reads
+            ;; it, so production passes `unset` and allocates nothing.
+            ;;
+            ;; Pass `unset` for `prev-value` on the run that
+            ;; allocated the cache slot (the cell's input, `seen`, is still
+            ;; the `::unset` sentinel here — pre-vreset). `last-result`
+            ;; starts at `nil` (not `::unset`) so it cannot serve as the
+            ;; first-run discriminator alone; keying on `seen` keeps
+            ;; the `::unset → unset` projection well-defined even when the
+            ;; first cached value happens to be `nil`. The
+            ;; `validate-and-trace` emit then stamps `:rf.sub/first-run?`
+            ;; from `(= unset prev-value)`.
+            (let [first-run?  (= ::unset seen)
+                  prev-result (if first-run? unset last-result)
+                  computed    (validate-and-trace
+                                body-fn db (list db) query-id query-v
+                                frame-id [] sub-meta sub-scope
+                                prev-result (if (or first-run? (not rf.interop/debug-enabled?))
+                                              unset
+                                              (list seen))
+                                last-policy)]
+              (vreset! cell [db computed (value-policy frame-id)])
+              computed)))))))
 
 (defn make-layer-n-single-input-memoised-body
   "Specialised memo wrapper for layer-2 subs with a SINGLE declared input
@@ -696,52 +701,47 @@
   upstream sub's own derived container — used only to resolve the movement
   witness once at construction (§The movement-witness short-circuit above)."
   [body-fn query-id query-v frame-id input-signals sub-meta source-container]
-  (let [last-v0     (volatile! ::unset)
-        last-result (volatile! nil)
-        last-policy (volatile! nil)
+  (let [cell        (volatile! unset-cell)
         sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
         witness-src (witnessing-source source-container)]
     (fn [v0]
       (when body-fn
-        (if (let [seen @last-v0]
-              (and (not (identical? (if witness-src
+        (let [[seen last-result last-policy] @cell]
+          (if (and (not (identical? (if witness-src
                                       (rf.movement/-moved-from witness-src)
                                       rf.movement/no-witness)
                                     seen))
-                   (= seen v0)))
-          ;; Memo hit — see `make-layer-1-memoised-body` for the
-          ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
-          ;; carries the upstream sub query-vector(s) whose values were
-          ;; stable; layer-2+ subs name their inputs by `[query-id args]`
-          ;; rather than db-paths.
-          (do
-            (emit-sub-skip! query-id query-v frame-id sub-scope (vec input-signals))
-            @last-result)
-          ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
-          ;; attribution. `prev-in-vals` is the last-seen
-          ;; single input value in singleton-list shape (matching the
-          ;; `(list v0)` `in-vals` form) so `changed-cause-sub` can diff
-          ;; it positionally against `input-signals`; the `::unset`
-          ;; sentinel on first recompute leaves `:cause-sub` nil.
-          ;;
-          ;; Pass `unset` for `prev-value` on the run that
-          ;; allocated the cache slot (the input cell `last-v0` is still
-          ;; the `::unset` sentinel here). `last-result` is `nil` then
-          ;; too but keying on `last-v0` keeps the discriminator well-
-          ;; defined regardless of the first cached value's shape.
-          (let [prev-result  (if (= ::unset @last-v0) unset @last-result)
-                prev-v0      @last-v0
-                prev-in-vals (if (= unset prev-v0)
-                               unset
-                               (list prev-v0))
-                computed     (validate-and-trace
-                               body-fn [v0] (list v0) query-id query-v
-                               frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals @last-policy)]
-            (vreset! last-v0 v0)
-            (vreset! last-result computed)
-            (vreset! last-policy (value-policy frame-id))
-            computed))))))
+                   (= seen v0))
+            ;; Memo hit — see `make-layer-1-memoised-body` for the
+            ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
+            ;; carries the upstream sub query-vector(s) whose values were
+            ;; stable; layer-2+ subs name their inputs by `[query-id args]`
+            ;; rather than db-paths.
+            (do
+              (emit-sub-skip! query-id query-v frame-id sub-scope (vec input-signals))
+              last-result)
+            ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
+            ;; attribution. `prev-in-vals` is the last-seen
+            ;; single input value in singleton-list shape (matching the
+            ;; `(list v0)` `in-vals` form) so `changed-cause-sub` can diff
+            ;; it positionally against `input-signals`; the `::unset`
+            ;; sentinel on first recompute leaves `:cause-sub` nil.
+            ;;
+            ;; Pass `unset` for `prev-value` on the run that
+            ;; allocated the cache slot (the cell's input, `seen`, is still
+            ;; the `::unset` sentinel here). `last-result` is `nil` then
+            ;; too but keying on `seen` keeps the discriminator well-
+            ;; defined regardless of the first cached value's shape.
+            (let [prev-result  (if (= ::unset seen) unset last-result)
+                  prev-in-vals (if (= unset seen)
+                                 unset
+                                 (list seen))
+                  computed     (validate-and-trace
+                                 body-fn [v0] (list v0) query-id query-v
+                                 frame-id input-signals sub-meta sub-scope
+                                 prev-result prev-in-vals last-policy)]
+              (vreset! cell [v0 computed (value-policy frame-id)])
+              computed)))))))
 
 (defn make-layer-n-memoised-body
   "Memo wrapper for layer-2+ subs with two or more inputs — and for
@@ -762,39 +762,35 @@
   `make-layer-n-single-input-memoised-body` for the single-declared-input
   specialisation."
   [body-fn query-id query-v frame-id input-signals sub-meta]
-  (let [last-in-vals (volatile! ::unset)
-        last-result  (volatile! nil)
-        last-policy  (volatile! nil)
-        sub-scope    (rf.trace/handler-scope-from-meta :sub query-id sub-meta)]
+  (let [cell      (volatile! unset-cell)
+        sub-scope (rf.trace/handler-scope-from-meta :sub query-id sub-meta)]
     (fn [& in-vals]
       (when body-fn
-        (if (= @last-in-vals in-vals)
-          ;; Memo hit — see `make-layer-1-memoised-body` for the
-          ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
-          ;; carries every upstream declared query-vector whose value was
-          ;; stable (the varargs path has ≥2 inputs and the memo
-          ;; compare is whole-seq `=`, so every input was stable).
-          (do
-            (emit-sub-skip! query-id query-v frame-id sub-scope (vec input-signals))
-            @last-result)
-          ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
-          ;; attribution. `prev-in-vals` is the last-seen
-          ;; input-value seq (parallel to `input-signals`), which
-          ;; `changed-cause-sub` diffs positionally to name the upstream
-          ;; sub that cascaded. `::unset` on first recompute → nil cause.
-          ;;
-          ;; Pass `unset` for `prev-value` on the run that
-          ;; allocated the cache slot (the input cell `last-in-vals` is
-          ;; still the `::unset` sentinel here). Keying on `last-in-vals`
-          ;; rather than `last-result` so a sub whose first cached value
-          ;; is `nil` still flags as `:first-run?` true.
-          (let [prev-result  (if (= ::unset @last-in-vals) unset @last-result)
-                prev-in-vals @last-in-vals
-                computed     (validate-and-trace
-                               body-fn (vec in-vals) in-vals query-id query-v
-                               frame-id input-signals sub-meta sub-scope
-                               prev-result prev-in-vals @last-policy)]
-            (vreset! last-in-vals in-vals)
-            (vreset! last-result computed)
-            (vreset! last-policy (value-policy frame-id))
-            computed))))))
+        (let [[seen last-result last-policy] @cell]
+          (if (= seen in-vals)
+            ;; Memo hit — see `make-layer-1-memoised-body` for the
+            ;; `:rf.sub/skip` rationale. `:input-paths-unchanged`
+            ;; carries every upstream declared query-vector whose value was
+            ;; stable (the varargs path has ≥2 inputs and the memo
+            ;; compare is whole-seq `=`, so every input was stable).
+            (do
+              (emit-sub-skip! query-id query-v frame-id sub-scope (vec input-signals))
+              last-result)
+            ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
+            ;; attribution. `prev-in-vals` is the last-seen
+            ;; input-value seq (parallel to `input-signals`), which
+            ;; `changed-cause-sub` diffs positionally to name the upstream
+            ;; sub that cascaded. `::unset` on first recompute → nil cause.
+            ;;
+            ;; Pass `unset` for `prev-value` on the run that
+            ;; allocated the cache slot (the cell's input, `seen`, is
+            ;; still the `::unset` sentinel here). Keying on `seen`
+            ;; rather than `last-result` so a sub whose first cached value
+            ;; is `nil` still flags as `:first-run?` true.
+            (let [prev-result  (if (= ::unset seen) unset last-result)
+                  computed     (validate-and-trace
+                                 body-fn (vec in-vals) in-vals query-id query-v
+                                 frame-id input-signals sub-meta sub-scope
+                                 prev-result seen last-policy)]
+              (vreset! cell [in-vals computed (value-policy frame-id)])
+              computed)))))))

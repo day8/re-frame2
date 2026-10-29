@@ -4,7 +4,7 @@
   `rf/subscribe` / `rf/unsubscribe` pairs and render-shaped reactions
   stand in for mounted views, keeping the tests headless. A layer-2 sub's
   `add-on-dispose!` (installed in `re-frame.subs/compute-and-cache!`)
-  releases its inputs through `unsubscribe!`, so the input evictions are
+  releases its inputs through `unsubscribe-if-reaction`, so the input evictions are
   observable here. The emit is dev-only (`interop/debug-enabled?`); its
   elision is `npm run test:elision`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]

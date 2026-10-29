@@ -3,11 +3,12 @@
   attempts all remaining cleanup, rethrows the FIRST failure, and attaches
   later failures as secondary evidence.
 
-  `re-frame.substrate.adapter/dispose-adapter!` runs two cleanup steps in
+  `re-frame.substrate.adapter/dispose-adapter!` runs three cleanup steps in
   order: the Fresco client-root drain (the `:fresco/drain-client-roots!`
-  late-bind hook), then the installed adapter's own `:dispose-adapter!`.
-  When both throw, the drain's failure is the first and is the one the
-  caller receives; the disposer's failure rides on it — through
+  late-bind hook), the walk over every frame's sub-cache, then the installed
+  adapter's own `:dispose-adapter!`. When the first and last both throw, the
+  drain's failure is the first and is the one the caller receives; the
+  disposer's failure rides on it — through
   `.getSuppressed` on the JVM, and through the
   `rfAdapterTeardownSecondaryErrors` array on CLJS, the same property the
   spine's own teardown uses."

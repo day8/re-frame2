@@ -57,7 +57,7 @@
   (when-let [hook (rf.late-bind/get-fn :adapter/after-render)]
     (hook f)))
 
-;; ---- mutable cells (used by the runtime, opaque to user code) -------------
+;; ---- mutable cells (the adapter's `:ratom` / `:ratom?` capabilities) -------
 
 (defn ratom
   "Construct a reactive atom seeded with v."

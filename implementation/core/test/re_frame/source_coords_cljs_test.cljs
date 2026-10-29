@@ -24,7 +24,8 @@
             [re-frame.core :as rf]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.source-coords :as rf.source-coords]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]))
 
 (use-fixtures :each (rf.test-support/make-reset-runtime-fixture))
 
@@ -124,3 +125,11 @@
       ":bare"       :bare
       "raw-string"  "raw-string"
       42            nil)))
+
+(deftest annotation-keeps-the-root-vector-metadata
+  (testing "Reagent reads a root's ^{:key ...} off the vector's metadata, so the
+            dev annotation walk keeps it whether or not the root had attrs"
+    (doseq [root [^{:key "k"} [:li "x"] ^{:key "k"} [:li {:class "c"} "x"]]]
+      (is (= {:key "k"}
+             (meta (rf.views.source-coord-annotation/inject-source-coord-attr
+                     :v/row "v:row:1:1" root)))))))

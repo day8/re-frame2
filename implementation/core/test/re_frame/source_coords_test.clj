@@ -24,7 +24,8 @@
             [re-frame.flows :as rf.flows]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.views.jvm-source-coord-annotation :as rf.views.jvm-source-coord-annotation])
   (:import [java.net URL URLClassLoader]
            [java.io File]))
 
@@ -180,6 +181,26 @@
                      {:line 1 :column 1 :file "standard_epochs/core.cljs"}
                      'standard-epochs.core "standard_epochs/core.cljs"
                      reader-sym '([] [:div]))
-        ;; (do (binding [...] (reg-view* id slot-meta fn)) (def ...) id)
-        slot-meta  (-> exp (nth 1) (nth 2) (nth 2))]
+        ;; ... (reg-view* id slot-meta fn) ...
+        slot-meta  (nth (some #(when (and (seq? %) (= 're-frame.core/reg-view* (first %))) %)
+                              (tree-seq coll? seq exp))
+                        2)]
     (is (= {:doc "a real slot-meta key"} slot-meta))))
+
+(deftest walk-machine-spec-keys-both-always-forms
+  ;; `:always` is a single transition map or a vector of them; the reference
+  ;; walker keys the first at the bare `:always` path and the second by index.
+  (let [at   (fn [m line] (with-meta m {:line line :column 1}))
+        spec {:initial :a
+              :states  {:a (at {:always (at {:target :b} 3)} 2)
+                        :b (at {:always [(at {:target :a} 5)]} 4)}}
+        idx  (rf.source-coords/walk-machine-spec spec 'my.machine "my/machine.cljc")]
+    (is (= [3 5] [(:line (get idx [:states :a :always]))
+                  (:line (get idx [:states :b :always 0]))]))))
+
+(deftest jvm-annotation-keeps-the-root-vector-metadata
+  ;; The server walk keeps a root's ^{:key ...} as the client walk does.
+  (doseq [root [^{:key "k"} [:li "x"] ^{:key "k"} [:li {:class "c"} "x"]]]
+    (is (= {:key "k"}
+           (meta (rf.views.jvm-source-coord-annotation/annotate-root
+                   :v/row "v:row:1:1" ":v/row" root))))))

@@ -226,6 +226,47 @@
       (rf/subscribe [:sum]))
     (is (= [true {}] [@tripped? (ref-counts)]))))
 
+(deftest layer-2-build-answers-nil-when-the-frame-goes-between-its-inputs
+  ;; A frame destroyed on another thread between two input subscribes leaves
+  ;; the later one recovering to nil; here the `[:b]` input subscribe answers
+  ;; nil after `[:a]` was acquired. The parent must recover too — a reaction
+  ;; over a nil input throws on deref — and release `[:a]`.
+  (rf/reg-event :init (fn [_ _] {:db {:a 2 :b 3}}))
+  (rf/reg-sub :a (fn [db _] (:a db)))
+  (rf/reg-sub :b (fn [db _] (:b db)))
+  (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
+  (rf/dispatch-sync [:init])
+  (let [real     @#'rf.subs/subscribe-in-frame
+        tripped? (atom false)
+        r        (with-redefs [rf.subs/subscribe-in-frame
+                               (fn
+                                 ([target query-v] (real target query-v))
+                                 ([target query-v incarnation]
+                                  (if (= [:b] query-v)
+                                    (do (reset! tripped? true) nil)
+                                    (real target query-v incarnation))))]
+                   (rf/subscribe [:sum]))]
+    (is (true? @tripped?) "premise: the [:b] input subscribe answered nil mid-build")
+    (is (nil? @r) "the recovered reaction derefs to nil rather than throwing")
+    (is (= {} (ref-counts)) "the input the build acquired was released")))
+
+(deftest released-watchers-leave-no-disposal-callback-behind
+  ;; A long-lived holder keeps the slot cached while other watchers acquire and
+  ;; release the same reaction. Each release disarms its own callback, so the
+  ;; eventual eviction runs the holder's callback alone.
+  (rf/reg-event :init (fn [_ _] {:db {:a 1}}))
+  (rf/reg-sub :a (fn [db _] (:a db)))
+  (rf/dispatch-sync [:init])
+  (let [fired (atom [])]
+    (rf.subs/acquire-watched-reaction! :rf/default [:a] #(swap! fired conj :held))
+    (dotimes [i 1000]
+      (let [f #(swap! fired conj i)
+            r (rf.subs/acquire-watched-reaction! :rf/default [:a] f)]
+        (rf.subs/release-watched-reaction! :rf/default [:a] r f)))
+    (is (= {[:a] 1} (ref-counts)) "premise: only the holder's share remains")
+    (rf/clear-sub-cache! :rf/default)
+    (is (= [:held] @fired))))
+
 (deftest no-such-sub-trace-tags-match-spec-009
   ;; Spec 009 §Error catalogue's `:rf.error/no-such-sub` tags; there is no
   ;; `:rf.sub/query-v` tag.

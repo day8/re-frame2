@@ -111,23 +111,26 @@
     (fn form-2-wrapper [& args]
       (annotate-root id coord-attr view-attr (apply out args)))
 
-    ;; Hiccup vector with a DOM-tag keyword head — annotate the root.
+    ;; Hiccup vector with a DOM-tag keyword head — annotate the root,
+    ;; keeping the vector's metadata (a `^{:key ...}` rides there).
     (and (vector? out) (dom-tag-head? (first out)))
     (let [head        (first out)
           maybe-attrs (second out)]
-      (if (map? maybe-attrs)
-        ;; Existing attrs map — merge in, never overwriting an author-set
-        ;; value for either framework key.
-        (let [merged (cond-> maybe-attrs
-                       (not (contains? maybe-attrs :data-rf2-source-coord))
-                       (assoc :data-rf2-source-coord coord-attr)
-                       (not (contains? maybe-attrs :data-rf-view))
-                       (assoc :data-rf-view view-attr))]
-          (into [head merged] (drop 2 out)))
-        ;; No attrs map — splice one in between head and children.
-        (into [head {:data-rf2-source-coord coord-attr
-                     :data-rf-view          view-attr}]
-              (rest out))))
+      (with-meta
+        (if (map? maybe-attrs)
+          ;; Existing attrs map — merge in, never overwriting an author-set
+          ;; value for either framework key.
+          (let [merged (cond-> maybe-attrs
+                         (not (contains? maybe-attrs :data-rf2-source-coord))
+                         (assoc :data-rf2-source-coord coord-attr)
+                         (not (contains? maybe-attrs :data-rf-view))
+                         (assoc :data-rf-view view-attr))]
+            (into [head merged] (drop 2 out)))
+          ;; No attrs map — splice one in between head and children.
+          (into [head {:data-rf2-source-coord coord-attr
+                       :data-rf-view          view-attr}]
+                (rest out)))
+        (meta out)))
 
     ;; Non-DOM root — fragment, callable/view-ref head, lazy-seq, scalar,
     ;; nil. Skip, silently, as the client walk does.

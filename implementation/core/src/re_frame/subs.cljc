@@ -1279,8 +1279,16 @@
                                 (single-source-container-slot-for input-kind))
                            (container-fn frame-id))]
                         (:inputs step []))
+        ;; A frame torn down mid-build (a JVM `destroy-frame!` on another
+        ;; thread) recovers a later input's subscribe, or the container read,
+        ;; to nil. A reaction over a nil source throws on deref, and Spec 006
+        ;; §Lifetime contract promises a subscribe against a destroyed frame
+        ;; does not, so the build recovers exactly as a failed parametric
+        ;; production does: constant nil, never cached, and the inputs it did
+        ;; acquire released on the not-cached path below.
+        missing-input? (and (not input-error?) (some nil? inputs))
         memoised-body (cond
-                        input-error?
+                        (or input-error? missing-input?)
                         ;; Recovery body: a constant nil reaction (Spec 009
                         ;; §Error contract `:replaced-with-default`). Never
                         ;; cached (see `input-error?` branches below).
@@ -1338,12 +1346,13 @@
                         :else
                         (rf.subs.memo/make-layer-n-memoised-body
                           body-fn query-id query-v frame-id input-qs sub-meta))
-        reaction      (rf.substrate.adapter/make-derived-value inputs memoised-body)
-        ;; A parametric input-production failure recovers to a nil-yielding
-        ;; reaction that is NOT cached (mirroring the no-such-sub miss):
-        ;; suppress the cache store + dispose wiring so a later fix
-        ;; re-materializes cleanly on the next subscribe.
-        sub-meta      (when-not input-error? sub-meta)
+        reaction      (rf.substrate.adapter/make-derived-value
+                        (if missing-input? [] inputs) memoised-body)
+        ;; A parametric input-production failure, or a missing input,
+        ;; recovers to a nil-yielding reaction that is NOT cached (mirroring
+        ;; the no-such-sub miss): suppress the cache store + dispose wiring so
+        ;; a later fix re-materializes cleanly on the next subscribe.
+        sub-meta      (when-not (or input-error? missing-input?) sub-meta)
         input-signals input-qs
         ;; A CAPTURED build installs/adopts into the VALIDATED
         ;; incarnation's sub-cache (never a bare-id re-resolve that could adopt a
@@ -2492,7 +2501,9 @@
 ;;   peek     [[peek-cache-reaction]] — the cached reaction, no reference taken;
 ;;   acquire  [[acquire-watched-reaction!]] — one counted share, activated, with
 ;;            a disposal callback armed;
-;;   release  [[unsubscribe-if-reaction]] — the identity-guarded O(1) release.
+;;   release  [[release-watched-reaction!]] — the callback disarmed, and the
+;;            share released through the identity-guarded O(1)
+;;            [[unsubscribe-if-reaction]].
 ;;
 ;; [[compute-sub-with-memo]] is the collector's pure cold read, for a key
 ;; nothing caches. [[acquire-cache-reaction!]] has NO caller, and is
@@ -2524,6 +2535,88 @@
   (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
     (:reaction (get @cache (cache-key query-v)))))
 
+;; ---- removable disposal callbacks -----------------------------------------
+;;
+;; A consumer that watches a SHARED reaction arms a disposal callback on it,
+;; and the reaction can outlive that consumer by any number of mounts. Neither
+;; the substrates' on-dispose registries nor Reagent's can remove a callback,
+;; so one armed directly per consumer would stay, retaining the consumer's
+;; closure, until the reaction finally disposed — and would then run. So the
+;; reaction carries ONE callback that runs a removable set, and a consumer's
+;; release takes its own entry out.
+
+(defn- run-all-rethrowing-first!
+  "Call every fn in `fs`; when any threw, rethrow the first failure once all
+  have run, as the substrates' own dispose does (Spec 006 §On-dispose hooks)."
+  [fs]
+  (let [failure (reduce (fn [failure f]
+                          (try (f)
+                               failure
+                               (catch #?(:clj Throwable :cljs :default) e
+                                 (if (identical? ::none failure) e failure))))
+                        ::none
+                        fs)]
+    (when-not (identical? ::none failure)
+      (throw failure))))
+
+#?(:clj
+   (defonce ^:private ^java.util.Map removable-dispose-sets
+     ;; reaction -> atom of callbacks. Weak-keyed so an undisposed orphan's
+     ;; entry can be reclaimed; every disposal removes its entry explicitly.
+     (java.util.Collections/synchronizedMap (java.util.WeakHashMap.))))
+
+(defn- removable-dispose-set!
+  "The removable callback set `reaction` carries — a JS `Set` on the reaction
+  object, or on the JVM an atom of callbacks — created together with the ONE
+  on-dispose callback that detaches and runs it."
+  [reaction]
+  #?(:cljs
+     (or (.-rfRemovableOnDispose ^js reaction)
+         (let [fs (js/Set.)]
+           (set! (.-rfRemovableOnDispose ^js reaction) fs)
+           (rf.interop/add-on-dispose! reaction
+             (fn run-removable-on-dispose [& _]
+               (when (identical? fs (.-rfRemovableOnDispose ^js reaction))
+                 (set! (.-rfRemovableOnDispose ^js reaction) nil))
+               (let [snapshot (js/Array.from fs)]
+                 (.clear fs)
+                 (run-all-rethrowing-first! snapshot))))
+           fs))
+     :clj
+     (locking removable-dispose-sets
+       (or (.get removable-dispose-sets reaction)
+           (let [fs (atom [])]
+             (.put removable-dispose-sets reaction fs)
+             (rf.interop/add-on-dispose! reaction
+               (fn run-removable-on-dispose [& _]
+                 (locking removable-dispose-sets
+                   (when (identical? fs (.get removable-dispose-sets reaction))
+                     (.remove removable-dispose-sets reaction)))
+                 (run-all-rethrowing-first! (first (reset-vals! fs [])))))
+             fs)))))
+
+(defn ^:no-doc add-removable-on-dispose!
+  "INTERNAL (consumers that watch a shared cached reaction). Arm `f` (0-arity)
+  to run once when `reaction` disposes, removably: [[remove-on-dispose!]] with
+  the same `f` disarms it. Arming the same `f` twice arms it once. Returns
+  nil."
+  [reaction f]
+  (let [fs (removable-dispose-set! reaction)]
+    #?(:cljs (.add fs f)
+       :clj  (swap! fs (fn [v] (if (some #(identical? f %) v) v (conj v f))))))
+  nil)
+
+(defn ^:no-doc remove-on-dispose!
+  "INTERNAL. Disarm an `f` [[add-removable-on-dispose!]] armed on `reaction`.
+  A no-op for an `f` not armed there, a nil `f`, or a reaction already
+  disposed. Returns nil."
+  [reaction f]
+  (when (and (some? reaction) (some? f))
+    #?(:cljs (some-> (.-rfRemovableOnDispose ^js reaction) (.delete f))
+       :clj  (when-let [fs (.get removable-dispose-sets reaction)]
+               (swap! fs (fn [v] (into [] (remove #(identical? f %)) v))))))
+  nil)
+
 (defn ^:no-doc acquire-watched-reaction!
   "INTERNAL (re-frame-native view substrate) — the seam's ACQUIRE, for a
   holder that WATCHES a reaction across renders rather than deref-ing it
@@ -2539,14 +2632,25 @@
   transition that disposes the reaction — re-registration,
   `clear-sub-cache!`, frame destruction, the last share's release — and is
   how the holder learns the reaction no longer answers for the query. Every
-  call takes its own share and arms its own callback.
+  call takes its own share and arms its own callback, removably
+  ([[add-removable-on-dispose!]]).
 
-  Release the share with [[unsubscribe-if-reaction]]."
+  Release both with [[release-watched-reaction!]], passing the same
+  `on-dispose`."
   [frame-id query-v on-dispose]
   (when-some [reaction (subscribe query-v {:frame frame-id})]
     (rf.interop/activate-derived-value! reaction)
-    (rf.interop/add-on-dispose! reaction on-dispose)
+    (add-removable-on-dispose! reaction on-dispose)
     reaction))
+
+(defn ^:no-doc release-watched-reaction!
+  "INTERNAL (re-frame-native view substrate) — the seam's RELEASE for
+  [[acquire-watched-reaction!]]: disarm the `on-dispose` that acquire armed on
+  `reaction`, then release the share through the identity-guarded
+  [[unsubscribe-if-reaction]]. Returns nil."
+  [frame-id query-v reaction on-dispose]
+  (remove-on-dispose! reaction on-dispose)
+  (unsubscribe-if-reaction frame-id query-v reaction))
 
 (defn- canonical-cache-reaction?
   "True when `reaction` is still exactly the frame's live cache entry for `k`
@@ -2867,7 +2971,9 @@
 ;; ---- JVM-side convenience aliases -----------------------------------------
 ;;
 ;; On the JVM the `re-frame.subs/<name>` shape is kept for
-;; the tooling surface so `.clj` test fixtures can use it.
+;; the tooling surface so `.clj` test fixtures can use it
+;; (`sub-cache-snapshot` answers nil there: Spec 002 §The public registrar
+;; query API marks it CLJS-only).
 ;; The aliases are gated under `#?(:clj ...)` so they never
 ;; appear in CLJS compilation — production counter bundles DCE
 ;; the tooling sibling wholesale because `re-frame.subs` on CLJS has

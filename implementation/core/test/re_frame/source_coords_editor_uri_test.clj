@@ -55,6 +55,21 @@
       "\tdata:text/html,xxx"
       "vbscript:msgbox(1)")))
 
+(deftest forbidden-scheme-reads-the-scheme-as-a-browser-does
+  (testing "a URL parser deletes tab / CR / LF anywhere and strips leading C0
+            controls and spaces before it reads the scheme, so each of these
+            navigates as javascript: and must be refused"
+    (are [uri] (rf.source-coords.editor-uri/forbidden-scheme? uri)
+      "\tjavascript:alert(1)"
+      "java\tscript:alert(1)"
+      "java\nscript:alert(1)"
+      "java\r\nscript:alert(1)"
+      "\u0001javascript:alert(1)"
+      "\u0000 \u001fdata:text/html,x"))
+  (testing "the :custom template is refused in those shapes too"
+    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "java\tscript:alert(1)//{path}"}
+                                                      sample-coord)))))
+
 (deftest forbidden-scheme-passes-everything-else
   (testing "no positive allowlist: built-in, http and unknown custom schemes
             pass, a forbidden word past the leading scheme is not the scheme,

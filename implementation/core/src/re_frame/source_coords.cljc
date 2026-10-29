@@ -930,9 +930,14 @@
                           (stamp-map! (conj tp i) tx)))
                       nil))
                   nil on-map)))
-            ;; :always — vector of transition maps.
+            ;; :always — a single transition MAP, keyed at the bare
+            ;; `:always` path, or a vector of candidate maps keyed by index
+            ;; (the two forms the runtime accepts).
             (when-let [always (:always node)]
-              (when (vector? always)
+              (cond
+                (map? always)
+                (stamp-map! (conj node-path :always) always)
+                (vector? always)
                 (doseq [[i tx] (map-indexed vector always)
                         :when (map? tx)]
                   (stamp-map! (conj node-path :always i) tx))))

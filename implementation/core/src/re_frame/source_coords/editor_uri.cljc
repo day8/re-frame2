@@ -109,11 +109,14 @@
 ;;
 ;; The built-in scheme builders (vscode/cursor/windsurf/zed/idea) cannot
 ;; emit any of these — the reject only ever fires on `{:custom <template>}`.
-;; Detection is leading-token-only and case-insensitive so a template
-;; whose scheme casing has been munged (`JavaScript:`, `DATA:`, leading
-;; whitespace) still trips the gate. A rejected URI causes `editor-uri`
-;; to return `nil`; the UI layer's `(when uri ...)` wrapper then
-;; hides the chip rather than rendering a no-op link.
+;; Detection reads the scheme the way the browser will: a URL parser
+;; (WHATWG URL) deletes every tab, CR and LF anywhere in the input and
+;; strips leading C0 controls and spaces before it reads the scheme, so
+;; `"java\tscript:"` and `"\u0001javascript:"` navigate as `javascript:`.
+;; The check applies the same normalisation, then matches the leading
+;; token case-insensitively. A rejected URI causes `editor-uri` to return
+;; `nil`; the UI layer's `(when uri ...)` wrapper then hides the chip
+;; rather than rendering a no-op link.
 
 (def ^:const forbidden-uri-schemes
   "Leading URI schemes the launcher refuses. Matched case-insensitively
@@ -121,10 +124,20 @@
   first `:`)."
   #{"javascript:" "data:" "vbscript:"})
 
+(defn- scheme-text
+  "`uri` as a browser's URL parser reads its scheme: every tab, CR and LF
+  removed, leading C0 controls and spaces stripped, lower-cased."
+  [uri]
+  (-> uri
+      (str/replace #"[\t\n\r]" "")
+      (str/replace #"^[\u0000- ]+" "")
+      str/lower-case))
+
 (defn forbidden-scheme?
   "Predicate — true iff `uri` carries one of `forbidden-uri-schemes` as
-  its leading scheme. Tolerates leading whitespace and arbitrary scheme
-  casing. Pure data → boolean.
+  its leading scheme, read the way a browser's URL parser reads it (see
+  `scheme-text`), so whitespace, control characters and casing cannot
+  disguise it. Pure data → boolean.
 
   Gates the `:custom` template surface against the three
   schemes that would turn the editor-launch affordance into in-tab
@@ -139,9 +152,8 @@
   open path that bypasses `editor-uri`'s build-time gating."
   [uri]
   (when (string? uri)
-    (let [trimmed (str/triml uri)
-          lower   (str/lower-case trimmed)]
-      (boolean (some #(str/starts-with? lower %) forbidden-uri-schemes)))))
+    (let [scheme (scheme-text uri)]
+      (boolean (some #(str/starts-with? scheme %) forbidden-uri-schemes)))))
 
 ;; ---- pure: source-coord normalisation -----------------------------------
 

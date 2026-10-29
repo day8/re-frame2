@@ -871,7 +871,7 @@
 
 (defn flush-render!
   "Optional. SYNCHRONOUSLY commit the substrate's pending renders to the
-  DOM (per Spec 006 §`flush-render!`). Runs the 1-arity `f` inside the
+  DOM (per Spec 006 §`flush-render!`). Runs the zero-argument `f` inside the
   substrate's synchronous-commit path (React `flushSync` for the React-hook
   substrates; `reagent.core/flush` for the ratom family) so any state change
   `f` schedules — and any render already pending — is committed before this

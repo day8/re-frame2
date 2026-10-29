@@ -131,24 +131,27 @@
     (reagent-class? out)
     out
 
-    ;; Hiccup vector with a DOM-tag keyword head. Annotate the root.
+    ;; Hiccup vector with a DOM-tag keyword head. Annotate the root, keeping
+    ;; the vector's metadata: Reagent reads a `^{:key ...}` there.
     (and (vector? out) (dom-tag? (first out)))
     (let [head        (first out)
           maybe-attrs (second out)
           view-attr   (format-view-id id)]
-      (if (map? maybe-attrs)
-        ;; Existing attrs map — merge in (don't overwrite if user
-        ;; already set any of the framework keys for some reason).
-        (let [merged (cond-> maybe-attrs
-                       (not (contains? maybe-attrs :data-rf2-source-coord))
-                       (assoc :data-rf2-source-coord coord-attr)
-                       (not (contains? maybe-attrs :data-rf-view))
-                       (assoc :data-rf-view view-attr))]
-          (into [head merged] (drop 2 out)))
-        ;; No attrs map — splice one in between head and children.
-        (let [attrs {:data-rf2-source-coord coord-attr
-                     :data-rf-view          view-attr}]
-          (into [head attrs] (rest out)))))
+      (with-meta
+        (if (map? maybe-attrs)
+          ;; Existing attrs map — merge in (don't overwrite if user
+          ;; already set any of the framework keys for some reason).
+          (let [merged (cond-> maybe-attrs
+                         (not (contains? maybe-attrs :data-rf2-source-coord))
+                         (assoc :data-rf2-source-coord coord-attr)
+                         (not (contains? maybe-attrs :data-rf-view))
+                         (assoc :data-rf-view view-attr))]
+            (into [head merged] (drop 2 out)))
+          ;; No attrs map — splice one in between head and children.
+          (let [attrs {:data-rf2-source-coord coord-attr
+                       :data-rf-view          view-attr}]
+            (into [head attrs] (rest out))))
+      (meta out)))
 
     ;; Non-DOM root (fn-component head, fragment, lazy-seq, string, number,
     ;; nil). Skip. Pair tools fall back to :rf/id; the view is untagged and

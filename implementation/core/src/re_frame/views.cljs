@@ -47,6 +47,7 @@
   `record-view-deref!`, `first-render?!`, `clear-seen-render-keys!`) is
   specified in the per-block sections below."
   (:require [re-frame.epoch.capture :as rf.epoch.capture]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.performance :as rf.performance :include-macros true]
@@ -144,10 +145,9 @@
 ;; re-renders so a consumer can label the action mount vs rerender.
 ;; Keyed by `:render-key` (`[view-id instance-token]`), which is stable
 ;; across re-renders of the same mounted instance and fresh per new
-;; instance. The seen-set only grows within a process run; teardown of an
-;; instance does not evict its key (a remount mints a fresh
-;; instance-token, so the new key is unseen → `:mount? true` again).
-;; Test fixtures reset via `clear-seen-render-keys!`.
+;; instance. An instance's teardown (`emit-view-unmounted!`) evicts its key,
+;; so the set holds the mounted instances rather than every instance a run
+;; ever rendered. Test fixtures reset via `clear-seen-render-keys!`.
 
 (defonce ^:private seen-render-keys (atom #{}))
 
@@ -377,6 +377,7 @@
   production DCEs the body."
   [view-id render-key frame-id]
   (when rf.interop/debug-enabled?
+    (swap! seen-render-keys disj render-key)
     (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       (emit! :rf.view :rf.view/unmounted
              {:rf.view/render-key render-key
@@ -573,7 +574,7 @@
   marker. `opened` is nil for every other render."
   [{:keys [id view-scope coord-attr wrap-applied?] :as view} render args opened]
   (let [render-key (or (:render-key opened)
-                       [id (rf.views.provider/reagent-component-token)])
+                       [id (rf.views.provider/instance-token)])
         ;; Fresh per-render deref sink (dev-only). The
         ;; volatile is bound below so `re-frame.subs/subscribe`'s
         ;; gated `record-view-deref!` call unions each deref'd
@@ -584,8 +585,10 @@
               *view-deref-sink* sink]
       (rf.trace/with-handler-scope view-scope
         ;; Resolve the frame once per render — threaded into the
-        ;; unmount hook + both render emits.
-        (let [frame-id (when rf.interop/debug-enabled? (rf.views.provider/current-frame))]
+        ;; unmount hook + both render emits — through the installed
+        ;; adapter's `:current-frame`, so a React-hook substrate's render
+        ;; reads its boundary as Reagent's does.
+        (let [frame-id (when rf.interop/debug-enabled? (rf.frame/resolve-current-frame))]
           ;; Arm the unmount hook + compute the mount flag
           ;; BEFORE the render so `first-render?!` reflects whether
           ;; this is the instance's first render (the seen-set is

@@ -411,6 +411,10 @@
   (rf.adapter.react-shared-suite/assert-void-root-view-unmount-no-warning
     {:substrate-kw :uix :name "UIx"}))
 
+(deftest unmount-sentinel-leaves-root-children-alone
+  (rf.adapter.react-shared-suite/assert-unmount-sentinel-leaves-root-children-alone
+    {:substrate-kw :uix :name "UIx"}))
+
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
@@ -449,6 +453,43 @@
                       "both trailing children rendered and read the wrapped frame's value, not :rf/default")
                   (finally
                     (try (.unmount root) (catch :default _ nil))))))))))))
+
+(def ^:private churn-frame :rf.uix-use-sub-test/churn-frame)
+(def ^:private churn-query [:rf.uix-use-sub-test/churn])
+
+(defui ChurnReader []
+  ($ :i (str (rf.adapter.uix/use-sub churn-query {:frame churn-frame}))))
+
+(deftest use-sub-unmount-disarms-its-disposal-callback
+  (testing "UIx — consumers mounting and unmounting beside a long-lived reader of
+            the same cached reaction leave ONE disposal callback armed on it, not
+            one per mount"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (do
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+            (rf/make-frame {:id churn-frame :doc "use-sub disposal-callback churn probe"})
+            (rf/reg-event ::churn-seed (fn [_ _] {:db {:churn 1}}))
+            (rf/dispatch-sync [::churn-seed] {:frame churn-frame})
+            (rf/reg-sub (first churn-query) (fn [db _] (:churn db)))
+            (let [held-node (.createElement js/document "div")
+                  held      (react-dom-client/createRoot held-node)
+                  churn     (react-dom-client/createRoot (.createElement js/document "div"))
+                  reaction  #(:reaction (get @(:sub-cache (rf.frame/frame churn-frame)) churn-query))]
+              (try
+                (act-fn (fn [] (.render held ($ ChurnReader))))
+                (dotimes [_ 20]
+                  (act-fn (fn [] (.render churn ($ ChurnReader))))
+                  (act-fn (fn [] (.render churn nil))))
+                (is (= "1" (.-textContent held-node)) "premise: the long-lived reader still renders")
+                (is (= 1 (some-> ^js (reaction) .-rfRemovableOnDispose .-size))
+                    "only the mounted reader's disposal callback is still armed on the shared reaction")
+                (finally
+                  (try (.unmount churn) (catch :default _ nil))
+                  (try (.unmount held) (catch :default _ nil))))))))))))
 
 (deftest use-sub-reacquires-after-eviction
   (rf.adapter.react-shared-suite/assert-use-sub-reacquires-after-eviction cfg))
