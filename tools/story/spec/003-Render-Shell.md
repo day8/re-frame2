@@ -746,7 +746,7 @@ tools/story/
 │       ├── macros.clj                           ; macro expanders (the dev/prod expand split)
 │       ├── registrar.cljc  schemas.cljc  query.cljc  tags.cljc   ; registry + closed body schemas
 │       ├── plan.cljc  requirements.cljc  result.cljc  verdict.cljc ; plan compiler, runner selection, run result
-│       ├── frames.cljc  lifecycle.cljc  loaders.cljc  runtime.cljc ; per-variant frames + four-phase lifecycle
+│       ├── frames.cljc  loaders.cljc  runtime.cljc               ; per-variant frames + four-phase lifecycle
 │       ├── args.cljc  decorators.cljc  fx_stubs.cljc  network.cljc ; args resolution, decorators, fx stubs, :network
 │       ├── assertions.cljc  invariants.cljc  predicates.cljc     ; :rf.assert/* vocabulary + sentinels
 │       ├── play.cljc  play/                     ; script runner (runner, runner_events, dom, browser, presence …)
