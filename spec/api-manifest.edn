@@ -152,7 +152,6 @@
   {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; called by rf/unregister-listener! :epoch, the public door)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reg-flow", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.flows", :var "reset-last-inputs!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "run-flows-on-db", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "as-component", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.fresco", :var "as-element", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}

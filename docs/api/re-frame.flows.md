@@ -178,12 +178,12 @@ Not for application code — used by adapters, tools and the test harness.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (run-flows-on-db frame-id db runtime-db) → {:db app-db, :publish! thunk?, :claims f?}
+  (run-flows-on-db frame-id db runtime-db) → {:db app-db, :publish! thunk?}
   ```
 - **Description**: Runs the flows a frame's `:flows` names over a pending frame-state and returns the candidate: the resulting `app-db` under `:db`, plus what the caller publishes once that candidate installs. The router runs it as the outermost `:after` interceptor, so it runs last, against the chain's pending `:db` effect and before `app-db` is installed, and again after an `:fx` walk that wrote the frame's state; [When flows run](#when-flows-run) places it in the event.
     - Flows run in dependency order. Each is dirty-checked, and each recomputed result is written with `assoc-in` into the returned `app-db`. Outputs write `app-db` only.
     - `db` is the pending `app-db`; `runtime-db` is the pending `runtime-db` (pass `nil` to resolve only bare `app-db` inputs).
-    - The pass does not advance the frame's evaluation memo. When the memo would change, the result carries `:publish!`, a no-argument function the caller invokes once the candidate has installed; when a flow's output classification changes, it carries `:claims`, a function of `runtime-db` the caller applies to the candidate `runtime-db` it installs.
+    - The pass does not advance the frame's evaluation memo. When the memo would change, the result carries `:publish!`, a no-argument function the caller invokes once the candidate has installed.
     - A throw stops the pass and re-raises as `:rf.error/flow-eval-exception` (see [When a flow throws](#when-a-flow-throws)). The router then discards the pending `:db` effect, so the event commits nothing and the memo stays as it was.
 
 ### `reset-flows!`
@@ -194,15 +194,6 @@ Not for application code — used by adapters, tools and the test harness.
   (reset-flows!) → nil
   ```
 - **Description**: Test-only. Drops every frame's evaluation memo, so no flow is skipped against a stale, `=`-equal entry. Definitions are registrations, which a test fixture snapshots and restores with the rest of the registrar. `re-frame.test-support`'s `make-reset-runtime-fixture` calls it around each test. Returns `nil`.
-
-### `reset-last-inputs!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reset-last-inputs!) → nil
-  ```
-- **Description**: Test-only. Drops every frame's evaluation memo, as `reset-flows!` does. Call it between tests that keep their frames but must not skip a recompute against a stale, `=`-equal entry. Returns `nil`.
 
 ## See also
 
