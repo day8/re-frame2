@@ -28,7 +28,7 @@ Five sections:
 | Header CRLF check site | `:rf.server/set-header` / `:rf.server/append-header` fx (handlers `re-frame.ssr.response/set-header-fx` / `append-header-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handlers in `re-frame.ssr.response`) |
 | Cookie per-attribute CRLF check | `:rf.server/set-cookie` fx (handler `re-frame.ssr.response/set-cookie-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handler in `re-frame.ssr.response`) |
 | Editor-URI scheme reject-list (denylist-only, rf2-ox357n) | `re-frame.source-coords.editor-uri/forbidden-uri-schemes` (`#{"javascript:" "data:" "vbscript:"}`); gate predicate `forbidden-scheme?` (applied at editor-uri build time AND at each tool's `open!` seam) | `day8/re-frame2` (core) — `re-frame.source-coords.editor-uri` |
-| Path-policy check (writing tools) | `enforcePolicy` (Node helper; opt-in via the `OPT_IN_VAR` env var) | tooling — `implementation/scripts/_path-policy.cjs` |
+| Path-policy check (writing tools) | `enforcePolicy` (Node helper; `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` admits an out-of-tree path, with a warning on every use) | tooling — `implementation/scripts/_path-policy.cjs` |
 | JSON keyword-interning cap (Cheshire path, JVM) | `re-frame.http.json/json-parse` (`{:max-decoded-keys N}`; default `re-frame.http.json/default-max-decoded-keys`) | `day8/re-frame2-http` (`re-frame.http.json`) |
 | JSON keyword-interning cap (CLJS reader path) | `re-frame.http.json/json-parse` (same fn; the `:cljs` branch walks the parsed tree counting unique keys before keywordizing) | `day8/re-frame2-http` (`re-frame.http.json`) |
 | Schema walker — extracts the per-slot `{path {:sensitive? true}}` map from a registered schema's EDN form. EP-0015 §8 (rf2-d2r3um): this map does NOT feed the frame's classification policy (durable app-db classification is a `reg-classification`; there is no `populate-sensitive-from-schemas!` boot bridge). The map is read **owner-locally** by the schema-validation-failure-trace redactor (`re-frame.schemas.validate/redact-validation-tags`, behind the `:schemas/check!` seam — the only consumer for a machine `[:schemas :data]` or a resource's `:params-schema`, neither of which classifies its owner's durable data; a resource `:data-schema` has **no** runtime validation consumer at all and is reflection-only), the HTTP body-privacy projector (over the request's `:decode` schema), and story-mcp's tool-egress projector | `re-frame.schemas.walker/extract-sensitive-paths-from-schema` (re-exported as `re-frame.schemas/extract-sensitive-paths-from-schema`) | `day8/re-frame2-schemas` (`re-frame.schemas.walker`) |
@@ -56,8 +56,8 @@ Every numeric default the reference ships, with its config slot, its purpose, an
 | `:rf.egress/include-sensitive?` | `false` | ADVANCED override beneath the `:rf.egress/*` profile API — the profile a tool / sink passes to `project-egress` resolves this (e.g. `:rf.egress/off-box-tool` floors it `false`; `:rf.egress/local-raw` opts it `true`). An explicit flag overlays the profile floor (the override wins). Direct off-box use is the raw-flags path, not the normal boundary. | n/a (filter; `:dropped-sensitive` indicator slot reports filtered count) |
 | `:rf.egress/include-large?` | `false` | ADVANCED override beneath the `:rf.egress/*` profile API — same composition as `include-sensitive?` (profile floor + explicit overlay). | n/a (filter; `:elided-large` indicator slot reports filtered count) |
 | `:rf.egress/profile` | (no default — required at an off-box boundary) | The named egress boundary a tool / direct read / sink selects (the closed six-member EP-0015 §10 enum: `:rf.egress/off-box-observability` / `:rf.egress/off-box-tool` / `:rf.egress/local-redacted` / `:rf.egress/local-raw` / `:rf.egress/ssr-hydration` / `:rf.egress/public-error`). `project-egress` resolves it to the `:rf.egress/*` floor; the boolean flags above overlay it. | `:rf.error/unknown-egress-profile` (the enum is closed — a typo throws, never a silent permissive walk) |
-| Drain-depth ceiling (`:rf/drain-depth-limit`) | `1024` cascaded dispatches per drain | Cascading-dispatch DoS defense | `:rf.error/drain-depth-exceeded` with `:tags {:depth :queue-size :last-event}` |
-| `:trace-events-keep` (`(rf/configure! {:epoch-history {:trace-events-keep N}})`) | `5` (rf2-mrsck) | Per-frame epoch ring: keep raw `:trace-events` on the most-recent N records; older keep only the cheap `:sub-runs` / `:renders` / `:effects` projections. Bounds dev-session heap growth from accumulated raw cascade traces. | n/a (silent elision past the cap; consumers walk the cheap structured projections) |
+| `:drain-depth` (frame config — `make-frame` or a preset) | `1000` events per family (one external event plus everything it dispatches, transitively) | Cascading-dispatch DoS defense | `:rf.error/drain-depth-exceeded` (slots and halt semantics in [Fail-fast event ids](#fail-fast-event-ids)) |
+| `:trace-events-keep` (`(rf/configure! {:epoch-history {:trace-events-keep N}})`) | `50` (the ring's `:depth` default, so a record and its raw trace evict together) | Per-frame epoch ring: keep raw `:trace-events` on the most-recent N records; older keep only the cheap `:sub-runs` / `:renders` / `:effects` projections. Bounds dev-session heap growth from accumulated raw cascade traces. | n/a (silent elision past the cap; consumers walk the cheap structured projections) |
 | `re-frame.debug` system property (JVM) | unset → gate `false` on an SSR host (`re_frame/ssr_host.edn`, shipped by ssr-ring, on the classpath), `true` elsewhere | JVM-side dev-flag override; dev on an SSR host sets `true`, other long-running JVMs set `false` | n/a (gate) |
 | `RE_FRAME_DEBUG` environment variable (JVM) | unset → as `re-frame.debug` | Equivalent to `re-frame.debug` for env-var-driven deployments | n/a (gate) |
 | `goog.DEBUG` (CLJS) | `true` in dev, `false` in `:advanced` | Closure-constant gate for the trace surface; DCE folds gated branches in production | n/a (gate) |
@@ -120,21 +120,19 @@ Every safety check the reference performs surfaces a structured `:rf.error/*` ke
 | Cofx supplier / generator threw during context assembly — EP-0017 | `:rf.error/coeffect-exception` | `:rf.cofx/id`, `:phase :before`, `:exception`; the handler is SKIPPED (capture-don't-propagate, mirroring retired `inject-cofx`) |
 | `reg-cofx` name collision / malformed `:rf.cofx/requires` / malformed grade — EP-0017 (registration-time) | `:rf.error/cofx-name-collision` (collides with `:db` / `:event` or a duplicate id) · `:rf.error/cofx-request-invalid` (malformed `:rf.cofx/requires`) · `:rf.error/cofx-registration-invalid` (`:provided? true` beside `:recordable? false`; missing supplier; provided fact carrying an ignored supplier) | `:rf.cofx/id` / `:failing-id`, `:reason`; registration-time diagnostic |
 | `inject-cofx` called (REMOVED in EP-0017, no alias) | `:rf.error/inject-cofx-removed` | `:rf.cofx/id`, `:reason` naming `:rf.cofx/requires` as the replacement; always-on (correctness contract, not a dev diagnostic) |
-| JSON decode — keyword-interning cap exceeded | `:rf.http/decode-failure` | `:reason :too-many-keys`, `:tags {:cap N}` |
-| JSON decode — truncated `\uXXXX` escape | `:rf.error/malformed-json` | `:reason :truncated-unicode-escape` |
-| JSON decode — invalid `\uXXXX` hex digit | `:rf.error/malformed-json` | `:reason :invalid-unicode-escape` |
+| JSON decode — keyword-interning cap exceeded | `:rf.error/malformed-json`, thrown by `json-parse`; the managed-HTTP reply classifies it as `:rf.http/decode-failure` | thrown ex-data: `:cause :too-many-keys`, `:limit N`; reply failure: `:reason :too-many-keys`, `:limit N` |
 | Managed-HTTP per-attempt timeout | `:rf.http/timeout` | (failure-taxonomy category; retry policy decides) |
 | Managed-HTTP cross-origin network rejection (CLJS) | `:rf.http/transport` | `:cross-origin? true` on a TypeError against a cross-origin URL, which may be a CORS refusal; retry policy decides |
-| Drain depth ceiling exceeded | `:rf.error/drain-depth-exceeded` | `:tags {:depth :queue-size :last-event}`; atomic rollback (no partial app-db commit) |
-| Editor-URI scheme rejected (build-time on the source-coord template) | — (helper returns `nil` / falls through to default scheme) | scheme reject is a *predicate*, not a runtime error; surfacing as a fail-loud category would burden every dev's editor config |
-| Path-policy escape attempt (writing tool) | tool-specific surfaced error (clear "path outside `implementation/` + `examples/`") | n/a (CI-internal knob; not a stable public interface) |
+| Drain depth ceiling exceeded | `:rf.error/drain-depth-exceeded` | `:frame`, `:depth`, `:queue-size`, `:last-event-id`, `:tail-event-ids`, `:dropped-event-ids`, `:rollback? false`, `:recovery :no-recovery`; the dev trace adds the full `:last-event`. No rollback: every settled event keeps its own commit and epoch, the family's remaining internal-lane events are discarded, and the drain continues with external input under a fresh budget ([`../spec/002-Frames.md` §Run-to-completion dispatch](../spec/002-Frames.md#run-to-completion-dispatch-drain-semantics)) |
+| Frame-scoped op (an async-callback `dispatch` / `subscribe`) carries no frame stamp and runs under no frame scope | `:rf.error/no-frame-context` | `:operation`, `:where`, `:event-id` (when known), `:recovery :supply-frame`, and the capture-site `:rf.trace/dispatch-id` when a handler scope is in effect. Fails closed: there is no fall-through to `:rf/default` |
+| Editor-URI scheme rejected (on the built URI, and again at each tool's `open!` seam) | — (`editor-uri` returns `nil` and the open-in-editor affordance hides) | scheme reject is a *predicate*, not a runtime error: no warning and no fallthrough to a default editor; surfacing as a fail-loud category would burden every dev's editor config |
+| Path-policy escape attempt (env-var path override) | `enforcePolicy` throws, naming the path and the approved roots — `implementation/out` for outputs; `examples/`, `tools/` and `implementation/` for index-HTML sources | n/a (CI-internal knob; not a stable public interface) |
 
 ### Warning surfaces (advisory, not fail-fast)
 
 | Surface | Event id | Emission rule |
 |---|---|---|
 | Large string reaches wire elision without schema metadata | `:rf.warning/large-value-unschema'd` | One-shot at wire-elision time per (frame-id, path); idempotent |
-| Async-callback dispatch landed on `:rf/default` because frame-context binding did not survive | `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | Per dispatch site |
 
 ## Decisions log — the 45-bead audit trail
 
@@ -150,13 +148,13 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 | rf2-263km | Pure-Clojure JSON reader bounds-check on `\uXXXX` escapes | Truncated / invalid hex escapes surface `:rf.error/malformed-json` with structured `:reason` instead of an opaque NPE. Hand-rolled reader's contract; matters for any port that ships one. |
 | rf2-dgsu1 | Cheshire mandatory; hand-rolled JSON fallback deleted (~165 LoC) | Removing the fallback eliminates a parser the framework owns and would have to keep hardened. The bounds-check / cap contracts moved to Cheshire-only paths. |
 | rf2-it1cd | `:timeout-ms` 30000 default; `nil` / `0` opt out | Slow-loris defense against partner / webhook / agent-controlled fetches. Two opt-out values are explicit caller intent (not idiomatic); the call-site author signals "I genuinely need unbounded." |
-| rf2-r40km | CORS classification implemented (Option a) | Spec-vs-impl drift fix: the `:rf.http/cors` category was specced but never emitted. Heuristic emission on CLJS landed (TypeError + cross-origin URL); 3 classifier tests + retry-set membership test added. |
+| rf2-r40km | CORS classification implemented (Option a) | Spec-vs-impl drift fix: cross-origin rejection was specced but never classified. A TypeError against a cross-origin URL, which may be a CORS refusal, classifies on CLJS as `:rf.http/transport` with `:cross-origin? true` — there is no `:rf.http/cors` category; 3 classifier tests + retry-set membership test added. |
 
 ### XSS at output boundaries
 
 | Bead | Call | Rationale |
 |---|---|---|
-| rf2-m5u23 | JSON-LD `<script>` body: escape `<` as `&lt;` | Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
+| rf2-m5u23 | JSON-LD `<script>` body: escape `<` as `<` | The JSON string escape, which `JSON.parse` reads back as `<`; an HTML entity would arrive literally, because a raw-text `<script>` decodes no character reference. Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
 | rf2-vl8ir | Hiccup attribute *key* escape (not just value) | Attribute keys are attacker-reachable through registered hiccup forms receiving keyed data; escape prevents breakout from the attribute namespace. |
 
 ### CRLF injection
@@ -209,7 +207,7 @@ EP-0017 (final) makes the cofx surface a privacy boundary: `reg-cofx` is value-r
 | Bead | Call | Rationale |
 |---|---|---|
 | rf2-vwcsq | Reject `javascript:` / `data:` / `vbscript:` schemes; everything else passes | Minimum gate against known XSS vectors; no dev burden for the long-tail of legitimate IDE schemes. |
-| rf2-21rfv | Env-var path-policy constrains writes to `implementation/` + `examples/` | Safety net against env-var-unset accidents (`rm -rf $UNSET_VAR/...`). Documented as a CI-internal knob, not a stable public interface. |
+| rf2-21rfv | Env-var path-policy confines path overrides to approved in-repo roots (`implementation/out` for outputs; `examples/`, `tools/` and `implementation/` for index-HTML sources) | Safety net against env-var-unset accidents (`rm -rf $UNSET_VAR/...`). Documented as a CI-internal knob, not a stable public interface. |
 
 ### Production gates
 
@@ -233,7 +231,7 @@ EP-0017 (final) makes the cofx surface a privacy boundary: `reg-cofx` is value-r
 | rf2-su313 | Keep third-party egress in story tooling (QR via api.qrserver.com, axe-core via CDN); document the egress | Bundling axe-core balloons the story bundle for the a11y minority; QR is explicitly user-triggered. Dev-tool conveniences with documented egress, not a security gate worth its friction. |
 | rf2-o0tpo | Nested npm install during test runs is fine; skip the bootstrap-script restructure | Nested-npm install is how nested npm projects work; not a security concern in a dev tool. |
 | rf2-vwcsq | Reject only the three known-bad URI schemes in editor templates | Minimum gate, maximum dev compatibility. |
-| rf2-21rfv | Env-var path-policy check constrains to `implementation/` + `examples/` | Accident-mode defense, not adversary defense. |
+| rf2-21rfv | Env-var path-policy check confines path overrides to approved in-repo roots | Accident-mode defense, not adversary defense. |
 
 ### Tooling and infrastructure
 

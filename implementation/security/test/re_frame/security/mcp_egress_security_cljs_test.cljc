@@ -102,16 +102,37 @@
                   (some rf.mcp-base.sensitive/sensitive-event? slices)))))
         scrubbed))
 
-(deftest allow-sensitive-disabled-scrub-snapshot-leaves-no-sensitive-event
-  ;; Every frame's :traces and :epochs go through strip-sensitive; :app-db is
-  ;; left untouched (read-time scrubbing is trace/epoch-only by design).
+(defn- clean-event?
+  "The oracle's classifier, independent of the code under test: every
+  generated clean event carries `:sensitive? false` or no stamp, and every
+  other generated event a truthy one."
+  [ev]
+  (not (:sensitive? ev)))
+
+(defn- expected-scrub
+  "What `scrub-snapshot` must return with sensitive reads disabled: every
+  frame keeps exactly its clean `:traces` and `:epochs` events, in order,
+  and `:app-db` untouched (the scrub is trace/epoch-only by design), beside
+  the count of every event dropped, which feeds the `:dropped-sensitive`
+  indicator (spec/Security.md §Behavioural MUSTs across the privacy surface)."
+  [snap]
+  [(into {}
+         (map (fn [[frame fm]]
+                [frame (-> fm
+                           (update :traces #(filterv clean-event? %))
+                           (update :epochs #(filterv clean-event? %)))]))
+         snap)
+   (count (remove clean-event? (mapcat #(concat (:traces %) (:epochs %)) (vals snap))))])
+
+(deftest allow-sensitive-disabled-scrub-snapshot-drops-exactly-the-sensitive-events
+  ;; The sentinel scan guards the oracle; equality with the oracle catches
+  ;; an over-strip and a miscount as well as a leak.
   (let [result (rf.security.gen/for-all
                  gen-snapshot 300 31
                  (fn [snap]
-                   (let [[scrubbed _dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-                     (and (not (snapshot-leaks-sentinel? scrubbed))
-                          (every? (fn [[_f fm]] (= {:public "kept"} (:app-db fm)))
-                                  scrubbed)))))]
+                   (let [actual (rf.mcp-base.sensitive/scrub-snapshot snap false)]
+                     (and (not (snapshot-leaks-sentinel? (first actual)))
+                          (= (expected-scrub snap) actual)))))]
     (is (nil? result)
-        (str "scrub-snapshot left a sensitive event in a frame slice: "
+        (str "scrub-snapshot leaked, over-stripped or miscounted: "
              (pr-str (when result (dissoc result :threw)))))))
