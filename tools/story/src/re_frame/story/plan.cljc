@@ -248,11 +248,12 @@
   is the variant-chain merge and the story is ambient, exactly like
   `:decorators` and `:tags`.
 
-  `:sensitive` / `:large` carry the durable
-  app-db classification (`{:app-db [[path]…]}`) — a plain map, so they
-  merge exactly like every other context key (a child re-declaring the axis
-  replaces the parent's `:app-db` vector; a child that omits it inherits the
-  parent's verbatim). This is what lets the EFFECTIVE `[:world :sensitive]` /
+  `:sensitive` / `:large` carry the durable app-db classification
+  (`{:app-db [[path]…]}`), and their paths UNION root→child
+  (`classification-context-keys`): a child adds to its parent's
+  classification and never drops it, because the parent's `:setup` still
+  seeds what the parent classified (Conventions.md §Privacy). This is what
+  lets the EFFECTIVE `[:world :sensitive]` /
   `[:world :large]` reach both frame allocators in `frames.cljc`: `allocate!`
   (the runtime threads the compiled `:world` for a registered variant) and
   `allocate-inline!` (an inline plan run, which has no registered variant
@@ -278,15 +279,26 @@
   `{:failure …}` into a response that carries both."
   #{:network :sub-overrides})
 
+(def ^:private classification-context-keys
+  "The `context-keys` whose path vectors union through `:extends` — more
+  redaction, never less."
+  #{:sensitive :large})
+
 (defn- merge-context
-  "Merge context key `k`'s value root→child. A `per-entry-context-keys` map
-  merges per top-level entry (child wins the entry); any other map recurses
-  (per `rf.story.args/deep-merge`); everything else is child-wins
-  replacement."
+  "Merge context key `k`'s value root→child. A `classification-context-keys`
+  map unions each axis's paths; a `per-entry-context-keys` map merges per
+  top-level entry (child wins the entry); any other map recurses (per
+  `rf.story.args/deep-merge`); everything else is child-wins replacement."
   [k parent child]
   (if (and (map? parent) (map? child))
-    (if (contains? per-entry-context-keys k)
+    (cond
+      (contains? classification-context-keys k)
+      (merge-with (fn [p c] (vec (distinct (concat p c)))) parent child)
+
+      (contains? per-entry-context-keys k)
       (merge parent child)
+
+      :else
       (rf.story.args/deep-merge parent child))
     (if (some? child) child parent)))
 

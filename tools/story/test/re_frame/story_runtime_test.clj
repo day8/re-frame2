@@ -1131,6 +1131,25 @@
   (rf.story/destroy-variant! :story.classif-ext.lsr95i/override)
   (rf.story/destroy-variant! :story.classif-ext.lsr95i/base))
 
+(deftest extends-unions-classification-when-both-declare
+  ;; The parent's setup still seeds what the parent classified, so a child
+  ;; declaring its own paths adds to the parent's and never replaces them.
+  (rf/reg-event :auth/login-union
+    (fn [{:keys [db]} _] {:db (-> db
+                                  (assoc-in [:auth :token] "BEARER-secret-union")
+                                  (assoc-in [:user :pw] "pw-union"))}))
+  (rf.story/reg-variant :story.classif-ext.union/parent
+    {:setup [[:auth/login-union]] :sensitive {:app-db [[:auth :token]]}})
+  (rf.story/reg-variant :story.classif-ext.union/child
+    {:extends :story.classif-ext.union/parent :sensitive {:app-db [[:user :pw]]}})
+  (let [vid :story.classif-ext.union/child
+        _   (run-variant! vid)
+        wire (rf.elision/elide-wire-value (rf/app-db-value vid) {:frame vid})]
+    (is (= [:rf/redacted :rf/redacted]
+           [(get-in wire [:auth :token]) (get-in wire [:user :pw])])))
+  (rf.story/destroy-variant! :story.classif-ext.union/child)
+  (rf.story/destroy-variant! :story.classif-ext.union/parent))
+
 ;; An inline plan's frame is torn down inside the promise that resolves the
 ;; run, so a `:setup` event probes the wire-elided value while it is live.
 
