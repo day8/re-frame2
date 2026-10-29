@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /*
  * Tests for `implementation/adapters/scripts/adapter-smoke-filter.cjs`, the
- * adapter-smoke manifest and the ADAPTER_SMOKE_FILTER selection shared by the
- * orchestrator (which matches build ids) and the Playwright runner (which matches
- * spec paths): a build-id-shaped and a path-shaped filter must select the same
- * singleton, and the manifest must match the spec files on disk.
+ * adapter-smoke set and the ADAPTER_SMOKE_FILTER selection the orchestrator
+ * and the Playwright runner share: a filter selects the smokes whose build id
+ * contains it, and the set must match the spec files on disk.
  * Discovered by `npm run test:scripts`.
  */
 
@@ -20,8 +19,6 @@ const {
   REPO_ROOT,
   selectEntries,
   parseFilterPatterns,
-  normalizeForFilter,
-  entryIdentities,
   listSpecFiles,
   reconcile,
 } = require('../adapters/scripts/adapter-smoke-filter.cjs');
@@ -47,47 +44,27 @@ function selectBuildIds(filter) {
 
 console.log('adapter-smoke-filter selection tests');
 
-// An empty filter is the full sweep (nightly + rigorous-local); a build-id- or
-// path-shaped filter selects its one adapter; commas OR-match.
-it('filters select by build id or spec path, commas OR-match, and empty selects both', () => {
+// An empty filter is the full sweep (nightly + rigorous-local), and CI's
+// `adapters/` selects both smokes; a name or build-id fragment selects one
+// adapter; commas OR-match; a pattern no build id contains selects nothing.
+it('a filter selects the smokes whose build id contains any of its comma-separated patterns', () => {
   assert.deepStrictEqual(
-    ['', 'adapters/reagent-testbed', 'uix/testbed', 'uix_testbed', 'uix\\testbed',
-      'reagent-testbed,uix/testbed'].map(selectBuildIds),
+    ['', 'adapters/', 'reagent', 'adapters/uix-testbed', ' reagent , uix ', 'reagent/testbed']
+      .map(selectBuildIds),
     [
+      ['adapters/reagent-testbed', 'adapters/uix-testbed'],
       ['adapters/reagent-testbed', 'adapters/uix-testbed'],
       ['adapters/reagent-testbed'],
       ['adapters/uix-testbed'],
-      ['adapters/uix-testbed'],
-      ['adapters/uix-testbed'],
       ['adapters/reagent-testbed', 'adapters/uix-testbed'],
+      [],
     ],
   );
 });
 
-// Selection keys on build ids and repo-relative spec paths, never the absolute
-// path, or a filter naming a segment of the checkout directory selects every entry.
-it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4nc2o)', () => {
-  const segs = path.resolve(REPO_ROOT).split(/[\\/]/).filter(Boolean);
-  const identityBlob = ADAPTER_SMOKES.flatMap(entryIdentities).join('|');
-  const leakyTerms = segs.filter(
-    (s) => s.length >= 2 && !identityBlob.includes(normalizeForFilter(s)),
-  );
-  assert.ok(
-    leakyTerms.length > 0,
-    'expected at least one REPO_ROOT path segment absent from stable identities',
-  );
-  for (const term of leakyTerms) {
-    assert.deepStrictEqual(
-      selectEntries(parseFilterPatterns(term)).map((e) => e.build),
-      [],
-      `filter '${term}' (an absolute REPO_ROOT prefix segment) over-selected`,
-    );
-  }
-});
+// ---- set vs on-disk reconciliation: the same functions run-adapter-smokes.cjs calls
 
-// ---- manifest vs on-disk reconciliation: the same functions run-adapter-smokes.cjs calls
-
-it('reconcile partitions declared-vs-discovered into missing + undeclared (rf2-qf45gu)', () => {
+it('reconcile partitions declared-vs-discovered into missing + undeclared', () => {
   const a = path.resolve(REPO_ROOT, 'x', 'a.spec.cjs');
   const b = path.resolve(REPO_ROOT, 'x', 'b.spec.cjs');
   const c = path.resolve(REPO_ROOT, 'x', 'c.spec.cjs');
@@ -97,12 +74,12 @@ it('reconcile partitions declared-vs-discovered into missing + undeclared (rf2-q
   assert.deepStrictEqual(reconcile([a, b], [b, path.relative(process.cwd(), a)]), { missing: [], undeclared: [] });
 });
 
-it('the real listSpecFiles + reconcile agree with the manifest on the live repo (rf2-qf45gu)', () => {
+it('the real listSpecFiles + reconcile agree with the set on the live repo', () => {
   const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS);
   assert.deepStrictEqual(
     discovered,
     ADAPTER_SMOKES.map((e) => path.resolve(e.specPath)).sort(),
-    `manifest/disk drift.\n  on disk:  ${discovered.join('\n            ')}`,
+    `set/disk drift.\n  on disk:  ${discovered.join('\n            ')}`,
   );
 });
 
@@ -111,7 +88,7 @@ it('the real listSpecFiles + reconcile agree with the manifest on the live repo 
 const ROOT_TESTING_MD = path.join(REPO_ROOT, 'TESTING.md');
 const PKG_JSON = path.join(REPO_ROOT, 'implementation', 'package.json');
 
-it('every `test:examples*` / `test:adapter-smokes` command named in root TESTING.md exists in implementation/package.json (rf2-n4nc2o)', () => {
+it('every `test:examples*` / `test:adapter-smokes` command named in root TESTING.md exists in implementation/package.json', () => {
   const doc = fs.readFileSync(ROOT_TESTING_MD, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(PKG_JSON, 'utf8'));
   const scripts = new Set(Object.keys(pkg.scripts || {}));

@@ -9,13 +9,12 @@
    Minimal by design. Don't grow it. Real coverage is the framework's
    CLJS / browser tests and the Xray feature gate."
   (:require [re-frame.core    :as rf]
-            [re-frame.adapter.reagent :as rf.adapter.reagent])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]))
 
 ;; -- Events / subs ----------------------------------------------------------
 
 (rf/reg-event :counter/init
-  (fn [{:keys [db]} _event] {:db {:counter/value 0}}))
+  (fn [_ _event] {:db {:counter/value 0}}))
 
 (rf/reg-event :counter/inc
   (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
@@ -25,51 +24,31 @@
 
 ;; -- View -------------------------------------------------------------------
 
-;; EP-0002: the render-time `subscribe` below resolves its
-;; frame from the closest enclosing `frame-provider` via React context —
-;; but ONLY a `reg-view`-registered component carries the `:contextType`
-;; static-field wiring Reagent needs to read that context (a plain Reagent
-;; fn's `(.-context cmp)` is the no-provider sentinel, so its subscribe
-;; would resolve nil → `:rf.error/no-frame-context` and the render crashes).
-;; So `root` is a `reg-view`, matching every other frame-scoped Reagent
-;; view in the codebase (Spec 002 §Reading the frame from React context).
-(reg-view root []
-  ;; EP-0002: capture a frame-bound `dispatch` at RENDER time via
-  ;; `(rf/capture-frame)`. The reg-view resolves the surrounding frame-provider's
-  ;; frame through React context here; the frame api closes over it, so the
-  ;; `:on-click` handler — which fires LATER (on user click), outside any render
-  ;; or `with-frame` scope — still routes to `:rf/default`. A bare
-  ;; `#(rf/dispatch [:counter/inc])` would resolve no frame at click time and
-  ;; raise `:rf.error/no-frame-context` (the runtime never synthesises a frame
-  ;; from absence). Mirrors the UIx testbeds' `capture-frame` pattern.
-  (let [n        @(rf/subscribe [:counter/value])
-        dispatch (:dispatch (rf/capture-frame))]
-    [:div
-     [:h1 {:data-testid "rf-adapter-testbed-reagent"}
-      "Reagent adapter testbed"]
-     [:p [:span {:data-testid "rf-adapter-counter"} n]]
-     [:button {:data-testid "rf-adapter-inc"
-               :on-click     #(dispatch [:counter/inc])}
-      "+1"]]))
+;; `reg-view` binds `dispatch` and `subscribe` to the frame the view renders
+;; under, so the click handler still routes there when it fires after the
+;; render (Spec 002 §What `reg-view` injects).
+(rf/reg-view root []
+  [:div
+   [:h1 {:data-testid "rf-adapter-testbed-reagent"}
+    "Reagent adapter testbed"]
+   [:p [:span {:data-testid "rf-adapter-counter"} @(subscribe [:counter/value])]]
+   [:button {:data-testid "rf-adapter-inc"
+             :on-click     #(dispatch [:counter/inc])}
+    "+1"]])
 
 ;; -- Mount ------------------------------------------------------------------
 
-;; The adapter-owned client root: inert at namespace load, the
-;; React Root is created by the first `render!` through it and updated by
-;; every later one — the same shape the boot guide and the generated
-;; template teach, so this smoke mounts the way an app does.
+;; Inert at namespace load; the first `render!` through it creates the React
+;; Root.
 (defonce app-root (rf.adapter.reagent/client-root))
 
 (defn ^:export init []
-  ;; EP-0002: the runtime never synthesises a frame from
-  ;; absence — `:rf/default` is this testbed's app frame, registered
-  ;; explicitly here (init! installs only the adapter). The boot dispatch
-  ;; runs under the frame scope and the render is wrapped in a
-  ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
+  ;; The boot guide's shape: `frame-root` creates `:rf/default` when it
+  ;; commits, runs the `:initial-events` seed once, and scopes the frame to
+  ;; the subtree.
   (rf/init! rf.adapter.reagent/adapter)
-  (rf/make-frame {:id :rf/default})
-  (rf/with-frame :rf/default
-    (rf/dispatch-sync [:counter/init]))
   (rf.adapter.reagent/render! app-root
-    [rf/frame-provider {:frame :rf/default} [root]]
+    [rf/frame-root {:id             :rf/default
+                    :initial-events [[:counter/init]]}
+     [root]]
     (js/document.getElementById "app")))
