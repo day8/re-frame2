@@ -49,9 +49,8 @@
         :patches      [[[:checkout :state] :assoc :paying]]}]
 
   `:section-kind` summarises the cluster: `:added` when every patch
-  is `:assoc` at a path one level under the section-path AND the
-  section-path container was ABSENT in `:db-before` (newly-introduced
-  subtree); `:removed` when every patch is `:dissoc`; otherwise
+  is an `:assoc` at a path ABSENT in `:db-before` (the cluster only
+  introduces data); `:removed` when every patch is `:dissoc`; otherwise
   `:modified`. The agent uses this to skim cluster intent without
   walking every patch. (`:added` requires `:db-before` context —
   see §Classify each section for why patch shape alone can't prove
@@ -95,27 +94,22 @@
 
   5. **Classify each section.**
      - All `:dissoc` → `:section-kind :removed`.
-     - All `:assoc` AND `:section-path` is the immediate parent of
-       each patch's path (the cluster sits one level deep under the
-       header) AND the container was ABSENT in `:db-before` →
-       `:section-kind :added` (newly-introduced container).
+     - All `:assoc` AND every patch's path ABSENT in `:db-before` →
+       `:section-kind :added` (the cluster only introduces data — a
+       new subtree, or new keys in an existing map).
      - Otherwise → `:section-kind :modified`. The conservative
        default; the agent reads `:modified` and knows the cluster
-       carries a mix of inserts / changes / deletes.
+       changes or removes something that was there.
 
      ## Why `:added` needs `:db-before`
 
      The patch grammar uses `:assoc` for BOTH inserted and changed
-     leaves, so patch SHAPE alone cannot distinguish a newly-added
-     container from an existing one whose direct children changed.
-     `{:user {:name \"bob\"}}` → `{:user {:name \"ada\" :email \"…\"}}`
-     emits the SAME all-`:assoc` direct-child cluster under `[:user]`
-     as a genuinely new `[:user]` subtree — a patch-only classifier
-     mislabels the FIRST (a modification) as `:added`, a false skim
-     signal to the agent. So `:added` is claimed ONLY when
-     `:db-before` (threaded through `opts`, supplied by the
-     `diff-encode-db-after` caller) proves the section-path container
-     did not previously exist.
+     leaves, so patch SHAPE alone cannot tell an insert from a change:
+     `{:user {:name \"bob\"}}` → `{:user {:name \"ada\"}}` and
+     `{}` → `{:user {:name \"ada\"}}` can both carry an `:assoc` under
+     `[:user]`. So `:added` is claimed ONLY when `:db-before` (threaded
+     through `opts`, supplied by the `diff-encode-db-after` caller)
+     proves every patched path was absent before.
 
      When `:db-before` is NOT supplied — the standalone projection
      used by tests / advanced consumers diffing arbitrary structures —
@@ -140,12 +134,12 @@
 
   ## Cost
 
-  - Sort: O(N log N) where N = patch count.
+  - Sort: O(N log N) comparisons where N = patch count, over sort
+    keys rendered once per patch (decorate-sort-undecorate).
   - Coalesce: O(N) single pass over sorted patches.
   - Promote / classify: O(N) over clusters.
 
-  All passes are linear in patch count — negligible vs the
-  walk that produced the patches. Pure data → data; `.cljc`.")
+  Pure data → data; `.cljc`.")
 
 (def default-opts
   "Tunable knobs. Mirrors `tools/xray/.../section_grouping.cljc`'s
@@ -243,18 +237,6 @@
   [patches op]
   (every? #(= op (patch-op %)) patches))
 
-(defn- patches-all-direct-child?
-  "True when every patch's path is exactly one segment deeper than
-  `prefix`. Together with all-`:assoc` AND a previously-absent container
-  this signals 'newly-added subtree under a fresh container' — the
-  `:added` case."
-  [patches prefix]
-  (let [prefix-len (count prefix)]
-    (every? (fn [patch]
-              (let [path (patch-path patch)]
-                (= (count path) (inc prefix-len))))
-            patches)))
-
 (def ^:private absent
   "Private sentinel for `get-in` miss detection — distinguishes a stored
   `nil` from an absent key."
@@ -274,32 +256,30 @@
   "Classify a cluster as `:added` / `:removed` / `:modified`. See
   §Classify each section in the ns docstring for the rules.
 
-  `container-existed?` answers 'did the cluster's section-path container
-  ALREADY exist in `:db-before`?'. The patch grammar uses `:assoc` for
-  BOTH inserted and changed leaves, so patch shape ALONE cannot tell a
-  newly-added container from an existing one whose direct children
-  changed: `{:user {:name \"bob\"}}` →
-  `{:user {:name \"ada\" :email \"…\"}}` emits the SAME all-`:assoc`
-  direct-child cluster under `[:user]` as a genuinely new `[:user]`
-  subtree would. `:added` is therefore claimed ONLY when the patches are
-  all-`:assoc` direct children AND the container did NOT previously
-  exist. When the caller cannot supply that context (the
-  `db-before`-less standalone projection), `container-existed?` is
-  passed as `true` so the classifier conservatively errs to `:modified`
-  rather than a false `:added` — the masterpiece-CORRECTNESS posture
-  (a false `:added` mislabels a modification to the agent's skim signal)."
-  [prefix patches container-existed?]
+  `new-path?` answers 'was this path ABSENT in `:db-before`?'. When the
+  caller cannot supply that context (the `db-before`-less standalone
+  projection) it answers false for every path, so an all-`:assoc`
+  cluster errs to `:modified` rather than a false `:added`."
+  [patches new-path?]
   (cond
     (all-op? patches :dissoc)
     :removed
 
     (and (all-op? patches :assoc)
-         (patches-all-direct-child? patches prefix)
-         (not container-existed?))
+         (every? (comp new-path? patch-path) patches))
     :added
 
     :else
     :modified))
+
+(defn- sort-by-rendered
+  "`coll` sorted by the `pr-str` of `(keyfn x)`, each key rendered once
+  rather than on every comparison."
+  [keyfn coll]
+  (->> coll
+       (mapv (fn [x] [(pr-str (keyfn x)) x]))
+       (sort-by first)
+       (mapv second)))
 
 ;; ---- public entry ------------------------------------------------------
 
@@ -339,8 +319,8 @@
                 `:max-coalesce-depth` (default 3).
                 `:db-before` — the pre-change value the patches diff
                 from. When supplied, `:section-kind :added` is claimed
-                only for an all-`:assoc` direct-child cluster whose
-                container was ABSENT in `:db-before`.
+                for an all-`:assoc` cluster whose every patched path
+                was ABSENT in `:db-before`.
                 When absent, the classifier cannot prove addition and
                 errs to `:modified` for every all-`:assoc` cluster.
 
@@ -348,18 +328,15 @@
   ([patches] (group-patches-into-sections patches nil))
   ([patches opts]
    (let [{:keys [max-coalesce-depth db-before]} (merge default-opts opts)
-         ;; `:added` requires PROOF the container is newly introduced —
-         ;; patch shape alone cannot supply it (`:assoc` covers both
-         ;; insert and change). When `:db-before` is threaded
-         ;; in (the `diff-encode-db-after` caller has it in hand), a
-         ;; cluster is `:added` only if its section-path was ABSENT
-         ;; before. Without it (standalone projection) every cluster's
-         ;; container counts as 'existed' so the classifier errs to the
+         ;; `:added` requires PROOF the patched paths are new — patch
+         ;; shape alone cannot supply it (`:assoc` covers both insert
+         ;; and change). Without `:db-before` (standalone projection) no
+         ;; path counts as new, so the classifier errs to the
          ;; conservative `:modified` rather than a false `:added`.
-         container-existed?
+         new-path?
          (if (map? db-before)
-           (fn [prefix] (path-present? db-before prefix))
-           (constantly true))]
+           (fn [path] (not (path-present? db-before path)))
+           (constantly false))]
      (cond
        (or (nil? patches) (empty? patches))
        []
@@ -368,13 +345,12 @@
        [{:section-path [] :section-kind :modified :patches (vec patches)}]
 
        :else
-       (let [sorted   (vec (sort-by #(pr-str (patch-path %)) patches))
+       (let [sorted   (sort-by-rendered patch-path patches)
              clusters (group-by-ancestor sorted max-coalesce-depth)
              sections (mapv (fn [cluster]
                                (let [{:keys [prefix patches]} (promote-singleton cluster)]
                                  {:section-path prefix
-                                  :section-kind (section-kind prefix patches
-                                                              (container-existed? prefix))
+                                  :section-kind (section-kind patches new-path?)
                                   :patches      patches}))
                              clusters)]
          ;; Coalescing (`group-by-ancestor`) and singleton-promotion both
@@ -389,7 +365,7 @@
          ;; resulting `:section-path` so the contract in §Ordering
          ;; (`spec/section-grouping.md`) — sections sort by `:section-path`,
          ;; lexicographic `pr-str`-keyed — holds post-coalescing too.
-         (vec (sort-by #(pr-str (:section-path %)) sections)))))))
+         (sort-by-rendered :section-path sections))))))
 
 ;; ---- decoder helper ----------------------------------------------------
 

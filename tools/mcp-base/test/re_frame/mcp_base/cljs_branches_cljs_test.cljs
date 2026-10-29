@@ -126,14 +126,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest section-kind-db-before-classification-cljs
-  ;; The sentinel tells an absent container from a present one, a stored
-  ;; nil included.
+  ;; The sentinel tells an absent path from a present one, a stored nil
+  ;; included.
   (let [patches [[[:user :name] :assoc "ada"] [[:user :email] :assoc "x"]]]
     (are [db-before kind]
          (= kind (:section-kind (first (rf.mcp-base.section-grouping/group-patches-into-sections
                                          patches {:db-before db-before}))))
       {}                    :added
-      {:user nil}           :modified
+      {:user {:name nil}}   :modified
       {:user {:name "bob"}} :modified)))
 
 ;; ---------------------------------------------------------------------------

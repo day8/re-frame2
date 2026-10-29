@@ -58,12 +58,10 @@ The pass, recast over patches (originally a mirror of Xray's since-excised `sect
 
 5. **Classify each section** (`:section-kind`):
    - all `:dissoc` → `:removed`.
-   - all `:assoc` AND every patch is exactly one segment deeper than `:section-path` AND the container was ABSENT in `:db-before` → `:added`.
-   - otherwise → `:modified` (the conservative default; a mix of inserts / changes / deletes, or an existing container whose direct children changed).
+   - all `:assoc` AND every patch's path ABSENT in `:db-before` → `:added` (the cluster only introduces data: a new subtree, which `collect-patches` emits as one `[[:k] :assoc {...}]` patch, or new keys in an existing map).
+   - otherwise → `:modified` (the conservative default: the cluster changes or removes something that was there).
 
-   **Why `:added` needs `:db-before`.** `:assoc` represents both insertion and change, so patch shape alone cannot distinguish a new container from changed children in an existing one. `:added` therefore requires proof that the section path was absent; without `:db-before`, all-`:assoc` clusters remain `:modified`. The label does not affect replay.
-
-   > Note: over the `collect-patches` pipeline a genuinely-new multi-key container is emitted as a single whole-subtree `[[:k] :assoc {...}]` patch (collect-patches doesn't recurse into an absent key), which heads as a singleton → `:modified`. The all-`:assoc` direct-child `:added` shape therefore arises only from an advanced consumer supplying a synthetic patch list whose `:db-before` proves the container absent.
+   **Why `:added` needs `:db-before`.** `:assoc` represents both insertion and change, so patch shape alone cannot tell them apart. `:added` therefore requires proof that every patched path was absent (a stored `nil` counts as present); without `:db-before`, all-`:assoc` clusters remain `:modified`. The label does not affect replay.
 
 ## Ordering
 
@@ -71,10 +69,10 @@ Sections sort by `:section-path` (lexicographic, `pr-str`-keyed) — stable acro
 
 ## Cost
 
-- Sort: O(N log N) where N = patch count.
+- Sort: O(N log N) comparisons where N = patch count, over sort keys each rendered once (`pr-str` per comparison dominated the whole pass on a large update).
 - Coalesce / promote / classify: O(N).
 
-All passes are linear in patch count — negligible vs the walk that produced the patches. Pure data → data; `.cljc`.
+Pure data → data; `.cljc`.
 
 ## Round-trip invariant
 

@@ -44,8 +44,8 @@
 
 (deftest section-kind-classification
   ;; `:assoc` covers both an insert and a change, so `:added` needs
-  ;; :db-before to prove the container was absent; a stored nil counts
-  ;; as present.
+  ;; :db-before to prove every patched path was absent; a stored nil
+  ;; counts as present.
   (let [assocs [[[:user :name] :assoc "ada"] [[:user :email] :assoc "ada@example.com"]]]
     (are [patches opts kind] (= kind (:section-kind (first (group patches opts))))
       [[[:user :token] :dissoc] [[:user :session-id] :dissoc]] nil :removed
@@ -53,7 +53,16 @@
       assocs nil                                                   :modified
       assocs {:db-before {}}                                       :added
       assocs {:db-before {:user {:name "bob"}}}                    :modified
-      assocs {:db-before {:user nil}}                              :modified)))
+      assocs {:db-before {:user {:name nil}}}                      :modified
+      assocs {:db-before {:user {:age 3}}}                         :added)))
+
+(deftest a-new-subtree-from-collect-patches-reads-added
+  ;; The encoder emits a new subtree as ONE patch at the new key's path,
+  ;; so that is the shape `:added` has to recognise.
+  (are [db-before patches kind] (= kind (:section-kind (first (group patches {:db-before db-before}))))
+    {}                    [[[:user] :assoc {:name "ada"}]]        :added
+    {:user {:name "bob"}} [[[:user :email] :assoc "a@example.com"]] :added
+    {:user {:name "bob"}} [[[:user :name] :assoc "ada"]]          :modified))
 
 (deftest sections-preserve-all-patches
   ;; Every input patch lands in exactly one section.
