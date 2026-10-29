@@ -17,10 +17,15 @@
   unless the owner makes the coarse `:sensitive?` / `:large?` claim. An
   unregistered owner fails closed. The resource-id and structural scalars
   always ride, so a tool can still attribute a row.
+
+  Every owner resolves in the projected frame's own registration view
+  (`in-frame-view`), because a frame's image can select a declaration that a
+  same-id registration elsewhere does not make.
   Spec 015 §Subsystem projection-relative classification."
   (:require [re-frame.classification :as rf.classification]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
             [re-frame.resources.classification :as rf.resources.classification]
@@ -37,6 +42,17 @@
 
 (defn- redacted-token? [c]
   (and (map? c) (contains? c :rf/redacted)))
+
+(defn- in-frame-view
+  "Calls `f` inside `frame-id`'s own registration view
+  (`:live-frame/call-with-frame-resolution`), so each owner the projection
+  looks up is the registration that frame's image selects rather than the
+  id's latest registration anywhere. A nil `frame-id` binds nothing."
+  [frame-id f]
+  (if-let [with-resolution (when (some? frame-id)
+                             (rf.late-bind/get-fn :live-frame/call-with-frame-resolution))]
+    (with-resolution frame-id f)
+    (f)))
 
 (defn- redact-anchored
   "`v`, the value of the slot `slot` an owner declares against, redacted under
@@ -620,12 +636,13 @@
   `project-scope`, the cursor by the row's owner, failure envelopes
   unconditionally, unnamed slots by shape, nested-map slots recursively. Work
   ids and structural scalars ride. Stamps `:sensitive? true` when any owner
-  claim redacted. Idempotent; a non-map `tags` rides.
+  claim redacted. Owners resolve in `frame-id`'s view. Idempotent; a non-map
+  `tags` rides.
   Spec 015 §Subsystem projection-relative classification."
   [tags frame-id]
   (if-not (map? tags)
     tags
-    (let [[projected-tags sensitive?] (project-tags* tags frame-id)]
+    (let [[projected-tags sensitive?] (in-frame-view frame-id #(project-tags* tags frame-id))]
       (cond-> projected-tags sensitive? (assoc :sensitive? true)))))
 
 (defn project-fx-args-egress
@@ -635,26 +652,28 @@
   the same secret redacted in one slot and raw in the next. Everything else on
   the row rides, and a tags map with neither slot is returned as-is, so the
   epoch consumer applies it to every row. Stamps `:sensitive? true` when
-  anything redacted. Idempotent.
+  anything redacted. Owners resolve in `frame-id`'s view. Idempotent.
   Spec 015 §Projection — applying classification at a boundary"
   [tags frame-id]
   (if-not (map? tags)
     tags
     (let [sensitive-found? (volatile! false)
           projected-tags
-          (reduce (fn [projected-tags carrier-slot]
-                    (if-not (contains? projected-tags carrier-slot)
-                      projected-tags
-                      (let [[projected-value sensitive?]
-                            (project-embedded-keys
-                              (get projected-tags carrier-slot)
-                              frame-id
-                              false)]
-                        (when sensitive?
-                          (vreset! sensitive-found? true))
-                        (assoc projected-tags carrier-slot projected-value))))
-                  tags
-                  fx-carrier-slot)]
+          (in-frame-view
+            frame-id
+            #(reduce (fn [projected-tags carrier-slot]
+                       (if-not (contains? projected-tags carrier-slot)
+                         projected-tags
+                         (let [[projected-value sensitive?]
+                               (project-embedded-keys
+                                 (get projected-tags carrier-slot)
+                                 frame-id
+                                 false)]
+                           (when sensitive?
+                             (vreset! sensitive-found? true))
+                           (assoc projected-tags carrier-slot projected-value))))
+                     tags
+                     fx-carrier-slot))]
       (cond-> projected-tags @sensitive-found? (assoc :sensitive? true)))))
 
 ;; ---- read subs on `:rf.sub/run` -------------------------------------------
@@ -891,6 +910,47 @@
     (let [[slot roots] (first slots)]
       (when (= [[]] roots) slot))))
 
+(defn- project-read-sub-value
+  "The projection `project-read-sub-egress` makes, its owner read in whichever
+  registration view is bound."
+  [query-v value {:keys [frame]} prior-inputs prior-policy]
+  (let [sub-id (when (sequential? query-v) (first query-v))
+        slots  (get slot-roots sub-id)]
+    (if (nil? slots)
+      value
+      (let [payload     (owner-payload sub-id (second query-v))
+            live?       (or (= ::live prior-inputs) (nil? prior-inputs))
+            inputs-db   (if live? (live-runtime-db frame) (prior-runtime-db prior-inputs))
+            inputs-reg  (when inputs-db
+                          (inputs-registry frame live? prior-inputs prior-policy))
+            runtime-db  #(if live? (live-runtime-db frame) (first prior-inputs))
+            frame-state #(if live? (live-frame-state frame) (first prior-inputs))
+            spec        (when (map? payload) (owner-spec sub-id payload runtime-db))
+            recovered   (when (and inputs-db (map? payload))
+                          (into {}
+                                (map (fn [slot]
+                                       [slot (recovered-claims sub-id payload inputs-reg
+                                                               inputs-db slot)]))
+                                (keys slots)))
+            value       (if (or spec (some #(some seq %) (vals recovered)))
+                          (let [projected    (project-feed-items sub-id value spec (:data recovered)
+                                                                 query-v frame-state)
+                                [sens large] (reduce-kv
+                                               (fn [[sens large] slot roots]
+                                                 (let [[s l] (slot-paths spec slot (get recovered slot)
+                                                                         roots)]
+                                                   [(into sens s) (into large l)]))
+                                               [[] []]
+                                               slots)]
+                            ;; A whole-value projection anchors the walk at the
+                            ;; slot the owner declared against.
+                            (if-let [slot (whole-value-slot slots)]
+                              (redact-anchored slot projected sens large)
+                              (rf.classification/redact-with-paths
+                                projected sens large {:index-free? true})))
+                          value)]
+        (project-keys sub-id value frame)))))
+
 (defn project-read-sub-egress
   "Projects a resource or mutation read sub's `value` for egress: the owner's
   data declaration under each data root, its coarse claim over every owner
@@ -898,44 +958,9 @@
   scoped keys in `:previous-key` / `:affected-keys`. `query-v` names the
   owner; `opts` carries `:frame`. The five-arity projects a PRIOR value
   against the `prior-inputs` it was computed from and the `prior-policy` it
-  was computed under. Any other query returns `value` unchanged; a value with
-  nothing to project rides identical."
+  was computed under. The owner resolves in `frame`'s view. Any other query
+  returns `value` unchanged; a value with nothing to project rides identical."
   ([query-v value opts]
    (project-read-sub-egress query-v value opts ::live nil))
-  ([query-v value {:keys [frame]} prior-inputs prior-policy]
-   (let [sub-id (when (sequential? query-v) (first query-v))
-         slots  (get slot-roots sub-id)]
-     (if (nil? slots)
-       value
-       (let [payload     (owner-payload sub-id (second query-v))
-             live?       (or (= ::live prior-inputs) (nil? prior-inputs))
-             inputs-db   (if live? (live-runtime-db frame) (prior-runtime-db prior-inputs))
-             inputs-reg  (when inputs-db
-                           (inputs-registry frame live? prior-inputs prior-policy))
-             runtime-db  #(if live? (live-runtime-db frame) (first prior-inputs))
-             frame-state #(if live? (live-frame-state frame) (first prior-inputs))
-             spec        (when (map? payload) (owner-spec sub-id payload runtime-db))
-             recovered   (when (and inputs-db (map? payload))
-                           (into {}
-                                 (map (fn [slot]
-                                        [slot (recovered-claims sub-id payload inputs-reg
-                                                                inputs-db slot)]))
-                                 (keys slots)))
-             value       (if (or spec (some #(some seq %) (vals recovered)))
-                           (let [projected    (project-feed-items sub-id value spec (:data recovered)
-                                                                  query-v frame-state)
-                                 [sens large] (reduce-kv
-                                                (fn [[sens large] slot roots]
-                                                  (let [[s l] (slot-paths spec slot (get recovered slot)
-                                                                          roots)]
-                                                    [(into sens s) (into large l)]))
-                                                [[] []]
-                                                slots)]
-                             ;; A whole-value projection anchors the walk at the
-                             ;; slot the owner declared against.
-                             (if-let [slot (whole-value-slot slots)]
-                               (redact-anchored slot projected sens large)
-                               (rf.classification/redact-with-paths
-                                 projected sens large {:index-free? true})))
-                           value)]
-         (project-keys sub-id value frame))))))
+  ([query-v value {:keys [frame] :as opts} prior-inputs prior-policy]
+   (in-frame-view frame #(project-read-sub-value query-v value opts prior-inputs prior-policy))))
