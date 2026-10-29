@@ -141,15 +141,37 @@
 ;; `js/setTimeout` / `js/clearTimeout` directly rather than routing
 ;; through the late-bind hook table like the reactive surfaces above.
 
+(def ^:private max-host-delay-ms
+  "The longest delay one host timer holds. Browsers and Node keep the delay in
+  a signed 32-bit integer and run an overflowing one after about 1 ms."
+  2147483647)
+
+(deftype ^:no-doc LongTimeout [^:mutable id])
+
+(defn- arm-long-timeout!
+  "Arm the next hop of `handle`: a full-length hop that re-arms with the
+  remainder, or the final one that runs `f`."
+  [^LongTimeout handle f ms]
+  (set! (.-id handle)
+        (if (> ms max-host-delay-ms)
+          (js/setTimeout #(arm-long-timeout! handle f (- ms max-host-delay-ms))
+                         max-host-delay-ms)
+          (js/setTimeout f ms))))
+
 (defn set-timeout!
-  "Schedule f to run after ms milliseconds. Returns an opaque handle."
+  "Schedule f to run after ms milliseconds. Returns an opaque handle for
+  `clear-timeout!`. A delay longer than one host timer holds (2^31-1 ms,
+  about 24.8 days) runs as a chain of hops, so it fires when due rather than
+  at once; the handle cancels whichever hop is armed."
   [f ms]
-  (js/setTimeout f ms))
+  (if (and (number? ms) (> ms max-host-delay-ms))
+    (doto (LongTimeout. nil) (arm-long-timeout! f ms))
+    (js/setTimeout f ms)))
 
 (defn clear-timeout!
   "Cancel a previously-scheduled timer."
   [handle]
-  (js/clearTimeout handle))
+  (js/clearTimeout (if (instance? LongTimeout handle) (.-id ^LongTimeout handle) handle)))
 
 ;; Per Spec 005 §Clock abstraction: the state-machine
 ;; `:after` clock surface is named `schedule-after!` / `cancel-scheduled!`
