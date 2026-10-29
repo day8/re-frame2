@@ -654,16 +654,19 @@
 (def ^:private slot-roots
   "Where each read sub's value carries its owner's slots, by slot (`[]`: the
   value is the slot). `:data` is the owner's data projection, which its path
-  declarations and its coarse claim cover. A resource view-model also carries
-  the entry's other value slots under their own keys, and a focused error read
-  is one of them; the coarse whole-entry claim alone covers those
+  declarations and its coarse claim cover. A resource view-model — the one
+  `:rf/resource` and the route-bound `:rf/route-resource` both return — also
+  carries the entry's other value slots under their own keys, and a focused
+  error read is one of them; the coarse whole-entry claim alone covers those
   (`entry-value-slots`), and a slot a value does not hold is never walked. A
   feed's merged item list is projected by `project-feed-items` instead, so
   `:rf.resource/items` has no data root."
   (let [entry-slots (into {}
                           (comp (remove #{:data}) (map (fn [slot] [slot [[slot]]])))
-                          rf.resources.classification/entry-value-slots)]
-    {:rf/resource                (assoc entry-slots :data [[:data] [:previous-data]])
+                          rf.resources.classification/entry-value-slots)
+        view-model  (assoc entry-slots :data [[:data] [:previous-data]])]
+    {:rf/resource                view-model
+     :rf/route-resource          view-model
      :rf.resource/data           {:data [[]]}
      :rf.resource/previous-data  {:data [[]]}
      :rf.resource/error          {:error [[]]}
@@ -678,6 +681,14 @@
 (def ^:private mutation-subs
   "The mutation read subs; they name an instance, not a mutation."
   #{:rf/mutation :rf.mutation/result})
+
+(defn- owner-payload
+  "A read sub's payload as the owner reference the projection reads. The
+  route-bound read names its resource by bare id, because the active route's
+  plan supplies the identity; one spec declares every entry of a resource, so
+  the id alone names the owner."
+  [sub-id payload]
+  (if (= :rf/route-resource sub-id) {:resource payload} payload))
 
 (defn- live-runtime-db
   "`frame-id`'s runtime-db, read untracked: the projector runs inside the
@@ -838,7 +849,7 @@
   (if-not (map? value)
     value
     (case sub-id
-      :rf/resource (project-key-slot value :previous-key false frame-id)
+      (:rf/resource :rf/route-resource) (project-key-slot value :previous-key false frame-id)
       :rf/mutation (project-key-slot value :affected-keys true frame-id)
       value)))
 
@@ -866,7 +877,7 @@
          slots  (get slot-roots sub-id)]
      (if (nil? slots)
        value
-       (let [payload     (second query-v)
+       (let [payload     (owner-payload sub-id (second query-v))
              live?       (or (= ::live prior-inputs) (nil? prior-inputs))
              inputs-db   (if live? (live-runtime-db frame) (prior-runtime-db prior-inputs))
              inputs-reg  (when inputs-db
