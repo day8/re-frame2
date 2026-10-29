@@ -2,6 +2,8 @@
 
 A cluster of boolean subscriptions all reading the same `app-db` path, each answering "is the screen in state X?" — `:screen/loading?`, `:screen/error?`, `:screen/empty?`, `:screen/loaded?`. The view then chains `cond` clauses derefing each. The cluster is a hand-rolled finite-state machine pretending to be subs.
 
+**Contents:** Detection rules and the required mutual-exclusion test · Why it's an anti-pattern · The canonical fix · Worked example — the slice correction, the optional machine redesign, and the lazy-init, `has-tag?` and `reg-view` callouts · Edge cases.
+
 ## Detection rules
 
 Greppable signals:
