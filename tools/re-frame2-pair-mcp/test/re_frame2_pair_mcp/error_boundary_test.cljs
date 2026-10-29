@@ -16,13 +16,17 @@
   The relayed ex-data is WIRE DATA: `tu/extract-edn` is the consumer's EDN
   reader, so one unreadable value reds every assertion here at once.
 
-  Both covered throws are programmer-typo guards no tool argument reaches,
-  which is why no other test reaches them. The seam corrupts only the
-  INPUT at the production call site; downstream of the throw everything is
-  the shipped path — real `handle-call` → `ensure-connection!` (over a
-  seeded conn) → `tools/invoke` → relay → envelope. `trace-window` carries
-  both: it builds its form with `ef/rt-let` and shapes its response with
-  `run-wire-pipeline`."
+  The two relay rows cover programmer-typo guards no tool argument
+  reaches, which is why no other test reaches them. The seam corrupts only
+  the INPUT at the production call site; downstream of the throw
+  everything is the shipped path — real `handle-call` →
+  `ensure-connection!` (over a seeded conn) → `tools/invoke` → relay →
+  envelope. `trace-window` carries both: it builds its form with
+  `ef/rt-let` and shapes its response with `run-wire-pipeline`.
+
+  The third row is a connection that closes while an op is pending: the
+  real `nrepl/close!` fails it, and the agent reads why in `:rf.error/id`,
+  the slot neither relay overwrites."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.server :as server]
@@ -126,3 +130,35 @@
                          (str (:message edn)))
                 (str "got: " (pr-str (:message edn))))))
         done))))
+
+(deftest connection-closed-mid-op-reaches-the-agent-carrying-its-id
+  ;; The tool's eval is parked as a pending op on the seeded conn, and the
+  ;; REAL `nrepl/close!` fails it — so the rejection is the one a socket
+  ;; that dies mid-call produces.
+  (async done
+    (server/reset-session-state-for-tests!)
+    (let [conn   (nrepl/make-conn 0 "127.0.0.1")
+          orig   nrepl/cljs-eval-value
+          answer (fn [form-str]
+                   (if (re-find #"__re_frame2_pair_runtime" form-str)
+                     (js/Promise.resolve true)
+                     (js/Promise.
+                       (fn [_resolve reject]
+                         (swap! conn assoc-in [:pending "in-flight"]
+                                {:on-frame identity :fail! reject})
+                         (js/queueMicrotask #(nrepl/close! conn))))))
+          stub   (fn
+                   ([_conn _build-id form-str] (answer form-str))
+                   ([_conn _build-id form-str _opts] (answer form-str)))]
+      (server/mark-discovered-for-tests! conn)
+      (set! nrepl/cljs-eval-value stub)
+      (-> (server/handle-call-for-tests {} "trace-window"
+                                        (tu/args->js {:ms 1000}) nil)
+          (.then (fn [result]
+                   (let [edn (tu/extract-edn result)]
+                     (is (tu/error? result) "a closed connection is a tool error, not a rejected promise")
+                     (is (= :rf.error/pair-mcp-nrepl-connection-closed (:rf.error/id edn))
+                         (str "got: " (pr-str edn))))))
+          (.catch (fn [e]
+                    (is false (str "the boundary drive rejected: " (.-message e)))))
+          (.finally (fn [] (tu/restore-eval! stub orig) (done)))))))
