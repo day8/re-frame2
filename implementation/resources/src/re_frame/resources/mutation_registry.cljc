@@ -31,7 +31,7 @@
   #{:doc :params-schema :scope
     :invalidates :patches :populates :removes :invalidate-timing
     :optimistic :optimistic-tags :on-conflict
-    :sensitive :large})
+    :sensitive :large :sensitive? :large?})
 
 ;; ---- spec validation (fail-closed at the authoring boundary) -------------
 

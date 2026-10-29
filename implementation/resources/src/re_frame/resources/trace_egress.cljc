@@ -659,12 +659,18 @@
   carries the entry's other value slots under their own keys, and a focused
   error read is one of them; the coarse whole-entry claim alone covers those
   (`entry-value-slots`), and a slot a value does not hold is never walked. A
-  feed's merged item list is projected by `project-feed-items` instead, so
-  `:rf.resource/items` has no data root."
-  (let [entry-slots (into {}
-                          (comp (remove #{:data}) (map (fn [slot] [slot [[slot]]])))
+  mutation's `:data` is its `:result`, and the `:rf/mutation` view-model
+  carries its instance's other value slots the same way
+  (`mutation-instance-value-slots`). A feed's merged item list is projected
+  by `project-feed-items` instead, so `:rf.resource/items` has no data root."
+  (let [slot-of     (fn [data-slot]
+                      (comp (remove #{data-slot}) (map (fn [slot] [slot [[slot]]]))))
+        entry-slots (into {} (slot-of :data)
                           rf.resources.classification/entry-value-slots)
-        view-model  (assoc entry-slots :data [[:data] [:previous-data]])]
+        view-model  (assoc entry-slots :data [[:data] [:previous-data]])
+        mutation-vm (assoc (into {} (slot-of :result)
+                                 rf.resources.classification/mutation-instance-value-slots)
+                           :data [[:result]])]
     {:rf/resource                view-model
      :rf/route-resource          view-model
      :rf.resource/data           {:data [[]]}
@@ -675,12 +681,13 @@
      :rf.resource/items          {:data []}
      :rf.resource/pages          {:data [[]]}
      :rf.resource/infinite-state (assoc entry-slots :data [[:pages]])
-     :rf/mutation                {:data [[:result]]}
-     :rf.mutation/result         {:data [[]]}}))
+     :rf/mutation                mutation-vm
+     :rf.mutation/result         {:data [[]]}
+     :rf.mutation/error          {:error [[]]}}))
 
 (def ^:private mutation-subs
   "The mutation read subs; they name an instance, not a mutation."
-  #{:rf/mutation :rf.mutation/result})
+  #{:rf/mutation :rf.mutation/result :rf.mutation/error})
 
 (defn- owner-payload
   "A read sub's payload as the owner reference the projection reads. The
@@ -762,15 +769,15 @@
     (fn [p] (when (and (>= (count p) n) (= prefix (subvec p 0 n))) (subvec p n)))))
 
 (defn- recovered-claims
-  "The `slot`-relative claims `registry` holds for a read sub's owner: its
-  mutation instance's `:result`, a mutation's one slot, or `slot` of every
+  "The `slot`-relative claims `registry` holds for a read sub's owner: `slot`
+  of its mutation instance (`:data` being the `:result`), or `slot` of every
   entry of its resource (one spec declares them all). `runtime-db` holds the
   entries the claims name."
   [sub-id payload registry runtime-db slot]
   (if (contains? mutation-subs sub-id)
     (registry-claims registry
                      (under (conj (rf.resources.mutation-runtime/instance-path (:instance payload))
-                                  :result)))
+                                  (if (= :data slot) :result slot))))
     (let [entries (rf.resources.state/entries-path)
           n       (count entries)
           table   (get-in runtime-db entries)

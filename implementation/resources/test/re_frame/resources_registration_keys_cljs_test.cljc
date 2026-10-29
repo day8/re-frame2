@@ -62,7 +62,9 @@
    :optimistic-tags   (fn [_params] [])
    :on-conflict       :invalidate
    :sensitive         [[:params :token]]
-   :large             [[:data :avatar]]})
+   :large             [[:data :avatar]]
+   :sensitive?        false
+   :large?            false})
 
 (def ^:private minimal-resource
   {:scope :rf.scope/global :params-schema [:map [:slug :string]]})
