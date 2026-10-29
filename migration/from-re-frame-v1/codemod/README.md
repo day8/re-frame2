@@ -151,7 +151,9 @@ human review.
 The nil analysis is conservative and local: `:nil-capable` means **not proven
 non-nil**. It answers "non-nil" only for a body it can prove is: a literal
 collection, the handler's own db param, a builder headed by `assoc` /
-`assoc-in` / `update` / `merge` / `dissoc` / … or a `->` thread ending in one,
+`assoc-in` / `update` / … (never nil), or by `dissoc` / `merge` / `into` / …
+(nil when handed nil) over a value itself proven non-nil, so `(dissoc db :k)`
+qualifies and `(dissoc (:draft db) :k)` does not, or a `->` thread ending in one,
 an `if` / `if-not` / `if-let` / `if-some` with an else branch, a `cond` ending
 in an `:else` clause or a `case` (a `case` with no matching clause throws
 rather than returning nil) whose every branch is proven non-nil, a `cond->` /
