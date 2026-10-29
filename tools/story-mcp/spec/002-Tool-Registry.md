@@ -17,6 +17,18 @@
 > [`../../story/spec/022-Story-UI-Docs-And-Share.md`](../../story/spec/022-Story-UI-Docs-And-Share.md)
 > §4.
 
+## A tool's `:description` is its call contract
+
+Every session that loads `tools/list` pays for every description before
+its first call, so each one carries what a caller needs to call the tool
+correctly, and nothing more: what it does, its key arguments, its
+headline return shape and `:status` values, the refusals a caller acts
+on, any launch gate, and one example. Detail about one argument lives on
+that argument's own `:description`; the egress architecture, worked
+recovery and the reasoning behind each posture live in this document and
+[`API.md`](API.md). `descriptor-budget-test` holds each description to a
+character budget.
+
 ## Host execution model
 
 The stdio server calls Story's public API directly in the same JVM. It

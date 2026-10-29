@@ -9,7 +9,7 @@
   "Recurring fragment — accept either string-form keywords
   (`\":story.foo/bar\"`) or the bare-name form (`\"story.foo/bar\"`)."
   {:type "string"
-   :description "A Clojure keyword id, as a string. Either `:story.foo/bar` or `story.foo/bar` is accepted."})
+   :description "A keyword id as a string: `:story.foo/bar` or `story.foo/bar`."})
 
 (def max-tokens-schema
   "Recurring fragment — every tool accepts a per-call `:max-tokens`
@@ -21,7 +21,7 @@
   `{:rf.mcp/invalid-arg {...}}` `isError` result for hosts that don't
   validate."
   {:type "integer" :minimum 0
-   :description "Per-call wire-boundary token cap. Must be >= 0: 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`). A negative value is rejected with an `:rf.mcp/invalid-arg` error."})
+   :description "Per-call token cap on the reply: default 5000, 0 disables it, a negative value is refused."})
 
 (def dedup-schema
   "Recurring fragment — the dedup-eligible tools accept a per-call
@@ -75,12 +75,8 @@
   carry the `?` on the response side. (The run/read tools' verdict is the
   `?`-free `:status`, not a `:passing?` boolean.)"
   {:type "boolean"
-   :description (str "Opt in to forwarding sensitive `:app-db` slots and "
-                     "assertion records. Default false (declared-sensitive paths "
-                     "return `:rf/redacted`; assertion records stamped "
-                     "`:sensitive? true` are dropped). Per spec/Tool-Pair.md "
-                     "§Direct-read privacy posture. Honoured only when the "
-                     "server was started with `--allow-sensitive-reads`.")})
+   :description (str "Ship sensitive values raw. Default false: a declared-sensitive path "
+                     "reads `:rf/redacted` and a `:sensitive? true` assertion record is dropped.")})
 
 (defn with-max-tokens
   "Inject the `:max-tokens` slot into a tool's `:properties` map. Every
@@ -119,10 +115,7 @@
   `re-frame.story-mcp.tools.cursor/default-limit`; clamped to 200 per
   `max-limit`."
   {:type "integer" :minimum 1 :maximum 200
-   :description (str "Per-page entry count. Default 25; clamped to 200. "
-                     "Pair with `:cursor` for continuation across pages. "
-                     "Per spec/Principles.md §'Tight token budget' the "
-                     "default keeps the response under the wire cap.")})
+   :description "Entries per page: default 25, clamped to 200."})
 
 (def cursor-schema
   "Recurring fragment — `list-*` tools accept an opaque `:cursor`
@@ -133,10 +126,8 @@
   and deref, the server returns `:rf.mcp/cursor-stale` and the agent
   must drop the cursor + restart."
   {:type "string"
-   :description (str "Opaque continuation token from a previous list-* call's "
-                     ":next-cursor slot. Agents pass the value back verbatim. "
-                     "On registry change between pages the server returns "
-                     ":rf.mcp/cursor-stale; drop the cursor and restart.")})
+   :description (str "A previous page's `:next-cursor`, passed back verbatim. "
+                     "`:rf.mcp/cursor-stale` means the registry changed: restart without it.")})
 
 ;; ---------------------------------------------------------------------------
 ;; Lifecycle timeout schema fragment
@@ -161,11 +152,8 @@
   `default-timeout-ms` — the single source both this advertised schema and
   the runtime resolver (`rf.story-mcp.tools.args/resolve-timeout-ms`) read."
   {:type "integer" :minimum 1 :maximum rf.story-mcp.tools.args/max-timeout-ms
-   :description (str "JVM blocking timeout. Default " rf.story-mcp.tools.args/default-timeout-ms
-                     "ms. Hard ceiling " rf.story-mcp.tools.args/max-timeout-ms "ms — values "
-                     "above clamp DOWN rather than reject; the MCP server's "
-                     "request loop is single-threaded so an unbounded timeout "
-                     "would park unrelated calls.")})
+   :description (str "Run deadline in ms: default " rf.story-mcp.tools.args/default-timeout-ms
+                     ", clamped to " rf.story-mcp.tools.args/max-timeout-ms ".")})
 
 (defn with-timeout-ms
   "Inject the `:timeout-ms` slot into a lifecycle tool's `:properties`
@@ -245,16 +233,11 @@
   rejects top-level alternation)."
   {:type "object"
    :additionalProperties true
-   :properties {"isError" {:type "boolean"
-                            :description "Present and true on error envelopes (per MCP §Error Handling)."}
+   :properties {"isError" {:type "boolean"}
                 "rf.mcp/overflow" {:type "object"
                                    :additionalProperties true
-                                   :description (str "Wire-bounded marker. Present iff the wire-boundary "
-                                                     "token cap fired and replaced the tool's normal payload; carries "
-                                                     ":dropped-bytes etc.")}}
-   :description (str "Result envelope: a structuredContent object carrying the tool's payload. "
-                     "Optional :isError on the error path; optional :rf.mcp/overflow marker when "
-                     "the cap step fires. See spec/002-Tool-Registry.md for the per-tool payload shape.")})
+                                   :description "Replaces the payload when the reply exceeds `max-tokens`."}}
+   :description "The tool's payload."})
 
 ;; ---------------------------------------------------------------------------
 ;; Tool annotations
@@ -349,15 +332,11 @@
   plus `additionalProperties: true` for per-tool payload."
   {:type "object"
    :additionalProperties true
-   :properties {"isError" {:type "boolean"
-                            :description "Present and true on error envelopes (per MCP §Error Handling)."}
+   :properties {"isError" {:type "boolean"}
                 "gated"   {:type "boolean"
-                            :description "Present and true when the operator-only --allow-writes gate is closed."}
-                "tool"    {:type "string"
-                            :description "Name of the tool whose write was gated; present iff :gated true."}
+                            :description "True when the server's --allow-writes gate refused the write."}
+                "tool"    {:type "string"}
                 "rf.mcp/overflow" {:type "object"
                                    :additionalProperties true
-                                   :description "Wire-bounded marker; present iff the cap step fired."}}
-   :description (str "Result envelope: success / error / gated-error map (the write surface is "
-                     "default-off behind --allow-writes; closed gate emits {:gated true :tool ...}). "
-                     "See spec/003-Write-Surface-Gating.md.")})
+                                   :description "Replaces the payload when the reply exceeds `max-tokens`."}}
+   :description "The tool's payload, or the gated refusal {:gated true :tool <name>}."})
