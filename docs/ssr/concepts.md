@@ -846,7 +846,9 @@ Add one option; nothing else about the handler changes:
 
 ;; At boot. This launches the Node sidecar on the server bundle from step 1
 ;; and waits for it to say it is ready (step 5).
-(def renderer
+;; `defonce`: each `renderer` under `:module` launches its own
+;; sidecar, so a re-evaluated `def` would leave the last one running.
+(defonce renderer
   (node/renderer
     {:module       "out/my-app-server/server.js"
      :entry        policy/root-entry
