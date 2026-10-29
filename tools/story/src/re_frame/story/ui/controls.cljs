@@ -233,8 +233,8 @@
   internal shape. Per /spec/007-Stories.md §argtypes the author uses
   `:control` as the slot name (a 'control' is what the user sees in
   the UI). Internal dispatch (`scalar-widget`, `arg-widget`) is on
-  `:widget`. This fn bridges the two — `:control` wins, then `:widget`
-  as the legacy alias.
+  `:widget`. This fn bridges the two — `:control` wins, then `:widget`,
+  which an author may also write.
 
   Pure data → data; JVM-testable. Idempotent: a spec already keyed on
   `:widget` round-trips unchanged."
