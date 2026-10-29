@@ -283,19 +283,19 @@
    content.
 
    Returns a vector of block hiccup for the caller to splice into a
-   container; Reagent renders that vector as a seq of children. The fiddly
-   detail is the `:key` on each block. React renders these as a list, and
-   it uses keys to decide what moved versus what's new. We key by content
-   (its hash), not by index — index keys would re-key every block below an
-   edit and make React redraw the lot, when all you did was add a sentence.
-   Two identical blocks would collide, so we mix in the position to keep
-   keys unique."
+   container; Reagent renders that vector as a seq of children. Each block
+   is keyed by its position. The blocks are plain markup with no component
+   state, so a key only has to tell React which DOM node to reuse, and
+   position does that: an edit keeps every key, so React patches the one
+   block's text in place. A content key would do worse — the edited block's
+   hash changes on every keystroke, so React would throw its node away and
+   build a new one each time."
   [s]
   (let [blocks (->> (str/split (or s "") #"\r?\n\r?\n")
                     (remove str/blank?))]
     (vec
       (map-indexed
-        (fn [i b] (with-meta (render-block b) {:key (str (hash b) "-" i)}))
+        (fn [i b] (with-meta (render-block b) {:key i}))
         blocks))))
 
 (rf/reg-sub :notebook/selected-hiccup

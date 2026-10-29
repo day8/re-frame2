@@ -214,5 +214,5 @@ Effects panels end to end.
 
 On `#/stories` the Story shell additionally offers Xray **one panel at a
 time** in its own right-hand pane, with a chip row to swap panels — the
-narrower, per-variant view (`rf2-v1ach`). That embed is Story's, not the
+narrower, per-variant view. That embed is Story's, not the
 chord's; the two are independent and can be open together.

@@ -194,7 +194,7 @@
 
    :guards
    {:config-loaded?
-    ;; The hinge of the new :configuring phase. The `:spawn`'s `:on-done`
+    ;; The hinge of the :configuring phase. The `:spawn`'s `:on-done`
     ;; fold has already dropped the config into :data by the time the
     ;; parent takes its next macrostep, so the eventless `:always` below
     ;; just asks "is it there yet?" and moves on when it is.

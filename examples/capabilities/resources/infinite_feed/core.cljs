@@ -226,12 +226,13 @@
 ;;
 ;; The view stays passive. It reads the combined infinite view-model and
 ;; dispatches one causal event — that's the whole job. The query map below is
-;; the feed's identity (resource + scope + params), the same shape the route's
+;; the feed's identity (resource + params), the same one the route's
 ;; `:resources` plan ensured under, so the sub reads exactly the entry the route
-;; owns.
+;; owns. It names no `:scope`: the registration declared it, and the sub and
+;; the load-more both inherit it.
 
 (def ^:private feed-query
-  {:resource :feed/timeline :scope :rf.scope/global :params {}})
+  {:resource :feed/timeline :params {}})
 
 (rf/reg-view home-page []
   [:div
