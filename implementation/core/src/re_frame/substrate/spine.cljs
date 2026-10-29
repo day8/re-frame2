@@ -2459,11 +2459,10 @@
 ;; the commit arrives; `subscribe-fn`'s durable subscribe is then a cache HIT
 ;; and the committed reaction is `identical?` the one the render built —
 ;; ADOPTION, not a rebuild — after which the token is released, `2 → 1`. One
-;; construction per cold read WHEN THE COMMIT ARRIVES INSIDE THE HORIZON —
-;; which, at the `setTimeout 4` horizon, it does on the shipping mount path
-;; too. Read "AND ON THE SHIPPING MOUNT PATH IT WINS — BY A MARGIN" below
-;; before reading any performance claim into the rest of this comment: the
-;; margin is measured, not guaranteed.
+;; construction per cold read WHEN THE COMMIT ARRIVES INSIDE THE HORIZON. On
+;; the shipping mount path it does, by a measured margin rather than a React
+;; guarantee; why the horizon is `setTimeout 4`, and what that margin is, is
+;; `make-provisional-escrow`'s docstring.
 ;;
 ;; WHAT IT IS NOT. It is NOT a ref-count-0 cache tenancy. The token is an
 ;; ordinary reference held by an ordinary owner; the cache never holds a
@@ -2496,55 +2495,6 @@
 ;; AND WHY IT NEED NOT WIN. If the drain fires before React commits, the entry
 ;; disposes and the commit rebuilds — exactly the balanced-round-trip
 ;; behaviour. Correctness never depends on the ordering; only the saving does.
-;;
-;; AND ON THE SHIPPING MOUNT PATH IT WINS — BY A MARGIN.
-;; `make-render` mounts with a bare `createRoot(…).render(…)`, and on that
-;; schedule it is the reaper's DELAY that decides the outcome. A `setTimeout 0`
-;; armed during the render would run BEFORE React gets back to flushing the
-;; passive effect that installs the `useSyncExternalStore` subscription — so
-;; the token would be reaped, the entry disposed on the ordinary 1 → 0 edge,
-;; and the commit would miss and rebuild: `bodyRuns` 2.00N, the term this
-;; exists to delete, paid on every consumer mount. That is the whole reason the
-;; horizon is 4 ms and not 0. It is not 32 either: 4 is the SHORTEST probed
-;; delay reading 1.00N at N = 1 and at N = 300 alike, so the adoption is
-;; realised without holding an abandoned render's graph a millisecond longer
-;; than winning takes.
-;;
-;; WHAT THE MARGIN IS, AND WHAT IT IS NOT. React documents no maximum
-;; render-to-subscribe interval, so 4 ms cannot be sized against a contract —
-;; it is the measured distance on React 19, and a future scheduling change can
-;; silently reintroduce 2.00N. The claim here is therefore NARROW: one build on
-;; the measured instrument page, with the two-build rebuild as the safe
-;; fallback, and adoption stays a best-effort optimisation that no caller may
-;; rely on.
-;;
-;; AND THE BROWSER SUITE IS NOT THE WITNESS FOR IT.
-;; `assert-use-sub-browser-runner-schedule-rebuilds` mounts through the
-;; adapter `:render` slot with no `act` and no `flushSync`, and it still reads
-;; TWO builds at this horizon — because the gap that page puts between the
-;; render and React's passive flush measures > 128 ms and <= 256 ms, two to
-;; three orders of magnitude past anything shippable. Disabling the reaper, or
-;; raising it to 256 ms, flips it; 0/8/16/32/64 do not, per-token arming does
-;; not. So that row pins the DEFECT a `setTimeout 0` horizon has in every
-;; environment, and it is NOT evidence about a consumer mount at this horizon
-;; in either direction. The witness on a representative page is committed,
-;; one command, and gates nothing:
-;; `bench/fresco/src/re_frame/bench/fresco/adoption_witness_run.cjs`, which
-;; measures its own page's gap before it will read an adoption integer.
-;;
-;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public
-;; mechanism hardens the margin, because Spec 006's "correctness MUST NOT
-;; depend on the reaper losing the race" holds regardless — and that is
-;; precisely what makes a 4 ms heuristic acceptable. The rest of the mechanism
-;; is deliberate: identity adoption, the one-shot release, the identity guard,
-;; the bounded horizon, the cascade at the horizon, SSR and StrictMode are all
-;; exactly as designed and asserted. Every other probed primitive loses on the
-;; measurement, not on taste: `setTimeout 32` also reads 1.00N but holds
-;; abandoned graphs eight times longer for nothing; `requestAnimationFrame`
-;; reads 1.00N at N = 1 and 2.00N at N = 300; a `MessageChannel` post reads
-;; 2.00N, because React posts its own message later and the queue is FIFO. A
-;; non-timer signal that is a CONTRACT rather than a margin would supersede all
-;; of them; React exposes none.
 ;;
 ;; THE ONE CONTRACT-VISIBLE CONSEQUENCE: a render abandoned before commit
 ;; leaves ≤ 1 ref-count until the ~4 ms horizon rather than 0 immediately. The
@@ -2702,7 +2652,10 @@
   detector cannot be a stable one, is in that page's own docstring.
 
   This is a PERFORMANCE ordering, never a correctness one: an early drain
-  costs a rebuild, nothing more (see the section comment).
+  costs a rebuild, nothing more (see the section comment). That is why a
+  number, and no further mechanism, holds the margin: Spec 006 §Render-phase
+  provisional acquisition and commit adoption keeps correctness independent of
+  the race.
 
   ONE TIMER PER BURST, armed on the empty → non-empty edge, so a page mounting
   three hundred boundaries in one render pass arms one timer and not three
@@ -3919,8 +3872,9 @@
         ;; window closer WRAPS the tree, because a sibling would move the
         ;; tree's `useId` positions, and provides the adoption flag that
         ;; `frame-root` refuses under. `wrap` is returned so every later update
-        ;; renders through the same wrapper and React keeps the hydrated tree
-        ;; rather than remounting it.
+        ;; renders through the same wrapper. Stock Reagent still remounts the
+        ;; tree below its own root on each update (see the Reagent adapter's
+        ;; `render!`).
         mount-root!
         (fn mount-root! [render-tree mount-point opts]
           (let [hydrate?     (:hydrate? opts)
@@ -3945,8 +3899,8 @@
         render
         (fn render [render-tree mount-point opts]
           (second (mount-root! render-tree mount-point opts)))
-        ;; The reusable client root behind each ratom adapter
-        ;; ns's `client-root` / `render!` / `unmount!` trio. The handle
+        ;; The reusable client root behind the Reagent adapter's
+        ;; `client-root` / `render!` / `unmount!` trio. The handle
         ;; protocol, the create-once/update-later branch and the
         ;; idempotence rules are substrate-agnostic and live in
         ;; `make-client-root-fns` (so the React-hook spine publishes the
@@ -4006,7 +3960,7 @@
      :make-derived-value         make-derived-value
      :render                     render
      ;; The reusable client root (see the closures above);
-     ;; re-exported by both ratom adapter namespaces as the same trio.
+     ;; re-exported by the Reagent adapter namespace as its trio.
      :client-root                client-root
      :render-client-root!        render-client-root!
      :unmount-client-root!       unmount-client-root!
