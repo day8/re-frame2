@@ -13,7 +13,7 @@
 (deftest each-retired-image-key-fails-loud
   (is (= (for [k [:include-ns :exclude-ns :replace :replace-standard :rf.image/requires]]
            {:rf.error/id :rf.error/invalid-image :retired-key k})
-         (for [[k v] [;; the spelling is now :select-ns :include / :exclude
+         (for [[k v] [;; the spelling is :select-ns :include / :exclude
                       [:include-ns ["docs.counter.v2"]]
                       [:exclude-ns ["docs.counter.dev.**"]]
                       ;; composition resolves by image order

@@ -1269,7 +1269,7 @@
 
   A resolved frame-id is not enough — it must RESOLVE to a live frame.
   An explicit `:frame` opt (or a stale carried scope) may name a frame that
-  was never registered or has since been destroyed. EP-0015 issue 1: an
+  was never registered or has since been destroyed. An
   unresolvable frame has no policy, so feeding it through the walk would be
   an EMPTY-policy identity transform — shipping every value verbatim under
   NO policy, a silent leak. An unknown / destroyed frame therefore FAILS
