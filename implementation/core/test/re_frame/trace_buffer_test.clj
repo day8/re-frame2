@@ -251,6 +251,25 @@
       (is (= [[:ev/alpha]] (mapv :event (rf/trace-buffer :rf/default {:origin :pair}))))
       (is (= [did] (mapv :dispatch-id (rf/trace-buffer :rf/default {:dispatch-id did})))))))
 
+(deftest ^:requires-debug bundle-reads-refuse-the-flat-only-filter-keys
+  ;; Each key matches a field only a raw event carries, so a bundle read that
+  ;; ignored it would keep every bundle.
+  (rf/reg-event :ev/alpha (fn [{:keys [db]} _] {:db db}))
+  (rf/dispatch-sync [:ev/alpha])
+  (let [refusal (fn [opts]
+                  (try (rf/trace-buffer :rf/default opts) nil
+                       (catch clojure.lang.ExceptionInfo e
+                         (select-keys (ex-data e) [:rf.error/id :flat-only-keys]))))]
+    (doseq [[k v] [[:operation :rf.event/dispatched] [:op-type :error] [:since 0]
+                   [:severity :error] [:handler-id :ev/alpha] [:source :ui]
+                   [:sensitive? false]]]
+      (is (= {:rf.error/id :rf.error/trace-buffer-flat-only-filter :flat-only-keys [k]}
+             (refusal {k v}))
+          (str k " is refused on a bundle read"))
+      (is (nil? (refusal {k v :flat true})) (str k " applies under :flat")))
+    (is (= [[:ev/alpha]] (mapv :event (rf/trace-buffer :rf/default {:op-type nil :event-id :ev/alpha})))
+        "a nil value is no constraint, and the bundle-level keys still apply")))
+
 ;; ---- dispatch correlation defaults -----------------------------------------
 
 (deftest ^:requires-debug dispatch-defaults-origin-to-app-and-source-to-unknown
