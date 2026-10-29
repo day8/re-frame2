@@ -461,7 +461,7 @@
  ;; Top-level dev-http servers. shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
  ;; through the roots in order, returning the first match. Used here for
- ;; the :testbeds/panel-gallery build so `npx shadow-cljs watch
+ ;; the :testbeds/panel-gallery build so `npm run dev --
  ;; :testbeds/panel-gallery` is a one-command UX — open
  ;; http://localhost:8765 and the testbed loads.
  ;;
@@ -578,10 +578,10 @@
             ;; preload is wired (Ctrl+Shift+C). Same source-dir-first
             ;; cascade as the testbeds above — the hand-written index.html
             ;; resolves at `/`, the compiled main.js falls through to the
-            ;; build's :output-dir. One command brings all four up:
-            ;;   npx shadow-cljs watch :examples/nine-states-with-stories \
-            ;;     :examples/login-with-stories \
-            ;;     :examples/counter-with-stories :examples/login-form
+            ;; build's :output-dir. Watch one with
+            ;;   npm run dev -- :examples/login-with-stories
+            ;; which prints its URLs; scripts/dev-testbed.cjs says why a
+            ;; watch naming many builds at once races.
             ;; Story shells:
             ;;   http://localhost:8040/#/stories  nine-states showcase
             ;;   http://localhost:8041/#/stories  login showcase
@@ -648,9 +648,9 @@
             8061 {:roots ["fresco/testbed/hmr"
                           "out/fresco-hmr-testbed"]}}
 
- ;; Every `:node-test` build is warnings-fatal, whatever compiles it: the
- ;; npm wrappers, a bare `npx shadow-cljs compile <id>`, or a script that
- ;; spawns shadow-cljs itself. A warning in a test namespace is a defect
+ ;; Every `:node-test` build is warnings-fatal, whatever compiles it: an
+ ;; npm script, `scripts/lib/shadow.cjs` named directly, or a script that
+ ;; drives it. A warning in a test namespace is a defect
  ;; that still lets the suite pass. A bare `"` in a deftest docstring
  ;; turns the rest of it into undeclared vars, which compile to
  ;; `undefined`, so the suite reports the counts of the clean tree. The
@@ -746,8 +746,7 @@
   ;;
   ;; Invocation:
   ;;
-  ;;     npx shadow-cljs compile node-test-perf-nightly && \\
-  ;;       node out/node-test-perf-nightly.js
+  ;;     npm run test:cljs-perf-emit-nightly
   ;;
   ;; The bundle-presence assertion (the `:advanced` bundle
   ;; carries `performance.measure` / `clearMeasures` symbols)

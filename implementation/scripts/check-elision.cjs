@@ -2,8 +2,8 @@
 /*
  * Production-elision verifier (Spec 009 §Production builds).
  *
- * Runs after `shadow-cljs release elision-probe` (and optionally
- * `release elision-probe-control`) and asserts:
+ * Runs after `npm run test:elision` has released `elision-probe` and
+ * `elision-probe-control`, and asserts:
  *
  *   1. The :elision-probe bundle (goog.DEBUG=false) does NOT contain any
  *      of the DEV_ONLY_SENTINELS — strings from re-frame.schemas /
@@ -713,7 +713,7 @@ function checkBundle(label, bundlePath, mustContain) {
   const { status, blob } = classifyReleaseBundle(bundlePath);
   if (status === 'missing') {
     console.error(`[elision] ${label}: bundle path missing — ${bundlePath}`);
-    console.error('         Did you run "shadow-cljs release elision-probe"?');
+    console.error('         Build it with "npm run test:elision", which builds both bundles.');
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
   if (status === 'empty') {
@@ -723,7 +723,7 @@ function checkBundle(label, bundlePath, mustContain) {
     console.error(`[elision] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
     console.error('         The release emitted no inspectable bundle; an empty bundle');
     console.error('         proves only that nothing got elided-checked. Rebuild with');
-    console.error('         "shadow-cljs release elision-probe" or clear the stale dir.');
+    console.error('         "npm run test:elision" or clear the stale dir.');
     return { ok: false, checked: 0, passed: 0, bytes: 0, empty: true };
   }
   report.detail(`[elision] ${label}: ${bundlePath}`);
@@ -845,8 +845,7 @@ function main() {
       console.error(`so all ${DEV_ONLY_SENTINELS.length} production sentinel ABSENCES above are`);
       console.error('UNPROVEN: a renamed / relocated / no-longer-rooted sentinel is');
       console.error('absent for the wrong reason and passes.  A skip is not a pass.');
-      console.error(`  Build it:  npx shadow-cljs release elision-probe-control`);
-      console.error('  or simply: npm run test:elision   (builds both bundles)');
+      console.error('  Build it:  npm run test:elision   (builds both bundles)');
       console.error('To run the production arm ALONE, pass --no-control explicitly.');
     } else if (!control.ok) {
       console.error('Control bundle missing dev-only sentinels — the grep test');

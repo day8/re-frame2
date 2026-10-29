@@ -210,7 +210,7 @@ function checkBundle(spec) {
     onMissing: (d) => {
       report.flushDetails();
       console.error(`[login-bundle-isolation] ${spec.name}: bundle missing — ${d}`);
-      console.error('                    Did you run "shadow-cljs release examples/' + spec.dir + '"?');
+      console.error('                    Build it with "npm run test:bundle-isolation".');
       process.exit(1);
     },
     onEmpty: (d) => {
@@ -220,7 +220,7 @@ function checkBundle(spec) {
       console.error(`[login-bundle-isolation] ${spec.name}: bundle present but empty (zero top-level JS) — ${d}`);
       console.error('                    The release emitted no inspectable bundle; the');
       console.error('                    cross-substrate absence checks would pass vacuously.');
-      console.error('                    Rebuild "shadow-cljs release examples/' + spec.dir + '".');
+      console.error('                    Rebuild it with "npm run test:bundle-isolation".');
       process.exit(1);
     },
   });
@@ -307,7 +307,7 @@ function main() {
   }
   console.error('');
   console.error('Reproduce with:');
-  console.error('  cd implementation && shadow-cljs release examples/login \\');
+  console.error('  cd implementation && node scripts/lib/shadow.cjs release examples/login \\');
   console.error('    examples/login-uix examples/login-fresco \\');
   console.error('    && node scripts/check-login-bundle-isolation.cjs');
   process.exit(1);
