@@ -45,12 +45,42 @@
     (when start
       (subs yaml start))))
 
+(defn- on-block
+  "The top-level `on:` block — from the `on:` key up to the `jobs:` key.
+  The header comment quotes the tag pattern too, so the trigger is read
+  here and nowhere else in the file."
+  [yaml]
+  (let [start (string/index-of yaml "\non:")
+        end   (some->> start (string/index-of yaml "\njobs:"))]
+    (when (and start end)
+      (subs yaml start end))))
+
+(defn- tag-triggered?
+  "Does the `on:` block carry a `push: tags:` entry for the
+  `template-v<major>.<minor>.<patch>` pattern?"
+  [yaml]
+  (boolean
+    (some->> (on-block yaml)
+             (re-find #"push:\s+tags:\s+-\s+[\"']?template-v\[0-9\]\+\.\[0-9\]\+\.\[0-9\]\+"))))
+
 (deftest release-gate-exists-test
   (testing "the template release workflow is present and tag-triggered"
     (let [yaml (release-workflow-text)]
       (when yaml
-        (is (string/includes? yaml "template-v[0-9]+.[0-9]+.[0-9]+")
-            "release workflow triggers on a template-v… tag push")))))
+        (is (tag-triggered? yaml)
+            "release workflow's on: block triggers on a template-v… tag push")))))
+
+(deftest release-gate-trigger-check-bites-test
+  (testing "with the tag entry gone the trigger check fails, though the header
+            comment still quotes the pattern"
+    (when-let [yaml (release-workflow-text)]
+      (let [untriggered (string/replace
+                          yaml #"(?m)^[ \t]+-[ \t]+[\"']?template-v\[0-9\][^\n]*\n" "")]
+        (is (not= yaml untriggered) "the witness removed the tag entry")
+        (is (string/includes? untriggered "template-v[0-9]+.[0-9]+.[0-9]+")
+            "the header comment still quotes the pattern")
+        (is (not (tag-triggered? untriggered))
+            "the check reads the trigger, not the comment")))))
 
 (deftest release-gate-runs-emitted-app-tier-test
   (testing "the pre-release gate enables + provisions the emitted-app

@@ -357,7 +357,9 @@
 ;;
 ;; `acme/my-app` leaves the two derivation transforms doing only trivial
 ;; work; a dotted group + a multi-dash artefact exercises the dot→slash
-;; and dash→underscore branches and the substituted `{{namespace}}`.
+;; and dash→underscore branches and the substituted `{{namespace}}`. A
+;; git-hosting group (`io.github.acme`) is where `{{top}}` departs from
+;; the qualifier: deps-new keeps only its user.
 ;; `npm-name-test` pins the npm name, which reads only the artefact segment.
 
 (deftest name-derivation-dotted-group-test
@@ -376,6 +378,23 @@
                  (get-in (read-edn (io/file root "shadow-cljs.edn"))
                          [:builds :app :modules :main :init-fn]))
               "shadow-cljs :init-fn names the namespace the nested path backs"))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest name-derivation-git-hosting-group-test
+  (testing "io.github.acme/my-app nests under acme/my_app and names the namespace
+            acme.my-app: deps-new's {{top}} keeps only a git-hosting group's user,
+            while the headings keep the coordinate verbatim"
+    (let [tmp (tmp-dir "rf2-template-git-hosting-name-")]
+      (try
+        (let [root (run-template! tmp "io.github.acme/my-app" :reagent)]
+          (is (= manifest (emitted-files root))
+              "the io.github qualifier contributes only acme to the paths")
+          (is (string/includes? (slurp (io/file root "src/acme/my_app/core.cljs"))
+                                "(ns acme.my-app.core")
+              "the namespace root is acme.my-app")
+          (is (string/includes? (slurp (io/file root "README.md")) "# io.github.acme/my-app")
+              "the README heading is the coordinate verbatim"))
         (finally
           (delete-recursively tmp))))))
 
@@ -401,7 +420,7 @@
     (let [tmp (tmp-dir "rf2-template-npm-name-bad-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-npm-name-invalid"
+                              #"^The artefact segment of :name, \"_private\", is not a valid npm package name.* \[:rf\.error/template-npm-name-invalid\]$"
                               (run-template! tmp "acme/_private" :reagent))
             "a leading underscore is not an npm package name")
         (assert-no-scaffold-emitted! tmp)
@@ -415,12 +434,12 @@
     (let [tmp (tmp-dir "rf2-template-bad-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-substrate-must-be-one-of"
+                              #"^:substrate must be one of #\{.+\} \(got :svelte\) \[:rf\.error/template-substrate-must-be-one-of\]$"
                               (run-template! tmp "acme/my-app" :svelte)))
         ;; The retired :ui and :helix values take the same path as any other
         ;; unknown keyword — no shim, no alias, no deprecation message.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-substrate-must-be-one-of"
+                              #"^:substrate must be one of #\{.+\} \(got :ui\) \[:rf\.error/template-substrate-must-be-one-of\]$"
                               (run-template! tmp "acme/my-app" :ui)))
         (assert-no-scaffold-emitted! tmp)
         (finally
@@ -432,7 +451,7 @@
       (try
         (doseq [raw ["reagent" 'reagent]]
           (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                                #":rf\.error/template-substrate-must-be-keyword"
+                                #"^:substrate must be a keyword \(one of #\{.+\}\)\. Got .+ \[:rf\.error/template-substrate-must-be-keyword\]$"
                                 (run-template! tmp "acme/my-app" raw))
               (str (pr-str raw) " is rejected")))
         (assert-no-scaffold-emitted! tmp)
@@ -449,13 +468,22 @@
                           [:css            :tailwind]]]
       (let [tmp (tmp-dir "rf2-template-unknown-key-")]
         (try
-          (let [e (try (run-template-opts! tmp "acme/my-app" {flag value})
-                       nil
-                       (catch clojure.lang.ExceptionInfo e e))]
-            (is (= [":rf.error/template-unknown-flag" [flag] #{:substrate}]
-                   [(some-> e ex-message) (:unknown (ex-data e)) (:accepted (ex-data e))])
+          (let [e    (try (run-template-opts! tmp "acme/my-app" {flag value})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))
+                data (ex-data e)]
+            (is (= [:rf.error/template-unknown-flag [flag] #{:substrate}]
+                   [(:rf.error/id data) (:unknown data) (:accepted data)])
                 (str flag " is unknown, and the ex-data names :substrate as the only "
-                     "accepted key")))
+                     "accepted key"))
+            (is (= (str (:reason data) " [:rf.error/template-unknown-flag]")
+                   (some-> e ex-message))
+                "the message leads with the reason and trails the error id")
+            ;; `-Tnew` prints the message and never the ex-data. The vector
+            ;; form is the probe because `:substrat` is a substring of the
+            ;; accepted `:substrate` the message also names.
+            (is (some-> e ex-message (string/includes? (pr-str [flag])))
+                (str "the message names " flag " itself")))
           (assert-no-scaffold-emitted! tmp)
           (finally
             (delete-recursively tmp)))))))

@@ -51,6 +51,16 @@
     (is (str/includes? @identity-section v)
         (str "Project identity must show the derived `" v "`"))))
 
+(deftest skill-md-states-the-git-hosting-group-identity
+  ;; deps-new's split of `io.github.acme/my-app` keeps only the user as
+  ;; `:top`. deps-new does not load under Babashka, so the split is a
+  ;; literal here; tools/template's name-derivation-git-hosting-group-test
+  ;; generates the name through deps-new's real pipeline.
+  (let [{:keys [namespace nested-dirs]} (hook-identity {:top "acme" :main "my-app"})]
+    (doseq [v ["io.github.acme/my-app" (str "`" namespace "`") (str "src/" nested-dirs "/")]]
+      (is (str/includes? @identity-section v)
+          (str "Project identity must show the git-hosting derivation `" v "`")))))
+
 (deftest the-token-rename-instruction-is-retired
   (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]]
     (is (not (re-find #"(?i)renam(e|ed)[^.\n]{0,60}consistent" body))
