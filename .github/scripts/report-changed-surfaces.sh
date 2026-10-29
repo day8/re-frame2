@@ -2170,6 +2170,13 @@ else
         # (cf. tools_jvm_machines_viz); at 14s a probe that precision is not
         # worth a new output.
         adapter_diagnostic=true
+        # The setup skill's structural tests load the template's own hooks
+        # (project_identity_test.clj, and setup_drift_test.clj through
+        # first_counter_derivation.clj, which also reads the template's
+        # resources), so a src/ or resources/ change can red skills-structural.
+        case "$file" in
+          tools/template/src/*|tools/template/resources/*) skills_structural=true ;;
+        esac
         ;;
       tools/story/*|tools/xray/*)
         # Story / Xray
@@ -2440,6 +2447,15 @@ else
         tools_jvm=true
         mcp_conformance=true
         mcp_live=true
+        # The pair skill's prompt_regression_test.clj (skills-structural) pins
+        # references/ops.md and the docs' tool count against this server's
+        # generated tool-descriptors.edn, so a server change that moves the
+        # manifest reds that suite. mcp-base is off this edge: a serialiser
+        # change reaches the suite only through a regenerated manifest, which
+        # is a pair-mcp path.
+        case "$file" in
+          tools/re-frame2-pair-mcp/*) skills_structural=true ;;
+        esac
         ;;
       tools/mcp-conformance/*)
         # mcp-conformance is JS test scripts plus the JVM
