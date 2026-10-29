@@ -123,7 +123,7 @@ tools resolve it through the shared `tools.args/resolve-timeout-ms`
 helper so their blocking policy cannot drift.
 
 The deadline covers the SYNCHRONOUS Story work, not just the
-post-return dereference (rf2-j538f7.31). On the JVM `story/run-variant`
+post-return dereference. On the JVM `story/run-variant`
 runs synchronously — a `[:wait ms]` play-step is an inline
 `Thread/sleep` — so it returns an already-settled future; a deadline
 that only fenced the dereference of that settled future would be a lie
@@ -131,11 +131,15 @@ that only fenced the dereference of that settled future would be a lie
 variant would monopolise the single-threaded stdio loop while still
 reporting `:pass`. The lifecycle owner therefore runs the whole
 invoke-and-settle on a bounded worker future and waits at most
-`:timeout-ms`; when the deadline elapses the worker is cancelled
-(interrupting its `Thread/sleep` so the scheduled post-wait continuation
-never fires and the stdio loop is freed at the ceiling) and the call
-returns the canonical `:status :error` run-result — an honest
-bounded-deadline-exceeded outcome, NEVER a false `:pass`.
+`:timeout-ms`; when the deadline elapses the worker is interrupted, the
+stdio loop is freed at the ceiling, and the call returns the canonical
+`:status :error` run-result — an honest bounded-deadline-exceeded
+outcome, NEVER a false `:pass`. An interrupt ends a blocking wait but not
+a CPU-bound handler, so until the abandoned run really ends,
+`run-variant`, `preview-variant` and `read-failures` for that variant
+refuse with `:rf.error :rf.error/story-mcp-run-still-executing`; when it
+ends, its variant frame is destroyed so its late writes reach no later
+call.
 
 `:include-sensitive` is honoured ONLY when the server was started
 with `--allow-sensitive-reads` (rf2-g9fje); when that boot gate is
@@ -610,11 +614,11 @@ Pinned by the end-to-end conformance harness at
 
 `:include-sensitive` follows the same `--allow-sensitive-reads`
 boot gate as `preview-variant` / `run-variant`. Assertion records
-stamped `:sensitive? true` are dropped at egress by default; the
-`:status` aggregate runs against the SCRUBBED vec: it describes only
-the visible records and may be `:pass` even when a sensitive failure
-was omitted. A non-zero `:dropped-sensitive` count reports that
-omission; use `run-variant` for the full run verdict.
+stamped `:sensitive? true` are dropped at egress by default. The
+`:status` aggregate runs over every record BEFORE that drop, so a run
+whose only failures are sensitive still reads `:fail`, as `run-variant`
+does; `:total`, `:failures` and `:assertions` describe the visible
+records, and a non-zero `:dropped-sensitive` count reports the gap.
 
 ## Write tools (gated)
 
