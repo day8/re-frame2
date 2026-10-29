@@ -13,7 +13,7 @@
   (is (= [:err :missing] (args/read-edn-arg "  " :missing :invalid)))
   (is (= :invalid-event-edn
          (:reason (second (args/parse-event-arg #js [":cart/checkout"] "usage")))))
-  (is (= :invalid-cofx (:reason (second (args/parse-cofx-arg #js {:a 1}))))))
+  (is (= :invalid-cofx (:reason (second (args/parse-cofx #js {:a 1}))))))
 
 (defn- args-js
   "A JS args object from a CLJS map — the MCP wire ships string keys."
