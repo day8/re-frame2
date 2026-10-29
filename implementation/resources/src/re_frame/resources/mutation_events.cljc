@@ -23,6 +23,7 @@
             [re-frame.resources.registry :as rf.resources.registry]
             [re-frame.resources.reply :as rf.resources.reply]
             [re-frame.resources.reply-handlers :as rf.resources.reply-handlers]
+            [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.scope-registry :as rf.resources.scope-registry]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.transport :as rf.resources.transport]
@@ -998,7 +999,7 @@
     (maybe-warn-scope-mismatch!
       before-plan {:frame-id frame-id :mutation-id mutation :instance-id instance-id
                    :mut-scope cscope :entries (get-in runtime-db (rf.resources.state/entries-path))})
-    {:rf.db/runtime rdb'
+    {:rf.db/runtime (rf.resources.route/reconcile-readiness rdb')
      ;; fx run in order: the generation commit and handle record establish
      ;; the stale-suppression identity, then a :before-request invalidation,
      ;; and only then the write lowers.
@@ -1062,7 +1063,7 @@
                  {:rf.frame/id frame-id :cleared cleared-ids
                   :aborted (mapv first in-flight)
                   :completed-at time-ms})
-    {:rf.db/runtime rdb'
+    {:rf.db/runtime (rf.resources.route/reconcile-readiness rdb')
      ;; Abort by the frame-qualified request-id; the bare work-id would miss.
      :fx (-> []
              (into (keep (fn [[wid transport]] (rf.resources.work-ledger/abort-fx transport frame-id wid)))
@@ -1312,7 +1313,7 @@
                        {:frame-id frame-id :mutation-id mutation-id
                         :instance-id instance-id :work-id work-id
                         :status (:status reply) :reply-to reply-to})
-        {:rf.db/runtime rdb'
+        {:rf.db/runtime (rf.resources.route/reconcile-readiness rdb')
          ;; The continuation is last, after the invalidation it composes with.
          :fx (cond-> (vec timer-fx)
                (seq supersede-fx)    (into supersede-fx)
@@ -1453,7 +1454,7 @@
                        {:frame-id frame-id :mutation-id mutation-id
                         :instance-id instance-id :work-id work-id
                         :status (:status reply) :reply-to reply-to})
-        {:rf.db/runtime rdb'
+        {:rf.db/runtime (rf.resources.route/reconcile-readiness rdb')
          :fx (cond-> []
                (seq (:recovery-fx rolled)) (into (:recovery-fx rolled))
                inv-fxs (into inv-fxs)
