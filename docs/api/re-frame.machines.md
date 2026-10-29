@@ -301,7 +301,7 @@ The `:spawn-all` block has a separate closed grammar:
 | `:join` | `:all` (default) or `:any`. There is no quorum or predicate form. |
 | `:on-all-complete` | Event vector required for `:all`, dispatched when every child succeeds. |
 | `:on-some-complete` | Event vector required for `:any`, dispatched on the first success. |
-| `:on-any-failed` | Optional event vector that resolves either join immediately on the first failure. Omit it to keep waiting for successes; add a parent deadline if the join could become unsatisfiable. |
+| `:on-any-failed` | Optional event vector that resolves either join immediately on the first failure. An explicit `:rf.machine/destroy` of a running child counts as a failure, with `{:status :cancelled :rf.reply/cancel-reason :explicit}` as its result. Omit it to keep waiting for successes; add a parent deadline if the join could become unsatisfiable. |
 
 Each resolution event appends the logical child `:id` and its result to the
 configured trigger vector. Resolution always cancels remaining children.

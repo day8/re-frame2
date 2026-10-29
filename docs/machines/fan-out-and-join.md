@@ -258,7 +258,7 @@ immediately, even when another child could still succeed.
 | Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
 | `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
 | `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
-| The parent never leaves the state; `:rf.warning/spawn-all-join-unsatisfiable` | a child failed and the block has no `:on-any-failed` | Declare `:on-any-failed`, or give the state an `:after` deadline |
+| The parent never leaves the state; `:rf.warning/spawn-all-join-unsatisfiable` | a child failed, or was destroyed, and the block has no `:on-any-failed` | Declare `:on-any-failed`, or give the state an `:after` deadline |
 | Children torn down or respawned on a progress event | The transition exited their state, targeted a compound that reset its descendants, or set `:reenter? true` | Use a targetless action for progress. A leaf self-target without re-entry also preserves its children |
 ## Advanced
 
@@ -290,9 +290,12 @@ immediately, even when another child could still succeed.
   complete; under `:any`, the join waits once every child has failed. The
   parent stays in the state, and the runtime warns
   `:rf.warning/spawn-all-join-unsatisfiable`. Declare `:on-any-failed`, or
-  give the state an `:after` deadline. Destroying a child yourself counts the
-  same way: it never completes, so the join is stranded and the same warning
-  fires.
+  give the state an `:after` deadline. Destroying a running child yourself
+  counts as that child failing. With `:on-any-failed` the join resolves at
+  once, and the child's result is
+  `{:status :cancelled :rf.reply/cancel-reason :explicit}`. Without it, the
+  join is stranded and the same warning fires. The children the runtime
+  cancels itself, when the join resolves or the state exits, never count.
 - **A child address a live actor already holds rejects the whole invoke**
   (`:rf.error/machine-spawn-all-duplicate-id`). Two parents spawning one
   child type both mint `<type>#1`; the second batch starts nothing rather
