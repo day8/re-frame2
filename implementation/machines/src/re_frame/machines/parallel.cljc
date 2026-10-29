@@ -226,8 +226,20 @@
   `state-path`), and a value naming no state the region declares (or a
   history pseudo-state, or a region the machine does not declare) throws
   `:rf.error/machine-state-not-in-definition` with the region in `ex-data`.
-  A region absent from `state` is not checked: the broadcast skips it."
+  A region absent from `state` is not checked: the broadcast skips it. A
+  `state` that is not a region map at all throws
+  `:rf.error/machine-bad-state-form`."
   [machine state]
+  (when (and (some? state) (not (map? state)))
+    (rf.error/throw-error!
+      :rf.error/machine-bad-state-form
+      'rf/reg-machine
+      (str "Parallel machine `" (:id machine) "` was handed a snapshot whose "
+           ":state is " (pr-str state) ", but a parallel machine's :state is a "
+           "map of region name to that region's state. Check what produced the "
+           "snapshot.")
+      {:recovery :no-recovery
+       :extra    {:state state}}))
   (when (map? state)
     (doseq [[region region-state] state]
       (rf.machines.transition/state-path region-state)

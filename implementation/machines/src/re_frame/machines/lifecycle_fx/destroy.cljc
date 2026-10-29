@@ -55,6 +55,7 @@
   (:require [re-frame.frame :as rf.frame]
             [re-frame.machines.lifecycle-fx.exit-cascade :as rf.machines.lifecycle-fx.exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
+            [re-frame.machines.lifecycle-fx.join :as rf.machines.lifecycle-fx.join]
             [re-frame.machines.lifecycle-fx.resource-release :as rf.machines.lifecycle-fx.resource-release]
             [re-frame.machines.lifecycle-fx.teardown :as rf.machines.lifecycle-fx.teardown]
             [re-frame.machines.lifecycle-fx.traces :as rf.machines.lifecycle-fx.traces]
@@ -480,6 +481,16 @@
             ;; or error row.
             work-generation (or (:work-generation join-child)
                                 (:work-generation child-rt))]
+      ;; An explicit keyword destroy of one join child can strand its join: the
+      ;; tombstone is a cancellation the completion fold never sees. A parent
+      ;; leaving the join state reaches its children through
+      ;; `destroy-spawn-all-children!` instead, where the join is ending anyway.
+      (when (and (nil? invoke-id) (= :explicit reason) (map? (:join-state teardown)))
+        (rf.machines.lifecycle-fx.join/warn-if-cancel-strands-join!
+          frame-id (:parent-id teardown) (:invoke-id teardown)
+          (get-in old-db (rf.machines.paths/snapshot-path (:parent-id teardown)))
+          (:join-state teardown)
+          (update (:join-state teardown) :cancelled (fnil conj #{}) (:child-id teardown))))
       ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
       ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
       ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`

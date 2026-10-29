@@ -2128,10 +2128,43 @@
 ;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine action
 ;; throws.
 
+(defn- action-return-defect
+  "A reason string when an action's return is not nil or an effects map
+  `{:data … :fx [[fx-id args] …]}` (Spec 005 §Action effect map), else nil.
+  `:db` is left to `enforce-db-disallow`. Each slip caught here — the bare
+  `:data` map, a boolean, an `:fx` entry missing its own vector — would
+  otherwise drop the write silently or surface as a host exception that names
+  no slot."
+  [r]
+  (let [extra (when (map? r) (vec (remove #{:data :fx :db} (keys r))))
+        fx    (when (map? r) (:fx r))]
+    (cond
+      (nil? r)
+      nil
+
+      (not (map? r))
+      (str "an action returns nil or an effects map {:data … :fx […]}, but "
+           "this one returned a " (pr-str (type r)))
+
+      (seq extra)
+      (str "an action's effects map takes only :data and :fx, but this one "
+           "carries " (pr-str extra) ". To write :data, return {:data (assoc "
+           "data …)}, not the :data map itself")
+
+      (not (or (nil? fx)
+               (and (sequential? fx) (every? #(or (nil? %) (vector? %)) fx))))
+      (str "an action's :fx is a vector of [fx-id args] entries, e.g. {:fx "
+           "[[:dispatch [:x]]]}; one entry here is not a vector")
+
+      :else
+      nil)))
+
 (defn- run-action
   "Run one action ref and return either a plain effects map (success) or a
-  `rf.machines.result/fail` Result (the action threw). Successful actions may return
-  `nil` (treated as `{}`).
+  `rf.machines.result/fail` Result (the action threw, or returned something
+  other than nil or an effects map — `action-return-defect`, surfaced as
+  `:rf.error/effect-map-shape`). Successful actions may return `nil`
+  (treated as `{}`).
 
   Every user-declared action invocation emits
   `:rf.machine/action-ran` with the action-ref, the canonical input
@@ -2184,6 +2217,11 @@
                       transition-slot (assoc :transition-slot transition-slot))]
       (try
         (let [r (call-action machine f snap event)]
+          (when-let [reason (action-return-defect r)]
+            (throw (machine-error :rf.error/effect-map-shape
+                                  (str "Action " (pr-str action-ref) ": " reason ".")
+                                  {:action-id   action-ref
+                                   :rf/recovery :no-recovery})))
           (rf.trace/emit! :rf.machine :rf.machine/action-ran
                        (assoc base-tags :outcome (if (nil? r) :ok r)))
           (or r {}))
@@ -4053,13 +4091,14 @@
   "Throw unless `entry`, a `:raise` fx entry, is exactly
   `[:raise <event-vec>]`. A raise takes no options: XState's
   `raise(event, {delay, id})` spelling has no counterpart, because a delayed
-  event is an `:after` on a state. An entry carrying anything else throws
-  `:rf.error/machine-bad-raise` rather than dropping the extra elements and
-  raising the event at once. Public so the parallel drain
+  event is an `:after` on a state. An entry carrying anything else — extra
+  elements, or a bare keyword where the event vector goes — throws
+  `:rf.error/machine-bad-raise` rather than dropping the extras or failing as
+  a host exception. Public so the parallel drain
   (`re-frame.machines.parallel`) applies the same check where it harvests
   raises."
   [entry]
-  (when-not (= 2 (count entry))
+  (when-not (and (= 2 (count entry)) (vector? (second entry)))
     (throw (machine-error
              :rf.error/machine-bad-raise
              (str "An action returned the fx entry " (pr-str entry) ", but a "

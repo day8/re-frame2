@@ -278,27 +278,74 @@
   event ever dispatches, the parent rests on the `:spawn-all` state, and
   nothing surfaces the dead join.
 
+  An explicitly destroyed child (`:cancelled`, the tombstone
+  `lifecycle-fx.destroy` writes) never completes either: its carrier is
+  suppressed as a duplicate, so it counts against the join exactly as a
+  failure does.
+
   `max-possible-done` is the largest `:done` count still achievable — the
   current `:done` plus every child not yet decided (every pending child
   optimistically succeeding). The join is unsatisfiable when even that
   ceiling cannot satisfy the condition:
 
-    - `:all`        — any failure makes all-done unreachable.
-    - `:any`        — `max-possible-done < 1` (every child failed).
+    - `:all`        — any failure or cancellation makes all-done unreachable.
+    - `:any`        — `max-possible-done < 1` (every child failed or was
+                      cancelled).
 
   Returns false for a still-satisfiable (or already-resolved) join."
   [spec join-state]
-  (let [join     (:join spec :all)
-        n-total  (count (:children join-state))
-        n-done   (count (:done   join-state))
-        n-failed (count (:failed join-state))
-        n-decided (+ n-done n-failed)
-        n-pending (- n-total n-decided)
+  (let [join        (:join spec :all)
+        n-total     (count (:children join-state))
+        n-done      (count (:done      join-state))
+        n-lost      (count (into (set (:failed join-state)) (:cancelled join-state)))
+        n-pending   (- n-total n-done n-lost)
         max-possible-done (+ n-done n-pending)]
     ;; Registration refuses any other `:join`.
     (case join
-      :all (pos? n-failed)
+      :all (pos? n-lost)
       :any (< max-possible-done 1))))
+
+(defn- emit-join-unsatisfiable!
+  "The one-shot `:rf.warning/spawn-all-join-unsatisfiable` advisory for the
+  join at `[parent-id invoke-id]`, whose state `join-state` just became
+  unsatisfiable. Advisory severity: the request is not recovered, but the
+  actor is not crashed — a config footgun nudge, the dev-advisory family (the
+  cofx lints), not an operation-recovery emit."
+  [frame-id parent-id invoke-id spec join-state]
+  (rf.trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
+                  {:actor-id  parent-id
+                   :invoke-id invoke-id
+                   :join      (:join spec :all)
+                   :done      (:done      join-state)
+                   :failed    (:failed    join-state)
+                   :cancelled (:cancelled join-state)
+                   :total     (count (:children join-state))
+                   :frame     frame-id
+                   :recovery  :join-hangs
+                   :reason    (str "A :spawn-all join can no longer be "
+                                   "satisfied — too many children have failed "
+                                   "or been destroyed — so it will hang forever. "
+                                   "Declare :on-any-failed to handle child "
+                                   "failures; a destroyed child never completes, "
+                                   "so leave the :spawn-all state to end the join.")}))
+
+(defn warn-if-cancel-strands-join!
+  "Emit the unsatisfiable-join advisory when an explicit teardown of one join
+  child — the `:cancelled` tombstone taking `before` to `after` — FIRST makes
+  the unresolved join at `[parent-id invoke-id]` unsatisfiable. A
+  cancellation never reaches the completion fold, so the fold's own check
+  cannot see it. `parent-snapshot` names the parent's machine when it is a
+  spawned actor; the join's configuration comes from the parent's CURRENT
+  definition, as the fold reads it."
+  [frame-id parent-id invoke-id parent-snapshot before after]
+  (let [spec (rf.machines.lifecycle-fx.resolver/spawn-all-spec-at
+               (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot parent-id parent-snapshot)
+               invoke-id)]
+    (when (and (not (:resolved? after))
+               (join-unsatisfiable? spec after)
+               (not (join-unsatisfiable? spec before)))
+      (emit-join-unsatisfiable! frame-id parent-id invoke-id spec after))
+    nil))
 
 (defn- compute-resolution
   "Pure. Given the post-bump `join-state'`, the join spec, and the
@@ -856,35 +903,15 @@
                        :failed (update join-state :failed (fnil conj #{}) child-id))
         resolution   (compute-resolution spec join-state' kind)
         join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
-    ;; Surface a join that just became UNSATISFIABLE.
-    ;; When a child FAILS and the spec has no `:on-any-failed`, the
-    ;; failure folds into `:failed` without resolving; once enough
-    ;; children have failed that the success condition is unreachable
-    ;; the join hangs forever, silently. Emit a one-shot advisory on
-    ;; the fold that FIRST makes the join unsatisfiable (it was
-    ;; satisfiable before this fold, and this fold did not resolve) so
-    ;; the operator sees the dead join + the likely fix (declare
-    ;; `:on-any-failed`). Advisory severity: the request is not
-    ;; recovered, but the actor is not crashed — this is a config
-    ;; footgun nudge, the dev-advisory family (the cofx lints), not an
-    ;; operation-recovery emit.
+    ;; Surface a join that just became UNSATISFIABLE: once enough children
+    ;; have failed that the success condition is unreachable and no
+    ;; `:on-any-failed` resolves it, the join hangs forever, silently. The
+    ;; advisory fires on the fold that FIRST makes the join unsatisfiable (it
+    ;; was satisfiable before this fold, and this fold did not resolve).
     (when (and (not (:resolved? resolution))
                (join-unsatisfiable? spec join-state')
                (not (join-unsatisfiable? spec join-state)))
-      (rf.trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
-                   {:actor-id  parent-id
-                    :invoke-id invoke-id
-                    :join      (:join spec :all)
-                    :done      (:done   join-state')
-                    :failed    (:failed join-state')
-                    :total     (count (:children join-state'))
-                    :frame     frame-id
-                    :recovery  :join-hangs
-                    :reason    (str "A :spawn-all join can no longer be "
-                                    "satisfied — too many children have failed "
-                                    "and no :on-any-failed transition is declared, "
-                                    "so the join will hang forever. Declare "
-                                    ":on-any-failed to handle child failures.")}))
+      (emit-join-unsatisfiable! frame-id parent-id invoke-id spec join-state'))
     ;; ONE terminal authority per child: a DECISIVE fold's
     ;; terminal rides the resolution trace; a NON-DECISIVE fold publishes
     ;; its canonical terminal HERE, at first valid fold — never both.
