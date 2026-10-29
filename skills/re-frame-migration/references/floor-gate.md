@@ -4,6 +4,16 @@ The Phase-0b pre-flight, in operational detail: the six React-19 / Reagent-2 che
 
 ---
 
+## Contents
+
+- The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
+- Check 1 — Downstream React-lib compatibility audit
+- Check 2 — Component / substrate-library check (the go/no-go BLOCKER)
+- Check 3 — Legacy React-API and raw-HTML scan
+- Check 4 — CLJS / shadow-cljs / Closure-compiler toolchain-skew check (hits almost every older shadow-cljs app)
+- Check 5 — Runtime-host floor: the CI test-runner browser and every supported host
+- Check 6 — Explicit go / no-go
+
 ## The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 
 > **This is a go/no-go gate, not a footnote.** Run all six checks below *before* you touch any dep coord. For a codebase already on React 19 *and* a current build toolchain it is a fast pass — read the checks, confirm each, move on. For the rest of the v1 population (overwhelmingly React 17/18 + Reagent 1.x, often on a years-old shadow-cljs) this gate is the single largest and riskiest part of the whole migration, and the blocking cases — the component-library blocker (Check 2) and the toolchain-skew compile failure (Check 4) — must be discovered here, not deep inside a failed compile loop after the coord swap.

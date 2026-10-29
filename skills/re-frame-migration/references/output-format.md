@@ -2,6 +2,15 @@
 
 The migration summary format. The shape from [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Output format for your report" is the source of truth; this leaf adds the lines this skill's pins, decisions and done-bar gates need, with two filled-in examples, so the summary stays consistent across migrations.
 
+## Contents
+
+- The format
+- Discipline
+- Worked example A — nothing left flagged
+- Worked example B — Type B rules and a flagged test
+- When the output exceeds 300 words
+- What the summary is for
+
 ## The format
 
 ```markdown

@@ -4,6 +4,15 @@
 
 This leaf is the **procedure half** of Phase 4 — Verify (SKILL.md). The **reference half** — the silent-failure modes this loop hunts, and why a compile cannot see them — is the sibling leaf [`silent-runtime-failures.md`](silent-runtime-failures.md).
 
+## Contents
+
+- The boot smoke-test phase — live introspection, not just "it loads"
+- The done-bar is more than the local dev build
+  - Required to finish is not required to run
+  - The test suite is a THIRD gate the compiler and boot-smoke both miss
+  - CI green on a clean checkout is the real done-signal
+- The dev compile is NOT the optimized compile — the fourth done-bar gate
+
 ## The boot smoke-test phase — live introspection, not just "it loads"
 
 A migrated app needs a **runtime smoke-test** as a distinct verification step, separate from "the compile passed" and "the unit tests pass." The unit suite re-baselines counts (M-12) and exercises handlers in isolation; it does **not** prove the *assembled, booted* app wires up. The boot smoke-test does.

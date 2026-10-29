@@ -6,6 +6,12 @@ This is the **canonical migration recipe** for the Form-3 routes and the capture
 
 ---
 
+## Contents
+
+- M-11 — Ambient frame reads in callbacks that run after the render
+- Executing the conversion: views from defn to reg-view
+- The async listener timer and error-handler class
+
 ## M-11 — Ambient frame reads in callbacks that run after the render
 
 **What already works.** While a view renders, its ambient `subscribe` / `dispatch` resolve the frame from the component tree — the closest enclosing `frame-provider` (SCOPE) or `frame-root` (ENSURE) — for a `reg-view` and a plain `(defn …)` Reagent fn alike, and the provider wins over any `with-frame` around the render. A subscribing plain fn under the app's root boundary needs no conversion.

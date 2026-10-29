@@ -6,6 +6,19 @@ When is it big enough? When the [Phase-0a inventory](inventory-and-plan.md) come
 
 It does not replace the phases — it **schedules** them. You still run Phase 0a/0b first (the inventory and the floor gate are inherently up-front and single-threaded), you still cite a rule id per rewrite, and you still finish with the Phase-4 boot smoke-test. What changes is the middle: the Phase-3 sweep becomes a planned set of disjoint worker-units instead of one agent marching the wall.
 
+## Contents
+
+- Gate the fan-out on inventory completeness
+  - Worker expect-and-report — the residual-leak backstop
+- Wave 0.5 — the mechanical global pre-pass
+- 1. One-file-one-owner — the collision-free partition
+- 2. The Wave-0 id-contract — coordinate without sharing files
+- 3. Retargeting a producer — the event's owner adds the addressed dispatch
+- 4. Wave sequencing — the contract freezes first, every unit references it
+- 5. The all-or-nothing single compile gate
+  - Seeing past the first missing namespace
+- How it composes with the cardinal rules
+
 ## Gate the fan-out on inventory completeness
 
 The entire fan-out is *derived* from the Phase-0a inventory — the partition (§1), the id-contract (§2), and the waves (§4) all read off the `file → rules` map it produced. That makes the inventory a **single point of failure**: a file or rule the inventory missed simply falls **outside the partition** — no unit owns it, no worker rewrites it, and because the partition forbids any worker from reaching into a file it doesn't own, nothing inside the fan-out ever picks it up. **The partition inherits the inventory's blind spots.**

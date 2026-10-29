@@ -2,6 +2,16 @@
 
 Phase 0a — the **inventory-and-plan pre-flight**. Run it **before** any dep edit, before the first compile attempt, before the React-19 floor gate (Phase 0b) and M-0 (Phase 2). It is read-only: it reads the dependency tree and source and searches with `rg`, and it rewrites nothing. The one build it may run is a report on the unmodified v1 build, which leaves the project's own build output untouched (Step 2). The output is a single written table: every v1 re-frame add-on library and every v1 re-frame feature the app uses, each mapped to its disposition + the rule(s) that govern it + whether acting is forced or optional. The migrator then acts in **one planned sweep** instead of marching the wall.
 
+## Contents
+
+- Why a complete inventory comes first
+- Step 1 — Inventory the v1 add-on libraries on the classpath
+- Step 2 — Scan each add-on's SOURCE for v2-broken surfaces
+- Step 3 — Inventory the app's own v1 re-frame features
+- Step 4 — Produce the per-item migration plan
+- Step 5 — The per-rule completeness gate
+- What the plan unblocks
+
 ## Why a complete inventory comes first
 
 re-frame2 removes and moves surfaces that v1 add-on libraries and v1 app code reach into. A compile reaches those breakages **one namespace at a time** — so a "swap the coord, compile, fix the first error, recompile, fix the next" loop turns into whack-a-mole, because the breakages live in **dependency source** (add-on jars, git/source deps, vendored code) the compiler only loads as it walks the require graph: each fix unblocks the compiler to reach the *next* broken namespace, which you had no warning about. The same wall returns mid-sweep in the app's own half-converted tree, where [`orchestrating-a-large-migration.md` §Seeing past the first missing namespace](orchestrating-a-large-migration.md#seeing-past-the-first-missing-namespace) lists the instruments that see past it.

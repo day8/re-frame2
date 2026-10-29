@@ -92,12 +92,12 @@ Xray also depends (transitively, via `day8/re-frame2-machines-viz`) on **two npm
 (then `elkjs/lib/elk.bundled.js` next). This is a **LOUD-fail** (it stops the compile, so it is at least self-revealing) — but install the packages up front to save a failed-build / restart cycle:
 
 ```bash
-# In the target project's npm root (where package.json lives).
-# The versions re-frame2's implementation/package-lock.json resolves.
-npm install --save-dev @xyflow/react@12.4.2 elkjs@0.11.1
+# In the target project's npm root (where package.json lives). Each <version>
+# is the one <path-to-re-frame2>/implementation/package-lock.json resolves.
+npm install --save-dev @xyflow/react@<version> elkjs@<version>
 ```
 
-Take the versions from the re-frame2 checkout, because Xray ships no npm manifest of its own: the two packages are machines-viz's, and neither tool declares them (no `package.json`, no `deps.cljs` `:npm-deps`), so shadow-cljs will not install them for you. The checkout's `implementation/package.json` lists both, but some entries there are ranges (`elkjs` is `^0.11.1`), so for an exact or save-exact pin use the version **`<path-to-re-frame2>/implementation/package-lock.json` resolves** — its `node_modules/@xyflow/react` and `node_modules/elkjs` entries, the versions re-frame2 builds and tests against. Read them there rather than trusting the literals above (at this writing `@xyflow/react 12.4.2`, `elkjs 0.11.1`). They are dev-only (the Machine inspector is dev-only chrome) and elide with the rest of Xray in production builds. If the project's shadow-cljs build is `:js-options {:resolve ...}`-customised or uses a non-default `node_modules` location, install into whichever root that build resolves from.
+Take the versions from the re-frame2 checkout, because Xray ships no npm manifest of its own: the two packages are machines-viz's, and neither tool declares them (no `package.json`, no `deps.cljs` `:npm-deps`), so shadow-cljs will not install them for you. The checkout's `implementation/package.json` lists both, but some entries there are caret ranges, so for an exact or save-exact pin use the version **`<path-to-re-frame2>/implementation/package-lock.json` resolves** — its `node_modules/@xyflow/react` and `node_modules/elkjs` entries, the versions re-frame2 builds and tests against. They are dev-only (the Machine inspector is dev-only chrome) and elide with the rest of Xray in production builds. If the project's shadow-cljs build is `:js-options {:resolve ...}`-customised or uses a non-default `node_modules` location, install into whichever root that build resolves from.
 
 ### 3. Wire the preload
 

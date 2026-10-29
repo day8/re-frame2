@@ -2,6 +2,24 @@
 
 The order to walk the migration rules, set by the dependencies between them rather than by [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)'s rule numbering, and how a partial migration resumes from it.
 
+## Contents
+
+- Top-level shape
+- The first compile
+- When failures land — the sweep order
+  - Group 1 — Coord and private namespaces (foundation)
+  - Group 2 — Macro / value-form / shape rewrites (compile-level)
+  - Group 3 — Effect map / dispatch shape (compile-or-warning)
+  - Group 4 — Reserved-namespace renames (mechanical)
+  - Group 5 — Interceptors and registration metadata
+  - Group 6 — Run-to-completion / cache / counts (behaviour)
+  - Group 7 — Private-state / lifecycle / handler dropouts
+  - Group 8 — Per-feature artefact splits (dep-only adds; pair with the feature-trigger rules)
+  - Group 9 — Conditional / opt-trigger rules
+- When to pause for human review
+- Resuming a partial migration
+- Verification is the skill's loop
+
 ## Top-level shape
 
 ```
