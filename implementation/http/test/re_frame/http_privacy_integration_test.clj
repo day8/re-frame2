@@ -271,7 +271,18 @@
                                          :on-failure [:test/ok]})
                              :rf.http/accept-failure)]
     (is (= :classify (get-in ev [:tags :rf.http/off-box-body])))
-    (is (= {:token :rf/redacted :status "rejected"} (get-in ev [:tags :decoded])))))
+    (is (= {:token :rf/redacted :status "rejected"} (get-in ev [:tags :decoded])))
+    (is (= {:token "bearer-secret" :status "rejected"} (get-in (delivered-reply) [:error :decoded]))
+        "the classification projects the trace; the app receives the raw body")))
+
+(deftest accept-failure-replied-row-classifies-decoded
+  (let [[ev] (managed-trace! (respond 200 "application/json" "{\"token\":\"bearer-secret\",\"status\":\"rejected\"}")
+                             (fn [base] {:request  {:url (str base "/login")}
+                                         :decode   [:map [:token {:sensitive? true} :string] [:status :string]]
+                                         :accept   (fn [_] {:failure {:reason :domain-rejected}})
+                                         :reply-to [:test/ok]})
+                             :rf.http/replied)]
+    (is (= {:token :rf/redacted :status "rejected"} (get-in ev [:tags :error :decoded])))))
 
 ;; ---- a success value an `:accept` reshaped ----------------------------------
 

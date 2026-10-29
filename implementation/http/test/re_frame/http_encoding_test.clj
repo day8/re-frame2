@@ -80,8 +80,9 @@
     :ok                       false))
 
 (deftest normalize-header-pairs-repeats-the-name-per-value
-  (testing "values are stringified; a sequential value yields one pair per element; an empty one yields none"
+  (testing "values are stringified; a keyword name is sent as its name; a sequential value yields one pair per element; an empty one yields none"
     (are [headers pairs] (= pairs (rf.http.encoding/normalize-header-pairs headers))
       {"X-Count" 42}                       [["X-Count" "42"]]
       {"X-Tag" [1 2]}                      [["X-Tag" "1"] ["X-Tag" "2"]]
-      {"X-Empty" [] "Accept" "text/plain"} [["Accept" "text/plain"]])))
+      {"X-Empty" [] "Accept" "text/plain"} [["Accept" "text/plain"]]
+      {:authorization "Bearer T"}          [["authorization" "Bearer T"]])))

@@ -368,6 +368,21 @@
   [tags sensitive? carriers]
   (first (redact-request-tags-with-flag tags sensitive? carriers)))
 
+(defn- redact-quoted-urls
+  "`message` with each verbatim quote of a raw url replaced by its redacted
+  form, pairing `raw-urls` with `redacted-urls` by position. A host's
+  free-text failure message often quotes the url it could not use."
+  [message raw-urls redacted-urls]
+  (reduce (fn [m [raw redacted]]
+            (if (and (string? raw) (string? redacted) (not= raw redacted))
+              ;; A function replacement keeps CLJS from reading a `$` in the
+              ;; redacted url as a replacement pattern.
+              #?(:clj  (str/replace m raw redacted)
+                 :cljs (str/replace m raw (constantly redacted)))
+              m))
+          message
+          (map vector raw-urls redacted-urls)))
+
 (defn redact-failure-with-flag
   "Like `redact-failure` but returns `[failure url-redacted?]` so callers
   (`prepare-emit-failure`, `prepare-emit-tags`) can decide whether to
@@ -376,8 +391,17 @@
   `carriers` is the registration-owned carrier extension map, or `nil`."
   [failure sensitive? carriers]
   (when failure
-    (let [[failure url-hit?] (redact-url-in failure sensitive? (:query-params carriers))
+    (let [raw-urls           [(:url failure) (get-in failure [:request :url])]
+          [failure url-hit?] (redact-url-in failure sensitive? (:query-params carriers))
           failure' (cond-> failure
+                     ;; Each verbatim quote of the url in a free-text
+                     ;; `:message` (the JVM relative-URL refusal, the JDK `URI`
+                     ;; parser, the stub's no-route message) takes the redacted
+                     ;; form its own slot carries.
+                     (string? (:message failure))
+                     (update :message redact-quoted-urls raw-urls
+                             [(:url failure) (get-in failure [:request :url])])
+
                      (map? (:headers failure))
                      (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
 
@@ -408,6 +432,12 @@
                      (and sensitive? (string? (:cause failure)))
                      (assoc :cause redacted-sentinel)
 
+                     ;; A string `:message` is the host's free text for a
+                     ;; failure, and can quote what it was handling just as a
+                     ;; `:cause` can.
+                     (and sensitive? (string? (:message failure)))
+                     (assoc :message redacted-sentinel)
+
                      ;; A bad-return diagnostic's `:returned` is whatever an
                      ;; interceptor handed back instead of a map — author-
                      ;; controlled, and typically a slice of the request or
@@ -424,7 +454,8 @@
   a `:rf.http/*` trace event, redact response-side payload slots when
   `sensitive?` is true. Always redacts headers via the denylist; always
   redacts URL query-string values whose param name is in the query-
-  param denylist — denylisted param names are the signal.
+  param denylist, in the `:url` slots and in a string `:message` quoting
+  one — denylisted param names are the signal.
 
   Public for direct test assertion; most production emit sites
   reach redaction via `prepare-emit-failure` (which uses the `*-with-flag`
@@ -481,7 +512,8 @@
   per the spec contract.
 
   When `sensitive?` is false the slot is OMITTED (not stamped to false)
-  per Spec 009 line 1176: \"Consumers treat absent as false.\"
+  per Spec 014 §Trace-event redaction + stamping rules (rule 6): consumers
+  treat absent as false.
 
   Public for direct test assertion + composer reuse;
   production reaches it through the `prepare-emit-*` composers."

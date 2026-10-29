@@ -275,7 +275,7 @@
 ;; Actor-destroy obsolescence (Managed-Effects §Cancellation —
 ;; "`:status :cancelled` when the actor-bound target is still meaningful,
 ;; `:status :stale`/`:suppressed` when teardown made the target obsolete
-;; before delivery"; EP-0011 §Status taxonomy line 763-768). An
+;; before delivery"; EP-0011 §Status Taxonomy). An
 ;; actor-destroy abort whose reply target ADDRESSES THE DESTROYED ACTOR ITSELF
 ;; (the machine-shape wrapper's `[self-id [:rf.http/failed]]` default, or any
 ;; request whose origin / explicit target names the actor under teardown) has
