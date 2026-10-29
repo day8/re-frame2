@@ -355,7 +355,9 @@
   The pass proposes; the install publishes. When the memo changes the result
   carries `:publish!`, a thunk the router calls once the candidate has
   installed. A throw, a rejected candidate or an aborted event never
-  publishes, so there is nothing to undo."
+  publishes, so there is nothing to undo. Publishing first retains the memo
+  the event started from for its epoch record
+  (`rf.flows.registry/memo-definitions`)."
   [frame-id db runtime-db]
   (let [ids   (:flows (rf.frame/frame-config frame-id))
         prior (rf.flows.registry/frame-last-inputs-snapshot frame-id)]
@@ -381,7 +383,11 @@
               order)]
         (cond-> {:db db}
           (not (identical? rows prior))
-          (assoc :publish! #(rf.flows.registry/publish-memo! frame-id rows)))))))
+          (assoc :publish! (fn []
+                             (when rf.interop/debug-enabled?
+                               (rf.flows.registry/retain-snapshot-memo!
+                                 frame-id rf.frame/*run-frame-state-before* prior))
+                             (rf.flows.registry/publish-memo! frame-id rows))))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;
@@ -394,6 +400,10 @@
 (rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
 (rf.late-bind/set-fn! :flows/output-classification output-classification)
+;; An epoch record keeps the memo its snapshots were computed under, and a
+;; restore re-seeds it. Spec 013 §Re-registration.
+(rf.late-bind/set-fn! :flows/memo-definitions   rf.flows.registry/memo-definitions)
+(rf.late-bind/set-fn! :flows/reseed-memo!       rf.flows.registry/reseed-memo!)
 ;; Frame destruction drops the frame's memo: the flow definitions are registrar
 ;; rows a destroy leaves alone, so the memo is the whole teardown. Spec 002 §Lifecycle contributions.
 (rf.frame/contribute-lifecycle!

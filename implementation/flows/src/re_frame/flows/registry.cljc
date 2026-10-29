@@ -72,6 +72,59 @@
   (reset! (ensure-frame-memo-atom! frame-id) rows)
   nil)
 
+;; ---- the memo an epoch record keeps ---------------------------------------
+;;
+;; An epoch record keeps the definitions its two snapshots' memos held, so a
+;; restore re-seeds the memo the restored frame-state was computed under: the
+;; next pass vacates the output of a flow that has since left or moved, and the
+;; output stays classified until it does. An event publishes its memo before its
+;; record is assembled, so the memo it started from is retained beside the
+;; snapshot it describes. Spec 013 §Re-registration.
+
+(defonce
+  ^{:doc     "frame-id → [frame-state rows]: the memo each frame's latest
+  publishing event started from, beside that event's before snapshot."
+    :private true}
+  snapshot-memos
+  (atom {}))
+
+(defn ^:no-doc retain-snapshot-memo!
+  "Keep `rows` as the memo `frame-state`, the snapshot frame `frame-id`'s
+  in-flight event started from, was computed under. The first retention for a
+  snapshot wins, because it precedes every publish the event makes."
+  [frame-id frame-state rows]
+  (when (and (some? frame-state)
+             (not (identical? frame-state (first (get @snapshot-memos frame-id)))))
+    (swap! snapshot-memos assoc frame-id [frame-state rows]))
+  nil)
+
+(defn- definitions
+  "`{flow-id definition}` of memo `rows`."
+  [rows]
+  (into {} (keep (fn [[id row]] (when-let [flow (:flow row)] [id flow]))) rows))
+
+(defn ^:no-doc memo-definitions
+  "The `:flows/memo-definitions` hook: `{:before {flow-id definition} :after
+  {flow-id definition}}` for the epoch record of frame `frame-id` whose before
+  snapshot is `frame-state-before`. `:after` is the current memo's; `:before`
+  is the one retained beside that snapshot when the event published over it,
+  and otherwise the current one, because an event that publishes nothing
+  leaves the memo as it started."
+  [frame-id frame-state-before]
+  (let [now          (frame-last-inputs-snapshot frame-id)
+        [state then] (get @snapshot-memos frame-id)]
+    {:before (definitions (if (and (some? state) (identical? state frame-state-before)) then now))
+     :after  (definitions now)}))
+
+(defn ^:no-doc reseed-memo!
+  "The `:flows/reseed-memo!` hook: make frame `frame-id`'s memo one row per
+  entry of `definitions`, `{flow-id definition}`, carrying no inputs. The next
+  pass therefore recomputes every flow the frame runs, and vacates the output
+  of each row whose flow has left or moved; `output-classification` reads the
+  rows, so those outputs stay classified until then."
+  [frame-id definitions]
+  (publish-memo! frame-id (into {} (map (fn [[id flow]] [id {:flow flow}])) definitions)))
+
 (defn ^:no-doc last-inputs-snapshot
   "Return the cached inputs as `{flow-id {frame-id inputs}}`.
 
@@ -449,19 +502,23 @@
 ;; ---- frame-destroy teardown ---------------------------------------------
 
 (defn teardown-on-frame-destroy!
-  "Drop the destroyed frame's evaluation memo. Definitions live in the
-  registrar, so nothing else is frame-owned. Idempotent."
+  "Drop the destroyed frame's evaluation memo and the memo retained for its
+  epoch record. Definitions live in the registrar, so nothing else is
+  frame-owned. Idempotent."
   [frame-id]
   (when frame-id
-    (swap! frame-memo dissoc frame-id))
+    (swap! frame-memo dissoc frame-id)
+    (swap! snapshot-memos dissoc frame-id))
   nil)
 
 ;; ---- test-only resets ----------------------------------------------------
 
 (defn reset-flows!
-  "Test-only: drop every frame's evaluation memo — the `:flows/reset-flows!`
+  "Test-only: drop every frame's evaluation memo, and every memo retained for
+  an epoch record — the `:flows/reset-flows!`
   hook the runtime-reset fixture fires. Registrations are the registrar's,
   which the fixture snapshots and restores."
   []
   (reset! frame-memo {})
+  (reset! snapshot-memos {})
   nil)

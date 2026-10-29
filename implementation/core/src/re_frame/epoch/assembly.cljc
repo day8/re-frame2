@@ -230,6 +230,24 @@
 
 ;; ---- record assembly ------------------------------------------------------
 
+(defn- with-flow-definitions
+  "`record` carrying, in metadata, the flow definitions frame `frame-id`'s flow
+  memo held for each of its two snapshots (`:flows/memo-definitions`), so a
+  restore re-seeds the memo the restored frame-state was computed under. Like
+  the recorded policy, it rides in metadata and never egresses. Without the
+  flows artefact the record carries none."
+  [record frame-id frame-state-before]
+  (if-let [memo-definitions (rf.late-bind/get-fn :flows/memo-definitions)]
+    (vary-meta record assoc ::flow-definitions
+               (memo-definitions frame-id frame-state-before))
+    record))
+
+(defn ^:no-doc flow-definitions
+  "The `{flow-id definition}` the flow memo held for `record`'s snapshot in
+  direction `to` (`:before` / `:after`), or nil when it carries none."
+  [record to]
+  (get (::flow-definitions (meta record)) to))
+
 (defn build-record
   "Assemble a `:rf/epoch-record`. `committed-at` is the record's durable
   causal time: the committing token's `:rf/time-ms`, threaded from the
@@ -392,4 +410,7 @@
        ;; live policy (Spec 015 §Retained values keep their recorded
        ;; classification).
        :always (rf.elision/record-policy
-                 (rf.elision/record-policy-for frame-id frame-state-before))))))
+                 (rf.elision/record-policy-for frame-id frame-state-before))
+       ;; The flow definitions each snapshot was computed under, for a
+       ;; restore to re-seed (Spec 013 §Re-registration).
+       :always (with-flow-definitions frame-id frame-state-before)))))
