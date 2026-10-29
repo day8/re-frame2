@@ -53,6 +53,7 @@
     :rf.error/reg-event-fx-removed
     :rf.error/reg-event-ctx-removed
     :rf.error/machine-spawn-unregistered-type
+    :rf.error/machine-spawn-all-duplicate-id
     :rf.error/drain-depth-exceeded
     :rf.error/reprojection-failed
     :rf.error/redirect-invalid-url
