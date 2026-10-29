@@ -398,8 +398,8 @@
                    (println "[re-frame2]" line)
                    (flush))
            :cljs (when (and (exists? js/console)
-                            (fn? (.-error js/console)))
-                   (.error js/console "[re-frame2]" line))))
+                            (fn? (.-warn js/console)))
+                   (.warn js/console "[re-frame2]" line))))
       (catch #?(:clj Throwable :cljs :default) _ nil))
     nil))
 
