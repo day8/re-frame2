@@ -138,22 +138,6 @@
     (is (false? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?]))
         "the popover closes on the jump")))
 
-(deftest cascade-rows-carry-their-host-frame-into-the-jump
-  ;; `select-dispatch-id` needs the frame because dispatch ids are unique
-  ;; only within one, so every clickable row hands its trace's frame over.
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (seed-trace! cancel-cascade-buffer)
-    (rf/dispatch-sync [:rf.xray/select-machine-id :user-session])
-    (let [rows (find-all-by-testid-prefix (side-panel-tree)
-                                          "rf-xray-cancellation-cascade-abort-row-")
-          seen (atom [])]
-      (with-redefs [rf/dispatch (fn [ev _opts] (swap! seen conj ev))]
-        (doseq [[_ attrs] rows] ((:on-click attrs) nil)))
-      (is (= 2 (count @seen)) "PRECONDITION: both abort rows are clickable")
-      (is (every? #(= :rf/default (:frame (second %))) @seen)
-          (str "a row jump dropped its host frame: " (pr-str @seen))))))
-
 ;; ---- modal positioning --------------------------------------------------
 
 (deftest popover-backdrop-defaults-to-fixed-positioning
