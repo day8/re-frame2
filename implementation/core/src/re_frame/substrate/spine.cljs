@@ -2251,19 +2251,24 @@
   prop, `React.Children.only`), and an unkeyed trailing child moves whenever
   the child count changes, remounting the sentinel and emitting a false
   `:rf.view/unmounted`. In the Fragment the sentinel always sits second, so
-  it mounts once per view instance — a view rendering nil or a string
-  included, since that is a mounted instance too.
+  it mounts once per view instance.
+
+  Output that is not a React element (nil, a string, hiccup handed to a
+  substrate that converts it) passes through unchanged: it has no root to
+  pair, and a caller may read it as the value the view returned.
 
   On a headless direct invocation of the wrapped fn this merely builds
   element objects whose sentinel hooks never run."
   [unmount-sentinel id frame-id annotated]
-  (React/createElement
-    (.-Fragment React) nil
+  (if (nil? (some-> ^js annotated .-type))
     annotated
-    (React/createElement unmount-sentinel
-                         #js {:viewId    id
-                              :frame     frame-id
-                              :renderKey (reading-render-key)})))
+    (React/createElement
+      (.-Fragment React) nil
+      annotated
+      (React/createElement unmount-sentinel
+                           #js {:viewId    id
+                                :frame     frame-id
+                                :renderKey (reading-render-key)}))))
 
 (defn make-wrap-view
   "Return a `wrap-view` fn. The

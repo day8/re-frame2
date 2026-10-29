@@ -349,7 +349,6 @@
                [(.-type out) (.-key out) (string? (source-coord out))]))))))
 
 ;; ===========================================================================
-;; ===========================================================================
 ;; unmount sentinel — wrap-view pairs the user's root with the sentinel in a
 ;; Fragment and never touches the root's children. A child appended to the
 ;; root would be refused by a void element and by a root carrying
@@ -392,10 +391,7 @@
                        (fn [root] (is (= "only" (.. root -props -children))))]
                       ["root component owning its children"
                        #(React/createElement owner nil "fn-child")
-                       (fn [root] (is (= "fn-child" (.. root -props -children))))]
-                      ["nil output"
-                       (constantly nil)
-                       (fn [root] (is (nil? root)))]]]
+                       (fn [root] (is (= "fn-child" (.. root -props -children))))]]]
       (doseq [[i [label user-fn check]] (map-indexed vector cases)]
         (testing label
           (let [id  (mint-kw substrate-kw (str "sentinel-case-" i))
@@ -406,8 +402,13 @@
             (is (= 2 (count kids)))
             (is (= id (some-> ^js sentinel .-props .-viewId))
                 "the second child is this view's unmount sentinel")
-            (check root)))))))
+            (check root))))
+      (testing "output that is not an element passes through unchanged"
+        (let [id (mint-kw substrate-kw "sentinel-non-element")]
+          (rf/reg-view* id (constantly nil))
+          (is (nil? ((rf/view id)))))))))
 
+;; ===========================================================================
 ;; frame-context corrupted `_currentValue` (Spec 009 §Error contract)
 ;; ===========================================================================
 
