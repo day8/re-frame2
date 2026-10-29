@@ -361,7 +361,7 @@
   `:frame-state-before` with `opts` `{:to :before}` — the WHOLE
   frame-state, reinstalling app-db AND runtime-db as two separate
   partitions in one atomic write (reviving machine snapshots, the route
-  slice, elision declarations, and SSR metadata, not just the app-db
+  slice, resource and mutation state, and SSR metadata, not just the app-db
   partition). Those two snapshots are the only restore sources — every
   record `build-record` emits carries both; the retained `:db-after` is an
   OPTIONAL app-db projection for tool diffs, never a restore source. Emits

@@ -1972,8 +1972,8 @@
   resolved frame keyword and a children value, returns the shared frame
   Context Provider React element scoping that frame to its subtree —
   inside the subtree, `(rf/capture-frame)` / `reg-view`-registered
-  descendants resolve to the named frame. Per Spec 002 §What
-  `frame-provider` is (CLJS reference).
+  descendants resolve to the named frame. Per Spec 002
+  §`frame-provider` — the SCOPE-only component (CLJS reference).
 
   Frame-resolution: `frame-kw` is REQUIRED (EP-0002 carried invariant).
   There is NO `(or frame-kw :rf/default)` floor — per Spec 002 §Frame
@@ -2001,7 +2001,7 @@
   This fn touches NO substrate prop-marshalling: the native component
   shell in each adapter has already read its props in the substrate's
   idiom and hands this core a clean CLJS frame-kw + children. That is the
-  whole point of the moved seam — the marshalling-sensitive surface
+  whole point of placing the seam here — the marshalling-sensitive surface
   (`$`/hiccup → component) lives ABOVE this core, in substrate-native
   code, so a keyword frame-id survives intact on every substrate by
   construction."
