@@ -9,7 +9,7 @@ fixtures gate 2 things at once:
    (negatives). This is the `skill-creator` description-optimisation
    signal.
 2. Answer quality — for the highest-drift Xray facts, the skill's
-   answer names the currently shipped control and rejects stale
+   answer names the shipped control and rejects stale
    guidance. Trigger-only evals can prove the skill fired; they cannot
    prove the answer is still correct as the Xray UI churns. The
    `expectations[]` layer is the guardrail that closes that gap.
@@ -35,7 +35,7 @@ base, this harness uses 2 layers:
     positive assertions (name the right control) with negative
     assertions (reject the stale one).
 
-`schema_version` is `"2"` (the `"1"` fixture was trigger-only). Bump it
+`schema_version` is `"2"`. Bump it
 when the eval shape changes in a way that breaks readers.
 
 ## Coverage
@@ -178,7 +178,7 @@ skill against the single source of truth in this order:
    This `#{…}` set MIRRORS the live `panel-registry/tab-ids-for-mode
    :dynamic` registry (a cross-check test, `registry_cljs_test.cljs`,
    fails the Xray build if they drift) and is the JVM-runnable, single
-   authoritative count. Today it is
+   authoritative count:
    `#{:epoch :app-db :views :trace :machines :routing :resources
    :derivation-graph :module-view :fresco}` — 10 tabs. The internal ids
    map to display labels: `:views`→Views, `:routing`→Routes,
@@ -204,10 +204,9 @@ grep -A2 'def valid-panels' tools/xray/src/day8/re_frame2_xray/focus.cljc
 git grep -nE '[0-9]+ Dynamic|[0-9]+ lenses|[0-9]+ tabs|[0-9]+-tab|e a v t m r s g' \
   -- skills/re-frame2-xray/
 
-# A count-word grep is NOT sufficient: a ROSTER that restates the set without
-# a numeral is invisible to it, and that is how the nine-tab and four-view
-# drift survived two sweeps. Probe the last tab and the last two
-# sub-views by NAME as well — every enumeration of the set should hit:
+# A count-word grep misses a ROSTER that restates the set without a
+# numeral, so probe the last tab and the last two sub-views by NAME as
+# well — every enumeration of the set should hit:
 git grep -nc -e 'Fresco' -e 'Advisor' -- skills/re-frame2-xray/
 ```
 

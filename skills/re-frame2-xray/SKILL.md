@@ -160,6 +160,8 @@ but safely, so there is always something to read.
    [`references/launch-modes.md` §Launch diagnostics](references/launch-modes.md#launch-diagnostics);
    the pop-out's own failures and lifecycle are
    [`references/launch-lifecycle.md`](references/launch-lifecycle.md).
+4. **Confirm the fix** — reload the page; `status()` reads
+   `:mounted? true` and `:diagnostic {:ok? true :reason nil}`.
 
 ### Wired hotkeys
 

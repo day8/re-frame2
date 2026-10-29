@@ -7,9 +7,14 @@ plus the `core.cljs` docstrings. Sibling leaves:
 
 Two verbs, and they do different jobs. `init!` installs Xray's foundation
 from app code instead of from the preload; `focus!` points an
-already-mounted Xray at something. Neither one mounts a panel. The rest of
-the public facade (visibility, target frame, theme, config setters) is in
-[§The rest of the facade](#the-rest-of-the-facade).
+already-mounted Xray at something. Neither one mounts a panel.
+
+Contents: [Programmatic init!](#programmatic-init) (with
+[the Settings merge order](#boot-defaults-vs-pins--the-merge-order)) ·
+[Keeping the manual path out of production](#keeping-the-manual-path-out-of-production) ·
+[Programmatic focus](#programmatic-focus-focus) ·
+[The rest of the facade](#the-rest-of-the-facade) (visibility, target
+frame, theme, config setters).
 
 ## Programmatic init!
 
@@ -62,7 +67,7 @@ dev build's entry point loads and your release build never names:
 (xray/open!) ; make it visible — init! installs but does not show
 ```
 
-All four opts are wired today (the recognised set is exactly
+All four opts are wired (the recognised set is exactly
 `:target-frame :theme :density :buffer-depths`, per the `init!` docstring
 in [`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/core.cljs)):
 

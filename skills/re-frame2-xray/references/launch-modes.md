@@ -4,6 +4,12 @@ Source of truth: [`tools/xray/spec/011-Launch-Modes.md`](https://github.com/day8
 This leaf is the decision-tree-shaped tour of what the spec normalises;
 on a corner it doesn't cover, defer to the spec doc.
 
+Contents: [Decision tree](#decision-tree) ·
+[Install the preload](#install-the-preload) ·
+[Layout host contract](#layout-host-contract) (resizing, suppress
+auto-open) · [Launch diagnostics](#launch-diagnostics) ·
+[Overlay fallback](#overlay-fallback-open-overlay).
+
 ## Decision tree
 
 1. **Is the host app's dev build running with the Xray preload?**
