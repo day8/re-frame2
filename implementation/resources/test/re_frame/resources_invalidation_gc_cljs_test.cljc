@@ -242,24 +242,45 @@
     (is (nil? (entry k)) "the re-armed check collects the now-inactive entry")))
 
 (deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
+  ;; An ownerless prefetch is owner-free with live work in flight.
   (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
         k     (rf.resources.state/scoped-resource-key scope :gci/article {:slug "w"})]
-    (ensure! :gci/article scope "w" [:app :gci 1])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gci 1]}])
-    (is (some? (:current-work (entry k))) "precondition: in flight, owner-free")
+    (ensure! :gci/article scope "w" nil)
+    (is (= [:running true]
+           [(:status (work-record (:current-work (entry k)))) (empty? (:active-owners (entry k)))])
+        "precondition: live work in flight, owner-free")
     (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
     (is (= [true [1000]] [(some? (entry k)) (mapv (comp :gc :timers) @scheduled-timers)])
         "the in-flight entry is kept and one GC reschedule armed")
-    (let [wid (:current-work (entry k))]
-      (rf/dispatch-sync [:rf.resource.internal/failed
-                         {:resource/key k :work/id wid
-                          :generation (:generation (entry k))
-                          :rf.frame/id :rf/default}
-                         {:status :cancelled :error {:kind :rf.http/aborted :reason :user}}]))
+    (rf/dispatch-sync [:rf.resource.internal/failed
+                       {:resource/key k :work/id (:current-work (entry k))
+                        :generation (:generation (entry k))
+                        :rf.frame/id :rf/default}
+                       {:status :error :error {:kind :rf.http/http-5xx :http-status 503}}])
     (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-    (is (nil? (entry k)) "once settled and idle, the rescheduled check collects it")))
+    (is (nil? (entry k)) "once settled, the rescheduled check collects it")))
+
+(deftest an-abort-requested-attempt-does-not-hold-gc
+  ;; Managed HTTP delivers at most one reply, and an abort's may never land (a
+  ;; throwing `:after`, a completion-fence fault), so GC does not wait for it.
+  (rf/reg-resource :gca/article (article-spec {:gc-after-ms 1000}) article-spec-request)
+  (let [scope {:user "u"}
+        k     (rf.resources.state/scoped-resource-key scope :gca/article {:slug "w"})]
+    (ensure! :gca/article scope "w" [:app :gca 1])
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gca 1]}])
+    (let [{wid :current-work gen :generation} (entry k)]
+      (is (= [:abort-requested true]
+             [(:status (work-record wid)) (some? (rf.resources.work-ledger/get-handle :rf/default wid))])
+          "precondition: released mid-flight, the abort's reply not landed")
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+      (is (= [nil nil] [(entry k) (rf.resources.work-ledger/get-handle :rf/default wid)])
+          "the entry is collected, and its attempt's handle cleared")
+      (rf/dispatch-sync [:rf.resource.internal/failed
+                         {:work/id wid :generation gen :rf.frame/id :rf/default}
+                         {:status :cancelled :error {:kind :rf.http/aborted :reason :user}}])
+      (is (nil? (entry k)) "a late abort reply finds no entry and writes nothing"))))
 
 (deftest frame-destroy-cancels-resource-timers
   (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)

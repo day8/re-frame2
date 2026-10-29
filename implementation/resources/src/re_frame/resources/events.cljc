@@ -2042,8 +2042,12 @@
 
 (defn gc-fired-handler
   "`:rf.resource.internal/gc-fired`: re-checks the live entry and removes it,
-  with its attempts, only when it is owner-free, has no work in flight,
-  and the check's `:gc-window` is current. GC has no durable deadline, so the
+  with its attempts, only when it is owner-free, has no live work, and the
+  check's `:gc-window` is current. An `:abort-requested` attempt is not live
+  work: managed HTTP delivers at most one reply, and an abort's may never
+  land (a throwing `:after`, a completion-fence fault), so waiting on it would
+  keep the entry forever. Its handle is cleared with it, and a late reply
+  finds no entry and is suppressed. GC has no durable deadline, so the
   window stands in for the spec's generation re-check: every event that arms
   GC opens a new window, and a check queued before a newer window opened (on
   this entry, or on one rewritten at the same key) never collects. A check
@@ -2058,7 +2062,8 @@
   (let [runtime-db  (or rt {})
         entry       (get-in runtime-db (rf.resources.state/entry-path resource-key))
         superseded? (and gc-window (< gc-window (:gc-window entry 0)))]
-    (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry))
+    (if (and entry (empty? (:active-owners entry))
+             (not (rf.resources.work-ledger/live-work? entry))
              (not superseded?))
       ;; by byte key-id: a vector dissoc would no-op and leak the entry
       (let [old-entries (get-in runtime-db (rf.resources.state/entries-path))
@@ -2070,8 +2075,11 @@
                      {:rf.frame/id frame-id :resource/key resource-key})
         {:rf.db/runtime rdb'
          ;; the paired stale timer may still be armed
-         :fx [[:rf.resource/cancel-timers
-               {:frame-id frame-id :resource/keys [resource-key]}]]})
+         :fx (cond-> [[:rf.resource/cancel-timers
+                       {:frame-id frame-id :resource/keys [resource-key]}]]
+               (:current-work entry)
+               (conj [:rf.resource/clear-work-handle
+                      {:frame-id frame-id :work-id (:current-work entry)}]))})
       (let [reason   (cond (nil? entry)                  :no-entry
                            (seq (:active-owners entry))  :has-owner
                            superseded?                   :superseded
