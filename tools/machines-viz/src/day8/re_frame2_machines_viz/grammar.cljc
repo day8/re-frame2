@@ -9,7 +9,8 @@
 
   SCXML keeps its root-transition candidate parser and inverse id decoder
   locally because those operations follow SCXML-specific grammar."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.error :as rf.error]))
 
 ;; ---------------------------------------------------------------------------
 ;; Grammar walker — transition-spec normalisation
@@ -361,8 +362,8 @@
   `:definition` through `valid-definition?`), from an LLM response
   (`ai_generate`), and from SCXML / Mermaid input.
 
-  So it carries neither of the two legs `re-frame.error/diag-value-summary`
-  and `share/value-free-summary` also leave out:
+  So it carries neither of the two legs `re-frame.error/diag-value-summary`,
+  whose arms it reuses, also leaves out:
 
   - `:keys` — every top-level key of the rejected definition. A forged
     definition's key set is attacker-chosen in content (keys carry markup,
@@ -371,8 +372,8 @@
     inside an ex-info that names itself value-free. Ordering the keys would
     also run `str` over caller-supplied keys, where a key whose `toString`
     THROWS replaces the documented failure with its own exception.
-  - an `:else {:type :value}` tag, outside the closed vocabulary the three
-    summarisers share.
+  - an `:else {:type :value}` tag, outside the closed vocabulary core's
+    summary uses.
 
   SIZE AND SHAPE ARE DELIBERATELY REPORTED. `:count` / `:state-count` /
   `:region-count` / `:parallel` are what make the summary useful rather than
@@ -388,26 +389,15 @@
   projection of `definition-defect` rather than the defect itself."
   [definition]
   (let [defect (definition-defect definition)
-        base   (cond
+        base   (cond-> (rf.error/diag-value-summary definition)
                  (map? definition)
-                 (cond-> {:type     :map
-                          :count    (count definition)
-                          :parallel (parallel-definition? definition)}
-                   (map? (:states definition))  (assoc :state-count  (count (:states definition)))
-                   (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
+                 (assoc :parallel (parallel-definition? definition))
 
-                 (nil? definition)     {:type :nil}
-                 (vector? definition)  {:type :vector :count (count definition)}
-                 (set? definition)     {:type :set    :count (count definition)}
-                 (string? definition)  {:type :string :count (count definition)}
-                 (keyword? definition) {:type :keyword}
-                 (symbol? definition)  {:type :symbol}
-                 (boolean? definition) {:type :boolean}
-                 (number? definition)  {:type :number}
-                 (seq? definition)     {:type :seq}      ; NOT counted — see above
-                 (fn? definition)      {:type :fn}
-                 (seqable? definition) {:type :seq}
-                 :else                 {:type :scalar})]
+                 (and (map? definition) (map? (:states definition)))
+                 (assoc :state-count (count (:states definition)))
+
+                 (and (map? definition) (map? (:regions definition)))
+                 (assoc :region-count (count (:regions definition))))]
     (cond-> base
       defect (assoc :defect (defect-summary defect)))))
 
@@ -523,8 +513,8 @@
 ;; The walker MIRRORS
 ;; `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
 ;; PROJECTABLE invariants. machines-viz stays bundle-isolated (this ns
-;; `:require`s only `clojure.string`), so the engine grammar/target-resolution
-;; is RE-STATED here, not required; a TEST-ONLY parity corpus pins the mirror
+;; requires nothing from the machines engine), so the engine grammar/target-
+;; resolution is RE-STATED here, not required; a TEST-ONLY parity corpus pins the mirror
 ;; against the engine oracle (`engine-grammar-parity-test`).
 ;;
 ;; Enforced (recursively, over root + parallel regions + every compound

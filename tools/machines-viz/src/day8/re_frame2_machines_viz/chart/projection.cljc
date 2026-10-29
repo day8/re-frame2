@@ -1137,6 +1137,30 @@
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 
+;; A node or edge `:onClick` is a NULLARY thunk that fires the host callback
+;; with a payload built here, from the CLJS values. The renderers call it
+;; as-is. xyflow `clj->js`-es every `:data` map, which leaves a fn untouched
+;; but turns each keyword VALUE into its bare `name`: a payload rebuilt from
+;; the converted `:eventId` / `:path` would hand the host `"login"` for
+;; `:auth/login` and paths of strings.
+
+(defn- state-click-thunk
+  "`(on-state-click path)` as a thunk, or nil without a callback."
+  [on-state-click path]
+  (when on-state-click
+    (fn [] (on-state-click path))))
+
+(defn- edge-click-thunk
+  "`(on-edge-click payload)` as a thunk, or nil without a callback. The
+  payload is the JS object spec/API.md §Props documents for
+  `:on-edge-click`, carrying the event keyword and the keyword-vector paths."
+  [on-edge-click event-id from-path to-path]
+  (when on-edge-click
+    (fn []
+      (on-edge-click
+        #?(:cljs #js {:eventId event-id :fromPath from-path :toPath to-path}
+           :clj  {:eventId event-id :fromPath from-path :toPath to-path})))))
+
 (defn xyflow-graph
   "Project the parsed graph + a `{node-id position}` map into the
   xyflow `:nodes` + `:edges` arrays. Pure fn (no DOM, no React).
@@ -1161,32 +1185,34 @@
     :to-highlight-id     — node-id of the focused-event lens's
                            landing state.
     :sim?                — flips the highlight palette to amber.
-    :on-state-click      — `(fn [path] ...)` invoked when a REAL
+    :on-state-click      — `(fn [path] ...)` invoked with the clicked
+                           state's keyword-vector path when a REAL
                            statechart-state node is clicked: a LEAF state
                            (its body) or a COMPOUND state (its TITLE STRIP
                            only — the compound body stays
                            `pointer-events:none` so a click in the body
                            falls through to the nested leaf). Threaded onto
-                           leaf + compound `:data` as `:onClick`. The
-                           synthetic machine-root chip and parallel-region
-                           containers are NOT click targets (no region-
-                           selection concept yet), so the projector does
-                           NOT thread `:onClick` onto their `:data` — no
-                           node carries an `:onClick` its renderer would
-                           never consume.
-    :on-edge-click       — `(fn [{:keys [event-id from-path
-                           to-path]}] ...)` invoked when a transition
-                           edge's label is clicked. Threaded onto every
-                           edge `:data` as `:onClick` (+ the raw
-                           `:eventId` / `:fromPath` / `:toPath` so the
-                           edge component can hand the host the
-                           originating transition). The on-chart machine
-                           simulator (Xray) wires this to send the
-                           clicked event into the hermetic sim engine.
-                           Edges with no fireable event (`:after` /
-                           `:always`) carry the callback too but a nil
-                           `:eventId`; the host filters those out. nil
-                           omits the wiring entirely (no-op edge labels).
+                           leaf + compound `:data` as an `:onClick` thunk.
+                           The synthetic machine-root chip and
+                           parallel-region containers are NOT click targets
+                           (no region-selection concept yet), so the
+                           projector does NOT thread `:onClick` onto their
+                           `:data` — no node carries an `:onClick` its
+                           renderer would never consume.
+    :on-edge-click       — `(fn [payload] ...)` invoked when an
+                           event-node is clicked, with the JS object
+                           `#js {:eventId :fromPath :toPath}` carrying the
+                           event keyword and the keyword-vector paths.
+                           Threaded onto every event-node `:data` as an
+                           `:onClick` thunk, beside the converted
+                           `:eventId` / `:fromPath` / `:toPath` the
+                           renderer paints as attributes. The on-chart
+                           machine simulator (Xray) wires this to send the
+                           clicked event into the hermetic sim engine. An
+                           event-node with no fireable event (`:after` /
+                           `:always`) carries the thunk with a nil
+                           `:eventId`, and the renderer leaves it inert.
+                           nil omits the wiring entirely.
     :edge-points         — a map `{elk-edge-id [{:x :y} …]}` of elk's
                            routed bend-points (parity gap G2; absolute /
                            flow coordinates; `chart`'s `compute-layout!`
@@ -1547,7 +1573,7 @@
                                             (:history? n)
                                             (:root-container? n)
                                             region?))
-                                   (assoc :onClick on-state-click)
+                                   (assoc :onClick (state-click-thunk on-state-click (:path n)))
 
                                    region? (assoc :regionId    (:region n)
                                                   :regionIndex (:region-index n))
@@ -1854,7 +1880,9 @@
                                        :eventId     event-id
                                        :fromPath    (:from-path edge)
                                        :toPath      (:to-path edge)
-                                       :onClick     on-edge-click
+                                       :onClick     (edge-click-thunk on-edge-click event-id
+                                                                      (:from-path edge)
+                                                                      (:to-path edge))
                                        :chart       chart
                                        :palette     ct}
                            :draggable false
@@ -2057,7 +2085,7 @@
                                :width  (:arrow-width-entry chart)
                                :height (:arrow-width-entry chart)}
                  ;; Entry edges are non-interactive, but carry the full
-                 ;; edge `:data` shape (flags + threaded callback/chart)
+                 ;; edge `:data` shape (flags, a nil `:onClick`, chart)
                  ;; so the "every edge has X" projection invariants hold.
                  :data        {:eventLabel "" :eventLineLabel "" :entry true
                                :active false :focused false :fired false
@@ -2083,7 +2111,7 @@
                                :internal false :machineLevel false
                                :eventId nil :fromPath nil :toPath nil
                                :quietSegment false
-                               :onClick on-edge-click :chart chart :palette ct}})
+                               :onClick nil :chart chart :palette ct}})
               initial-nodes)
         ;; DECORATIVE dotted evaluation-order connector across the branches
         ;; of a guarded multi-branch fork (gate's `:gate/check` 3-way),

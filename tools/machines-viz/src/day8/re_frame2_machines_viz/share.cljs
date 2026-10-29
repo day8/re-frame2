@@ -362,11 +362,12 @@
 ;; projectors apply — EP-0029 A4/A5) and routes the definition slot through
 ;; `grammar/valid-definition?` in `valid-core-chart-state?` below, so decode
 ;; FAILS CLOSED on a malformed definition. Only the definition SHAPE gate is
-;; shared with grammar; the closed-map / snapshot / privacy-sanitisation /
-;; value-free diagnostics stay LOCAL to share. `grammar` is the machines-viz-
-;; local, engine-INDEPENDENT validator (it :requires only clojure.string), so
-;; requiring it here does NOT pull the runtime machines artefact into this
-;; bundle-isolated tool.
+;; shared with grammar; the closed-map / snapshot / privacy-sanitisation
+;; gates stay LOCAL to share, and a thrown error describes a rejected payload
+;; with core's content-free `re-frame.error/diag-value-summary`. `grammar` is
+;; the machines-viz-local, engine-INDEPENDENT validator (it requires nothing
+;; from the machines engine), so requiring it here does NOT pull the runtime
+;; machines artefact into this bundle-isolated tool.
 
 (defn- valid-state-path?
   "A compound `:state` arm: a non-empty vector of keywords naming the
@@ -496,73 +497,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Errors
-
-(defn- value-free-summary
-  "EP-0015 / Spec 015 §Author guidance for the exception-path residual —
-  a value-FREE diagnostic for a rejected payload `v`. Projection cannot
-  walk `ex-data` after the fact, so a thrown error must NOT carry the raw
-  payload (a forged share URL can smuggle `:snapshot {:data …}` /
-  arbitrary runtime values).
-
-  Shape (`:count` present only for a counted collection or string):
-
-    {:type   :map | :vector | :seq | :set | :keyword | :symbol
-             | :string | :number | :boolean | :nil | :fn | :scalar
-     :count  <int>}    ;; collection / string element count
-
-  **Content-free BY CONSTRUCTION.** Every value this can
-  carry is either a member of the closed `:type` vocabulary above or an
-  integer count, so no expression here is derived from the input's
-  CONTENT. The serialized summary is a fixed size whatever arrives —
-  there is no prefix to bound and no key set to cap — which is the only
-  guarantee worth having over an input the header of this namespace
-  itself calls forged.
-
-  So it carries neither of two tempting extras:
-
-  - a map's `:keys`. A forged payload's key SET is attacker-chosen in
-    CONTENT (keys carry markup, control characters and secrets as readily
-    as values do) and in SIZE, so reporting it would grow the summary
-    with the forger's input without limit inside a thrown ex-info that
-    names itself value-free. Ordering the keys would also run `str` over
-    caller-supplied keys, where a key whose `toString` THROWS replaces
-    the documented failure with its own exception.
-  - a keyword's raw `:value`. \"A keyword IS a state name/address, not
-    data\" does not survive the threat model. This function is never
-    handed a `:snapshot`'s `:state` — its call sites pass a whole URL,
-    chart-state, envelope or chart — so a keyword arrives exactly when
-    the payload is NOT the shape it was supposed to be, which is to say
-    when someone forged it; and transit decodes `~:<anything>` into a
-    keyword of any length and any content the forger likes.
-
-  SIZE IS DELIBERATELY REPORTED. `:count` is what makes the summary useful
-  rather than merely safe — \"a 2000-key map where an envelope was
-  expected\" is the diagnosis — and an integer cannot carry a fragment of
-  a token. A lazy seq is NOT counted: realising it on the failure path
-  is its own hazard.
-
-  The `:type` vocabulary is deliberately the closed set
-  `re-frame.error/diag-value-summary` uses, so a tool reading a thrown
-  ex-data from either surface reads ONE diagnostic vocabulary. This
-  is an INDEPENDENT implementation rather than a mirror — core
-  summarises a caller's argument, machines-viz summarises a forged wire
-  payload — but there is no reason for the two to disagree about what to
-  call a set."
-  [v]
-  (cond
-    (nil? v)     {:type :nil}
-    (map? v)     {:type :map :count (count v)}
-    (vector? v)  {:type :vector :count (count v)}
-    (set? v)     {:type :set :count (count v)}
-    (string? v)  {:type :string :count (count v)}
-    (keyword? v) {:type :keyword}
-    (symbol? v)  {:type :symbol}
-    (boolean? v) {:type :boolean}
-    (number? v)  {:type :number}
-    (seq? v)     {:type :seq}
-    (fn? v)      {:type :fn}
-    (seqable? v) {:type :seq}
-    :else        {:type :scalar}))
 
 (defn- decode-error
   "Throw the documented `:rf.machines-viz.share/decode-failed` ex-info.
@@ -725,7 +659,7 @@
                            :message     msg
                            ;; Value-FREE summary, NOT the raw
                            ;; chart-state (which can carry runtime :data).
-                           :chart-state-summary (value-free-summary chart-state)}))))
+                           :chart-state-summary (rf.error/diag-value-summary chart-state)}))))
       (let [envelope    (canonicalise
                           {:rf.machines-viz.share/v       current-version
                            :rf.machines-viz.share/chart   allowlisted
@@ -752,7 +686,7 @@
                                                :recovery    :remove-non-edn-values-from-the-definition
                                                :reason      :unencodable-definition
                                                :message     msg
-                                               :chart-state-summary (value-free-summary chart-state)})))))
+                                               :chart-state-summary (rf.error/diag-value-summary chart-state)})))))
             fragment    (bytes->base64url transit-str)]
         (str host "#" fragment-key "=" fragment)))))
 
@@ -811,7 +745,7 @@
                     ;; can carry a query string with a token in it (hence its
                     ;; `:fragment-index`); the decoder is handed URLs from
                     ;; elsewhere, so it is the more exposed of the two.
-                    {:url-summary (value-free-summary url)}))
+                    {:url-summary (rf.error/diag-value-summary url)}))
     ;; NEITHER STAGE BELOW REPORTS THE HOST'S OWN ERROR MESSAGE.
     ;; `transit/read` calls `JSON.parse`, and V8 embeds a PREFIX OF ITS INPUT
     ;; in the SyntaxError it throws —
@@ -841,7 +775,7 @@
                       "payload missing :rf.machines-viz.share/v or …/chart"
                       ;; A forged payload's :envelope can carry
                       ;; raw runtime values; report only its value-free shape.
-                      {:envelope-summary (value-free-summary envelope)}))
+                      {:envelope-summary (rf.error/diag-value-summary envelope)}))
       (let [v     (:rf.machines-viz.share/v envelope)
             chart (:rf.machines-viz.share/chart envelope)
             ;; Versions are integer-valued strings (e.g. "2").
@@ -872,7 +806,7 @@
                         "…/chart does not validate against the ChartState schema"
                         ;; A forged :chart can smuggle
                         ;; :snapshot {:data …}; report value-free shape only.
-                        {:chart-summary (value-free-summary chart)}))
+                        {:chart-summary (rf.error/diag-value-summary chart)}))
         envelope))))
 
 (defn decode-share-url-safe

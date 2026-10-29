@@ -197,9 +197,9 @@
   #{:type :count :parallel :state-count :region-count :defect})
 
 (def ^:private summary-types
-  "The CLOSED `:type` vocabulary — the set `re-frame.error/diag-value-summary`
-  and `share/value-free-summary` share, so a tool reads ONE diagnostic
-  vocabulary from all three summarisers."
+  "The CLOSED `:type` vocabulary of `re-frame.error/diag-value-summary`, which
+  this summary and the share codec's errors both use, so a tool reads ONE
+  diagnostic vocabulary."
   #{:map :vector :seq :set :keyword :symbol :string :number :boolean :nil
     :fn :scalar})
 

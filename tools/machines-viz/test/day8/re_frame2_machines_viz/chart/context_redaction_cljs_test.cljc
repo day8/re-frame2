@@ -50,6 +50,17 @@
              out))
       (is (= [:name :token :blob :count] (keys out)) "order preserved"))))
 
+(deftest classification-accepts-any-collection-of-keys
+  (testing "a set, a vector and a list of keys each redact the keys they name"
+    (doseq [ks [#{:token} [:token] '(:token)]]
+      (is (= {:token :rf/redacted :n 1}
+             (r/redact-context (array-map :token "s3cret" :n 1) {:sensitive ks}))
+          (pr-str ks))
+      (is (= {:token {:rf.size/large-elided {:path [:token] :bytes 8 :type :string :reason :schema}}
+              :n     1}
+             (r/redact-context (array-map :token "s3cret" :n 1) {:large ks}))
+          (pr-str ks)))))
+
 ;; The marker's `:bytes` is the framework's wire unit, UTF-8 BYTES; the large
 ;; cap bounds what the band PAINTS, in CHARACTERS. The two agree exactly on
 ;; ASCII, so only a non-ASCII value can tell a wrong ruler from a right one.

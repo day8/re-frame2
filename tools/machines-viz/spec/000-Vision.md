@@ -486,9 +486,9 @@ re-litigate them — these were knowingly traded, not overlooked):
   substrate-agnostic hiccup data. Phase 1 shipped Reagent-only.
   Phase 2 restored substrate parity: because xyflow IS React,
   the Reagent `MachineChart` bottoms out at a React element tree,
-  and `reagent.core/reactify-component` lifts it to a plain React
-  class any host mounts. The shared bridge
-  (`adapters/react_chart.cljs`) reactifies ONCE; a thin per-substrate
+  and `reagent.core/as-element` makes it a plain React element
+  any host mounts. The shared bridge
+  (`adapters/react_chart.cljs`) builds that element; a thin per-substrate
   shell (`adapters/uix.cljs`) presents an idiomatic surface. (Phase 2
   also shipped a Helix shell, deleted with the Helix adapter's removal
   at S7/W13 — rf2-d6epb, 2026-07-22.) There is no fork of the chart
