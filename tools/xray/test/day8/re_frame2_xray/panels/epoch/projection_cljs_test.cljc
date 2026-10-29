@@ -497,7 +497,8 @@
     (let [rows (proj/machine-cascade-rows
                  [(machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)])]
       (is (= [{:kind :no-op :machine-id :door/main :event [:door/insert-coin]
-               :state :alarming :step 1 :show-machine-name? false}]
+               :state :alarming :step 1 :machine-type :door/main
+               :show-machine-name? false}]
              (mapv #(dissoc % :trace-index) rows)))
       (is (= "staying in :alarming" (fmt/cascade-row-label (first rows))))))
   (testing "a multi-machine epoch names WHICH machine stood pat on each row"
@@ -538,7 +539,7 @@
     (let [rows (proj/machine-cascade-rows
                  [(machine-started-ev :door/main :locked {:attempts 0} :explicit)])]
       (is (= [{:kind :start :machine-id :door/main :state :locked :data {:attempts 0}
-               :cause :explicit :step 1}]
+               :cause :explicit :step 1 :machine-type :door/main}]
              (mapv #(dissoc % :trace-index) rows)))
       (is (= ":door/main started in :locked" (fmt/cascade-row-label (first rows))))))
   (testing "a LAZY start folds into the first real event's epoch and still

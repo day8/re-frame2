@@ -268,15 +268,17 @@
   ;; path. It fires only while the slot is unselected, so an explicit
   ;; host-config or picker choice always outranks it.
   ;;
-  ;; Xray's OWN frame is excluded. The epoch listener is registered
-  ;; process-wide and `:rf/xray` records epochs like any other frame —
-  ;; and at cold start, with the host quiet, Xray's own chrome events
-  ;; are the likeliest first settle of all. Adopting `:rf/xray` would
-  ;; point the inspector at itself, which is strictly worse than the
-  ;; unselected state this repairs. (`frame_switcher/internal-frames`
-  ;; carries the wider picker-exclusion set; reaching it from here
-  ;; would be a view→plumbing edge, so only the own-frame id — already
-  ;; in scope via `defaults` — is filtered.)
+  ;; Xray's OWN frame is excluded. Xray's frames record no epochs on any
+  ;; normal path: each is marked trace-disabled when seated
+  ;; (`image-view-reads/seat-xray-frame!`), so its emits are suppressed
+  ;; before epoch capture, and an empty harvest commits no record. The
+  ;; guard keeps that true here whatever reaches the process-wide
+  ;; listener: adopting `:rf/xray` would point the inspector at itself,
+  ;; which is strictly worse than the unselected state this repairs.
+  ;; (`frame_switcher/internal-frames` carries the wider
+  ;; picker-exclusion set; reaching it from here would be a
+  ;; view→plumbing edge, so only the own-frame id — already in scope via
+  ;; `defaults` — is filtered.)
   (rf/reg-event :rf.xray/epoch-recorded
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ frame-id]]

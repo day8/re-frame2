@@ -525,6 +525,38 @@
           (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "`:unchanged` mode renders only the unchanged rows"))))))
 
+(deftest a-sub-row-carrying-a-violation-shows-in-every-mode-test
+  (testing "a row's violation renders only on its row, so the filter keeps
+            a violating row in every mode. The unchanged-row-with-violation
+            shape is the one `sub_violation_row_runtime_test` reads off a
+            real recompute."
+    (epoch-orchestrator/install!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/with-frame :rf/xray
+      (let [violation {:kind       :rf.error/schema-validation-failure
+                       :where      :sub-return
+                       :failing-id :cart/total
+                       :value      "12.50"
+                       :recovery   :no-recovery
+                       :sensitive? false}
+            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :cart/total :sub-vec [:cart/total] :changed? false
+                          :violations [violation]}
+                         {:sub-id :b :sub-vec [:b] :changed? false}
+                         {:sub-id :c :sub-vec [:c] :changed? true :before 1 :after 2
+                          :violations [(assoc violation :failing-id :c)]}]
+                  :changed 1 :unchanged 2}]
+        (let [tree (view/render-subscriptions-step step)]
+          (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "the default `:changed` mode shows the changed row and the
+               unchanged row carrying a violation, not the plain unchanged row")
+          (is (= 2 (count-prefix tree "rf-xray-epoch-violations-sub-row-"))
+              "and both rows' violations render"))
+        (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :unchanged])
+        (let [tree (subscriptions-step step)]
+          (is (= 3 (count-prefix tree "rf-xray-epoch-sub-row-"))
+              "`:unchanged` mode keeps the changed row carrying a violation"))))))
+
 ;; ---- SUBSCRIPTIONS disposed sub-section -------------------------------
 
 (deftest disposed-subs-section-renders-when-rows-present-test
@@ -702,6 +734,36 @@
                     :flow-id :user/fb :path [:fb] :before 1000 :after 1100
                     :db-pre-flow pre :db-post-flow post}))
           "and the `::fb` step only `[:fb]`"))))
+
+(deftest flow-step-under-a-redacted-ancestor-renders-the-write-redacted-test
+  (testing "a flow writing under a subtree the classification redacted.
+            The rendered pre-flow snapshot holds `:rf/redacted` where the
+            subtree stood, so there is no structure to diff the write
+            into: the step renders the scalar line, the write shown
+            redacted, instead of throwing out of the panel. These are the
+            snapshots `flow_db_diff_runtime_test` reads off a real event."
+    (rf/make-frame {:id :rf/xray})
+    (let [render (fn [pre post after]
+                   (rf/with-frame :rf/xray
+                     (view/render-flow-step
+                       {:step :flow :badge :FLOW :step-number 4
+                        :flow-id :p/token-len :path [:auth :token-len]
+                        :after after
+                        :db-pre-flow pre :db-post-flow post})))
+          mode   (fn [tree]
+                   (-> tree (find-by-testid "rf-xray-epoch-step-flow-token-len")
+                       second :data-rf-xray-flow-db-diff))
+          tree   (render {:auth :rf/redacted} {:auth :rf/redacted} :rf/redacted)
+          line   (find-by-testid tree "rf-xray-epoch-flow-value-token-len")]
+      (is (= "false" (mode tree))
+          "no `:db` diff under a redacted ancestor")
+      (is (some? (find-by-testid line "rf-xray-edn-inspector-redacted"))
+          "the scalar line shows the write as the redacted sentinel")
+      (let [control (render {:auth {:token :rf/redacted}}
+                            {:auth {:token :rf/redacted :token-len 6}}
+                            6)]
+        (is (= "true" (mode control))
+            "control: a redacted leaf beside the path leaves the diff in place")))))
 
 (deftest handler-body-renders-source-placeholder-test
   (testing "HANDLER body carries a source-code slot.
@@ -1475,6 +1537,40 @@
         (is (= :button (first link))
             "the link is a clickable button (call-site coord resolved)")))))
 
+(deftest cascade-row-source-resolves-through-the-row-machine-type-test
+  (testing "a cascade row's source resolves under the row's `:machine-type`,
+            not the handler's event id. A plain event that destroys a
+            machine names no machine, and a spawned actor's id names no
+            registration; `machine_type_runtime_test` reads the stamped type
+            off real records."
+    (rf/reg-machine :p/door
+      {:initial :open
+       :data    {}
+       :actions {:bye (fn [_] {:door-bye-ran? true})}
+       :states  {:open {:exit :bye}}})
+    (rf/reg-event :p/teardown (fn [_ _] {:fx [[:rf.machine/destroy :p/door]]}))
+    (let [row    {:kind :action :phase :destroy-exit :action-id :bye :step 1
+                  :machine-id :p/door :machine-type :p/door}
+          body   "rf-xray-epoch-machine-cascade-source-body-1"
+          absent "rf-xray-epoch-machine-cascade-source-missing-1"
+          render (fn [r event-id] (view/machine-cascade-mini-pipeline [r] event-id))]
+      (testing "a plain event's cascade"
+        (let [tree (render row :p/teardown)]
+          (is (string/includes? (or (text-of tree body) "") ":door-bye-ran?")
+              "the door's action source renders under the teardown event")
+          (is (nil? (find-by-testid tree absent))
+              "with no source-missing fallback")))
+      (testing "a spawned actor's own event"
+        (let [tree (render (assoc row :machine-id :p/door#1) :p/door#1)]
+          (is (string/includes? (or (text-of tree body) "") ":door-bye-ran?")
+              "the actor's row resolves through its type")))
+      (testing "control: a row naming no type falls back to the event id"
+        (let [tree (render (dissoc row :machine-type) :p/teardown)]
+          (is (nil? (find-by-testid tree body))
+              "the teardown event's id carries no machine source")
+          (is (some? (find-by-testid tree absent))
+              "so the row takes the source-missing fallback"))))))
+
 (deftest cascade-transition-row-renders-logical-state-delta-test
   (testing "a `:transition` row's source body is the `{:state :tags}`
             before → after delta box"
@@ -1737,6 +1833,28 @@
                  (instance? cljs.core/LazySeq step-seq)
                  (str "LazySeq, realized?=" (realized? step-seq))
                  :else (str "type=" (type step-seq))))))))
+
+(deftest a-step-whose-renderer-throws-renders-in-its-place-test
+  (testing "one step that cannot render leaves the rest of the cascade
+            readable: it renders a failure card in its own place. A FLOW
+            step with no flow id cannot name its testids, so its renderer
+            throws."
+    (rf/make-frame {:id :rf/xray})
+    (let [steps [{:step :dispatch :badge :DISPATCH :step-number 1
+                  :event [:counter/inc] :source :ui :coord nil}
+                 {:step :flow :badge :FLOW :step-number 2
+                  :flow-id nil :path [:x] :after 1}
+                 {:step :handler :badge :HANDLER :step-number 3
+                  :flavour :db-only :event-id :counter/inc
+                  :fx [] :machine nil}]
+          tree  (rf/with-frame :rf/xray (view/pipeline-view steps))
+          ;; The raw tree: nothing here needs a widget expanded.
+          has?  (fn [testid]
+                  (some #(= testid (:data-testid (node-attrs %))) (raw-nodes tree)))]
+      (is (has? "rf-xray-epoch-step-render-failed-flow")
+          "the throwing step renders the failure card")
+      (is (has? "rf-xray-epoch-step-handler")
+          "and the step after it still renders"))))
 
 ;; ---- SUBSCRIPTIONS FULL+DIFF leaf-scalar annotation ----------------------
 

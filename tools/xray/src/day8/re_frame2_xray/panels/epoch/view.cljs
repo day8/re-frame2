@@ -3094,9 +3094,9 @@
   panel."
   [row machine-meta]
   (let [coord    (machine-call-site-coord machine-meta)
-        ;; The machine id IS the registering event-id (Spec 005 — the
-        ;; machine is its own event handler). The projection stamps it
-        ;; on every cascade row as `:machine-id`.
+        ;; The label names the row's machine instance (`:machine-id`); the
+        ;; link opens its TYPE's reg-machine call site, `machine-meta`
+        ;; having been read under the row's `:machine-type`.
         id       (:machine-id row)
         label    (if id (fmt/ns-keyword id) "machine")]
     (coord-link/coord-link
@@ -3618,8 +3618,11 @@
   The rows render as a FLAT numbered stack — no nested-pipeline vertical
   RAIL (a line behind the [1][2][3] ordinals) and no `:border-top` rule;
   the numbered ordinal chips alone carry the pipeline reading. Each row
-  renders directly (no wrapper div)."
-  [machine-meta cascade-rows instance]
+  renders directly (no wrapper div).
+
+  `meta-of-row` answers the registration meta a row's source resolves
+  through (see [[machine-cascade-mini-pipeline]])."
+  [meta-of-row cascade-rows instance]
   (let [n (count cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
            :data-cascade-row-count (str n)
@@ -3644,7 +3647,7 @@
              ;; Clojure metadata nowhere). `machine-cascade-rows-reach-react-
              ;; with-distinct-keys` in the view test grades it at the renderer.
              (for [row cascade-rows]
-               (cascade-row-view machine-meta row instance))))]))
+               (cascade-row-view (meta-of-row row) row instance))))]))
 
 (defn- event-handler-orientation-line
   "Render the EVENT HANDLER orientation line — ONE structured
@@ -3707,9 +3710,12 @@
   thinner forensic block.
 
   `cascade` is the projected cascade-row vector (see
-  `projection/machine-cascade-rows`); `event-id` is the machine handler
-  id used to resolve the registration meta (`rf/handler-meta :event …`)
-  so guard / action source-coords resolve. Returns the
+  `projection/machine-cascade-rows`). Each row's guard / action source
+  resolves through the registration meta (`rf/handler-meta :event …`) of
+  the row's own `:machine-type`, not the handler's: a plain event that
+  destroys a machine names no machine, and a spawned actor's id names no
+  registration. `event-id` is the fallback for a row carrying no type, and
+  names the orientation line's machine. Returns the
   `rf-xray-epoch-handler-machine` host on both surfaces,
   so every cascade-row testid (`rf-xray-epoch-machine-cascade-row-N`,
   `-ordinal-N`, `-kind-*`, `-phase-*`, `-verb-link-N`, `-source-body-N`,
@@ -3753,16 +3759,21 @@
   ;; `:source-coords` co-located on each `:states`-tree map
   ;; node). Reading under `:event` surfaces the spec so
   ;; the interleaved source code + click-to-source coords resolve.
-  (let [machine-meta (when (some? event-id)
-                       (try (rf/handler-meta {:kind :event :id event-id})
-                            (catch :default _ nil)))
-        cascade      (or cascade [])]
+  ;; Read once per distinct type, not once per row.
+  (let [cascade     (or cascade [])
+        type-of     (fn [row] (or (:machine-type row) event-id))
+        metas       (into {}
+                          (for [id    (distinct (map type-of cascade))
+                                :when (some? id)]
+                            [id (try (rf/handler-meta {:kind :event :id id})
+                                     (catch :default _ nil))]))
+        meta-of-row (fn [row] (get metas (type-of row)))]
     [:div {:data-testid "rf-xray-epoch-handler-machine"}
      ;; The structured orientation line leads the EVENT HANDLER
      ;; section (what trigger, which machine, what starting state), then the
      ;; numbered cascade pipeline below.
      (event-handler-orientation-line cascade event-id)
-     (machine-cascade-view machine-meta cascade instance)])))
+     (machine-cascade-view meta-of-row cascade instance)])))
 
 (defn- machine-block
   "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE.
@@ -4175,11 +4186,12 @@
   rather than the scalar fallback.
 
   Graceful fallback: when the projection carried no pre/post snapshots
-  (neither t1 nor t2 on the stream) the
+  (neither t1 nor t2 on the stream), or the path runs through a value the
+  classification redacted or elided (`projection/flow-db-diff`), the
   body falls back to the per-path `[path] before → after` scalar line."
   ([step] (render-flow-step step nil))
-  ([{:keys [flow-id frame path before after duration-ms step-number
-            db-pre-flow db-post-flow errors]} instance]
+  ([{:keys [flow-id frame path before after duration-ms step-number errors]
+     :as step} instance]
   (let [;; A flow definition is a registrar `:flow` registration, resolved
         ;; through the view of the frame that ran it. That frame rides the
         ;; `:rf.flow/computed` event's `:frame` tag (threaded through the
@@ -4201,12 +4213,10 @@
         ;; BOTH endpoints are built on the ONE pre-flow
         ;; baseline, so only this flow's slot differs. db-post-flow (t2) is
         ;; taken after ALL flows ran, so diffing against it would paint every
-        ;; other flow's write on this step too.
-        db-diff?   (boolean
-                     (and (some? db-pre-flow) (some? db-post-flow)
-                          (sequential? path) (seq path)))
-        diff-before (when db-diff? db-pre-flow)
-        diff-after  (when db-diff? (assoc-in db-pre-flow path after))]
+        ;; other flow's write on this step too. A path under a redacted or
+        ;; elided ancestor has no diff and takes the scalar line too.
+        [diff-before diff-after :as db-diff] (proj/flow-db-diff step)
+        db-diff?   (some? db-diff)]
     [:div {:data-testid (str "rf-xray-epoch-step-flow-" (name flow-id))
            :data-step-kw "flow"
            :data-flow-id (name flow-id)
@@ -4930,13 +4940,17 @@
   ([{:keys [rows disposed-rows step-number violations]} ctx]
   (let [frame         (rf/current-frame-id)
         mode          (:subs-filter-mode ctx)
+        ;; A row carrying a violation shows in every mode: its violation
+        ;; renders only on its row, so filtering the row out would leave
+        ;; the step graded red with no visible cause.
+        keep-row      (fn [pred] (filterv #(or (pred %) (seq (:violations %))) rows))
         visible-rows  (case mode
                         :all       rows
-                        :unchanged (filterv (complement :changed?) rows)
+                        :unchanged (keep-row (complement :changed?))
                         ;; :changed (default) — also the fallback for
                         ;; an unknown mode keyword so the panel never
                         ;; renders an empty filter.
-                        (filterv :changed? rows))
+                        (keep-row :changed?))
         n             (count rows)
         l             (count disposed-rows)]
     [:div {:data-testid "rf-xray-epoch-step-subscriptions"
@@ -5723,6 +5737,19 @@
 
 ;; ---- step dispatcher -----------------------------------------------------
 
+(defn- step-render-failed
+  "The card a step renders in place of its body when building that body
+  threw, so one bad step leaves the rest of the cascade readable."
+  [step e]
+  [:div {:data-testid (str "rf-xray-epoch-step-render-failed-"
+                           (some-> (:step step) name))
+         :style error-block-style}
+   [:div {:style error-block-title-style}
+    [:span {:style error-block-glyph-style} "✗"]
+    (str "Xray could not render this " (some-> (:step step) name) " step")]
+   [:div {:style error-block-message-style}
+    (or (ex-message e) (str e))]])
+
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
@@ -5735,7 +5762,15 @@
   the two VALUES the HANDLER and SUBSCRIPTIONS rows need —
   `:selected-epoch-record` and `:subs-filter-mode`, both read once in
   [[Panel]]'s boundary body so no row reads the substrate itself).
-  Most steps ignore it."
+  Most steps ignore it.
+
+  Building a step's hiccup runs inside the one `Panel` boundary, which has
+  no error boundary above it, so a throw here would blank the whole panel.
+  The renderer is guarded instead, and a throw renders
+  [[step-render-failed]] in that step's place. A throw from a lazy
+  sequence the body returns, or from a widget boundary it mounts
+  (`ei/edn-inspector-view`), happens after this returns and is outside
+  the guard."
   [step ctx]
   ;; `:instance` rides `ctx` like every other cascade-level
   ;; value, and reaches the steps that mount an `ei/edn-inspector-view`.
@@ -5750,19 +5785,22 @@
   ;; `interceptor-row-view` → [[error-blocks]] → [[error-block-details]].
   ;; The reachability question is "does any path from here reach an
   ;; inspector", not "does this renderer name one".
-  (let [instance (:instance ctx)]
-    (case (:step step)
-      :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx) instance)
-      :recordable-cofx   (render-recordable-cofx-step step)
-      :coeffect          (render-coeffect-step step instance)
-      :interceptors      (render-interceptors-step step)
-      :interceptor       (render-interceptor-step step instance)
-      :handler           (render-handler-step step ctx)
-      :flow              (render-flow-step step instance)
-      :side-effects      (render-side-effects-step step instance)
-      :subscriptions     (render-subscriptions-step step ctx)
-      :views             (render-views-step step instance)
-      nil)))
+  (try
+    (let [instance (:instance ctx)]
+      (case (:step step)
+        :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx) instance)
+        :recordable-cofx   (render-recordable-cofx-step step)
+        :coeffect          (render-coeffect-step step instance)
+        :interceptors      (render-interceptors-step step)
+        :interceptor       (render-interceptor-step step instance)
+        :handler           (render-handler-step step ctx)
+        :flow              (render-flow-step step instance)
+        :side-effects      (render-side-effects-step step instance)
+        :subscriptions     (render-subscriptions-step step ctx)
+        :views             (render-views-step step instance)
+        nil))
+    (catch :default e
+      (step-render-failed step e))))
 
 ;; ---- pipeline view -------------------------------------------------------
 

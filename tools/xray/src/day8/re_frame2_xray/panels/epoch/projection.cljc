@@ -1332,6 +1332,26 @@
 ;; either. The no-op / spawn / redundant-bootstrap correctness lives
 ;; core-side.
 
+(defn machine-actor-types
+  "Map each spawned machine actor in `record`'s frame state to its
+  registered TYPE, the `[:rf/runtime :machine-type]` its snapshot carries.
+  Reads the state before the event and after it, so an actor the event
+  spawned or destroyed resolves too. A singleton carries no type slot,
+  being its own type, and is absent from the map.
+
+  Machine traces address the live instance (`:actor-id`), and a spawned
+  actor's id names no registration, so this is where its type is found.
+  Spec 005 §Trace events."
+  [record]
+  (into {}
+        (for [k                [:frame-state-before :frame-state-after]
+              [actor snapshot] (get-in record [k :rf.db/runtime
+                                               :rf.runtime/machines :snapshots])
+              :let  [type (when (map? snapshot)
+                            (get-in snapshot [:rf/runtime :machine-type]))]
+              :when (keyword? type)]
+          [actor type])))
+
 (defn machine-cascade-rows
   "Project the focused epoch's machine-related trace events into a
   single time-ordered cascade row vector. Each row carries
@@ -1370,11 +1390,17 @@
   their spec-path tuple to the `:source-coords` co-located on the nearest
   enclosing `:states`-tree map node (`state-node-source-coords`).
 
+  Each row naming a machine also carries `:machine-type`, the registered
+  type its source resolves through: its entry in `actor-types` (see
+  [[machine-actor-types]]), else its own `:machine-id`, since a singleton
+  is its own type.
+
   Returns an empty vec when no machine-cascade events fired (vanilla
   non-machine reg-event pipeline runs — the cascade is
   machine-specific, and the empty vec sends the view to its empty-state
   branch, the plain handler-step rendering)."
-  [events]
+  ([events] (machine-cascade-rows events nil))
+  ([events actor-types]
   (let [base     (vec
                    (map-indexed
                      (fn [i row] (assoc row :trace-index i))
@@ -1414,8 +1440,10 @@
     (vec (map-indexed
            (fn [i row]
              (cond-> (assoc row :step (inc i))
+               (some? (:machine-id row))
+               (assoc :machine-type (get actor-types (:machine-id row) (:machine-id row)))
                (= :no-op (:kind row)) (assoc :show-machine-name? multi-machine?)))
-           sorted))))
+           sorted)))))
 
 (defn machine-event-orientation
   "Project the orientation triple the EVENT HANDLER heading renders as
@@ -1675,17 +1703,21 @@
   is precomputed here. The framework records raw snapshots on the
   epoch-record; consumers derive diffs on demand.
 
-  Two arities — the 2-arg form (tests and callers without a baseline)
-  supplies nil for `db-before`. The 3-arg form takes the epoch record's
-  `:db-before` baseline (the only db snapshot read)."
+  The 2-arg form (tests and callers without a baseline) supplies nil for
+  `db-before`. The 3-arg form takes the epoch record's `:db-before`
+  baseline (the only db snapshot read), and the 4-arg form also the
+  record's [[machine-actor-types]], which the cascade rows' `:machine-type`
+  resolves through."
   ([events event-id]
-   (handler-row events event-id nil))
+   (handler-row events event-id nil nil))
   ([events event-id db-before]
+   (handler-row events event-id db-before nil))
+  ([events event-id db-before actor-types]
   (let [flavour     (handler-flavour events)
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
         do-fx       (terminal-do-fx events)
-        cascade     (machine-cascade-rows events)
+        cascade     (machine-cascade-rows events actor-types)
         ;; The substrate stamps the per-handler wall-clock
         ;; duration as `:rf.event/elapsed-ms` on `:rf.event/run-end`
         ;; (`re-frame.router/emit-run-end-trace`); spec
@@ -1773,6 +1805,38 @@
          :before      (common/tag-of ev :before)
          :after       (common/tag-of ev :result)
          :duration-ms (common/tag-of ev :elapsed-ms)}))))
+
+(defn- opaque-snapshot-value?
+  "True for what egress leaves where a classified slot stood: the
+  `:rf/redacted` sentinel, and the size-elision / sized-redaction marker
+  maps. Spec 015 §Static app-db classification."
+  [v]
+  (or (= :rf/redacted v)
+      (and (map? v)
+           (or (contains? v :rf.size/large-elided)
+               (contains? v :rf/redacted)))))
+
+(defn flow-db-diff
+  "The `[before after]` pair a FLOW step's `:db` diff renders between: the
+  step's `:db-pre-flow`, and that db with the flow's `:after` written at its
+  `:path`. nil sends the view to the scalar `[path] before → after` line.
+
+  nil without both snapshots or a non-empty path, and nil when the pre-flow
+  snapshot holds an opaque value at the path's root or at any ancestor — a
+  classified subtree redacted or elided, or a whole db redacted fail-closed.
+  The write lands inside that value, so there is no structure to diff into,
+  and the scalar line shows it as recorded: redacted."
+  [{:keys [db-pre-flow db-post-flow path after]}]
+  (when (and (some? db-pre-flow) (some? db-post-flow)
+             (sequential? path) (seq path))
+    (let [path       (vec path)
+          writable?  (fn [n]
+                       (let [v (get-in db-pre-flow (subvec path 0 n))]
+                         (or (nil? v)
+                             (and (associative? v)
+                                  (not (opaque-snapshot-value? v))))))]
+      (when (every? writable? (range (count path)))
+        [db-pre-flow (assoc-in db-pre-flow path after)]))))
 
 ;; FLOW is splatted into ONE step per flow that fired
 ;; (mirror of the COEFFECT per-cofx split). Each step map carries the
@@ -4179,7 +4243,8 @@
                                (authored-interceptors-step
                                  event-id entries resolve-meta-fn override-summary)))
                            (interceptor-step events :before)
-                           (handler-row events event-id db-before)
+                           (handler-row events event-id db-before
+                                        (machine-actor-types epoch-record))
                            (interceptor-step events :after)]
                           ;; There is no APP-DB DIFF step: the HANDLER
                           ;; step's `:db` sub-section's [diff][all] toggle
