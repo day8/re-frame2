@@ -141,6 +141,7 @@
           ;; Story's vacuous-`:pass` rule covers an EXECUTED assertion-free
           ;; variant; this refuses the state where nothing executed at all.
           (rf.story-mcp.tools.lifecycle/no-adapter-error "run-variant")
+          (rf.story-mcp.tools.lifecycle/abandoned-run-error "run-variant" vk)
           (let [opts     (rf.story-mcp.tools.args/read-run-opts vk arguments)
                 ;; Blocking invocation + timeout + canonical exception
                 ;; normalization are owned by `tools.lifecycle` — the ONE
@@ -351,31 +352,35 @@
   (tape floor + refusals) re-run via `run-variant`.
 
   Wire-egress posture: assertion records carrying the
-  top-level `:sensitive? true` stamp are dropped via `strip-sensitive`.
-  The `:status` aggregate runs against the scrubbed vec so the agent's
-  view of the verdict is consistent with the records it actually sees — a
-  dropped sensitive failure doesn't quietly flip the verdict to `:pass`.
-  Default off; opt out with `:include-sensitive true`."
+  top-level `:sensitive? true` stamp are dropped via `strip-sensitive`
+  (default; opt out with `:include-sensitive true`). The `:status`
+  aggregate runs over the records BEFORE that drop, so a run whose only
+  failures are sensitive still reads `:fail` — the verdict `run-variant`
+  reports for the same accumulator. `:total`, `:failures` and
+  `:assertions` describe the scrubbed records the agent sees, and the
+  `:dropped-sensitive` count explains the gap."
   [arguments]
   (rf.story-mcp.tools.args/with-variant-id arguments
     (fn [vk]
-      (let [incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
-            raw        (rf.story/read-assertions vk)
-            [scrubbed dropped] (rf.story-mcp.tools.egress/scrub-assertions+count raw incl?)
-            ;; Stamp the derived :status on every record so the agent reads
-            ;; the SAME unified record shape `run-variant` emits.
-            records    (rf.story/assertion-records scrubbed)
-            failures   (filterv #(contains? failure-statuses (:status %)) records)
-            payload    {:variant-id vk
-                        :status     (rf.story/aggregate-verdict records nil)
-                        :total      (count records)
-                        :failures   failures
-                        :assertions records}]
-        ;; Surface the MUST-level egress indicator counts:
-        ;; how many sensitive assertion records were dropped at egress
-        ;; (+ any elided leaves). Omitted when zero (Conventions
-        ;; §Cross-MCP indicator-field vocabulary).
-        (rf.story-mcp.tools.egress/result-with-indicators payload dropped)))))
+      (or
+       (rf.story-mcp.tools.lifecycle/abandoned-run-error "read-failures" vk)
+       (let [incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
+             raw        (rf.story/read-assertions vk)
+             [scrubbed dropped] (rf.story-mcp.tools.egress/scrub-assertions+count raw incl?)
+             ;; Stamp the derived :status on every record so the agent reads
+             ;; the SAME unified record shape `run-variant` emits.
+             records    (rf.story/assertion-records scrubbed)
+             failures   (filterv #(contains? failure-statuses (:status %)) records)
+             payload    {:variant-id vk
+                         :status     (rf.story/aggregate-verdict (rf.story/assertion-records raw) nil)
+                         :total      (count records)
+                         :failures   failures
+                         :assertions records}]
+         ;; Surface the MUST-level egress indicator counts:
+         ;; how many sensitive assertion records were dropped at egress
+         ;; (+ any elided leaves). Omitted when zero (Conventions
+         ;; §Cross-MCP indicator-field vocabulary).
+         (rf.story-mcp.tools.egress/result-with-indicators payload dropped))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

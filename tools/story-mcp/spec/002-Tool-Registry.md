@@ -237,16 +237,22 @@ lifecycle tools resolve the slot through the shared
 copy-paste.
 
 The deadline bounds the SYNCHRONOUS Story work, not just the
-post-return dereference (rf2-j538f7.31). On the JVM `story/run-variant`
+post-return dereference. On the JVM `story/run-variant`
 executes synchronously (a `[:wait ms]` step is an inline `Thread/sleep`)
 and returns an already-settled future, so the lifecycle owner runs the
 whole invoke-and-settle on a bounded worker future and waits at most
-`:timeout-ms`. When the deadline elapses the worker is cancelled — its
-`Thread/sleep` interrupts, the scheduled post-wait continuation never
-fires, and the stdio loop is freed at the ceiling — and the call returns
-the canonical `:status :error` run-result. An over-budget run is
-therefore bounded and reports an honest deadline-exceeded outcome, never
-a false `:pass`.
+`:timeout-ms`. When the deadline elapses the worker is interrupted, the
+stdio loop is freed at the ceiling, and the call returns the canonical
+`:status :error` run-result. An over-budget run is therefore bounded and
+reports an honest deadline-exceeded outcome, never a false `:pass`.
+
+The interrupt ends a blocking wait but not computation, so a handler
+busy on the CPU runs on after the reply. The abandoned run is FENCED
+rather than trusted to stop: until it ends, `run-variant`,
+`preview-variant` and `read-failures` for that variant refuse with
+`isError true` and `:rf.error :rf.error/story-mcp-run-still-executing`,
+and when it ends its variant frame is destroyed, so no later call reads
+its late writes or races them on the same frame.
 
 Wire-egress posture: `:app-db` is routed through
 `re-frame.core/project-egress` against the variant frame's

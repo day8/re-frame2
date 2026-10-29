@@ -120,6 +120,26 @@
                   "the single-threaded stdio server loop.")
              {:variant vk :timeout-ms timeout-ms})))
 
+(defonce ^:private abandoned-runs
+  ;; The variant ids whose run overran its deadline and is still executing
+  ;; (see `run-variant-blocking` §An abandoned run is fenced, not stopped).
+  (atom #{}))
+
+(defn abandoned-run-error
+  "The refusal every tool that runs or reads a variant frame returns while
+  an earlier run of `vk` overran its deadline and is still executing, or
+  `nil` when none is. Composes into each handler's `or` chain beside
+  `no-adapter-error`."
+  [tool-name vk]
+  (when (contains? @abandoned-runs vk)
+    (rf.story-mcp.tools.result/error-result
+      (str "Cannot call `" tool-name "` for " (pr-str vk) ": an earlier run of this "
+           "variant overran its deadline and is still executing. Its frame is torn "
+           "down when that run ends; call again then.")
+      {:rf.error   :rf.error/story-mcp-run-still-executing
+       :tool       tool-name
+       :variant-id vk})))
+
 #?(:clj
    (defn- unwrap-async-cause
      "Peel the JVM async-plumbing wrappers (`ExecutionException` from the
@@ -159,11 +179,20 @@
   bound REAL, the whole
   invoke-and-settle runs on a bounded worker `future` conveyed with this
   thread's dynamic bindings; the caller waits at most `timeout-ms`. When
-  the deadline elapses the worker is CANCELLED (interrupting its
-  `Thread/sleep`, so the scheduled post-wait continuation never runs and
-  the stdio loop is freed) and the canonical `deadline-outcome` is
-  returned — an honest bounded-deadline-exceeded `:error`, not a false
-  `:pass`.
+  the deadline elapses the canonical `deadline-outcome` is returned — an
+  honest bounded-deadline-exceeded `:error`, not a false `:pass` — and the
+  stdio loop is freed.
+
+  ## An abandoned run is fenced, not stopped
+
+  At the deadline the worker is interrupted, which ends a BLOCKING wait (a
+  `[:wait]` step's `Thread/sleep`) but not computation: a handler busy on
+  the CPU runs on after the reply and keeps writing into the variant
+  frame, whose id is the variant id. So the variant is held in
+  `abandoned-runs` until the worker really ends, and `abandoned-run-error`
+  refuses every tool that would run or read that frame meanwhile. When the
+  worker ends, its frame is destroyed before the hold is released, so no
+  later call reads the abandoned run's late writes or races them.
 
   Returns the outcome map (a settled run-result, or the canonical error
   outcome). The caller projects / scrubs / wire-shapes it.
@@ -175,17 +204,27 @@
   which clj-kondo would otherwise flag on the `.cljc`'s cljs branch)."
   [vk opts timeout-ms]
   #?(:clj
-     (let [worker (future (rf.story.async/deref-blocking (rf.story/run-variant vk opts)))]
+     (let [state  (atom :running)
+           worker (future
+                    (try
+                      (rf.story.async/deref-blocking (rf.story/run-variant vk opts))
+                      (finally
+                        ;; The worker ends: if the caller abandoned it, tear
+                        ;; the frame down BEFORE releasing the hold.
+                        (when (= :abandoned (first (swap-vals! state (constantly :settled))))
+                          (try (rf.story/destroy-variant! vk)
+                               (finally (swap! abandoned-runs disj vk)))))))]
        (try
          (let [settled (deref worker timeout-ms ::timeout)]
            (if (identical? settled ::timeout)
-             (do
-               ;; Abandon the over-budget run: `future-cancel` interrupts the
-               ;; worker so a JVM `[:wait]` (`Thread/sleep`) unblocks and the
-               ;; scheduled post-wait continuation never fires, freeing the
-               ;; single-threaded stdio loop at the ceiling.
-               (future-cancel worker)
-               (deadline-outcome vk timeout-ms))
+             ;; Hold the variant first, then claim the abandonment: a worker
+             ;; that settled in between keeps its result and drops the hold.
+             (do (swap! abandoned-runs conj vk)
+                 (if (= :running (first (swap-vals! state #(if (= % :running) :abandoned %))))
+                   (do (future-cancel worker)
+                       (deadline-outcome vk timeout-ms))
+                   (do (swap! abandoned-runs disj vk)
+                       @worker)))
              settled))
          (catch Throwable e
            ;; A synchronous throw from `rf.story/run-variant`, or a rejected

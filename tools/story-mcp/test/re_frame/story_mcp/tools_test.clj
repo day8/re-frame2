@@ -29,6 +29,7 @@
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
             [re-frame.story-mcp.tools.dev :as rf.story-mcp.tools.dev]
             [re-frame.story-mcp.tools.egress :as rf.story-mcp.tools.egress]
+            [re-frame.story-mcp.tools.lifecycle :as rf.story-mcp.tools.lifecycle]
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -1148,6 +1149,38 @@
       (is (= [:error :error] [(:status s) (:lifecycle s)]))
       (is (< ms 2000.0) (str "elapsed=" ms "ms")))))
 
+;; A deadline interrupts a blocking wait but not a busy handler. The abandoned
+;; run is fenced instead: every tool on its frame refuses until it ends, and
+;; its frame (with the late writes) is torn down when it does.
+
+(deftest abandoned-busy-run-is-fenced-and-its-late-writes-discarded
+  (let [release (promise)]
+    (rf/reg-event :test/busy
+      (fn [{:keys [db]} _]
+        ;; CPU-bound: the deadline's interrupt does not stop it.
+        (while (not (realized? release)) (Thread/onSpinWait))
+        {:db (assoc db :busy-done? true)}))
+    (rf.story/reg-variant :story.button/busy {:doc "busy" :setup [[:test/busy]]})
+    (with-clean-frame [vid :story.button/busy]
+      (try
+        (is (= :error (:status (:structuredContent (invoke "run-variant" {:variant-id "story.button/busy" :timeout-ms 100}))))
+            "the deadline reply")
+        (doseq [tool ["run-variant" "preview-variant" "read-failures"]]
+          (let [r (invoke tool {:variant-id "story.button/busy"})]
+            (is (and (error? r)
+                     (= :rf.error/story-mcp-run-still-executing (get-in r [:structuredContent :rf.error])))
+                (str tool " refuses while the abandoned run executes: " (pr-str r)))))
+        (finally (deliver release true)))
+      (let [deadline (+ (System/currentTimeMillis) 10000)]
+        (while (and (rf.story-mcp.tools.lifecycle/abandoned-run-error "run-variant" vid)
+                    (< (System/currentTimeMillis) deadline))
+          (Thread/sleep 10)))
+      (is (nil? (rf.story-mcp.tools.lifecycle/abandoned-run-error "run-variant" vid)) "the fence lifts when the run ends")
+      (is (nil? (frame-container vid)) "the abandoned run's frame, late writes and all, is gone")
+      (is (= :pass (:status (:structuredContent (invoke "read-failures" {:variant-id "story.button/busy"})))))
+      (is (= :pass (:status (:structuredContent (invoke "run-variant" {:variant-id "story.button/busy"}))))
+          "a fresh run of the variant proceeds"))))
+
 (deftest lifecycle-error-outcome-surfaced-by-both-consumers
   ;; The worker future wraps a throw in an ExecutionException whose message is
   ;; the cause's toString, so only an exact :reason proves the wrapper was
@@ -1228,10 +1261,10 @@
                         {:assertion :rf.assert/path-equals :passed? false :sensitive? true :reason "secret"}
                         {:assertion :rf.assert/sub-equals :passed? false :sensitive? true :reason "secret"}]})
     (doseq [args [{} {:include-sensitive true}]]
-      (is (= {:total 1 :failures [] :status :pass :dropped-sensitive 2}
+      (is (= {:total 1 :failures [] :status :fail :dropped-sensitive 2}
              (select-keys (:structuredContent (invoke "read-failures" (merge {:variant-id "story.button/primary"} args)))
                           [:total :failures :status :dropped-sensitive]))
-          (str "a dropped sensitive failure is counted and does not flip the verdict: " args)))))
+          (str "a dropped sensitive failure is counted and still fails the verdict: " args)))))
 
 (deftest read-failures-includes-sensitive-when-opted-in
   (rf.story-mcp.config/set-allow-sensitive-reads! true)

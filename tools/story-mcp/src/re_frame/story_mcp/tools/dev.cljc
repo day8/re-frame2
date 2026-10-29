@@ -152,6 +152,7 @@
           ;; SAME `rf.story/run-variant` lifecycle, so with no adapter installed it
           ;; would ship the same success-shaped non-run.
           (rf.story-mcp.tools.lifecycle/no-adapter-error "preview-variant")
+          (rf.story-mcp.tools.lifecycle/abandoned-run-error "preview-variant" vk)
           (let [opts       (rf.story-mcp.tools.args/read-run-opts vk arguments)
                 base-url   (or (:base-url arguments) "")
                 share-url  (rf.story/variant-share-url vk base-url opts)
