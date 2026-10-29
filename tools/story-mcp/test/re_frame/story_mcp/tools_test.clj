@@ -643,14 +643,29 @@
   (is (true? (-> (invoke "unregister-variant" {:variant-id "story.button/primary"}) :structuredContent :unregistered?)))
   (is (nil? (rf.story/variant->edn :story.button/primary))))
 
-(deftest record-as-variant-is-retired-method-not-found
+(defn- call-unknown [tool-name]
+  (:result (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 41 :method "tools/call"
+                                          :params  {:name tool-name :arguments {}}})))
+
+(deftest record-as-variant-is-retired-and-takes-the-unknown-tool-path
   ;; A blocking recorder bridge would sleep the server's only dispatch loop,
-  ;; so the catalogue carries no such tool and the name takes the unknown-tool
-  ;; path.
-  (is (= rf.mcp-base.vocab/code-method-not-found
-         (-> (rf.story-mcp.server/dispatch {:jsonrpc "2.0" :id 41 :method "tools/call"
-                                            :params  {:name "record-as-variant" :arguments {}}})
-             :error :code))))
+  ;; so the catalogue carries no such tool.
+  (let [r (call-unknown "record-as-variant")]
+    (is (true? (:isError r)))
+    (is (= :rf.story-mcp/unknown-tool (get-in r [:structuredContent :rf.error])))))
+
+(deftest unknown-tool-is-a-recoverable-tool-error
+  ;; A protocol -32601 would name the wrong thing (tools/call exists) and many
+  ;; hosts never hand it to the model; the tool result carries the way back.
+  (let [r (call-unknown "list-storys")
+        s (:structuredContent r)]
+    (is (true? (:isError r)))
+    (is (= [:rf.story-mcp/unknown-tool "list-storys" "list-stories"]
+           [(:rf.error s) (:tool s) (:did-you-mean s)]))
+    (is (= (mapv :name (rf.story-mcp.tools.registry/tool-descriptors)) (:available-tools s)))
+    (is (re-find #"did you mean `list-stories`" (-> r :content first :text))))
+  (is (not (contains? (:structuredContent (call-unknown "zzzzzzzzzzzzzzzzzzzz")) :did-you-mean))
+      "no suggestion for a name nothing is near"))
 
 (deftest register-variant-overrides-caller-supplied-origin
   ;; spec/Cross-Cutting-Designs.md §5: every write surface tags its writes.

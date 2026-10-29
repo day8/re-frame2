@@ -23,7 +23,7 @@
 //   - tools/call register-variant without --allow-writes
 //                                 (expect gated tool-execution error — proves
 //                                  the gating contract per spec/003)
-//   - tools/call no-such-tool     (expect method-not-found protocol error)
+//   - tools/call no-such-tool     (expect the isError unknown-tool result)
 //   - tools/call run-variant on the prelude's REGISTERED variants, whose
 //                                 handlers println after the server is up
 //                                 (expect every stdout line to parse as JSON,
@@ -324,17 +324,19 @@ function run() {
       }
       console.log('OK   tools/call register-variant (gated) -> isError + structuredContent.gated=true');
 
-      // 6. tools/call no-such-tool — unknown tool name; the dispatcher
-      // surfaces a protocol-level method-not-found (-32601) per
-      // server.cljc's `handle-tools-call`.
+      // 6. tools/call no-such-tool — an unknown tool name is a tool error
+      // the model can recover from (server.cljc's `unknown-tool-result`),
+      // not a protocol error.
       const unkResp = await call('tools/call', {
         name: 'no-such-tool',
         arguments: {},
       });
-      if (unkResp.error?.code !== -32601) {
-        throw new Error('no-such-tool should yield method-not-found (-32601); got: ' + JSON.stringify(unkResp));
+      const unkStruct = unkResp.result?.structuredContent || {};
+      if (!unkResp.result?.isError || unkStruct['rf.error'] !== 'rf.story-mcp/unknown-tool'
+          || !Array.isArray(unkStruct['available-tools'])) {
+        throw new Error('no-such-tool should yield the isError unknown-tool result; got: ' + JSON.stringify(unkResp));
       }
-      console.log('OK   tools/call no-such-tool -> -32601 method-not-found');
+      console.log('OK   tools/call no-such-tool -> isError :rf.story-mcp/unknown-tool with :available-tools');
 
       // 6b. tools/call run-variant on REGISTERED variants whose handlers
       // println. stdout is the protocol stream, so application

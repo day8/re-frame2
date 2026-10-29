@@ -720,8 +720,8 @@ Each of these is a deliberate omission:
   transport). The recorder primitives stay in `tools/story/` for their
   in-process/browser consumers; interactive canvas recording is
   performed through Pair in the attached CLJS runtime. A `tools/call`
-  naming the retired tool takes the server's existing `-32601
-  method-not-found` path — no tombstone, no alias. A future headless
+  naming the retired tool gets the ordinary unknown-tool result
+  (`:rf.error :rf.story-mcp/unknown-tool`) — no tombstone, no alias. A future headless
   capture surface requires an executable SDK witness with a
   transport-reachable event producer first.
 - **No `register-story`**. `register-variant` registers only the
