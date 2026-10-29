@@ -1059,7 +1059,7 @@ The **canonical** call-shape for an event vector — and for the parallel subscr
 
 Same shape for `subscribe`: `[:items-filtered {:status :pending :limit 20}]`.
 
-This is **best practice, not enforced**. The framework runtime accepts variadic vectors (`[<id> a b c]`) — the v1 multi-positional shape is tolerated for migration and caller convenience, and the linter nudges new code toward the map form (per [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). Boundary validators (`dispatch`, `dispatch-sync`, the pair-tool MCP dispatch surface) check `vector?` only; they do not reject variadic shape.
+This is **best practice, not enforced**. The framework runtime accepts variadic vectors (`[<id> a b c]`) — the v1 multi-positional shape is tolerated for migration and caller convenience, and the linter nudges new code toward the map form (per [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in)). The dispatch boundary checks shape only: every dispatch path requires a vector headed by its event-id keyword ([Spec-Schemas §`:rf/event`](Spec-Schemas.md#rfevent-the-event-vector)) and refuses anything else with `:rf.error/invalid-event` ([002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope)), and the pair-tool MCP dispatch surface checks `vector?` before handing the event on. None of them rejects variadic shape.
 
 Why the canonical form is `[<id> <map>]`:
 
