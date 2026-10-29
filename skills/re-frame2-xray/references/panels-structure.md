@@ -6,7 +6,7 @@ the focused event. **Graph** draws the dependency graph across families;
 the live registration store; **Fresco** is the
 evidence lens over the Fresco view layer. Picking an epoch in L2 rebinds
 none of them — Graph follows its own projection toggle (and the L1 frame
-picker on the Realized side), Frames and Fresco read the live runtime.
+picker on its `live` side), Frames and Fresco read the live runtime.
 Inventory + scope matrix: [panels.md](panels.md).
 
 ## Graph — where does this value come from?
@@ -22,12 +22,12 @@ selectors) — as one node-and-edge graph over the frame fold. A family
 with no registrations contributes no nodes (the per-app no-machines /
 no-resources story, not a per-tool boundary).
 
-**The projection toggle is Graph-local.** A per-panel **Declared ↔
-Realized** toggle flips registration-derived vs observed (Declared reads
-the process-global registrar; Realized reads the observed frame). The
-shipped UI labels the toggle static/live — it is **NOT** the L1
-Dynamic/Static mode pill, and Graph is always a Dynamic tab: switching
-Xray to Static mode shows the five registry catalogues, not Graph.
+**The projection toggle is Graph-local.** The header's **`static` /
+`live`** toggle flips registration-derived vs observed (`static` reads
+the process-global registrar; `live` reads the observed frame). It is
+**NOT** the L1 Dynamic/Static mode pill, and Graph is always a Dynamic
+tab: switching Xray to Static mode shows the five registry catalogues,
+not Graph.
 
 Two caveats this leaf owns:
 

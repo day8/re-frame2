@@ -66,7 +66,7 @@ unless the user asked for the inventory.
 | What this event did to a state machine — transition, guards, actions | **Dynamic → Machine** (event-driven: the one instance the event targeted; a placeholder line when it targeted none) | pick the event | **Static → Machines** to browse a full topology cold |
 | What route am I on / what did this event do to routing | **Dynamic → Routes** | pick the event | **Static → Routes** to rank a URL against the registry |
 | Server state — what owns it, is it stale, what's in flight, did my mutation's `:reply-to` fire | **Dynamic → Resources** | pick the frame — live instances follow the L1 frame picker, not the epoch | — |
-| Where does this value come from — the dependency graph across subs / flows / resources / routes / machines | **Dynamic → Graph** (does not follow the epoch) | flip its own Declared ↔ Realized projection toggle for registered-vs-observed | — |
+| Where does this value come from — the dependency graph across subs / flows / resources / routes / machines | **Dynamic → Graph** (does not follow the epoch) | flip its own `static` / `live` toggle for registered-vs-observed | — |
 | Which image loaded which frame; how a frame resolves its registrations | **Dynamic → Frames** (process-global; does not follow the epoch) | open the tab | — |
 | Fresco — which boundaries are mounted, what they read, why one re-rendered, which is hot | **Dynamic → Fresco** (not epoch-coupled) | open the tab; pick the sub-view (Mounted · Reads · Intents · Why · Advisor · Causal) | — |
 | What's registered — machines / routes / schemas / flows / interceptors as catalogues | **Static mode** | flip the L1 mode pill or press `Cmd/Ctrl+Shift+M` | — |
@@ -109,9 +109,9 @@ lenses** — Epoch · app-db · Views · Trace · Machine · Routes — rebind w
 you pick an event in the L2 list. **Resources** is mixed: its live
 sections follow the L1 frame picker, and its history spans the retained
 trace buffer across frames. **Graph, Frames and Fresco** never follow the
-event, so "select an epoch and they update" is false. Graph's Declared ↔
-Realized toggle (shipped labelled static/live) is Graph's own control,
-not the L1 Dynamic/Static mode pill — Graph is always a Dynamic tab.
+event, so "select an epoch and they update" is false. Graph's `static` /
+`live` toggle is Graph's own control, not the L1 Dynamic/Static mode
+pill — Graph is always a Dynamic tab.
 **Static's** definition catalogues are process-global; the frame picker
 moves only their per-frame live projections. The per-tab matrix is
 [`references/panels.md` §Scope matrix](references/panels.md#scope-matrix--three-authority-axes).
