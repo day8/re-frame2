@@ -10,7 +10,8 @@
 ;; The JVM and CLJS node runners pass stdout through and buffer a bounded
 ;; noise channel, dropping it on green and replaying it on red. Their scope
 ;; differs: JVM buffers the test thread's `*err*` plus process-global
-;; `System.err`; CLJS node buffers `console.warn` only. Browser / Playwright
+;; `System.err`; CLJS node buffers `console.warn` and the `[re-frame2]`
+;; dev-fallback `console.error` line (below). Browser / Playwright
 ;; diagnostics are owned by the browser harnesses.
 ;;
 ;;   - STDOUT is pass-through, not summary-only. The reporter makes the
@@ -53,10 +54,9 @@
          {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
 
  :aliases
- {;; Self-test alias - drives the stdout-line-count pin
-  ;; (`re-frame.test-quiet-pin-test`) plus the trivial known-green
-  ;; sub-suite the pin exercises.  Uses the quiet runner like every
-  ;; other artefact so the pin is verified against the same code
-  ;; path agents read.
+ {;; Self-test alias - this artefact's own suite (the runner contract,
+  ;; discovery and fixture integrity, the in-process reporter pin), run
+  ;; through the quiet runner like every other artefact so it is verified
+  ;; against the same code path agents read.
   :test {:extra-paths ["test"]
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
