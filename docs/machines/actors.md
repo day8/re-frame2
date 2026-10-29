@@ -77,7 +77,7 @@ table again. The other guards, actions and states stay as defined there:
   (let [reason (nth event 2)]
     {:data (-> data
                (update :attempts inc)
-               (assoc  :error (or (:message reason) "Login failed.")))}))
+               (assoc  :error (or (get-in reason [:body :message]) "Login failed.")))}))
 
 ;; Replace under :states.
 :submitting
@@ -193,7 +193,7 @@ deadline destroys the actor and shows the error.
       (let [reason (nth event 2)]
         {:data (-> data
                    (update :attempts inc)
-                   (assoc  :error (or (:message reason) "Login failed.")))}))}
+                   (assoc  :error (or (get-in reason [:body :message]) "Login failed.")))}))}
 
    :states
    {:idle
