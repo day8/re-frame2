@@ -416,7 +416,7 @@
   spec/001-Registration.md §The retired event-registration names."}
   reg-event-fx  rf.events/reg-event-fx)
 (def ^{:no-doc true
-       :doc "DEMOTED to framework-internal in EP-0018. Calling public
+       :doc "Framework-internal (EP-0018). Calling public
   `reg-event-ctx` raises `:rf.error/reg-event-ctx-removed`, naming
   `reg-interceptor` as the public replacement for application full-context
   work (register the interceptor by id, then reference it from a `reg-event`

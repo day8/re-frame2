@@ -1,7 +1,7 @@
 (ns re-frame.reg-meta-noswallow-cljs-test
   "No silent swallow on `reg-*` registration metadata keys, per registrar
-  (each calls the check itself): a retired bare key (`:spec`, now `:schema`)
-  hard-errors, an unknown bare key warns and still registers, and known or
+  (each calls the check itself): a retired bare key (`:spec`) hard-errors
+  naming `:schema`, an unknown bare key warns and still registers, and known or
   namespaced keys pass silently.
 
   The warning is a dev-trace emit, so the warning assertions (positive and

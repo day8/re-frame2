@@ -6,7 +6,7 @@
   queryable `DerivationGraph` view.
 
   Per [spec/Derivations.md] §Graph inspection — internal but structured
-  (graduated from EP-0014) and the projected Malli shapes in
+  and the projected Malli shapes in
   [Spec-Schemas §`:rf/derivation-graph`]. Where each sibling projects ONE
   family's nodes (`re-frame.subs.tooling/sub-algebra-view`,
   `re-frame.flows.tooling/flow-algebra-view`,

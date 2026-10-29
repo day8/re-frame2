@@ -787,7 +787,7 @@
 ;; §`:rf/set-db`. The framework's OWN registration goes through the private
 ;; `rf.registrar/register!` path (see `register-set-db-standard!`), so this guard —
 ;; which fires only on the public `register-event!` entry — does not reject the
-;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`,
+;; framework's own seeding. The set is deliberately narrow (`:rf/set-db`,
 ;; `:rf/install-frame-state` and the retired `:rf/settle-flows` — see the def's
 ;; docstring for why each is in): the OTHER framework `:rf/*` events (`:rf/hydrate`,
 ;; `:rf.route/navigate`, …) are registered through the
@@ -798,7 +798,7 @@
   "The closed set of framework-standard `:event` ids the public `reg-event`
   refuses to register over (EP-0027 §`:rf/set-db`). A reserved id is framework-
   OWNED; an app `reg-event` targeting one is a loud reserved-id collision
-  (`:rf.error/reserved-event-id`). Today:
+  (`:rf.error/reserved-event-id`). Members:
   `#{:rf/set-db :rf/install-frame-state :rf/settle-flows}`.
   Fixed-and-additive — adding a member is a Spec change.
 

@@ -555,7 +555,7 @@
 ;; APPLICATION is invited to make: the framework seeds one so the feature is
 ;; safe when the app registers nothing, and an app registration of the same id
 ;; is the documented, intended override. A registration is one when its owning
-;; framework registrar stamps `framework-default-key` on it. Today's members:
+;; framework registrar stamps `framework-default-key` on it. The members:
 ;; the routing events `:rf.route/entry-denied` and `:rf.route/navigation-blocked`
 ;; (Spec 012 §Navigation blocking), no-op handlers so a `:can-enter` denial /
 ;; `:can-leave` block always resolves, which the auth recipe replaces; and the
@@ -582,7 +582,7 @@
   REPLACEABLE DEFAULT — the framework's stand-in for an application decision,
   which an application registration of the same id supersedes (Conventions
   §Reserved registration metadata). Stamped by the owning framework registrar
-  on the registration it seeds for an application to replace (today the
+  on the registration it seeds for an application to replace (the
   routing façade's `:rf.route/entry-denied` / `:rf.route/navigation-blocked`
   and the HTTP artefact's `:rf.http/managed`); read here."
   :rf/framework-default?)
