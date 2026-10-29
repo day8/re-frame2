@@ -65,7 +65,7 @@ host has not yet called `rf/init!`. Neither failure is written to
 
 ## Wired hotkeys
 
-Four hotkey families have keydown listeners attached today
+Four hotkey families have keydown listeners attached
 (`keybinding.cljs`). Three are **global**; the fourth is **focus-gated**
 (fires only inside the Xray shell, on non-editable, non-modal targets):
 
@@ -78,7 +78,7 @@ Four hotkey families have keydown listeners attached today
 
 [`spec/007-UX-IA.md` §Keyboard](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md#keyboard)
 catalogues additional shortcuts that remain normative for the future but
-are not yet wired. Note: `Cmd/Ctrl+K` **is** wired today (the command
+are not yet wired. Note: `Cmd/Ctrl+K` **is** wired (the command
 palette) — don't tell users the K-binding is unavailable. Embed hosts can suppress Xray's
 global listeners via `:rf.xray/keybinding-enabled?` (e.g. Story's RHS, so
 its own `Cmd/Ctrl+K` palette is not swallowed). Source of truth:

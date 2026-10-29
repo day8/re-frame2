@@ -197,7 +197,7 @@
  "name": "chrome-filters",
  "should_trigger": true,
  "prompt": "Some of my events are missing from the Xray list and it says 'N events filtered out' — how do I clear the filters?",
- "expected_output": "The agent says there is NO Clear Filters button (the bulk-clear control was deliberately retired): remove each active IN/OUT filter pill individually via the pill's trailing × on the L1.5 events ribbon — removing the last pill collapses the ribbon and the hidden events return. If event ids are ALSO muted (the L1 ribbon shows a 🔇 N chip), that is a separate suppression state: click 🔇 N to open the mute manager and unmute per-row or via its Unmute all button. It does NOT tell the user to click a Clear Filters button, hotkey, or palette command.",
+ "expected_output": "The agent says there is NO Clear Filters button: remove each active IN/OUT filter pill individually via the pill's trailing × on the L1.5 events ribbon — removing the last pill collapses the ribbon and the hidden events return. If event ids are ALSO muted (the L1 ribbon shows a 🔇 N chip), that is a separate suppression state: click 🔇 N to open the mute manager and unmute per-row or via its Unmute all button. It does NOT tell the user to click a Clear Filters button, hotkey, or palette command.",
  "expectations": [
  "The output tells the user to remove each active IN/OUT filter pill via the pill's trailing × on the events ribbon (per-pill removal is the only shipped pill-clearing affordance; removing the last pill collapses the ribbon).",
  "The output treats muted event ids as a SEPARATE suppression state the pills do not manage — when the L1 🔇 N indicator is present, click it to open the mute manager and use per-row unmute or its Unmute all bulk action.",

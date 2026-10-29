@@ -3,9 +3,9 @@
 Companion to [`panels.md`](panels.md) (the tabs) and
 [`launch-modes.md`](launch-modes.md) (getting Xray visible). This leaf owns
 the **control-by-control inventory** of the chrome the operator meets
-before picking a tab: the LIVE/RETRO spine, time-travel (passive inspect vs
-explicit rewind), the filter-pill cluster, the command palette, the
-Settings popup.
+before picking a tab: the L1 frame picker, the LIVE/RETRO spine,
+time-travel (passive inspect vs explicit rewind), the filter pills, the
+command palette, the Settings popup and Snapshot app-db.
 [`SKILL.md` §The chrome around the tabs](../SKILL.md#the-chrome-around-the-tabs)
 is the one-line router; load this when a chrome question needs more.
 
@@ -104,7 +104,7 @@ behind that succession is owned by
 Spec [`002-Time-Travel.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/002-Time-Travel.md)
 catalogues a richer keymap — `r` rewind, `R` re-dispatch, `*` pin — that is
 **normative for the future, not yet wired**; the `Reset` button is what
-works today. Do not teach `r` / `R` / `*` as live keys.
+works. Do not teach `r` / `R` / `*` as live keys.
 
 ## Filter pills
 
