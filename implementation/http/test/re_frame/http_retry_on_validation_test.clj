@@ -65,7 +65,8 @@
                         [:rf.error/id :where :recovery :bad-shape :bad-type])))))
 
 (deftest retry-without-members-passes-through
-  ;; The whole closed set, statuses from 400 to 599, no :on and a nil :on all pass.
+  ;; The whole closed set, statuses from 400 to 599, no :on and a nil :on all
+  ;; pass, and so does a nil :backoff value, which takes its default.
   (are [retry] (not= :rf.error/http-bad-retry-on (:rf.error/id (call-managed! retry)))
     {:on closed-set :max-attempts 3}
     {:on #{429} :max-attempts 3}
@@ -73,6 +74,7 @@
     {:max-attempts 3}
     {:on nil :max-attempts 3}
     {:max-attempts 1 :backoff {:base-ms 0 :factor 1.5 :max-ms 100 :jitter true}}
+    {:max-attempts 3 :backoff {:base-ms nil :factor nil :max-ms nil}}
     nil))
 
 (deftest a-retry-map-without-max-attempts-is-refused

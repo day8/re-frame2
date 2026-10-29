@@ -379,7 +379,7 @@ This is deliberate. Retry decisions that depend on more than the failure's categ
 
 A `:retry` map without `:max-attempts` is rejected at fx-call time with `:rf.error/http-bad-retry-on` (ex-data `:received`, the map). The runtime supplies no default: every attempt after the first re-sends the request, and a request that is not idempotent must not gain one the caller did not ask for. An omitted `:retry` never retries.
 
-The rest of the policy is checked at the same point, with the same error. A non-nil `:retry` that is not a map (`:retry 3`) names no policy, so it would never retry. A `:max-attempts` that is not a positive integer, a `:backoff` that is not a map, and a `:backoff` `:base-ms` / `:factor` / `:max-ms` that is not a non-negative number would each throw when a failure reaches the retry decision, ending the request with no reply. The ex-data carries `:received`, the policy, and for a bad value `:bad-key`, its key or key path (`[:backoff :base-ms]`).
+The rest of the policy is checked at the same point, with the same error. A non-nil `:retry` that is not a map (`:retry 3`) names no policy, so it would never retry. A `:max-attempts` that is not a positive integer, a `:backoff` that is not a map, and a `:backoff` `:base-ms` / `:factor` / `:max-ms` that is neither nil nor a non-negative number would each throw when a failure reaches the retry decision, ending the request with no reply. A nil `:backoff` value reads as the key absent and takes its default. The ex-data carries `:received`, the policy, and for a bad value `:bad-key`, its key or key path (`[:backoff :base-ms]`).
 
 #### Closed-set `:retry :on` validation
 

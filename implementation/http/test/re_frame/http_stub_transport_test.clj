@@ -5,7 +5,8 @@
   failures a stub may report, and a `:rf.http/stub-only?` frame that never
   reaches the host. The host-symmetric cases live in
   `re-frame.http-stub-transport-cljs-test`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
@@ -87,6 +88,47 @@
            (mapv (juxt #(get-in % [:tags :attempt]) :recovery)
                  (filter #(= :rf.http/retry-attempt (:operation %)) traces)))
         "the retry is counted on the trace")))
+
+(deftest a-retry-rows-failure-message-quotes-the-url-redacted
+  ;; Spec 014 §Privacy §4 rule 2: a `:message` quoting a url carries the url's
+  ;; redacted form. The stub's no-route message quotes the request url, so
+  ;; every attempt fails with a message naming the denylisted value.
+  (let [secret-url "https://api.example.test/items?api_key=SECRET-K&page=2"
+        traces     (capturing
+                     #(do (rf.http.stub-transport/with-transport
+                            (rf.http.stub-transport/route-transport {})
+                            (fn [] (fire! {:request {:url secret-url}
+                                           :retry   {:on           #{:rf.http/transport}
+                                                     :max-attempts 2
+                                                     :backoff      {:base-ms 1 :factor 1 :max-ms 1}}})))
+                          (await-reply!)))
+        rows       (fn [op] (filter #(= op (:operation %)) traces))
+        quotes?    (fn [message] [(str/includes? message "SECRET-K")
+                                  (str/includes? message "api_key=:rf/redacted")])]
+    (is (= [[:retried [false true]] [:no-recovery [false true]]]
+           (mapv (juxt :recovery #(quotes? (get-in % [:tags :failure :message])))
+                 (rows :rf.http/retry-attempt)))
+        "the retried row and the stop row nest the failure with its quote redacted")
+    (is (= [[false true]]
+           (mapv #(quotes? (get-in % [:tags :message])) (rows :rf.http/transport)))
+        "the category row, the control, quotes it redacted too")))
+
+(deftest a-nil-backoff-value-takes-its-default
+  ;; An explicit nil reads as the key absent, so the request still retries and
+  ;; replies rather than throwing at its first retry decision.
+  (let [hits      (atom 0)
+        transport (rf.http.stub-transport/route-transport
+                    {[:get url] (fn [_] (if (= 1 (swap! hits inc))
+                                          {:status 503 :body "busy"}
+                                          {:body {:n 2}}))})]
+    (rf.http.stub-transport/with-transport transport
+      (fn [] (fire! {:request {:url url}
+                     :decode  :json
+                     :retry   {:on           #{:rf.http/http-5xx}
+                               :max-attempts 2
+                               :backoff      {:base-ms 1 :factor nil :max-ms nil}}})))
+    (await-reply!)
+    (is (= [2 [:ok {:n 2} 2]] [@hits ((juxt :status :value :attempt) (reply))]))))
 
 (deftest the-requests-timeout-bounds-a-held-exchange
   (let [{:keys [transport exchanges]} (rf.http.stub-transport/pending-transport)]
