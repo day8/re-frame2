@@ -4,7 +4,7 @@
   its rendered hiccup are CLJS-only."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
-            [re-frame.core                              :as rf]
+            #?(:cljs [re-frame.core :as rf])
             [re-frame.story.recorder                    :as rf.story.recorder]
             [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
             #?(:cljs [re-frame.story.ui.recorder-export-dialog :as rf.story.ui.recorder-export-dialog])))
