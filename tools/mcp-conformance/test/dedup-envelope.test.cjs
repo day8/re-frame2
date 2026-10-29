@@ -24,7 +24,7 @@ function envelope(cache) {
   return { [DEDUP_TABLE_KEY]: cache };
 }
 
-test('cyclic dedup cache THROWS loud (rf2-87h71e LOW), not silent undefined', () => {
+test('cyclic dedup cache THROWS loud, not silent undefined', () => {
   assert.throws(
     () => decodeDedupEnvelope(envelope({ [cacheId(0)]: { self: cacheId(0) } })),
     /cyclic dedup cache/,
@@ -65,7 +65,7 @@ test('map keys decode like values: a de-duped key, structured or string, and an 
 
 // `decompress-cache` expands every entry before reading the root, so a real
 // client rejects a malformed entry the root never reaches.
-test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws (rf2-6i2yi4 finding 7)', () => {
+test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws', () => {
   const cache = {
     [cacheId(0)]: { fine: 1 },
     [cacheId(1)]: { missing: cacheId(9) },
@@ -114,7 +114,7 @@ const PROTO_KEY_WIRE =
 
 // Strict deep equality compares own keys and prototypes, so it fails if the
 // key was assigned through the inherited `__proto__` setter.
-test('an own "__proto__" payload key survives expansion, at the root and nested (rf2-gwye.36)', () => {
+test('an own "__proto__" payload key survives expansion, at the root and nested', () => {
   assert.deepEqual(
     decodeDedupEnvelope(JSON.parse(PROTO_KEY_WIRE)),
     JSON.parse(PROTO_KEY_ORIGINAL),

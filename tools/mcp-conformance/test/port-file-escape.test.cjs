@@ -32,7 +32,7 @@ function withTmpDirs(fn) {
 }
 
 // Symlink creation needs elevated rights on Windows.
-test('readPortFile refuses an external port file behind a symlinked parent or leaf (rf2-khav7l)', { skip: process.platform === 'win32' }, () => {
+test('readPortFile refuses an external port file behind a symlinked parent or leaf', { skip: process.platform === 'win32' }, () => {
   withTmpDirs((fixture, outside) => {
     const realShadow = path.join(outside, 'shadow-cljs');
     fs.mkdirSync(realShadow);

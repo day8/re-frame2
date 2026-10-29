@@ -41,7 +41,7 @@ function grade(events) {
   });
 }
 
-test('spawnAndGradeInnerTest resolves on close with the exit code and all stdout, including a chunk landing after exit (rf2-6girz0)', async () => {
+test('spawnAndGradeInnerTest resolves on close with the exit code and all stdout, including a chunk landing after exit', async () => {
   for (const [events, expected] of [
     [[['exit', 0, null], ['data', `${SENTINEL}\n`], ['close', 0, null]],
       { code: 0, stdoutText: `${SENTINEL}\n` }],
@@ -52,7 +52,7 @@ test('spawnAndGradeInnerTest resolves on close with the exit code and all stdout
   }
 });
 
-test('gradeInnerTestOutcome: an exit-0 SKIP, a missing sentinel or a sentinel-less row fails with exit 2; a non-zero exit keeps its code; only the sentinel passes (rf2-3x7nj.36.1)', () => {
+test('gradeInnerTestOutcome: an exit-0 SKIP, a missing sentinel or a sentinel-less row fails with exit 2; a non-zero exit keeps its code; only the sentinel passes', () => {
   const verdict = (code, stdoutText, sentinel = SENTINEL) => () =>
     gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile: 'fake-inner-test.cjs' });
   const orchestration = (pattern) => (err) => err.exitCode === 2 && pattern.test(err.message);
