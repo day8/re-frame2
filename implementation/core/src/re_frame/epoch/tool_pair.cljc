@@ -1602,7 +1602,10 @@
       genuinely needs runtime-db diagnostics opts in explicitly with
       `:rf.egress/include-runtime-db? true`; the runtime-db value is then projected
       through the same frame/profile walk (its own per-slot sensitive /
-      large declarations still apply) rather than redacted whole.
+      large declarations still apply) rather than redacted whole. Resource
+      entries ride it with their raw scope and params, in the entry map keys
+      and `:resource/key`, while each resource's classification still redacts
+      the entry's data (Spec 016 §Xray and AI tooling).
 
   Each walked partition first takes `redact-by-recorded-registry` with
   `registry`, the one this frame-state recorded (nil under an explicit frame
