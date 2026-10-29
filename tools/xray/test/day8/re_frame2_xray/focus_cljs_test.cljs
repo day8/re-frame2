@@ -73,6 +73,10 @@
   (rf/with-frame :rf/xray
     @(rf/subscribe [:rf.xray/view-scope-frame])))
 
+(defn- mode []
+  (rf/with-frame :rf/xray
+    @(rf/subscribe [:rf.xray/mode])))
+
 ;; =========================================================================
 ;; (1) Pure translation — focus-command->dispatches
 ;; =========================================================================
@@ -82,6 +86,7 @@
             before any epoch / cascade pin resolves"
     (is (= [[:rf.xray/select-frame :checkout]
             [:rf.xray/focus-epoch 42]
+            [:rf.xray/set-mode :dynamic]
             [:rf.xray/select-tab :app-db]]
            (focus/focus-command->dispatches
              {:frame :checkout :epoch-id 42 :panel :app-db})))))
@@ -91,6 +96,7 @@
             disambiguation) and supersedes a co-supplied :epoch-id"
     (is (= [[:rf.xray/select-frame :checkout]
             [:rf.xray/focus-event 17 :checkout]
+            [:rf.xray/set-mode :dynamic]
             [:rf.xray/select-tab :app-db]]
            (focus/focus-command->dispatches
              {:frame :checkout
@@ -109,7 +115,7 @@
     ;; The control: the same command with a live field beside the ignored
     ;; one translates, so the `[]` above is `:path` being ignored
     ;; rather than the translator being broken.
-    (is (= [[:rf.xray/select-tab :app-db]]
+    (is (= [[:rf.xray/set-mode :dynamic] [:rf.xray/select-tab :app-db]]
            (focus/focus-command->dispatches
              {:panel :app-db :path [:user :profile :name]}))
         ":path contributes nothing beside a field that does")))
@@ -138,6 +144,26 @@
             (:dispatch-id (focus-sub)) (:frame (focus-sub)) (view-scope-frame)])
         "the tab, the spine cascade and frame, and the L2 scope all move, and
          Story's provenance round-trips untouched")))
+
+(deftest a-panel-focus-from-static-mode-lands-in-dynamic
+  ;; The Static surface hides every Dynamic tab, so a `:panel` focus that
+  ;; left the mode alone would report `:ok? true` over an unchanged screen.
+  (setup-xray-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
+  (let [result (focus/focus! :checkout {:panel :trace :dispatch-id :c2 :sync? true})]
+    (is (= [true :dynamic :trace :c2]
+           [(:ok? result) (mode) (selected-tab) (:dispatch-id (focus-sub))]))))
+
+(deftest a-focus-without-a-panel-leaves-static-mode-alone
+  ;; The control: the same pin without `:panel` lands, and the operator's
+  ;; Static mode stays.
+  (setup-xray-frame!)
+  (seed-cascades! fixture-cascades)
+  (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
+  (let [result (focus/focus! :checkout {:dispatch-id :c2 :sync? true})]
+    (is (= [true :static :c2]
+           [(:ok? result) (mode) (:dispatch-id (focus-sub))]))))
 
 (deftest focus-routes-alias-lands-the-routing-tab
   ;; `:routes` is the host-friendly display noun for the `:routing` tab.
