@@ -648,9 +648,10 @@
 ;; Both the schema-first wire walker (`walk` / `walk-decider`) and the
 ;; ad-hoc-paths classification walker (`re-frame.classification/walk-with-paths`)
 ;; descend the SAME node domain — map → reduce-kv, vector|seq → positional
-;; reduce with an integer index, set → element-wise pass-through — and differ
-;; ONLY in the per-node DECIDER and how each forks its traversal STATE through
-;; a descent. `walk-tree` is that divergence-free kernel, living here
+;; reduce with an integer index, set → element-wise pass-through — and fork
+;; their candidate sets through the SAME `fork-decl-paths` / `fork-index-paths`
+;; (classification choosing the fork policy), so they differ ONLY in the
+;; per-node DECIDER. `walk-tree` is that divergence-free kernel, living here
 ;; (classification requires this ns anyway, so this adds no coupling): one skeleton,
 ;; the two distinct deciders stay at their call sites.
 ;;
@@ -729,18 +730,18 @@
   [path]
   (into #{} (map #(subvec path 0 %)) (range 1 (inc (count path)))))
 
-(defn- decl-prefix-set
-  "Build the set of every prefix of every declared path (sensitive ∪
-  large). A candidate declaration-coordinate path is kept alive during the
-  walk only while it is a member of this set — anything outside it can
-  never reach a declaration, so dropping it is matching-safe and keeps the
-  forked candidate set bounded by this prefix vocabulary."
-  [ctx]
-  (into #{}
-        (mapcat prefixes)
-        (concat (keys (:sensitive ctx)) (keys (:large ctx)))))
+(defn ^:no-doc decl-prefix-set
+  "Build the set of every prefix of every path in `decl-paths` (the declared
+  sensitive ∪ large paths). A candidate declaration-coordinate path is kept
+  alive during the walk only while it is a member of this set — anything
+  outside it can never reach a declaration, so dropping it is matching-safe
+  and keeps the forked candidate set bounded by this prefix vocabulary.
+  `^:no-doc` public so `re-frame.classification`'s walker prunes against the
+  same vocabulary."
+  [decl-paths]
+  (into #{} (mapcat prefixes) decl-paths))
 
-(defn- fork-decl-paths
+(defn ^:no-doc fork-decl-paths
   "Descend the candidate declaration-coordinate set through a MAP key `k`.
   Each candidate forks into the NAMED-slot interpretation `(conj c k)` and
   the `:map-of`-key interpretation `c` (key is a collection coordinate, no
@@ -763,23 +764,28 @@
   never survives as a free-floating skip. This keeps the headline goal
   green (`[:items 0 :token]` matches `[:items :token]`; `[:by-id \"a\"
   :secret]` matches `[:by-id :secret]`) while sealing the over-redaction
-  of same-named slots at non-declared positions."
-  [decl-paths k decl-prefixes]
-  (persistent!
-    (reduce (fn [acc c]
-              (let [named (conj c k)
-                    acc   (if (contains? decl-prefixes named) (conj! acc named) acc)]
-                ;; `:map-of`-key interpretation: `c` stays a live candidate
-                ;; ONLY when it is a non-empty partial match — see the
-                ;; position-precise rationale in the docstring. `c` is
-                ;; already a known decl-prefix (it survived the round that
-                ;; produced it), so retaining it keeps the set bounded by
-                ;; `decl-prefixes`.
-                (if (seq c) (conj! acc c) acc)))
-            (transient #{})
-            decl-paths)))
+  of same-named slots at non-declared positions.
 
-(defn- fork-index-paths
+  `index-free?` (default true) is the fork policy: false drops the
+  `:map-of`-key interpretation, leaving the exact path membership test
+  `re-frame.classification/redact-with-paths` defaults to."
+  ([decl-paths k decl-prefixes] (fork-decl-paths decl-paths k decl-prefixes true))
+  ([decl-paths k decl-prefixes index-free?]
+   (persistent!
+     (reduce (fn [acc c]
+               (let [named (conj c k)
+                     acc   (if (contains? decl-prefixes named) (conj! acc named) acc)]
+                 ;; `:map-of`-key interpretation: `c` stays a live candidate
+                 ;; ONLY when it is a non-empty partial match — see the
+                 ;; position-precise rationale in the docstring. `c` is
+                 ;; already a known decl-prefix (it survived the round that
+                 ;; produced it), so retaining it keeps the set bounded by
+                 ;; `decl-prefixes`.
+                 (if (and index-free? (seq c)) (conj! acc c) acc)))
+             (transient #{})
+             decl-paths))))
+
+(defn ^:no-doc fork-index-paths
   "Descend the candidate declaration-coordinate set through a VECTOR / SEQ
   element at integer index `i`.
 
@@ -804,17 +810,21 @@
   Both interpretations are matching-safe: the index-free one matches
   schema decls, the literal-index one matches directly-declared indexed
   paths, and only the interpretation actually present in the declaration
-  table fires at the leaf."
-  [decl-paths i decl-prefixes]
-  (persistent!
-    (reduce (fn [acc c]
-              (let [indexed (conj c i)
-                    acc     (if (contains? decl-prefixes indexed)
-                              (conj! acc indexed) acc)]
-                ;; Index-free interpretation: pass `c` through unchanged.
-                (conj! acc c)))
-            (transient #{})
-            decl-paths)))
+  table fires at the leaf.
+
+  `index-free?` (default true) is the fork policy: false drops the
+  index-free interpretation, leaving the exact path membership test."
+  ([decl-paths i decl-prefixes] (fork-index-paths decl-paths i decl-prefixes true))
+  ([decl-paths i decl-prefixes index-free?]
+   (persistent!
+     (reduce (fn [acc c]
+               (let [indexed (conj c i)
+                     acc     (if (contains? decl-prefixes indexed)
+                               (conj! acc indexed) acc)]
+                 ;; Index-free interpretation: pass `c` through unchanged.
+                 (if index-free? (conj! acc c) acc)))
+             (transient #{})
+             decl-paths))))
 
 (defn- decl-match
   "Test the candidate declaration-coordinate set against a declaration
@@ -839,21 +849,21 @@
     (and (> (count b) na)
          (= a (subvec b 0 na)))))
 
-(defn- large-keys-shadowing-sensitive
-  "The subset of `:large` declaration keys that have a `:sensitive` declaration
-  strictly BELOW them — a `:large`-marked subtree that contains a `:sensitive`
+(defn ^:no-doc large-paths-shadowing-sensitive
+  "The subset of `large-paths` that have a path of `sensitive-paths` strictly
+  BELOW them — a `:large`-marked subtree that contains a `:sensitive`
   descendant. Such a node still elides behind the ordinary
   `:rf.size/large-elided` marker, but the marker is measured over the subtree
   AFTER its sensitive descendants redact, so its `:bytes` and `:digest` never
   vary with a secret's content or length (Spec 015 §No propagation, 009 §Wire
   marker). The walker uses this set to tell such a COLLISION node from an
-  ordinary large one. Pure function of the two declaration tables; computed
-  once per walk and carried in `ctx`."
-  [large-tbl sensitive-tbl]
-  (let [s-keys (keys sensitive-tbl)]
-    (into #{}
-          (filter (fn [lk] (some #(strict-prefix? lk %) s-keys)))
-          (keys large-tbl))))
+  ordinary large one. Pure function of the two declared path sets; computed
+  once per walk. `^:no-doc` public so `re-frame.classification`'s walker tells
+  the same collision nodes apart."
+  [large-paths sensitive-paths]
+  (into #{}
+        (filter (fn [lp] (some #(strict-prefix? lp %) sensitive-paths)))
+        large-paths))
 
 (defn- collision-measure-ctx
   "The walk context that measures a collision node: large elision off,
@@ -994,7 +1004,7 @@
   redacts."
   [v decl-paths]
   (let [decl-set (into #{} (map vec) decl-paths)
-        decl-prefixes (into #{} (mapcat prefixes) decl-set)
+        decl-prefixes (decl-prefix-set decl-set)
         found    (volatile! {})]
     (when (seq decl-set)
       (walk-tree v [[] #{[]}]
@@ -1032,13 +1042,13 @@
                    ;; descendant — the collision nodes whose marker is measured
                    ;; after redaction. Empty in the common case (no nested
                    ;; classification).
-                   :large-shadows-s    (large-keys-shadowing-sensitive large sensitive)
+                   :large-shadows-s    (large-paths-shadowing-sensitive (keys large) (keys sensitive))
                    ;; Prefix set of every declared path — bounds the forked
                    ;; candidate decl-path set as the walker descends maps.
                    ;; Empty when nothing is declared ⇒ every candidate set
                    ;; below the root is empty, and the walker returns each
                    ;; top-level value unchanged.
-                   :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
+                   :decl-prefixes      (decl-prefix-set (concat (keys sensitive) (keys large)))
                    ;; One vocabulary all the way down: the walk
                    ;; context carries the SAME `:rf.egress/*` spelling the opts
                    ;; map does, so no reader has to learn a second one.
