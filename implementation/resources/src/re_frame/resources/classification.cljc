@@ -128,9 +128,9 @@
      :params {:sensitive (->decl (:params s)) :large (->decl (:params l))}}))
 
 ;; ---- carrier projection (continuation reply, execute event) ---------------
-;; The owner declaration is the single source: a carrier is redacted from the
-;; spec's paths, never a second classification language. The causal write
-;; reads the raw params; only the echo is projected.
+;; The owner spec is the single source: a carrier is redacted from its paths
+;; and its coarse claim, never a second classification language. The causal
+;; write reads the raw params; only the echo is projected.
 ;; Spec 016 §Mutation completion continuations — call-site `:reply-to`.
 
 (defn- carrier-decl-paths
@@ -151,7 +151,8 @@
 
   Mutations call it at the source; reads call it only at off-box egress
   (`trace_egress/redact-reply-declarations`), because the app's own
-  `:reply-to` handler is entitled to the decoded body. Matching is
+  `:reply-to` handler is entitled to the decoded body. A mutation's coarse
+  claim is likewise applied only off-box (`trace_egress`). Matching is
   index-free, so a declaration such as `[:data :email]` covers every item of
   an infinite feed's merged list, as it does on the durable side."
   [reply spec]
@@ -161,24 +162,34 @@
       (rf.classification/redact-with-paths reply sens large {:index-free? true})
       reply)))
 
+(def ^:private execute-payload-value-paths
+  "The execute payload's value-bearing slots, which a coarse claim covers
+  whole: the submitted params and scope. The payload holds no result yet."
+  [[:params] [:scope]])
+
 (defn project-execute-event-args
   "Redacts a `[:rf.mutation/execute <args>]` args map for the event-bearing
-  trace slots, from the owning mutation's declarations (`spec-of` resolves
-  the `:mutation` id). A payload-carrying `:reply-to` event vector is also
-  redacted by its target registration through the
+  trace slots, from the owning mutation's declarations and its coarse
+  `:sensitive?` / `:large?` claim, a sensitive claim winning (`spec-of`
+  resolves the `:mutation` id). A payload-carrying `:reply-to` event vector is
+  also redacted by its target registration through the
   `:classification/redact-event-by-registration` hook. An unregistered id, an
-  undeclared spec or a non-map `args` passes through unchanged. Core reaches
+  unclassified spec or a non-map `args` passes through unchanged. Core reaches
   this through the `:resources/project-execute-event-args` late-bind hook;
   `spec-of` is injected because a static require would cycle."
   [args spec-of]
   (if-not (map? args)
     args
-    (let [spec  (when-let [mid (:mutation args)] (spec-of mid))
-          sens  (when spec (carrier-decl-paths spec :sensitive nil))
-          large (when spec (carrier-decl-paths spec :large nil))
-          args  (if (or (seq sens) (seq large))
-                  (rf.classification/redact-with-paths args sens large)
-                  args)
+    (let [spec       (when-let [mid (:mutation args)] (spec-of mid))
+          sensitive? (true? (:sensitive? spec))
+          sens       (cond-> (when spec (carrier-decl-paths spec :sensitive nil))
+                       sensitive? (into execute-payload-value-paths))
+          large      (cond-> (when spec (carrier-decl-paths spec :large nil))
+                       (and (true? (:large? spec)) (not sensitive?))
+                       (into execute-payload-value-paths))
+          args       (if (or (seq sens) (seq large))
+                       (rf.classification/redact-with-paths args sens large)
+                       args)
           redact-event (rf.late-bind/get-fn :classification/redact-event-by-registration)
           reply-to     (:reply-to args)]
       (if (and redact-event (vector? reply-to))

@@ -14,6 +14,7 @@
    [re-frame.resources.classification :as rf.resources.classification]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
    [re-frame.resources]
    [re-frame.http.managed]
    [re-frame.schemas]
@@ -132,6 +133,80 @@
       (rf/dispatch-sync [:rf.mutation/clear {:instance :i1}])
       (is (empty? (get (rf.elision/sensitive-declarations :rf/default)
                        [:rf.runtime/mutations (rf.resources.mutation-runtime/instance-key-id :i1) :params :password]))))))
+
+(defn- reg-coarse-mutation!
+  "`:m/coarse`, which makes `claim` (`{:sensitive? true}` or `{:large? true}`)
+  and declares no path."
+  [claim]
+  (rf/clear :mutation :m/coarse)
+  (rf/reg-mutation :m/coarse
+    (merge {:params-schema [:map [:slug :string] [:password {:optional true} [:maybe :string]]]}
+           claim)
+    (fn [{:keys [slug password]} _]
+      {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}})))
+
+(defn- redacted-token? [v] (and (map? v) (contains? v :rf/redacted)))
+
+(defn- carrier-mutation-replies
+  "Every mutation reply inside the fx carrier slots of `traces`, after the
+  off-box projection the epoch tool-pair applies to those slots."
+  [traces]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (cond
+                  (map? v)  (do (when (= :mutation (:rf.reply/work-kind v)) (swap! found conj v))
+                                (run! walk (vals v)))
+                  (coll? v) (run! walk v)))]
+    (doseq [ev   traces
+            :let [tags (rf.resources.trace-egress/project-fx-args-egress (:tags ev) :rf/default)]
+            slot [:rf.fx/args :rf.event/fx]
+            :when (contains? tags slot)]
+      (walk (get tags slot)))
+    @found))
+
+(deftest a-coarse-claim-covers-the-execute-payload-and-the-reply-off-box
+  ;; The coarse claim covers both carriers, while the app's own :reply-to
+  ;; handler still receives the real values.
+  (reg-coarse-mutation! {:sensitive? true})
+  (let [replied (atom nil)
+        traces  (atom [])]
+    (rf/reg-event :m/replied (fn [_ [_ reply]] (reset! replied reply) {}))
+    (rf.trace.tooling/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/coarse
+                        :params   {:slug "w" :password PW}
+                        :instance :i1
+                        :reply-to [:m/replied]}])
+    (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value {:token PW}}))
+    (rf.trace.tooling/unregister-listener! ::rec)
+    (testing "the execute payload's :params arrive redacted at every :rf.event/v"
+      (let [vs (->> @traces
+                    (keep #(get-in % [:tags :rf.event/v]))
+                    (filter #(and (vector? %) (= :rf.mutation/execute (first %)))))]
+        (is (seq vs))
+        (doseq [v vs]
+          (is (= rf.privacy/redacted-sentinel (get-in v [1 :params]))))))
+    (testing "the continuation reply's :params and :value arrive redacted off-box"
+      (let [replies (carrier-mutation-replies @traces)]
+        (is (seq replies) "the continuation reply rides an fx carrier")
+        (doseq [reply replies]
+          (is (redacted-token? (:params reply)))
+          (is (redacted-token? (:value reply)))
+          (is (not (str/includes? (pr-str reply) PW))))))
+    (testing "the app's own :reply-to handler receives the real values"
+      (is (= {:slug "w" :password PW} (:params @replied)))
+      (is (= {:token PW} (:value @replied))))))
+
+(deftest a-coarse-claim-covers-the-execute-params-and-scope-whole
+  (let [args    {:mutation :m/coarse :params {:slug "w" :password PW} :scope {:tenant PW}}
+        project #(rf.resources.classification/project-execute-event-args
+                   args rf.resources.mutation-registry/mutation-meta)]
+    (reg-coarse-mutation! {:sensitive? true})
+    (is (= [rf.privacy/redacted-sentinel rf.privacy/redacted-sentinel]
+           ((juxt :params :scope) (project))))
+    (reg-coarse-mutation! {:large? true})
+    (is (= [true true]
+           (mapv #(contains? % :rf.size/large-elided) ((juxt :params :scope) (project)))))))
 
 (deftest project-execute-event-args-scope-rooted-decl
   (rf/clear :mutation :m/scoped)

@@ -141,8 +141,8 @@
   #{:page-param :next-page-param})
 
 (def ^:private reply-payload-slot
-  "The owner-data slots of a read completion continuation reply riding an FX
-  carrier, tokenized iff the reply's owner redacts. Owner-conditional because
+  "The owner-data slots of a family continuation reply riding an FX carrier,
+  tokenized iff the reply's owner redacts. Owner-conditional because
   `:value` and `:params` are words the FX family uses for its own data too, so
   a name-only arm would redact plain request maps and the generation counter."
   #{:params :value})
@@ -277,9 +277,24 @@
 (defn- resource-reply?
   "Whether `m` is a canonical read completion reply, by its
   `:rf.reply/work-kind :resource` marker. A mutation reply is excluded because
-  it redacts its own payload at source."
+  its path declarations redact at source."
   [m]
   (= rf.resources.reply/work-kind-resource (:rf.reply/work-kind m)))
+
+(defn- mutation-reply-owner-redacts?
+  "Whether `m` is a mutation continuation reply whose owner, named by its
+  `:mutation`, makes the coarse `:sensitive?` / `:large?` claim. The claim is
+  applied here, off-box, rather than at source with the path declarations,
+  because the app's own `:reply-to` handler is entitled to the real values,
+  as a read reply's is (`row-owner-redacts?`). An unregistered owner fails
+  closed; a reply naming no owner rides."
+  [m]
+  (let [mid (:mutation m)]
+    (and (= rf.resources.reply/work-kind-mutation (:rf.reply/work-kind m))
+         (keyword? mid)
+         (not= :serialize (if-let [spec (rf.resources.mutation-registry/mutation-meta mid)]
+                            (rf.resources.classification/whole-entry-disposition spec)
+                            :redact)))))
 
 (def ^:private family-reply-kinds
   "The family's two reply work kinds. Enumerated, because other families (HTTP)
@@ -375,7 +390,8 @@
       payload's issuance `:from-db-scopes`;
     - `:value` / `:params` of a read reply (`resource-reply?`) tokenize iff its
       owner redacts, and otherwise its declared paths substitute
-      (`redact-reply-declarations`);
+      (`redact-reply-declarations`); of a mutation reply, iff its owner makes
+      the coarse claim (`mutation-reply-owner-redacts?`);
     - `:error` of any family reply (`family-reply?`) tokenizes unconditionally;
     - a family reply's `:correlation` gives its `:scope` the scope rule.
   Spec 015 §Projection — applying classification at a boundary"
@@ -400,7 +416,9 @@
           resource-reply-carrier? (and (map? value) (resource-reply? value))
           family-reply-carrier?   (and (map? value) (family-reply? value))
           owner-requires-redaction?
-          (and resource-reply-carrier? (row-owner-redacts? value frame-id))
+          (and (map? value)
+               (or (and resource-reply-carrier? (row-owner-redacts? value frame-id))
+                   (mutation-reply-owner-redacts? value)))
           ;; Declarations substitute BEFORE the walk, so the sentinels ride
           ;; out as scalars; a declaration that matched nothing leaves the row
           ;; unstamped.
