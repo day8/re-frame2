@@ -1253,14 +1253,22 @@
                                                {:clear-boundaries? false}))))]
                (step! auto-plays))))]))))
 
-(declare handle-run-error!)
+(declare handle-run-error! current-generation superseded-result)
 
 (defn- finalise-run!
-  "Build and deliver the result map once phase 4's promise settles.
+  "Build and deliver the result map once phase 4's promise settles, then
+  call `done-cb` (when given) once, on whichever path settles. Both the
+  headless `run-variant` and the shell's `resume-run!` settle here.
   This chain is load-bearing: `run-phase-4!` resolves the promise to the
   assertions vector only once every auto-play has finished and the
   terminal `:assertions` have settled, and we want the result map to read
   the post-play app-db.
+
+  The generation is checked BEFORE either path reads the frame or records
+  an error on it: a run a newer generation superseded settles as
+  `superseded-result`, because the frame now belongs to its successor and
+  a late failure recorded there would turn the successor's finished run to
+  `:error` (`003-Render-Shell.md` §One run owner).
 
   The `catch*` is the chain's rejection path. Without it a
   throw while assembling the result — or a rejected play promise — would
@@ -1268,16 +1276,22 @@
   the outer one, so `run-variant`'s promise would stay pending for ever (a
   JVM deref would time out, a CLJS await would never resolve) with no error
   recorded anywhere. `handle-run-error!` never throws, so the run always settles."
-  [resolve play-promise ctx start-ms]
-  (-> play-promise
-      (rf.story.async/then
-        (fn [_]
-          (resolve (record-result-map ctx start-ms))
-          nil))
-      (rf.story.async/catch*
-        (fn [e]
-          (handle-run-error! resolve (:variant-id ctx) e start-ms)
-          nil))))
+  [resolve play-promise {:keys [variant-id] :as ctx} start-ms generation done-cb]
+  (let [settle! (fn [publish!]
+                  (if (= generation (current-generation variant-id))
+                    (publish!)
+                    (resolve (superseded-result variant-id generation)))
+                  (when done-cb
+                    (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil))))]
+    (-> play-promise
+        (rf.story.async/then
+          (fn [_]
+            (settle! #(resolve (record-result-map ctx start-ms)))
+            nil))
+        (rf.story.async/catch*
+          (fn [e]
+            (settle! #(handle-run-error! resolve variant-id e start-ms))
+            nil)))))
 
 (defn- plan-construction-error?
   "True iff `e` is a plan-construction failure — an `ex-info` `re-frame.
@@ -1505,12 +1519,13 @@
 (defn- resume-ctx!
   "RESUME half of the four-phase lifecycle: run phase 4 (the auto-plays' play
   script + terminal assertions) against a prepared `ctx`, then resolve
-  `resolve` with the unified result once phase 4 settles."
-  [resolve ctx start-ms]
+  `resolve` with the unified result once phase 4 settles — or with
+  `superseded-result` when `generation` is no longer current by then."
+  [resolve ctx start-ms generation]
   (let [[ctx' play-promise] (run-phase-4! ctx)]
-    (finalise-run! resolve play-promise ctx' start-ms)))
+    (finalise-run! resolve play-promise ctx' start-ms generation nil)))
 
-(declare claim-run! announce-run! current-generation superseded-result)
+(declare claim-run! announce-run!)
 
 (defn run-variant
   "Allocate a frame for `variant-id`, run its setup, loaders, events, and
@@ -1561,7 +1576,7 @@
                  (announce-run! variant-id run)
                  (try
                    (let [ctx (prepare-ctx! variant-id variant-body opts)]
-                     (resume-ctx! resolve ctx start-ms))
+                     (resume-ctx! resolve ctx start-ms generation))
                    (catch #?(:clj Throwable :cljs :default) e
                      (handle-run-error! resolve variant-id e start-ms))))))))))))
 
@@ -1832,27 +1847,8 @@
                    :else
                    (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt)
                                                                   :force-play? true
-                                                                  :play-selection selection))
-                         ;; Publish via `publish!` unless superseded, then fire
-                         ;; `done-cb` — once, on whichever path settles.
-                         settle! (fn [publish!]
-                                   (if (= my-gen (current-generation variant-id))
-                                     (publish!)
-                                     (resolve (superseded-result variant-id my-gen)))
-                                   (when done-cb (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil))))]
-                     (-> play-promise
-                         (rf.story.async/then
-                           (fn [_]
-                             (settle! #(resolve (record-result-map ctx' start-ms)))
-                             nil))
-                         ;; The rejection path `finalise-run!` has: a
-                         ;; throw assembling the result (or a rejected play
-                         ;; promise) settles the run with an error instead of
-                         ;; leaving it pending for ever.
-                         (rf.story.async/catch*
-                           (fn [e]
-                             (settle! #(handle-run-error! resolve variant-id e start-ms))
-                             nil)))))
+                                                                  :play-selection selection))]
+                     (finalise-run! resolve play-promise ctx' start-ms my-gen done-cb)))
                  (catch #?(:clj Throwable :cljs :default) e
                    (handle-run-error! resolve variant-id e start-ms)))))))))))
 

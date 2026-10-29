@@ -266,16 +266,21 @@
   [a]
   (when (vector? a) (vec (rest a))))
 
-(def ^:private redaction-prone-assertion-ids
-  "Assertion ids whose evaluator may rebuild the run RECORD's `:payload`
-  from a REDACTED expected value for a sensitive path/sub
-  (`rf.story.assertions/evaluate-path-equals` / `evaluate-sub-equals` rebuild
-  `:payload` as `[path-or-sub-vec exp-redacted]`). The compiled check
-  plan's atom, by contrast, always carries the RAW author-declared
-  expected value — plan atoms are never redacted (redaction only happens
-  at run time, against a live frame). An exact-payload match between the
-  two therefore cannot identify a sensitive assertion."
-  #{rf.story.assertions/id-path-equals rf.story.assertions/id-sub-equals})
+(def ^:private redactable-pair
+  "For each assertion id whose evaluator may rebuild the run RECORD's
+  `:payload` from a REDACTED expected value, the fn that finds the
+  `[coordinate expected]` pair inside a payload:
+  `rf.story.assertions/evaluate-path-equals` / `evaluate-sub-equals` rebuild
+  the whole payload as `[path-or-sub-vec :rf/redacted]`, and
+  `evaluate-dispatched?` rebuilds a matched sensitive event as
+  `[[event-id :rf/redacted]]`. The compiled check plan's atom, by contrast,
+  always carries the RAW author-declared value — plan atoms are never
+  redacted (redaction only happens at run time, against a live frame). An
+  exact-payload match between the two therefore cannot identify a
+  sensitive assertion."
+  {rf.story.assertions/id-path-equals identity
+   rf.story.assertions/id-sub-equals  identity
+   rf.story.assertions/id-dispatched  first})
 
 (defn- record-matches-atom?
   "True iff assertion `record` was produced by assertion `atom-v` — same
@@ -283,22 +288,24 @@
   disambiguates two atoms of the same id against different paths within
   one check.
 
-  For the two REDACTION-PRONE ids (`redaction-prone-assertion-ids`), a
-  record whose expected was REDACTED (`[path :rf/redacted]`, while the
-  check plan's atom still carries `[path <secret>]`) is matched on its
-  path / sub-vec alone — a structural coordinate neither evaluator
+  For the REDACTION-PRONE ids (`redactable-pair`), a record whose expected
+  was REDACTED (`[path :rf/redacted]` or `[[event-id :rf/redacted]]`, while
+  the check plan's atom still carries the raw value) is matched on its
+  path / sub-vec / event id alone — a structural coordinate no evaluator
   redacts. Without that, a sensitive check never groups its own record and
   aggregates vacuously to `:pass`. Every other record matches its whole
   payload, so a same-path checkpoint pinning a different value stays out
   of the check."
   [record atom-v]
   (let [id      (atom-id atom-v)
-        payload (vec (:payload record))]
+        payload (vec (:payload record))
+        pair-in (get redactable-pair id)
+        pair    (when pair-in (pair-in payload))]
     (boolean
       (and (= (:assertion record) id)
-           (if (and (contains? redaction-prone-assertion-ids id)
-                    (= :rf/redacted (second payload)))
-             (= (first payload) (first (atom-payload atom-v)))
+           (if (and (vector? pair) (= :rf/redacted (second pair)))
+             (let [atom-pair (pair-in (atom-payload atom-v))]
+               (and (vector? atom-pair) (= (first pair) (first atom-pair))))
              (= payload (atom-payload atom-v)))))))
 
 (defn check-record

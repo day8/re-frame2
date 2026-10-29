@@ -501,7 +501,9 @@
   "Project `v` through `rf/project-egress` as if it lives at
   `path` in `frame-id`'s app-db, so sensitive sub-paths (or a sensitive
   root path) substitute `:rf/redacted`. A nil frame-id projects under no
-  frame, which is the door's own fail-closed arm.
+  frame, which is the door's own fail-closed arm. So `:frame` is always
+  passed, nil included: a missing key would have the door resolve the
+  ambient frame instead and apply an unrelated frame's classification.
 
   Named boundary: `:rf.egress/local-redacted`. Story is
   ON-BOX — an assertion record is read by the local runner and the local
@@ -518,9 +520,9 @@
   the assertion — it just cannot be the thing that opens the door."
   [frame-id path v]
   (try
-    (rf/project-egress v (cond-> {:path              (vec path)
-                                  :rf.egress/profile :rf.egress/local-redacted}
-                           frame-id (assoc :frame frame-id)))
+    (rf/project-egress v {:path              (vec path)
+                          :frame             frame-id
+                          :rf.egress/profile :rf.egress/local-redacted})
     (catch #?(:clj Throwable :cljs :default) _ rf.privacy/redacted-sentinel)))
 
 (defn- sentinel-expected?
@@ -712,15 +714,19 @@
 (defn- evaluate-dispatched?
   "`observed` is the `[event sensitive?]` tape projection
   (`dispatched-epochs`); the needle matches the raw events and the record
-  carries the projected ones. Pure data → data."
+  carries the projected ones. `:payload` is rebuilt from the projected
+  expected, because the handler otherwise records the author's raw needle
+  there. Pure data → data."
   [observed show? [needle]]
-  (let [hit     (first (filter #(event-matches? (first %) needle) observed))
-        passed? (some? hit)]
+  (let [hit      (first (filter #(event-matches? (first %) needle) observed))
+        passed?  (some? hit)
+        expected (if (and hit (vector? needle))
+                   (project-dispatched show? hit)
+                   needle)]
     {:passed?  passed?
-     :expected (if (and hit (vector? needle))
-                 (project-dispatched show? hit)
-                 needle)
+     :expected expected
      :actual   (mapv #(project-dispatched show? %) observed)
+     :payload  [expected]
      :reason   (if passed?
                  "matching event was dispatched during play"
                  (str "no dispatched event matched "
@@ -1268,9 +1274,9 @@
                          :effect-emitted  (evaluate-effect-emitted  (emitted-fx frame-id) payload))
           elapsed-ms   (- (rf.interop/now-ms) start-ms)
           ;; A value-comparing evaluator (`:path-equals` /
-          ;; `:sub-equals`) returns a REDACTED `:payload` rebuilt from the
-          ;; projected expected, so the record's `:payload` slot never
-          ;; carries the raw secret. Evaluators that introduce no
+          ;; `:sub-equals`) and `:dispatched?` return a REDACTED `:payload`
+          ;; rebuilt from the projected expected, so the record's `:payload`
+          ;; slot never carries the raw secret. Evaluators that introduce no
           ;; secret-bearing payload return none and we fall back to the raw
           ;; event payload (it carries no sensitive value for those kinds).
           record-payload (or (:payload extras) payload)

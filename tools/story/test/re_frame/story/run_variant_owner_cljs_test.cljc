@@ -106,3 +106,48 @@
       (rf.story.runtime/prepare-variant vid)
       (is (= {:run-key {:variant-id vid :cell-overrides :a} :generation 2 :retired? true}
              (peek (starts vid)))))))
+
+;; Phase 4's promise is held by redefining `run-phase-4!`, so a late
+;; rejection lands exactly when the test chooses.
+
+#?(:clj
+   (defn- frame-state [vid]
+     [(rf.story.loaders/current-state vid) (:rf.story/assertions (rf/app-db-value vid))]))
+
+#?(:clj
+   (deftest a-superseded-run-failing-late-leaves-its-successor-alone
+     (testing "run A's phase-4 promise is held while run B supersedes it and
+               finishes; A's late rejection settles A as superseded and records
+               nothing on the frame B now owns"
+       (let [vid     :story.headless/late-failure
+             phase-4 @#'rf.story.runtime/run-phase-4!
+             held    (java.util.concurrent.CompletableFuture.)
+             calls   (atom 0)]
+         (rf.story/reg-variant vid {})
+         (with-redefs-fn {#'rf.story.runtime/run-phase-4!
+                          (fn [ctx] (if (= 1 (swap! calls inc)) [ctx held] (phase-4 ctx)))}
+           (fn []
+             (let [a      (rf.story.runtime/run-variant vid)
+                   b      (rf.story.async/deref-blocking (rf.story.runtime/run-variant vid) 5000)
+                   before (frame-state vid)]
+               (.completeExceptionally held (ex-info "stale run rejected" {}))
+               (is (= [:cannot-run true 1]
+                      ((juxt :status :superseded? :generation) (rf.story.async/deref-blocking a 5000))))
+               (is (= [:pass [:ready nil]] [(:status b) before]) "control: B finished")
+               (is (= before (frame-state vid))
+                   "A's late failure leaves B's frame as B finished it"))))))))
+
+#?(:clj
+   (deftest a-current-run-failing-late-records-its-error
+     (testing "control: the same late rejection on the CURRENT generation
+               records the error and moves the frame to :error"
+       (let [vid  :story.headless/current-failure
+             held (java.util.concurrent.CompletableFuture.)]
+         (rf.story/reg-variant vid {})
+         (with-redefs-fn {#'rf.story.runtime/run-phase-4! (fn [ctx] [ctx held])}
+           (fn []
+             (let [p (rf.story.runtime/run-variant vid)]
+               (.completeExceptionally held (ex-info "current run rejected" {}))
+               (is (= :error (:status (rf.story.async/deref-blocking p 5000))))
+               (is (= [:error [:rf.error/exception]]
+                      (update (frame-state vid) 1 #(mapv :assertion %)))))))))))

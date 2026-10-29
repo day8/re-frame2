@@ -1209,6 +1209,40 @@
       (is (= :pass (:status (:structuredContent (invoke "run-variant" {:variant-id "story.button/busy"}))))
           "a fresh run of the variant proceeds"))))
 
+;; A worker still queued on the executor at the deadline never starts once it
+;; is cancelled, so neither its run nor its `finally` executes. Its hold goes at
+;; the deadline instead, and the next call for the variant proceeds.
+
+(deftest a-run-cancelled-before-its-worker-starts-is-not-fenced
+  (let [original clojure.lang.Agent/soloExecutor
+        pool     (java.util.concurrent.Executors/newSingleThreadExecutor)
+        occupied (promise)
+        release  (promise)
+        entered  (atom 0)]
+    (with-clean-frame [vid :story.button/primary]
+      (try
+        ;; One executor thread, held busy, so the run's worker stays queued.
+        (set-agent-send-off-executor! pool)
+        (.submit pool ^Runnable (fn [] (deliver occupied true) @release))
+        @occupied
+        (let [outcome (with-redefs [rf.story/run-variant
+                                    (fn [& _]
+                                      (swap! entered inc)
+                                      (java.util.concurrent.CompletableFuture/completedFuture {:status :pass}))]
+                        (rf.story-mcp.tools.lifecycle/run-variant-blocking vid {} 20))]
+          (deliver release true)
+          ;; A task queued behind the cancelled worker runs once the queue drains past it.
+          (.get (.submit pool ^Runnable (fn [])) 2 java.util.concurrent.TimeUnit/SECONDS)
+          (is (= [:error 0] [(:status outcome) @entered]) "the deadline reply, for a run that never started")
+          (is (nil? (rf.story-mcp.tools.lifecycle/abandoned-run-error "run-variant" vid))
+              "the variant is not fenced once the queue has drained"))
+        (finally
+          (deliver release true)
+          (set-agent-send-off-executor! original)
+          (.shutdownNow pool)))
+      (is (= :pass (:status (:structuredContent (invoke "run-variant" {:variant-id "story.button/primary"}))))
+          "a later call for the variant proceeds"))))
+
 (deftest lifecycle-error-outcome-surfaced-by-both-consumers
   ;; The worker future wraps a throw in an ExecutionException whose message is
   ;; the cause's toString, so only an exact :reason proves the wrapper was

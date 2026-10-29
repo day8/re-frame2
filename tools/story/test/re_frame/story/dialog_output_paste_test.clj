@@ -272,3 +272,33 @@
       (finally
         (rf.story.recorder/remove-trace-listener!)
         (rf.story.recorder/clear!)))))
+
+(deftest recorder-export-auto-assert-without-a-live-source-frame-fails-closed
+  (testing "with an unclassified frame ambient, an export whose source frame
+            is omitted, nil or destroyed prints every auto-asserted value as the
+            sentinel, rather than borrowing the ambient frame's classification"
+    (rf.story/reg-variant :story.paste/export-source
+      {:extends :story.paste/source :sensitive {:app-db [[:auth]]}})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.paste/export-source) 5000)
+    (let [export  (fn [opts]
+                    (rf/with-frame :rf/default
+                      (rf.story.recorder.play-export-events/build-export
+                        []
+                        (merge {:variant-id   :story.paste/exported
+                                :auto-assert? true
+                                :final-db     {:auth {:token "EXPORT-SECRET"} :submits 2}}
+                               opts))))
+          asserts (fn [{:keys [spec]}] (filterv #(= :assert-db (first %)) (:script spec)))]
+      (is (= [[:assert-db [:auth] :rf/redacted] [:assert-db [:submits] 2]]
+             (asserts (export {:frame-id :story.paste/export-source})))
+          "control: a live source frame redacts its classified path and prints its public one")
+      (rf.story/destroy-variant! :story.paste/export-source)
+      (doseq [[label opts] [["omitted"   {}]
+                            ["nil"       {:frame-id nil}]
+                            ["destroyed" {:frame-id :story.paste/export-source}]]]
+        (let [out (export opts)]
+          (is (= [[:assert-db [:auth] :rf/redacted] [:assert-db [:submits] :rf/redacted]]
+                 (asserts out))
+              (str label " source frame"))
+          (is (not (str/includes? (:rendered out) "EXPORT-SECRET"))
+              (str label " source frame: the secret is not in the pasteable form")))))))
