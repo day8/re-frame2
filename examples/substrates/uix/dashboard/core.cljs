@@ -284,18 +284,17 @@
                                        (when (= active-range-id id) range-index))
                                      (map-indexed vector ranges))
                                0)
-        select!            (fn [requested-index]
+        select!            (fn [group requested-index]
                              (let [normalized-index (mod requested-index range-count)
                                    {:keys [id]} (nth ranges normalized-index)]
                                (dispatch [:dashboard/set-range id])
                                ;; Selection follows focus, so move the DOM focus
                                ;; onto the chip we just picked — that keeps the
                                ;; visible focus ring sitting on the live radio.
-                               (when (exists? js/document)
-                                 (some-> (js/document.querySelector
-                                           (str "[data-testid=\"dashboard-range-"
-                                                (name id) "\"]"))
-                                         (.focus)))))]
+                               ;; The chip is found by position inside THIS
+                               ;; group, so a second picker on the page is never
+                               ;; touched and no test id is load-bearing.
+                               (some-> group .-children (.item normalized-index) (.focus))))]
     ($ :div.dash-chips {:role "radiogroup" :aria-label "Time range"}
        (map-indexed
          (fn [range-index {:keys [id label]}]
@@ -313,7 +312,8 @@
                          :on-key-down (fn [key-event]
                                         (when-let [step (radio-key->step (.-key key-event))]
                                           (.preventDefault key-event)
-                                          (select! (+ active-range-index step))))}
+                                          (select! (.. key-event -currentTarget -parentElement)
+                                                   (+ active-range-index step))))}
                 label)))
          ranges))))
 
