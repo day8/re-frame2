@@ -1004,7 +1004,7 @@
   read via `[:rf.xray/setting :theme nil]` and written via
   `[:rf.xray/settings-update :theme nil <kw>]`, whose handler calls
   `settings/effects/apply-theme!` to toggle the `rf-xray-theme-light` /
-  `rf-xray-theme-dark` class on the shell + `<html>` root. This button
+  `rf-xray-theme-dark` class on `<html>`. This button
   dispatches through that SAME event — it does NOT toggle a bare `dark`
   class on `document.documentElement` (the Figma stub's approach) nor
   introduce a second theme atom. The settings popup's theme radio and

@@ -201,3 +201,31 @@
         (is (contains? @classes "rf-xray-theme-light")
             "a detached document is no longer written")
         (finally (effects/detach-document! doc))))))
+
+;; ---- the theme class and a `load-theme!` override ------------------------
+
+(deftest the-theme-class-lands-on-html-and-never-on-the-shell-root
+  (testing "a theme class block re-declares every `--rf-xray-*` on the
+            element carrying it, so on `#rf-xray-root` it would shadow a
+            host's `load-theme!` `:root { … }` override, which wins at
+            `<html>` on order; the inline shell inherits from `<html>`"
+    ;; Node has no `js/document`, so a stub is installed for the row.
+    (let [shell    (stub-root)
+          html     (stub-root)
+          had-doc? (exists? js/document)
+          prior    (when had-doc? js/document)]
+      (set! js/document
+            (js-obj "documentElement" (:el html)
+                    "getElementById"  (fn [id]
+                                        (when (= id "rf-xray-root") (:el shell)))))
+      (try
+        (effects/apply-theme! :dark)
+        (effects/apply-text-size! 15)
+        (is (= [#{"rf-xray-theme-dark"} #{}]
+               [@(:classes html) @(:classes shell)]))
+        (is (= "15px" (get @(:props shell) effects/text-size-css-var))
+            "control: the shell root is reachable, and the other settings still write it")
+        (finally
+          (if had-doc?
+            (set! js/document prior)
+            (js-delete js/goog.global "document")))))))

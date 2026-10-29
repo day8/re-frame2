@@ -266,7 +266,7 @@
 
   Consumed via the per-theme CSS custom-property block emitted by
   `theme/global-styles/themes-css`. The class toggle
-  (`rf-xray-theme-light` on the shell root, written by
+  (`rf-xray-theme-light` on `<html>`, written by
   `settings/effects/apply-theme!`) flips which block is in scope."
   {;; ── surfaces ── (lighter as the depth increases — bg-2 is the
    ;; brightest 'top' canvas, bg-0 the gentlest 'recess')
@@ -392,8 +392,8 @@
    :white          "#ffffff"})
 
 (def themes
-  "Map of theme-name → palette map. The shell toggles
-  `rf-xray-theme-<name>` on its root via
+  "Map of theme-name → palette map. Xray toggles
+  `rf-xray-theme-<name>` on `<html>` via
   `settings/effects/apply-theme!`; `theme/global-styles/themes-css`
   emits one CSS custom-property block per theme keyed by the matching
   class selector.
@@ -412,7 +412,7 @@
   The CSS custom-property block emitted by
   `theme/global-styles/themes-css` registers every palette key at
   `:root` (light default) + `.rf-xray-theme-dark` / `.rf-xray-theme-
-  light` so the class toggle on the shell root flips every downstream
+  light` so the class toggle on `<html>` flips every downstream
   `var(--rf-xray-…)` reference in one assignment.
 
   Every inline-style read of a palette token routes through this
@@ -446,7 +446,7 @@
   theme class (`rf-xray-theme-dark` / `rf-xray-theme-light`). Inline
   `:style` reads of `(:bg-1 tokens)` resolve to `\"var(--rf-xray-bg-1)\"`
   and the browser substitutes the dark or light hex at paint time
-  based on the class toggle on the shell root.
+  based on the class toggle on `<html>`.
 
   ## Why a var-map rather than a hex-map
 

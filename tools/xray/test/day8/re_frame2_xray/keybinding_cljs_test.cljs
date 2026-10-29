@@ -260,6 +260,31 @@
     {:key "n" :ctrl? true :shift? true}             ; wrong key, right modifiers
     {:code "KeyN" :ctrl? true :shift? true}))       ; wrong code, right modifiers
 
+;; ---- (3c) `key` decides; `code` is the fallback ---------------------------
+;;
+;; `key` is what the active layout prints; `code` is a position on a
+;; US-QWERTY board, consulted only for a `key` that names no character.
+
+(deftest key-decides-and-code-answers-only-for-a-key-that-cannot
+  (testing "a remapped Latin layout binds by the letter it prints"
+    (is (false? (palette-toggle-key? (mk-event {:key "e" :code "KeyK" :ctrl? true})))
+        "Colemak Ctrl+E is physical K")
+    (is (false? (xray-toggle-key? (mk-event {:key "J" :code "KeyC" :ctrl? true :shift? true})))
+        "Dvorak Ctrl+Shift+J is physical C")
+    (is (false? (mode-toggle-key? (mk-event {:key "X" :code "KeyM" :ctrl? true :shift? true}))))
+    (is (nil? (spine-key-id (mk-event {:key "e" :code "KeyK"}))) "Colemak e is physical K")
+    (is (nil? (spine-key-id (mk-event {:key "n" :code "KeyJ"}))) "Colemak n is physical J"))
+  (testing "a key that names no character falls back to its position"
+    (is (true? (palette-toggle-key? (mk-event {:key "л" :code "KeyK" :ctrl? true})))
+        "a Cyrillic layout")
+    (is (true? (xray-toggle-key? (mk-event {:key "Process" :code "KeyC" :ctrl? true :shift? true})))
+        "an IME composing")
+    (is (= :rf.xray/focus-event-next (spine-key-id (mk-event {:key "л" :code "KeyK"})))))
+  (testing "Caps Lock flips the case `key` reports, not the binding"
+    (is (= [:rf.xray/follow-head :rf.xray/focus-event-prev :rf.xray/follow-head]
+           (map (comp spine-key-id mk-event)
+                [{:key "L"} {:key "J"} {:key "g" :shift? true}])))))
+
 ;; ---- (4) attach! / detach! idempotency sentinel --------------------------
 
 (deftest attach-is-idempotent

@@ -264,20 +264,31 @@
   [idx]
   (str "rf-xray-palette-option-" idx))
 
+(defn- reveal-active-row!
+  "The active row's `:ref`: scroll it into the list's view. The list
+  scrolls (`list-style`) and the arrow keys only move the cursor, so
+  without this ArrowDown or End past the visible rows would highlight a
+  row off screen that Enter still invokes. One fn for every render, so
+  React calls it exactly when a row becomes the active one."
+  [^js el]
+  (when (and el (.-scrollIntoView el))
+    (.scrollIntoView el #js {:block "nearest"})))
+
 (defn- result-row
   [dispatch {:keys [source label hint icon] :as item} active? idx]
-  [:li {:key          (str "row-" idx)
-        :id           (row-id idx)
-        :role         "option"
-        :aria-selected (if active? "true" "false")
-        :data-testid  (str "rf-xray-palette-row-" idx)
-        :data-source  (name source)
-        :data-active  (str active?)
-        :on-click     #(dispatch
-                         [:rf.xray/palette-invoke item
-                          (boolean (or (.-ctrlKey %) (.-metaKey %)))])
-        :on-mouse-enter #(dispatch [:rf.xray/palette-cursor-set idx])
-        :style        (row-style active?)}
+  [:li (cond-> {:key          (str "row-" idx)
+                :id           (row-id idx)
+                :role         "option"
+                :aria-selected (if active? "true" "false")
+                :data-testid  (str "rf-xray-palette-row-" idx)
+                :data-source  (name source)
+                :data-active  (str active?)
+                :on-click     #(dispatch
+                                 [:rf.xray/palette-invoke item
+                                  (boolean (or (.-ctrlKey %) (.-metaKey %)))])
+                :on-mouse-enter #(dispatch [:rf.xray/palette-cursor-set idx])
+                :style        (row-style active?)}
+         active? (assoc :ref reveal-active-row!))
    [:span {:style (icon-style source)} icon]
    [:span {:style {:flex             1
                    :overflow         "hidden"

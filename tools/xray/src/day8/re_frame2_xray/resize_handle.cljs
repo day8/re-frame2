@@ -513,6 +513,26 @@
     (long (* (or viewport-w 2000)
              config/max-panel-width-fraction))))
 
+(defn- rendered-width
+  "The width the layout host renders at, read off the handle that
+  received `e` (`currentTarget`, inside the host), or `fallback` — the
+  setting — when it cannot be measured.
+
+  A gesture starts from this rather than the setting: the setting is the
+  default 560 until the user resizes, while a host stylesheet may render
+  the host wider (`:root { --rf-xray-inline-width: 720px }`, which
+  `settings.effects/apply-panel-width!` leaves in force), so a drag or an
+  arrow key starting from the setting would snap the panel to it."
+  [^js e fallback]
+  (or (try
+        (let [host (some-> e .-currentTarget
+                           (.closest (config/get-layout-host-selector)))
+              w    (some-> host .getBoundingClientRect .-width)]
+          (when (and (number? w) (pos? w))
+            (js/Math.round w)))
+        (catch :default _ nil))
+      fallback))
+
 (defn handle-tree
   "The panel-width handle's node, as a PURE function of the live width,
   the announced ARIA ceiling and a frame-bound dispatcher.
@@ -543,9 +563,11 @@
          :tab-index        0
          :on-pointer-down  (fn [^js e]
                              (when (primary-press? e)
-                               (start-drag! e current-width dispatch)))
+                               (start-drag! e (rendered-width e current-width)
+                                            dispatch)))
          :on-key-down      (fn [^js e]
-                             (when (handle-keydown! e current-width dispatch)
+                             (when (handle-keydown! e (rendered-width e current-width)
+                                                    dispatch)
                                (try (.preventDefault e)
                                     (catch :default _ nil))))
          :on-double-click  (fn [^js _e]

@@ -232,6 +232,32 @@
          (map (comp :tone-key ei/delim) [:map-entry :vector]))
       "map-entry brackets share a vector's characters but read in `:accent`"))
 
+;; ---- map-entries ---------------------------------------------------------
+;;
+;; A MapEntry is a 2-vector to the reader, so every render path shows it
+;; unlabelled, like a vector. Labelled with its 0 / 1 child indices,
+;; `(first {:a 1})` would read `[0 :a 1 1]`, a four-element vector.
+
+(defn- render-map-entry [expansion-map]
+  (ei/render-node {:value (first {:a 1})
+                   :panel-id :test :mount-id "m1"
+                   :path [] :depth 0
+                   :expansion-map expansion-map
+                   :opts {}}))
+
+(deftest a-map-entry-renders-as-its-two-elements
+  (doseq [[label tree] [["the width-fit inline path"
+                         (ei/render-inline-recursive (first {:a 1}))]
+                        ["the strict inline path, before any width is measured"
+                         (render-map-entry {})]]]
+    (is (str/includes? (collect-text tree) "[:a 1]") label))
+  (let [expanded (render-map-entry
+                   {(ei/expansion-key :test "m1" []) {:expanded? true}})]
+    (is (= [1 0]
+           [(count (nodes-with-attr expanded :data-rf-body-layout "block"))
+            (count (nodes-with-attr expanded :data-rf-cell "key"))])
+        "expanded, its body is block rows with no key column")))
+
 ;; ---- click-to-toggle -----------------------------------------------------
 
 (deftest toggle-event-flips-expansion-state
@@ -1607,6 +1633,44 @@
     ((:on-double-click attrs) nil)
     ((:on-key-down attrs) (:event (key-event "Enter")))
     (is (= [zoom zoom] @dispatched))))
+
+(deftest expansion-overrides-follow-the-node-under-zoom
+  ;; An override is keyed by the node's ABSOLUTE path, so the root view's
+  ;; collapse of `[:profile]` does not reach `[:user :profile]` once zoomed
+  ;; into `:user`, and a toggle made while zoomed stores the absolute path.
+  (let [dispatched (atom [])
+        h          (ei/render-node {:value {:profile {:a 1 :b 2 :c 3 :d 4 :e 5}}
+                                    :panel-id :p :mount-id "m"
+                                    :path [] :depth 0
+                                    :expansion-map {(ei/expansion-key :p "m" [:profile])
+                                                    {:expanded? false}}
+                                    :zoomable? true
+                                    :zoom-path-prefix [:user]
+                                    :dispatch-fn #(swap! dispatched conj %)
+                                    :opts {:default-expanded-depth 8}})
+        attrs      #(second (find-attr h :data-testid %))]
+    (is (= "1" (:data-rf-expanded (attrs "rf-xray-edn-inspector-p-m-:profile")))
+        "the root view's override on [:profile] leaves [:user :profile] open")
+    ((:on-click (attrs "rf-xray-edn-inspector-p-m-:profile-toggle")) nil)
+    (is (= [[:rf.xray.edn-inspector/toggle-node :p "m" [:user :profile] true]]
+           @dispatched))))
+
+(deftest a-removed-container-ghost-is-no-zoom-target
+  ;; A ghost's path names a slot absent from the value, so a zoom there would
+  ;; not resolve, and the stored path would re-root the inspector unprompted
+  ;; once a later epoch set the slot again.
+  (let [before {:error {:code 1 :msg "x"} :ok {:n 1 :m 2}}
+        after  {:ok {:n 1 :m 2}}
+        h      (ei/render-node {:value after :before before :diff? true
+                                :projection (engine/project before after)
+                                :panel-id :p :mount-id "m"
+                                :path [] :depth 0 :expansion-map {}
+                                :zoomable? true :zoom-path-prefix []
+                                :opts {:default-expanded-depth 6}})]
+    (is (seq (nodes-with-attr h :data-rf-removed-ghost "1"))
+        "precondition: the removed :error renders as a ghost")
+    (is (= ["Zoom into [:ok]"] (map (comp :aria-label second) (zoom-target-nodes h)))
+        "the surviving container is a target and the ghost is not")))
 
 ;; ---- the toggle triangle owns its double-click gesture -------------------
 

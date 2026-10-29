@@ -1951,8 +1951,11 @@
   ;; bulk `configure!` surface NON-equivalent to `set-editor!` —
   ;; `(configure! {:rf.xray/editor nil})` would silently no-op, leaving
   ;; `editor-configured?` stuck true after a host tried to reset. Every
-  ;; key below is `contains?`-gated so an explicit `nil` resets and an
-  ;; ABSENT key leaves the atom untouched.
+  ;; key below is `contains?`-gated, so an ABSENT key leaves its atom
+  ;; untouched, and an explicit `nil` resets every key but
+  ;; `:rf.xray/settings`, whose only value is a map (Spec 015
+  ;; §`:rf.xray/settings`): any other value, `nil` included, leaves the
+  ;; seed and the live settings map as they were.
   (when (contains? opts :rf.xray/editor)
     (set-editor! editor-opt))
   (when (contains? opts :rf.xray/project-root)

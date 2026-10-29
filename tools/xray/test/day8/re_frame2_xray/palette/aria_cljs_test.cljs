@@ -68,3 +68,19 @@
       (is (= (str shown " / " total)
              (rf.test-helpers/text-content
                (rf.test-helpers/find-by-testid tree "rf-xray-palette-result-count")))))))
+
+(deftest the-active-row-scrolls-itself-into-view
+  ;; The list scrolls and the arrow keys only move the cursor, so the active
+  ;; row carries a `:ref` that scrolls it in; React runs it as a row becomes
+  ;; the active one.
+  (let [rows     (map rf.test-helpers/attrs
+                      (rf.test-helpers/find-by-testid-prefix (open-palette-tree)
+                                                             "rf-xray-palette-row-"))
+        reveal   (keep :ref rows)
+        scrolled (atom [])]
+    (is (= ["true"] (map :aria-selected (filter :ref rows)))
+        "exactly the active row carries it")
+    ((first reveal) #js {:scrollIntoView #(swap! scrolled conj (.-block %))})
+    ((first reveal) nil)
+    (is (= ["nearest"] @scrolled)
+        "it scrolls the row in minimally, and React's detach call is a no-op")))

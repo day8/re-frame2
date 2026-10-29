@@ -100,6 +100,19 @@
   (is (= ["user.cljs:12" true]
          ((juxt :hint :popout?) (first (sources/handler-items sample-handlers))))))
 
+(deftest a-non-string-doc-falls-back-to-the-kind
+  ;; The registrar does not type-check `:doc`, and one host registration
+  ;; carrying a keyword or a vector there must not break every palette query.
+  (is (= {[:event :a/doc] "hello world"
+          [:event :a/kw]  "event"
+          [:sub :a/vec]   "sub"}
+         (into {}
+               (map (juxt :id :hint))
+               (sources/handler-items
+                 [{:id :a/doc :kind :event :doc "hello  world"}
+                  {:id :a/kw  :kind :event :doc :todo}
+                  {:id :a/vec :kind :sub   :doc ["a" "b"]}])))))
+
 (deftest command-items-include-the-core-verbs
   ;; The verbs tools/xray/spec/API.md catalogues.
   (let [ids (set (map :id (sources/command-items)))]

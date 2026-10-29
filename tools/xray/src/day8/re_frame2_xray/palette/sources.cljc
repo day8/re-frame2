@@ -199,9 +199,11 @@
                 {:source :handler
                  :id     [kind id]
                  :label  (str (name kind) " " (pr-str id))
+                 ;; `:doc` is host data the registrar does not type-check,
+                 ;; so only a string becomes the hint.
                  :hint   (cond
                            (and file line) (str file ":" line)
-                           doc             (str/replace
+                           (string? doc)   (str/replace
                                              (subs doc 0 (min 60 (count doc)))
                                              #"\s+" " ")
                            :else           (name kind))
