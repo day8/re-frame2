@@ -363,6 +363,7 @@ const {
   createHarnessCleanup,
   resolveServePort,
   startLocalHttpServer,
+  withTimeout,
 } = require('./lib/local-browser-harness.cjs');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 const { SHADOW_CLI } = require('./lib/shadow.cjs');
@@ -845,16 +846,6 @@ async function driveEngine(engine, baseUrl) {
       `${Object.keys(result.sections).length} sections`
     : `FAIL  ${engine}`);
   return { passed, result };
-}
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), ms);
-    }),
-  ]);
 }
 
 // ---------------------------------------------------------------------------

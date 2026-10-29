@@ -34,6 +34,7 @@ const {
   createHarnessCleanup,
   resolveServePort,
   startLocalHttpServer,
+  withTimeout,
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
@@ -112,17 +113,6 @@ function stageHtml() {
   return true;
 }
 
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Spec '${label}' timed out after ${ms}ms`)),
-      ms,
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
 async function runSpec(baseUrl) {
   const browser = await chromium.launch({ headless: true });
   // Pageerrors are tracked in a DEDICATED array (not
@@ -146,7 +136,7 @@ async function runSpec(baseUrl) {
     log(`\n=== ${SPEC.name} ===`);
     log(`Navigating to ${fullUrl}`);
     await page.goto(fullUrl, { waitUntil: 'load', timeout: SPEC_TIMEOUT_MS });
-    await withTimeout(SPEC.run(page), SPEC_TIMEOUT_MS, SPEC.name);
+    await withTimeout(SPEC.run(page), SPEC_TIMEOUT_MS, `Spec '${SPEC.name}'`);
     if (pageErrors.length > 0) {
       throw new Error(`Page emitted ${pageErrors.length} uncaught error(s); first: ${pageErrors[0].message}`);
     }

@@ -758,6 +758,18 @@ async function startLocalHttpServer(opts = {}) {
   return { server, ready: true, output, isDown };
 }
 
+// Settle with `promise`, or reject once `ms` passes, whichever comes first. The
+// timer is cleared either way, so a settled race never holds the process open.
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 module.exports = {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
@@ -777,4 +789,5 @@ module.exports = {
   terminateProcessTreeSync,
   waitForHttpReady,
   waitForOwnedHttpReady,
+  withTimeout,
 };
