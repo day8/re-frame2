@@ -431,10 +431,9 @@
   freshly-built `initial-snap`'s `:data` is validated against it. A failure emits
   `:rf.error/schema-validation-failure :where :machine-data :phase :spawn`
   (via `validate-spawn-data!`) and returns `true`; the caller then skips
-  the trace, the handler registration, the snapshot/spawn-slot
-  install, the spawn-order record, AND the `:start` dispatch — the
-  rejected actor leaves NO half-installed bookkeeping (no registered
-  handler, no actor state, no phantom `:rf/machine?` registry entry) —
+  the trace, the snapshot/spawn-slot install, the spawn-order record,
+  AND the `:start` dispatch — the rejected actor leaves NO half-installed
+  bookkeeping (no actor state, no spawn-order entry) —
   and clears the parent's `:spawned` mirror entry
   (`clear-rejected-mirror!`).
 
@@ -1038,7 +1037,7 @@
         track?     (and parent-id invoke-id)
         ;; Resolve the final spawned id: pre-allocated when present;
         ;; else allocate from runtime-db inside the swap below. We pre-read
-        ;; the runtime-db once so the trace event and reg-machine* call see
+        ;; the runtime-db once so the trace event and the install see
         ;; the same id the snapshot install / registry bind will use. The
         ;; runtime-db swap re-applies the increment to the (potentially-
         ;; newer) runtime-db at write time — for the JVM atom container the

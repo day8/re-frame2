@@ -73,3 +73,16 @@
                :done {}}})
   (is (= [{:machine-id :lint/consume :slot :guards :entry-id :g :rf.cofx/id :lint/undeclared}]
          (mapv :tags (warns CONSUME)))))
+
+(deftest consume-undeclared-flags-a-destructured-read-and-an-entry-declaring-nothing
+  ;; The `{:keys [ns/fact]}` destructure is a symbol token, and an entry that
+  ;; declares nothing is the headline case; both are scanned.
+  (rf/reg-cofx :lint/fact {:recordable? true} (fn [] :F))
+  (lint! :lint/destructure
+         (guard-reading [:lint/other] "(fn [{{:keys [lint/fact]} :rf.cofx}] fact)"))
+  (lint! :lint/nothing-declared
+         {:initial :idle
+          :guards  {:g {:fn (fn [_] true) :source-code "(fn [{c :rf.cofx}] (:lint/fact c))"}}
+          :states  {:idle {:on {:go {:target :done :guard :g}}} :done {}}})
+  (is (= [[:lint/destructure :lint/fact] [:lint/nothing-declared :lint/fact]]
+         (mapv (comp (juxt :machine-id :rf.cofx/id) :tags) (warns CONSUME)))))

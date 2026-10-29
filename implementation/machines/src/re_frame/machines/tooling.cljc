@@ -123,14 +123,18 @@
        (keep (fn [[id m]] (when (:rf/machine? m) id)))))
 
 (defn- declared-event?
-  "True iff `event-id` is an author-declared `:on` trigger (a keyword whose
-  namespace is not a reserved framework namespace, and not the `:*` wildcard).
-  The wildcard `:*` matches every event and so names no concrete input edge —
-  it is a fallthrough, not a declared dependency."
+  "True iff `event-id` is an author-declared `:on` trigger: a keyword that is
+  neither a wildcard (`:*`, or a namespace wildcard `:ns/*` — each matches a
+  family of events and names no concrete input edge) nor a framework event
+  (any `:rf` / `:rf.*` namespace, such as the synthetic
+  `:rf.machine.spawn/spawned`, and the `reserved-event-ns` set)."
   [event-id]
   (and (keyword? event-id)
-       (not= :* event-id)
-       (not (contains? reserved-event-ns (namespace event-id)))))
+       (not= "*" (name event-id))
+       (let [ns (namespace event-id)]
+         (not (or (contains? reserved-event-ns ns)
+                  (= "rf" ns)
+                  (and (some? ns) (= "rf." (subs ns 0 (min 3 (count ns))))))))))
 
 (defn- state-nodes
   "Every state-map node in a machine spec's state tree, in a deterministic

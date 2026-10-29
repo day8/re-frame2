@@ -55,13 +55,15 @@
 
 (deftest declared-event-inputs-are-walked-from-the-whole-state-tree
   (doseq [[label machine-id spec expected]
-          [["reserved framework events and the :* wildcard are not inputs"
+          [["framework events and the :* / :ns/* wildcards are not inputs"
             :guarded/main
             {:initial :a
              :data    {}
-             :states  {:a {:on {:go           :b
-                                :*            :a
-                                :rf.machine/x :b}}
+             :states  {:a {:on {:go                        :b
+                                :*                         :a
+                                :user/*                    :a
+                                :rf.machine.spawn/spawned  :b
+                                :rf.machine/x              :b}}
                        :b {}}}
             [[:event :go]]]
            ["leaf + parent :on keys are collected across the hierarchy, sorted"

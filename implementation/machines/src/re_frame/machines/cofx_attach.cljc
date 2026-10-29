@@ -1186,39 +1186,36 @@
   [machine-id machine]
   (when rf.interop/debug-enabled?
     (let [{:keys [by-entry]} (get machine ensure-index-key)]
-      (when (seq by-entry)
-        (doseq [[[slot entry-id] parsed] by-entry]
-          (let [declared    (set (map :id parsed))
-                entry       (get-in machine [slot entry-id])
-                source-code (:source-code entry)]
-            ;; (2) ambient-durable — an ACTION declaring an ambient-grade id.
-            (when (= slot :actions)
-              (doseq [{:keys [id]} parsed]
-                (let [meta (rf.registrar/lookup :cofx id)]
-                  (when (and meta (not (:recordable? meta)))
-                    (emit-ambient-durable! machine-id slot entry-id id)))))
-            ;; (1) consume-without-declaring — heuristic source scan. The
-            ;; macro-captured `:source-code` is a `pr-str` STRING; parse it
-            ;; back to a form (`tree-seq` treats the raw string as one leaf),
-            ;; then scan it for
-            ;; `:rf.cofx`-record leaf reads not covered by `declared`. We
-            ;; look for symbol/keyword tokens of the shape `<ns>/<name>`
-            ;; destructured beside a `:rf.cofx`/`cofx` binding. Shallow by
-            ;; design (a recommendation, not a gate).
-            (when-let [form (source-code->form source-code)]
-              (let [tokens (->> (tree-seq coll? seq form)
-                                (filter keyword?)
-                                set)]
-                ;; A declared id appearing as a destructure key is fine; an
-                ;; `:rf.cofx` leaf keyword present in the source but NOT
-                ;; declared is the flagged case. Restrict to owner-qualified
-                ;; cofx-shaped keywords that are registered cofx ids to avoid
-                ;; flagging ordinary :data keys.
-                (doseq [t tokens
-                        :when (and (qualified-keyword? t)
-                                   (not (contains? declared t))
-                                   (some? (rf.registrar/lookup :cofx t)))]
-                  (emit-consume-undeclared! machine-id slot entry-id t))))))))))
+      ;; (2) ambient-durable — an ACTION declaring an ambient-grade id.
+      (doseq [[[slot entry-id] parsed] by-entry
+              :when (= slot :actions)
+              {:keys [id]} parsed]
+        (let [meta (rf.registrar/lookup :cofx id)]
+          (when (and meta (not (:recordable? meta)))
+            (emit-ambient-durable! machine-id slot entry-id id))))
+      ;; (1) consume-without-declaring — a heuristic scan of every named entry
+      ;; the macro captured source for, INCLUDING one that declares nothing
+      ;; (the headline case). The macro-captured `:source-code` is a `pr-str`
+      ;; STRING; parse it back to a form (`tree-seq` treats the raw string as
+      ;; one leaf). A read is a qualified keyword token, or a qualified
+      ;; SYMBOL — the `{:keys [ns/fact]}` destructure the docs teach. Only
+      ;; registered cofx ids count, so ordinary `:data` keys and router-stamped
+      ;; facts are never flagged. Shallow by design (a recommendation, not a
+      ;; gate).
+      (doseq [slot          [:guards :actions]
+              [entry-id entry] (get machine slot)
+              :when         (and (map? entry) (some? (:source-code entry)))
+              :let          [declared (set (map :id (get by-entry [slot entry-id])))
+                             form     (source-code->form (:source-code entry))]
+              :when         (some? form)
+              t             (->> (tree-seq coll? seq form)
+                                 (keep #(cond (keyword? %) %
+                                              (symbol? %)  (keyword (namespace %) (name %))))
+                                 (filter qualified-keyword?)
+                                 distinct)
+              :when         (and (not (contains? declared t))
+                                 (some? (rf.registrar/lookup :cofx t)))]
+        (emit-consume-undeclared! machine-id slot entry-id t)))))
 
 ;; ---- sub-valued recordable source evaluator -------------------------------
 ;;
