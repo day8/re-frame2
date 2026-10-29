@@ -25,7 +25,7 @@ dispatched; it is tape-evaluated in the result boundary (see
 | `:rf.assert/path-matches` | `[path malli-schema]` | `(m/validate schema (get-in @app-db path))` |
 | `:rf.assert/sub-equals` | `[sub-vec expected]` | `(= @(subscribe sub-vec) expected)` |
 | `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched against this frame? |
-| `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. Pairs with the per-variant trace-buffer's `:rf.machine/guard-evaluated` + `:rf.machine/action-ran` ops (rf2-ec52e, per [spec/005-StateMachines.md](../../../spec/005-StateMachines.md) + [spec/009-Instrumentation.md §`:op-type` vocabulary](../../../spec/009-Instrumentation.md)) — failures of this assertion can be diagnosed against the captured guard/action trace via Xray's RHS view. |
+| `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. Pairs with the per-variant trace-buffer's `:rf.machine/guard-evaluated` + `:rf.machine/action-ran` ops (per [spec/005-StateMachines.md](../../../spec/005-StateMachines.md) + [spec/009-Instrumentation.md §`:op-type` vocabulary](../../../spec/009-Instrumentation.md)) — failures of this assertion can be diagnosed against the captured guard/action trace via Xray's RHS view. |
 | `:rf.assert/no-warnings` | `[]` | No warning-severity trace event (`:op-type :warning`) captured during play — any operation namespace, not only `:rf.warning/*`. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? See §`:rf.assert/effect-emitted` payload shape. |
 
@@ -71,7 +71,7 @@ Each handler returns a map of the form:
 The play-runner collects these into `:assertions`. The list survives
 the `run-variant` return.
 
-## The `:rf.assert/*` events are the ONE assertion vocabulary (rf2-5o6yd)
+## The `:rf.assert/*` events are the ONE assertion vocabulary
 
 **`:rf.assert/*` is the canonical, primary assertion vocabulary.** Every
 assertion Story evaluates — wherever it is written — resolves to one
@@ -165,8 +165,8 @@ The runtime's phase 4 (per [`002-Runtime.md`](002-Runtime.md)
 entry in `:plays`) through the rich-DSL runner. Author event sequences
 by wrapping each entry in `[:dispatch <event-vec>]` (the settled author
 step; `[:dispatch-sync …]` is the low-level synchronous escape — spec/017
-§Script step grammar) — the legacy `:play` event-vector slot was removed
-(rf2-0wrud); see [`001-Authoring.md`](001-Authoring.md) §`:script`. For
+§Script step grammar) — there is no separate event-vector slot; see
+[`001-Authoring.md`](001-Authoring.md) §`:script`. For
 each step:
 
 1. `:dispatch` / `:dispatch-sync` steps fire their event vector into
@@ -174,8 +174,8 @@ each step:
 2. Drain to completion between steps.
 3. **`:rf.assert/*` events ride the `:dispatch-sync` rail internally**
    (the runner's headless implementation — authors write
-   `[:assert [:rf.assert/…]]`). Per
-   rf2-yn825 the play-runner bridges a `[:dispatch-sync [:rf.assert/* …]]`
+   `[:assert [:rf.assert/…]]`). The play-runner bridges a
+   `[:dispatch-sync [:rf.assert/* …]]`
    step into the step result: the registered assertion handler records
    its result map into `:rf.story/assertions` on the variant frame, and
    the runner mirrors the recorded outcome (pass/fail) onto the step so
@@ -215,8 +215,7 @@ ORIGINAL fx id, so `assertions/emitted-fx` sees it.
 
 The variant frame's accumulated `:rf.story/assertions` vector renders
 inline below the canvas render — and below each workspace cell — as a
-**structured assertion-strip** (rf2-29lw1; C2 detail-panel reveal
-polish #1826). Both call sites
+**structured assertion-strip**. Both call sites
 share one leaf component (`re-frame.story.ui.assertion-strip`); the
 `:test` mode pane keeps its richer per-row table, the inline strip is
 the compact version of the same shape. The strip lifts five patterns
@@ -227,7 +226,7 @@ from Storybook's addon-tests interactions panel:
    `pr-str` of the record map. The first three are the shared assertion
    vocabulary (`re-frame.story.predicates/assertion-glyph`, deliberately
    three-valued); `✖` is the strip's own `:error` extension, `assoc`'d on
-   locally rather than widened into it (rf2-uky0n).
+   locally rather than widened into it.
 2. **Auto-collapse pass · auto-expand fail** — failed **and errored** rows
    seed open so the user lands on disclosed problems; passed / skipped
    rows stay collapsed. A click toggles any row.
@@ -236,14 +235,13 @@ from Storybook's addon-tests interactions panel:
    row **shares** the red band rather than claiming a colour of its own;
    it is told apart by its glyph (`✖`, not a second `✗`) and by its
    summary line, which is the captured error's `:message` and is never
-   blank — a silent errored row was the rf2-uky0n defect. That keeps
+   blank, since a silent errored row reads as a pass. That keeps
    error distinct from a failed expectation per
    [`018-Story-UI-North-Star.md` §12.6](018-Story-UI-North-Star.md#126-status-and-colour)
    without inventing a theme token.
 4. **Truncate long values** — the inline summary clamps to one line; a
    long `:expected` / `:actual` inside the expanded panel clamps too
-   with a click-to-reveal-full chord (no modal — same row) per the C2
-   detail-panel value-reveal polish (#1826).
+   with a click-to-reveal-full chord (no modal — same row).
 5. **Group by dispatching event** — assertions cluster under the
    `:event` slot they were dispatched from; assertions outside a play
    step (phase-0 setup, decorator-throws) cluster under a leading
@@ -254,7 +252,7 @@ The pure projection helpers (`truncate`, `summary-line`,
 shape is unit-testable. The rendered rows carry stable `data-test`
 hooks (`story-canvas-assertion-strip` / `-row` / `-glyph` / `-label` /
 `-summary` / `-detail` / `-detail-reveal`) for the agent reader and the
-Story/Xray gate. Per rf2-5lw9w each row vector carries a React `:key`
+Story/Xray gate. Each row vector carries a React `:key`
 on the element Reagent hands to React (not on a function-call form) so
 the row seq does not warn.
 
@@ -264,7 +262,7 @@ An assertion record is a value-bearing **observation surface** — it
 serialises into the `:test`-mode pane, MCP `read-failures` (which reads `story/read-assertions`), and JSON-log
 egress, all of which spec/015 lists as boundaries projection must guard. So
 **no slot of the record may carry a raw secret for a sensitive path** — not
-`:actual`, and (rf2-006y9b) not `:expected`, `:payload`, or `:reason`. The
+`:actual`, and not `:expected`, `:payload`, or `:reason` either. The
 record obeys the framework's path-level data-classification contract
 ([spec/015-Data-Classification.md](../../../spec/015-Data-Classification.md)).
 The rules:
@@ -285,8 +283,7 @@ The rules:
    `[:sub/id :user :ssn]` reading a sensitive `[:user :ssn]` redacts. A bare
    sub-id whose args carry no app-db path relies on sub-engine marker
    propagation (spec/015 §Derived sensitivity) — tracked separately.
-2. **`:expected`, `:payload`, and `:reason` are projected too**
-   (rf2-006y9b). An author who pins the *raw* expected value against a
+2. **`:expected`, `:payload`, and `:reason` are projected too.** An author who pins the *raw* expected value against a
    sensitive path does not leak it: `:expected` is projected against the
    same path before it lands on the record (→ `:rf/redacted`), `:payload`
    is rebuilt from the redacted expected (`[path :rf/redacted]`), and
@@ -322,8 +319,7 @@ See also:
 - The `Assertion-with-redaction` row in
   [`015-Test-Coverage.md`](015-Test-Coverage.md) §Assertion vocabulary
   scenarios — exercised live by
-  `assertion_redaction_cljs_test.cljs` (rf2-ee38b.3 wired the
-  evaluator → `project-egress` projection; bd:rf2-shy6n).
+  `assertion_redaction_cljs_test.cljs`.
 
 ## Test-runner integration
 
@@ -359,7 +355,7 @@ See also:
   `:assertions` record is `:passed? true`. A verdict and the assertions
   slot can never disagree (the `result.cljc` core invariant); folding
   `:assertions` on a result map would be a floor-blind SECOND verdict path
-  — the false-GREEN class (rf2-x76af2.16). A zero-assertion `:pass` run
+  — the false-GREEN class. A zero-assertion `:pass` run
   stays green (its `:status` is `:pass`).
 - **Bare `:assertions` vector → the vacuous-green fold.** For a bare
   vector, it returns true iff every record has `:passed? true` (an empty
@@ -369,13 +365,13 @@ See also:
 
 The result map's `:assertions` slot carries EVERY assertion outcome — both
 the `:rf.assert/*` dispatch-step records AND the rich-DSL `:assert-db` /
-`:assert-dom` step records (rf2-ee38b.3 closed the false-green gap where
-rich-DSL assert failures landed only in the runner's `run-state` atom).
+`:assert-dom` step records, so a rich-DSL assert failure is never visible
+only in the runner's `run-state` atom.
 
-### Per-assertion `cljs.test/is` granularity — shipped via `story/is` (rf2-2yrb91)
+### Per-assertion `cljs.test/is` granularity — `story/is`
 
-The higher-fidelity per-assertion adapter this section once deferred is
-**shipped** as the `story/is` verb of the spec/017 execution trilogy
+The per-assertion adapter is the `story/is` verb of the spec/017 execution
+trilogy
 ([`017-Testing-Story.md` §Public execution API — the three verbs](017-Testing-Story.md#public-execution-api--the-three-verbs)).
 `(story/is target opts)` runs the target, then reports each assertion
 record to `clojure.test` / `cljs.test` at **per-assertion granularity** —
