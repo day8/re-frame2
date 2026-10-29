@@ -1,7 +1,8 @@
 (ns re-frame2-pair-mcp.test-utils
   "Shared test helpers: wire-envelope extractors, async-safe stub
-  installers for the nREPL eval globals, the dedup inverse, and a test-only
-  handle on mcp-base's token rule."
+  installers for the nREPL eval globals, an interpreter for the source the
+  tools emit, the dedup inverse, and a test-only handle on mcp-base's token
+  rule."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
@@ -85,6 +86,57 @@
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (restore-freshness! stub orig))))))
+
+(defn run-form
+  "Evaluate `form`, read back from CLJS source a tool emits for app-side
+  evaluation, with `locals` bound and `env` resolving every other symbol.
+  The tools build that source by string concatenation, so reading it back
+  and running it is the only way a test sees what the app would compute.
+  Covers the forms the emitters write — `let`, single-arity `fn` / `fn*`,
+  `if`, `and`, `quote`, keyword lookup and calls — and throws on an
+  unresolved symbol, so a rewritten form fails loudly rather than passing
+  unexercised."
+  [form locals env]
+  (let [run #(run-form % locals env)]
+    (cond
+      (symbol? form)
+      (cond
+        (contains? locals form) (get locals form)
+        (contains? env form)    (get env form)
+        :else (throw (ex-info "unresolved symbol in the emitted form"
+                              {:symbol form})))
+
+      (map? form)    (into {} (map (fn [[k v]] [(run k) (run v)])) form)
+      (vector? form) (mapv run form)
+
+      (seq? form)
+      (let [[op & args] form]
+        (cond
+          (= 'let op)
+          (let [[bindings & body] args
+                scope (reduce (fn [l [s e]] (assoc l s (run-form e l env)))
+                              locals
+                              (partition 2 bindings))]
+            (last (map #(run-form % scope env) body)))
+
+          (contains? '#{fn fn*} op)
+          (let [[params & body] args]
+            (fn [& xs]
+              (let [scope (merge locals (zipmap params xs))]
+                (last (map #(run-form % scope env) body)))))
+
+          (= 'if op)
+          (let [[c t e] args]
+            (if (run c) (run t) (run e)))
+
+          (= 'and op)
+          (reduce (fn [_ a] (let [v (run a)] (if v v (reduced v)))) true args)
+
+          (= 'quote op) (first args)
+
+          :else (apply (run op) (map run args))))
+
+      :else form)))
 
 (defn dedup-expand
   "Inverse of `re-frame.mcp-base.dedup/dedup-value`; returns `v` unchanged

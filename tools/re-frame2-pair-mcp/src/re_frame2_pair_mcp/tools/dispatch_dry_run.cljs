@@ -20,10 +20,12 @@
 
   ## Why this IS `--allow-sensitive-reads`-gated
 
-  Dry-run is an AI-facing READ surface: the
-  happy-path envelope returns the would-be app-db verbatim under
+  Dry-run is an AI-facing READ surface: every envelope whose simulation
+  ran — success, and a refused rollback (`:ok? false :reason
+  :rollback-failed`) — returns the would-be app-db verbatim under
   `:db-state-after-simulation` and each recorded fx's args under
-  `:would-fire-effects[*].args`. Reducers / fx routinely derive
+  `:would-fire-effects[*].args`, so both stages below project an
+  envelope by the slots it carries, never by its `:ok?`. Reducers / fx routinely derive
   tokens, auth headers, or other declared-sensitive / large values
   from app-db, so a stock MCP session could leak those to the model
   even though the `--allow-sensitive-reads` default is OFF.
@@ -168,15 +170,16 @@
   identity walk (no `:args` mutation), so the opt-in path ships the raw
   payload.
 
-  Only the happy-path envelope (`:ok? true`) carries `:would-fire-effects`,
-  so a soft-failure envelope (`:no-epoch-recorded` / `:no-new-epoch`)
-  flows through untouched. Idempotent: a row whose `:args` already carries
+  The slot, not `:ok?`, selects the envelope: a refused rollback carries
+  `:would-fire-effects` beside `:ok? false`, while the refusals that ran no
+  simulation (`:no-epoch-recorded` / `:no-new-epoch`) carry none and flow
+  through untouched. Idempotent: a row whose `:args` already carries
   `:rf/redacted` re-redacts to the same sentinel."
   [redact?]
   (if-not redact?
     "(fn [env] env)"
     (str "(fn [env]"
-         "  (if (and (map? env) (:ok? env) (contains? env :would-fire-effects))"
+         "  (if (and (map? env) (contains? env :would-fire-effects))"
          "    (update env :would-fire-effects"
          "            (fn [fx] (mapv (fn [e]"
          "                             (if (and (map? e) (contains? e :args))"
@@ -206,9 +209,8 @@
   not verbatim values) and is intentionally NOT walked, matching the
   other cascade-summary surfaces.
 
-  Only the happy-path envelope (`:ok? true`) carries the db slot, so a
-  soft-failure envelope (`:no-epoch-recorded` / `:no-new-epoch`) flows
-  through untouched.
+  As in `redact-fx-args-src`, the slot selects the envelope, so a refused
+  rollback's would-be app-db is projected exactly as a success's is.
 
   `frame-edn` is the source for the `:frame` opt (a quoted keyword or
   a runtime `current-frame` call) so the door reads the right frame's
@@ -217,12 +219,9 @@
   `--allow-sensitive-reads` gate resolved to."
   [frame-edn egress-opts]
   (str "(fn [env]"
-       "  (if (and (map? env) (:ok? env))"
-       "    (let [opts (merge {:frame " frame-edn "} " egress-opts ")"
-       "          f    (fn [v] (re-frame.core/project-egress v opts))"
-       "          env  (if (contains? env :db-state-after-simulation)"
-       "                 (update env :db-state-after-simulation f) env)]"
-       "      env)"
+       "  (if (and (map? env) (contains? env :db-state-after-simulation))"
+       "    (update env :db-state-after-simulation"
+       "            (fn [v] (re-frame.core/project-egress v (merge {:frame " frame-edn "} " egress-opts "))))"
        "    env))"))
 
 (defn dispatch-dry-run-tool [conn raw-args]

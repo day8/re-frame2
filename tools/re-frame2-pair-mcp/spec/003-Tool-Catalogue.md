@@ -1502,10 +1502,12 @@ exposes the live scripted-coeffect path only.)
 
 ### Privacy: an AI-facing read surface (rf2-z7roa)
 
-Dry-run mutates nothing, but it IS an off-box read surface: the
-happy-path envelope returns the would-be app-db verbatim under
+Dry-run mutates nothing, but it IS an off-box read surface: every
+envelope whose simulation ran — the success envelope and a
+`:rollback-failed` one alike — returns the would-be app-db verbatim under
 `:db-state-after-simulation` and each recorded fx call's args under
-`:would-fire-effects[*].args`. Reducers / fx routinely derive tokens,
+`:would-fire-effects[*].args`, so the projection below applies to each
+envelope that carries those slots, whatever its `:ok?`. Reducers / fx routinely derive tokens,
 auth headers, or other declared-`:sensitive?` / oversize values from
 app-db, so an unredacted dry-run could leak those to the model even
 though the `--allow-sensitive-reads` default is OFF.
@@ -1591,7 +1593,8 @@ non-zero.
   have left the live app **mutated**, so it is the most important to
   surface — a dry-run that silently mutated the live app and reported
   green would defeat the tool's entire "no observable effect" contract.
-  The envelope carries `:rolled-back? false`, `:before-epoch-id`, and a
+  The envelope carries `:rolled-back? false`, `:before-epoch-id`, the
+  simulation's slots (projected exactly as on success), and a
   `:hint` to inspect the frame state and the replacement's failure
   trace before issuing further writes. (A first-event dry-run and a
   one-slot `:epoch-history` ring are supported: the rollback reinstalls
@@ -3095,8 +3098,9 @@ recording never dispatches, never mutates app-db, never writes the DOM.
 | `{:dom "sel"}` / `{:dom "sel" :attr "name"}` | first matching node's `textContent`, or that attribute |
 | `{:focus true}` | a stable descriptor of `document.activeElement` (`:tag` / `:id` / `:class` / `:name` / `:rf2-src`) — the focus-slot |
 
-**Stop condition** (`stop` arg; first key to trip wins; defaults to
-`{:ms 30000}` when omitted): `:ms` (wall-clock), `:changes` (total
+**Stop condition** (`stop` arg; first key to trip wins; `:ms` defaults to
+30000 whenever it is omitted, so a `:changes` or `:pred` stop that never
+trips still ends): `:ms` (wall-clock), `:changes` (total
 change-entry count), `:pred` (a **data** predicate map over the
 positional sample map `{<signal-index> <value>}` — compiled to a pure
 value-comparison fn, no host source crosses the wire; same shapes as

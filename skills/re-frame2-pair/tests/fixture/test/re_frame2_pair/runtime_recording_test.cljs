@@ -71,3 +71,19 @@
                (select-keys result [:status :stopped-reason :count])))
         (is (= 3 (get-in result [:entries 0 :value])) "the newest change survives"))
       (is (nil? @pending) "the sampler stops scheduling work"))))
+
+(deftest every-stop-keeps-the-wall-clock-ceiling
+  ;; A change count that never trips would otherwise leave the sampler
+  ;; running every frame for the life of the tab.
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf/make-frame {:id :review/recording-stop})
+  (try
+    (doseq [[stop expected] [[{:changes 3}        {:changes 3 :ms 30000}]
+                             [{:changes 3 :ms 50} {:changes 3 :ms 50}]
+                             [nil                 {:ms 30000}]]]
+      (let [result (rt/start-recording! {:signals [{:app-db [:n]}]
+                                         :frame   :review/recording-stop
+                                         :stop    stop})]
+        (rt/stop-recording! (:recording-id result))
+        (is (= expected (:stop result)) (pr-str stop))))
+    (finally (rf/destroy-frame! :review/recording-stop))))
