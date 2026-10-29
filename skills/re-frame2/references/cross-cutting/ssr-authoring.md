@@ -1,4 +1,4 @@
-# SSR authoring (head/meta + hydration checks)
+# SSR authoring (wiring, head/meta, hydration checks)
 
 SSR has two halves: a **per-request server frame** that renders body + head to a string, and a **client bootstrap** that hydrates from the server-supplied payload. This leaf is the authoring surface for the **two registration channels SSR apps own**: (a) `reg-head` plus its query helpers, which turn `<title>`/`<meta>`/`<link>`/JSON-LD into pure data-from-app-db; and (b) the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs that a `:rf/hydrate` handler dispatches to detect deploy drift between the rendering server and the bundled client. Both ship in `day8/re-frame2-ssr`; the schema-digest check resolves its client-side value through an optional-artefact late-bind hook (`:schemas/app-schemas-digest`), while the version check reads the SSR artefact's own compiled-in `pattern-protocol-version` constant (no hook). Both are pre-baked into the runtime's default `:rf/hydrate` handler so most apps inherit them for free.
 
@@ -6,7 +6,16 @@ SSR has two halves: a **per-request server frame** that renders body + head to a
 
 ## When to load
 
-Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; **extending** the framework's shipped `:rf/hydrate` handler (it ships by default — you rarely write your own; re-register only as documented framework-extension code to change the merge policy); debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events. Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
+Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; **extending** the framework's shipped `:rf/hydrate` handler (it ships by default — you rarely write your own; re-register only as documented framework-extension code to change the merge policy); debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events; wiring the server handler and the client boot (next section). Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
+
+## Wiring the two halves
+
+| Half | Surface | You supply |
+|---|---|---|
+| Server | `re-frame.ssr.ring/ssr-handler` → a synchronous Ring handler; `ssr-middleware` renders only the requests its `:match?` accepts and passes the rest to the wrapped handler | `:frame` — the app's frame config, with the `:initial-events` each request drains (a vector, or `(fn [request] events)`), and no `:id` (the handler mints one per request); `:root-view` — `[(rf/view :app/root)]` or a 0-arity fn; `:payload` — the app-db keys and paths the client receives |
+| Client | `(ssr/hydrate! {:frame app-frame})`, then the adapter's render with `{:hydrate? (some? payload)}` | the frame the root's `frame-provider` names; `hydrate!` reads the embedded payload, dispatches `[:rf/hydrate payload]` before the first render, and returns the payload — `nil` on a plain client load |
+
+`:payload` is a fail-closed allowlist: `[]` ships nothing, a missing policy fails at handler construction, and a value the frame classifies `:sensitive` arrives as `:rf/redacted` unless a path names that leaf exactly. Walkthrough: [`docs/ssr/tutorial.md`](https://github.com/day8/re-frame2/blob/main/docs/ssr/tutorial.md).
 
 ## `reg-head` — head model as data-from-app-db
 
