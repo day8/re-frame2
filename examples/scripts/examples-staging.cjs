@@ -1,19 +1,15 @@
 /*
  * Shared staging helpers for the example runners.
  *
- * Two scripts need to stage an example's hand-written `index.html` plus the
- * `examples/_shared/` design-system tree next to the compiled `main.js`:
+ * The standalone-example dev runner (serve-example.cjs) stages an example's
+ * hand-written `index.html` plus the `examples/_shared/` design-system tree
+ * next to the compiled `main.js`. The recursive copy + `_shared` fan-out logic
+ * lives here, one source of truth for "what lands in an example's output dir".
  *
- *   - serve-and-run-adapter-smokes.cjs  (the adapter-smoke orchestrator)
- *   - serve-example.cjs                 (the standalone-example dev runner)
- *
- * The recursive copy + `_shared` fan-out logic lives here so both runners use
- * the SAME hardened staging rather than each re-implementing an ad hoc copy.
- * One source of truth for "what lands in an example's output dir".
- *
- * The Story feature-load and play-script runners also consume the path-guarded
- * cleanStageDirs helper, but stage their testbed-specific HTML themselves; they
- * do not use the standalone-example asset manifest.
+ * The adapter-smoke orchestrator and the Story feature-load and play-script
+ * runners also consume the path-guarded cleanStageDirs helper, but stage their
+ * testbed-specific HTML themselves; they do not use the standalone-example
+ * asset manifest.
  *
  * This module ALSO derives the standalone-example manifest (build id ->
  * output dir + source folder + index.html) directly from shadow-cljs.edn, so

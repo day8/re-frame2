@@ -1,6 +1,6 @@
 # Testing the adapters
 
-> Reference for the adapter-smoke browser harness — the three substrate
+> Reference for the adapter-smoke browser harness — the two substrate
 > smokes (Reagent / UIx) and the runner that drives them.
 
 Each adapter (Reagent / UIx) ships a single browser smoke that mounts a
@@ -40,33 +40,33 @@ The harness is three files under [`scripts/`](scripts/):
 
 - [`serve-and-run-adapter-smokes.cjs`](scripts/serve-and-run-adapter-smokes.cjs)
   — the **orchestrator**. It compiles each smoke's shadow-cljs build, stages its
-  hand-written `index.html` (plus the shared `examples/_shared/` design-system
-  tree) into `implementation/out/examples/`, resolves a free port, serves the
-  staged root, and spawns the Playwright runner. It always tears the server
-  down. The build/stage/serve mechanics reuse the implementation tree's shared
-  harness helpers (`../../scripts/lib/local-browser-harness.cjs`) and the
-  example tree's shared staging + port helpers
-  (`../../../examples/scripts/examples-staging.cjs`,
-  `../../../examples/scripts/examples-port.cjs`) — the SAME staging/port code the
+  hand-written `index.html` into `implementation/out/examples/`, resolves a free
+  port, serves the staged root, and spawns the Playwright runner. It always
+  tears the server down. The serve mechanics reuse the implementation tree's
+  shared harness helpers (`../../scripts/lib/local-browser-harness.cjs`), and
+  the port resolver and stage cleaner are the example tree's
+  (`../../../examples/scripts/examples-port.cjs`,
+  `../../../examples/scripts/examples-staging.cjs`) — the SAME code the
   example dev runner and the Story launchers use, so all the browser harnesses
   contend for ports and clean their staging dirs identically.
 - [`run-adapter-smokes.cjs`](scripts/run-adapter-smokes.cjs) — the **Playwright
   runner**. It launches headless Chromium and executes each selected spec
-  against the served URL, with the same console-tap + pageerror discipline and
-  exit-code contract as the implementation tree's `run-browser-tests.cjs`.
-- [`adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs) — the **shared
-  manifest + selection logic** both the orchestrator and the runner import. It
-  declares each smoke once (build id + `index.html` source + staging dir +
-  `spec.cjs` path) and exposes one `selectEntries(patterns)`, so a narrow
-  `--filter` / `ADAPTER_SMOKE_FILTER` value selects the *identical* set in both
-  phases regardless of whether it is build-id-shaped
-  (`adapters/reagent-testbed`, `reagent-testbed`) or path-shaped
-  (`adapters/reagent/testbed`, `reagent/testbed`).
+  against the served URL. A spec fails on an uncaught page error, or on a
+  console error its `expectedConsoleErrors` does not allow, even when its
+  assertions passed; the listeners attach before the page loads, so a boot-time
+  error counts.
+- [`adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs) — the **smoke
+  set + selection** both the orchestrator and the runner import. It derives
+  each smoke (build id + `index.html` source + staging dir + `spec.cjs` path)
+  from the adapter's name, and its one `selectEntries(patterns)` picks the
+  smokes whose build id contains any comma-separated `--filter` /
+  `ADAPTER_SMOKE_FILTER` pattern (`adapters/` selects both, `reagent` or
+  `uix-testbed` one), so both phases select the *identical* set.
 
-The runner reconciles the manifest against the `spec.cjs` files actually on disk
+The runner reconciles the set against the `spec.cjs` files actually on disk
 under the adapter tree and fails loudly on drift in either direction — a
-renamed/removed smoke still listed in the manifest, or a new `spec.cjs` added
-without a matching manifest entry.
+renamed/removed smoke still in the set, or a new `spec.cjs` added without its
+adapter's name.
 
 The assertion helpers the specs use (`expectTextEquals`, `expectVisible`,
 `waitForValue`, …) are the repo-wide shared
@@ -78,15 +78,10 @@ hand-rolled Playwright specs.
 
 ## Adding a new adapter smoke
 
-The smoke set is declared **once** in
-[`scripts/adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs) — each
-entry pairs a shadow-cljs build id with its `index.html` source, its
-`out/examples/` staging dir, and the `spec.cjs` it runs. Both the orchestrator
-(compile + stage) and the Playwright runner (spec selection) import that manifest
-and call its shared `selectEntries`, so a narrow
-`--filter`/`ADAPTER_SMOKE_FILTER` value selects the *identical* set in both
-phases. The runner also reconciles the manifest against the `spec.cjs` files on
-disk and fails loudly on drift.
+The smoke set is declared **once**, as the `ADAPTERS` names in
+[`scripts/adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs); each
+name gives a shadow-cljs build id, an `index.html` source, an `out/examples/`
+staging dir and the `spec.cjs` it runs.
 
 To add a smoke:
 
@@ -94,12 +89,13 @@ To add a smoke:
    `implementation/adapters/<name>/testbed/`.
 2. Add the build to [`../shadow-cljs.edn`](../shadow-cljs.edn) (the
    `:adapters/<name>-testbed` build id).
-3. Append an entry to
-   [`scripts/adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs)
-   (build + htmlSrc + outDir + specPath).
+3. Add the adapter's name to `ADAPTERS` in
+   [`scripts/adapter-smoke-filter.cjs`](scripts/adapter-smoke-filter.cjs).
 
 Each spec exports `{ name, url, run }` — `run(page)` drives the Playwright
-assertions. There is no opt-out: every selected spec runs.
+assertions — and may add `expectedConsoleErrors`, an array of `RegExp` naming
+console errors the page is allowed to log. There is no opt-out: every selected
+spec runs.
 
 ## Notes for the example/Story trees
 
@@ -107,8 +103,8 @@ The adapter-smoke harness shares three helper modules with the example dev
 runner and the Story launchers, all of which still live in
 [`../../examples/scripts/`](../../examples/scripts/):
 
-- `examples-staging.cjs` — staging (`stageShared`, `cleanStageDirs`) over the
-  shared `implementation/out/examples` root.
+- `examples-staging.cjs` — the path-guarded `cleanStageDirs` over the shared
+  `implementation/out/examples` root.
 - `examples-port.cjs` (→ `port-resolver.cjs`) — free-port resolution.
 - `spec-helpers.cjs` — the Playwright assertion matchers.
 
