@@ -28,7 +28,7 @@ const WRAPPER = path.join(SCRIPTS_DIR, 'compile-node-test.cjs');
 
 const { test, run } = createPolicyTestSuite('compile-node-test-signal');
 
-const lane = makeScratchDir(REPO_ROOT, 'rf2-i7q4-signal');
+const lane = makeScratchDir(REPO_ROOT, 'compile-node-test-signal');
 
 // The wrapper runs `require.resolve('shadow-cljs/cli/runner.js')` under node; the
 // preload points that at this stand-in, whose behaviour each arm picks by env.
@@ -105,7 +105,7 @@ function runWrapper(mode) {
   return result;
 }
 
-test('a signal-killed child makes the CLI exit 1 and names the signal (rf2-i7q4)', () => {
+test('a signal-killed child makes the CLI exit 1 and names the signal', () => {
   // An aborted compile must leave NO bundle, not a stale one.
   fs.writeFileSync(OUTPUT_ABS, '// stale bundle from an earlier compile\n');
 
