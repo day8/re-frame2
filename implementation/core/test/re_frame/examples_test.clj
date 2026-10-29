@@ -709,7 +709,10 @@
               the third, whose fallback still records it: three attempts, the
               message kept, locked out"
       (let [{s :snapshot} (step {:state :submitting :data {:attempts 2 :error nil}}
-                                [:walkthrough.login/failure {:error {:message "bad creds"}}])]
+                                [:walkthrough.login/failure
+                                 {:error {:kind        :rf.http/http-4xx
+                                          :http-status 401
+                                          :body        {:message "bad creds"}}}])]
         (is (= [:locked-out 3 "bad creds"]
                [(:state s) (get-in s [:data :attempts]) (get-in s [:data :error])]))))
 
@@ -737,7 +740,8 @@
 
     (testing "drain retry-then-lockout — inside a `with-transport` scope on the
               rejecting server, two failures cycle :submitting → :error-shown →
-              :idle, and the third :submit lands at :locked-out"
+              :idle, and the third :submit lands at :locked-out, keeping the
+              message the server's 401 body carried"
       (let [f      (rf.frame/make-anon-frame-record! {})
             wrong  [:walkthrough.login/submit {:email "x@y.z" :password "wrong"}]]
         (rf.http.stub-transport/with-transport
@@ -747,4 +751,6 @@
               (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f})
               (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/dismiss]] {:frame f}))
             (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f})))
-        (is (= :locked-out (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f))))))))
+        (is (= [:locked-out "bad creds"]
+               [(rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f))
+                (rf/compute-sub [:walkthrough.login/error] (rf/frame-state-value f))]))))))

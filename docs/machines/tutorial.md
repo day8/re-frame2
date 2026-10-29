@@ -199,11 +199,11 @@ On failure, the **candidate vector** takes the first guard that passes.
  (fn [{data :data}] {:data (assoc data :error nil)})
 
  :record-error
- ;; Live HTTP appends {:status :error :error …}; pull the failure map from :error.
+ ;; Live HTTP appends {:status :error :error …}; a 4xx carries the server's message in the failure map's parsed :body.
  (fn [{data :data [_ {:keys [error]}] :event}]
    {:data (-> data
               (update :attempts inc)
-              (assoc  :error (or (:message error) "Login failed.")))})
+              (assoc  :error (or (get-in error [:body :message]) "Login failed.")))})
 
  :store-session
  ;; Live HTTP appends {:status :ok :value …}; pull the decoded body from :value.
@@ -244,7 +244,7 @@ On failure, the **candidate vector** takes the first guard that passes.
 
 ```clojure
 (rf/dispatch-sync
-  [:auth.login/flow [:auth.login/failure {:error {:message "nope"}}]]
+  [:auth.login/flow [:auth.login/failure {:error {:kind :rf.http/http-4xx :body {:message "nope"}}}]]
   {:frame login-frame})
 (rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame})
 ;; => {:state :error-shown :data {:attempts 1 :error "nope"}}
@@ -311,10 +311,10 @@ The timeout uses the **same guarded candidate vector** as failure (an `:after` v
 
 ```clojure
 [:auth.login/success {:status :ok    :value {:token "…"} …}]
-[:auth.login/failure {:status :error :error {:message "…"} …}]
+[:auth.login/failure {:status :error :error {:kind :rf.http/http-4xx :body {:message "…"} …} …}]
 ```
 
-So `:store-session` reads `:value` and `:record-error` reads `:error`. Deeper timer grammar: [Automatic transitions](automatic-transitions.md). Full HTTP: [Managed HTTP](../async/http.md).
+So `:store-session` reads `:value` and `:record-error` reads `:error`, where a 4xx failure carries the server's JSON error body, parsed, at `:body` ([Managed HTTP](../async/http.md#failures-are-a-closed-set)). Deeper timer grammar: [Automatic transitions](automatic-transitions.md). Full HTTP: [Managed HTTP](../async/http.md).
 
 ## Step 5 — render the states
 
@@ -412,9 +412,11 @@ A transition is a pure function of *(definition, snapshot, trigger)*. No browser
         (rf.machines/machine-transition
           login-flow
           {:state :submitting :data {:attempts 2 :error nil}}
-          ;; Pure-table test: invent the failure shape the action expects.
-          ;; Live HTTP would append {:status :error :error …} instead.
-          [:auth.login/failure {:error {:message "bad creds"}}])]
+          ;; Pure-table test: hand the action the failure a 401 classifies as.
+          ;; Live HTTP delivers it inside {:status :error :error …}.
+          [:auth.login/failure {:error {:kind        :rf.http/http-4xx
+                                       :http-status 401
+                                       :body        {:message "bad creds"}}}])]
     (is (= :ok status))
     (is (= :locked-out (:state snapshot)))
     (is (= 3 (get-in snapshot [:data :attempts])))
@@ -459,7 +461,7 @@ The table and the event handlers it needs. The view above supplies credentials;
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc  :error (or (:message error) "Login failed.")))})
+                 (assoc  :error (or (get-in error [:body :message]) "Login failed.")))})
 
     :store-session
     ;; Managed HTTP appends {:status :ok :value <decoded> …}; :value is the body.
@@ -569,7 +571,7 @@ because `:form-valid?` refuses the submit.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc  :error (or (:message error) "Login failed.")))})
+                 (assoc  :error (or (get-in error [:body :message]) "Login failed.")))})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]

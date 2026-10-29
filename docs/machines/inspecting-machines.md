@@ -191,7 +191,7 @@ machine to `:locked-out`.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc  :error (or (:message error) "Login failed.")))})
+                 (assoc  :error (or (get-in error [:body :message]) "Login failed.")))})
     :issue-request
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed

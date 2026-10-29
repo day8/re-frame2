@@ -47,9 +47,8 @@
    One model, three view layers.
 
    Why one owner and not three copies? Because the logic of a login flow doesn't
-   care which view library draws it, so duplicating it three times is 38
-   redundant behavioural copies begging to drift — and it already had (the
-   sub docstrings and machine key order diverged file to file). The three-way
+   care which view library draws it, and three copies of it would be three
+   copies to keep in step, every docstring and key order included. The three-way
    view comparison the examples teach lives in the views, roots, and mounts
    below the substrate boundary in each `core.cljs`; the model that comparison
    holds constant lives here, once. The bundle-isolation gate
@@ -303,11 +302,15 @@
 
     :record-error
     ;; Remember what went wrong (for the UI) and tick the attempt counter up by
-    ;; one (for the retry guard). The classified failure map rides under :error.
+    ;; one (for the retry guard). The classified failure map rides under :error,
+    ;; and a 401's map is `{:kind :rf.http/http-4xx :http-status 401 :body …}`:
+    ;; the server's own words are in the parsed error `:body`, not at the top
+    ;; level (docs/async/http.md). A failure with no server body — the network
+    ;; never answered — falls back to the generic line.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc :error (or (:message error) "Login failed.")))})
+                 (assoc :error (or (get-in error [:body :message]) "Login failed.")))})
 
     :lock-account
     ;; Slam the door after too many tries. This one is fire-and-forget: we tell
@@ -595,8 +598,8 @@
 
 ;; The success reply comes home here — and this event exists FOR the session
 ;; token's egress hygiene, exactly the way `:auth.login/edit-password` exists for
-;; the password's. On the way IN, the password crosses three boundaries and each
-;; gets its own classified owner; on the way BACK, the token the server hands us
+;; the password's. The password crosses four boundaries and each gets its own
+;; classified owner (the `Credentials` note); on the way BACK, the token the server hands us
 ;; is a credential too, and it crosses two transient boundaries — so it gets two
 ;; owners here.
 ;;
@@ -647,16 +650,6 @@
           ;; The machine gets a bare success fact — no credential.
           [:dispatch [:auth.login/flow [:auth.login/success]]]]}))
 
-;; Wipe the slate — slice back to empty defaults.
-(rf/reg-event :auth.login/reset-form
-  {:doc "Clear the login-form slice back to empty defaults."}
-  (fn handler-login-form-reset [{:keys [db]} _]
-    {:db (assoc-in db [:auth :login-form]
-                   {:draft             login-form-defaults
-                    :submit-attempted? false
-                    :errors            {}
-                    :touched           #{}})}))
-
 ;; The one value a server-rendered page cannot hand back. A hydrated client
 ;; adopts the server's app-db whole, and the draft password in it arrives as
 ;; `:rf/redacted` — the payload never carries a classified value. That leaf is
@@ -666,8 +659,8 @@
 ;;
 ;; It writes that one leaf and nothing else. `:auth.login/edit-password` would
 ;; also mark the field `:touched`, which the user never did, and
-;; `:auth.login/reset-form` would wipe the email and the validation state the
-;; server just handed over.
+;; `:auth.login/initialise-form` would wipe the email and the validation state
+;; the server just handed over.
 (rf/reg-event :auth.login/reseed-draft-password
   {:doc "Put the draft password back to its empty default after SSR hydration
          installed the payload's `:rf/redacted` sentinel there. Touches no
