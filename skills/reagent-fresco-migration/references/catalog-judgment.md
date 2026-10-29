@@ -295,6 +295,20 @@ refusal — becomes an `h/render-fn` whose body is the plain Hiccup:
   is `:client-only` (default) or `:render`, and `:fallback` is Client-only's
   placeholder.
 
+  **Hoist only after the fixer has written the file** (procedure Step 6). A
+  declared host converts its props shallowly, exactly as `[:>]` does: a
+  keyword or symbol value crosses as itself except at an HTML-attribute prop
+  (`:class`, `:id`, `:role`, `data-*`, `aria-*`), and a collection goes
+  through `clj->js` with its nested map keys as written. Reagent named that
+  keyword and camelCased those keys, and the fixer's W3 and W2 restore both
+  at a `[:>]` site, but it reads no other head, so a crossing hoisted first
+  keeps `{:variant :contained}` and hands the library a Keyword. Where the
+  tool cannot see the crossing — the call sites of a
+  `(def x (r/adapt-react-class X))`, which it reports as `:adapt-def-site`,
+  or a host already declared before the write — apply them yourself: a
+  keyword value becomes its name string, a nested map's keys become
+  camelCase, and an `r/partial` becomes a plain `fn` (W4).
+
 **The decision you must not get wrong is which carrier a callback takes**, and
 the source cannot answer it. Some vendors name render props `on*` — Fluent's
 `onRender*` family — and an `h/event` there replaces the callback's return with
