@@ -1,7 +1,8 @@
 (ns re-frame.resources-mutation-classification-cljs-test
   "A mutation's `:sensitive` declaration governs the egress of its instance,
-  its continuation reply and its execute-event payload, while the causal write
-  and the durable instance keep the raw value."
+  its continuation reply and its execute-event payload, while the causal write,
+  the durable instance and the app's own `:reply-to` handler keep the raw
+  value."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -51,6 +52,25 @@
      :sensitive     [[:params :password]]}
     (fn [{:keys [slug password]} _]
       {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}})))
+
+(defn- redacted-token? [v] (and (map? v) (contains? v :rf/redacted)))
+
+(defn- carrier-mutation-replies
+  "Every mutation reply inside the fx carrier slots of `traces`, after the
+  off-box projection the epoch tool-pair applies to those slots."
+  [traces]
+  (let [found (atom [])
+        walk  (fn walk [v]
+                (cond
+                  (map? v)  (do (when (= :mutation (:rf.reply/work-kind v)) (swap! found conj v))
+                                (run! walk (vals v)))
+                  (coll? v) (run! walk v)))]
+    (doseq [ev   traces
+            :let [tags (rf.resources.trace-egress/project-fx-args-egress (:tags ev) :rf/default)]
+            slot [:rf.fx/args :rf.event/fx]
+            :when (contains? tags slot)]
+      (walk (get tags slot)))
+    @found))
 
 (deftest a-mutation-instance-is-classified-exactly-while-present
   ;; The mutations root hook claims an instance's declared slots on the
@@ -102,10 +122,16 @@
                                                       :rf.egress/include-digests? true})]
           (is (= redacted-params (:params proj)))
           (is (not (str/includes? (pr-str proj) PW))))))
-    (testing "the continuation reply redacts the param and keeps the result"
-      (is (= redacted-params (:params @replied)))
-      (is (= {:ok true} (:value @replied)))
-      (is (not (str/includes? (pr-str @replied) PW))))
+    (testing "the app's own :reply-to handler receives the real param and result"
+      (is (= {:slug "w" :password PW} (:params @replied)))
+      (is (= {:ok true} (:value @replied))))
+    (testing "the continuation reply redacts the param off-box and keeps the result"
+      (let [replies (carrier-mutation-replies @traces)]
+        (is (seq replies) "the continuation reply rides an fx carrier")
+        (doseq [reply replies]
+          (is (= redacted-params (:params reply)))
+          (is (= {:ok true} (:value reply)))
+          (is (not (str/includes? (pr-str reply) PW))))))
     (testing "no :rf.mutation/* trace row carries the raw value"
       (doseq [ev @traces
               :when (and (keyword? (:operation ev))
@@ -118,8 +144,10 @@
         (is (seq vs))
         (doseq [v vs]
           (is (= redacted-params (get-in v [1 :params]))))))
-    (testing "the failure continuation redacts too"
+    (testing "the failure continuation reaches the app raw and redacts off-box"
       (reset! replied nil)
+      (reset! traces [])
+      (rf.trace.tooling/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/secret
                           :params   {:slug "w" :password PW}
@@ -127,12 +155,48 @@
                           :reply-to [:m/replied]}])
       (rf/dispatch-sync (conj (:on-failure @last-managed-args)
                               {:status :error :error {:http-status 422 :body "nope"}}))
-      (is (= redacted-params (:params @replied)))
-      (is (not (str/includes? (pr-str @replied) PW))))
+      (rf.trace.tooling/unregister-listener! ::rec)
+      (is (= {:slug "w" :password PW} (:params @replied)))
+      (let [replies (carrier-mutation-replies @traces)]
+        (is (seq replies) "the failure continuation rides an fx carrier")
+        (doseq [reply replies]
+          (is (= redacted-params (:params reply)))
+          (is (not (str/includes? (pr-str reply) PW))))))
     (testing "clear removes the instance, and its claim with it"
       (rf/dispatch-sync [:rf.mutation/clear {:instance :i1}])
       (is (empty? (get (rf.elision/sensitive-declarations :rf/default)
                        [:rf.runtime/mutations (rf.resources.mutation-runtime/instance-key-id :i1) :params :password]))))))
+
+(defn- reg-token-mutation!
+  "`id`, whose result carries a `:token`, declaring `sensitive` (nil declares
+  nothing)."
+  [id sensitive]
+  (rf/clear :mutation id)
+  (rf/reg-mutation id
+    (cond-> {:params-schema [:map [:slug :string]]}
+      sensitive (assoc :sensitive sensitive))
+    (fn [{:keys [slug]} _] {:request {:method :post :url (str "/login/" slug)}})))
+
+(deftest a-path-declared-reply-reaches-the-app-raw-and-redacts-off-box
+  ;; A declared reply path redacts off-box only, as the coarse claim and a read
+  ;; reply do, so the app's own :reply-to handler receives the real token.
+  (doseq [[id sensitive off-box-token] [[:m/token [[:token]] rf.privacy/redacted-sentinel]
+                                        [:m/plain nil PW]]]
+    (testing id
+      (reg-token-mutation! id sensitive)
+      (let [replied (atom nil)
+            traces  (atom [])]
+        (rf/reg-event :m/replied (fn [_ [_ reply]] (reset! replied reply) {}))
+        (rf.trace.tooling/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.mutation/execute
+                           {:mutation id :params {:slug "w"} :instance id :reply-to [:m/replied]}])
+        (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value {:token PW}}))
+        (rf.trace.tooling/unregister-listener! ::rec)
+        (is (= {:token PW} (:value @replied)) "the app's own :reply-to handler receives the real token")
+        (let [replies (carrier-mutation-replies @traces)]
+          (is (seq replies) "the continuation reply rides an fx carrier")
+          (doseq [reply replies]
+            (is (= {:token off-box-token} (:value reply)) "the off-box projection of the same reply")))))))
 
 (defn- reg-coarse-mutation!
   "`:m/coarse`, which makes `claim` (`{:sensitive? true}` or `{:large? true}`)
@@ -144,25 +208,6 @@
            claim)
     (fn [{:keys [slug password]} _]
       {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}})))
-
-(defn- redacted-token? [v] (and (map? v) (contains? v :rf/redacted)))
-
-(defn- carrier-mutation-replies
-  "Every mutation reply inside the fx carrier slots of `traces`, after the
-  off-box projection the epoch tool-pair applies to those slots."
-  [traces]
-  (let [found (atom [])
-        walk  (fn walk [v]
-                (cond
-                  (map? v)  (do (when (= :mutation (:rf.reply/work-kind v)) (swap! found conj v))
-                                (run! walk (vals v)))
-                  (coll? v) (run! walk v)))]
-    (doseq [ev   traces
-            :let [tags (rf.resources.trace-egress/project-fx-args-egress (:tags ev) :rf/default)]
-            slot [:rf.fx/args :rf.event/fx]
-            :when (contains? tags slot)]
-      (walk (get tags slot)))
-    @found))
 
 (deftest a-coarse-claim-covers-the-execute-payload-and-the-reply-off-box
   ;; The coarse claim covers both carriers, while the app's own :reply-to

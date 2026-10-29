@@ -42,8 +42,8 @@
 (defn- init! []
   (rf/make-frame {:id frame-id :url-bound? true
                   :doc "reply-correlation egress suite default app frame."})
-  ;; declares nothing, so `redact-continuation-reply` substitutes nothing at
-  ;; the source and any cleaning comes from the egress projector
+  ;; declares nothing, so `redact-continuation-reply` substitutes nothing and
+  ;; any cleaning comes from the egress projector's standing rules
   (rf/reg-mutation :m/save
     {:params-schema [:map [:slug :string]]}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))

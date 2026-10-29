@@ -16,7 +16,6 @@
   (:require [clojure.set :as set]
             [re-frame.interop :as rf.interop]
             [re-frame.reply :as rf.reply]
-            [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.events :as rf.resources.events]
             [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
             [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
@@ -795,7 +794,10 @@
 (defn- continuation-reply
   "The canonical reply map plus the top-level mutation facts a continuation
   reads: `:mutation`, `:params`, `:instance`, `:scope`, `:affected-keys` (a
-  set) and `:cause`. Pure."
+  set) and `:cause`. The values are the real ones, because the app's own
+  `:reply-to` handler is entitled to them; the owner's declarations redact the
+  reply off-box only (`trace_egress`). Pure.
+  Spec 015 §Subsystem projection-relative classification."
   [reply {:keys [mutation-id params instance-id scope affected-keys]}]
   (assoc reply
          :mutation      mutation-id
@@ -1265,14 +1267,10 @@
                               timer-policies)
             cont-fx     (continuation-fx
                           reply-to
-                          ;; `:sensitive` params are redacted on the echo; the
-                          ;; durable instance keeps the raw value.
-                          (rf.resources.classification/redact-continuation-reply
-                            (continuation-reply
-                              reply {:mutation-id mutation-id :params params
-                                     :instance-id instance-id :scope scope
-                                     :affected-keys affected})
-                            spec))
+                          (continuation-reply
+                            reply {:mutation-id mutation-id :params params
+                                   :instance-id instance-id :scope scope
+                                   :affected-keys affected}))
             remove-abort-fx (into [] (keep (fn [[wid transport]]
                                              (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                                   removed-work)
@@ -1404,12 +1402,10 @@
             ;; Spec 016 §Delivery rule — keyed on acceptance, not on a status enumeration.
             cont-fx  (continuation-fx
                        reply-to
-                       (rf.resources.classification/redact-continuation-reply
-                         (continuation-reply
-                           reply {:mutation-id mutation-id :params params
-                                  :instance-id instance-id :scope scope
-                                  :affected-keys affected})
-                         spec))]
+                       (continuation-reply
+                         reply {:mutation-id mutation-id :params params
+                                :instance-id instance-id :scope scope
+                                :affected-keys affected}))]
         (rf.resources.work-ledger/clear-handle! frame-id work-id)
         (when rolled
           (rf.trace/emit! :rf.event :rf.mutation/optimistic-rolled-back
