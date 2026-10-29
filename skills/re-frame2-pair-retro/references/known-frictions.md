@@ -120,7 +120,7 @@ Signals:
 - a hot-swapped handler or evolved schema invalidated an older snapshot, but the failure tag was not surfaced helpfully
 
 Typical improvements:
-- check first — this already ships: `restore-epoch` returns the framework's structured refusal, whose `:reason` is the failure mode (`:rf.epoch/restore-*` for six modes; unknown frame is `:rf.error/no-such-handler`) and whose other keys are that mode's `:tags` (`:history-size`, `:schema-digest-recorded`/`:current`, `:missing`, `:failing-paths`), pinned in re-frame2's Tool-Pair contract — route there rather than re-listing them. A session that ignored a `:reason` it was handed is discoverability, i.e. tool-shaped (route the wording to `re-frame2-pair/references/errors.md`, whose restore entry points to the seven-row table in `ops.md` §Time-travel); a session that read the reason and its tags and still found the next step unclear is a presentation gap — cite the row.
+- check first — this already ships: `restore-epoch` returns the framework's structured refusal, whose `:reason` is the failure mode (`:rf.epoch/restore-*` for six modes; unknown frame is `:rf.error/no-such-handler`) and whose other keys are that mode's `:tags`, pinned in re-frame2's Tool-Pair contract — route there rather than re-listing them. A session that ignored a `:reason` it was handed is discoverability, i.e. tool-shaped (route the wording to `re-frame2-pair/references/errors.md`, whose restore entry points to the seven-row table in `ops.md` §Time-travel); a session that read the reason and its tags and still found the next step unclear is a presentation gap — cite the row.
 - a next-best-action per failure mode, which the contract pins but does not prescribe
 
 ### Dry-run versus a live write

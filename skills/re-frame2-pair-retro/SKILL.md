@@ -25,7 +25,7 @@ allowed-tools:
 
 # re-frame2-pair-retro
 
-Turns a `re-frame2-pair` session — the one happening now (post-error), a just-finished one, or one summarised by the user as a recap — into a product retrospective for `re-frame2-pair`. One explicit request over one clear session returns the complete retrospective in that same response; when asked, the same response also carries one focused, copy-pasteable GitHub issue draft. The skill is read-only and self-contained: it never files issues, never edits a repo, never probes a runtime, and every instruction it runs on ships under its own directory.
+Turns a `re-frame2-pair` session — the one happening now (post-error), a just-finished one, or one summarised by the user as a recap — into a product retrospective for `re-frame2-pair`. One explicit request over one clear session returns the complete retrospective in that same response; when asked, the same response also carries one focused, copy-pasteable GitHub issue draft. It is read-only (§Guard rails) and self-contained: every instruction it runs on ships under its own directory.
 
 ## Two entry modes
 
@@ -39,7 +39,7 @@ When you cannot tell which mode you are in, treat it as post-error: offer rather
 Each of these is someone else's job, not a retro subject:
 
 - **Mid-session pair work** stays in `re-frame2-pair`; this skill enters only on an explicit retro request or the post-error offer above.
-- **App-bug help** belongs to `re-frame2-pair` (live) or ordinary debugging; the retro's subject is workflow friction, never the application bug.
+- **App-bug help** belongs to `re-frame2-pair` (live) or ordinary debugging.
 - **Story recorder retros** ("retro on my recorded play sequence") belong in [`re-frame2-pair`'s Stories leaf](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md), on capturing a live interaction back into a `:script` — the recorder output is a `:script` snippet to refine against a frame, not a pair-session friction trace. Decline and route there.
 - **Static code critique** of re-frame2 source is `re-frame2-improver`; **app-authoring** (writing events, subs, views, schemas) is the `re-frame2` authoring skill.
 - **Framework / spec feedback** with no pair session behind it (API-reference reading, architecture or design discussion) is not this skill's input — it turns *session evidence* into framework feedback, never free-floating opinion.
@@ -107,8 +107,6 @@ Optionally check for an existing owner first with `gh issue list --repo day8/re-
 
 ## Anti-patterns
 
-- Don't ask the user to pick which observed friction to analyse before analysing — asking is for two plausible sessions, evidence too thin to support a finding, or a genuinely ambiguous referent, nothing else.
-- Don't pad: no empty sections, no filler "bolder ideas", no fixed idea count.
 - Don't reduce every problem to "write more docs". Consider product behaviour, tooling, defaults, instrumentation first.
 - Don't confuse a transient local outage with a product gap unless the workflow made recovery harder than it should have been.
 - Don't propose vague improvements like "better UX" without naming the concrete missing behaviour.
