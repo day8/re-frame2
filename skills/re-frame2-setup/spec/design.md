@@ -138,6 +138,7 @@ The `description` is "pushy": it says what the skill writes and runs, then lists
 - **Interviewing the author when a reviewed default exists** — L11. A missing pin / name / substrate / tooling answer is a default, not a question. An explicit latest request authorizes compatible dependency updates; a concrete compatibility conflict or missing prerequisite still needs resolving before setup can finish.
 - **Handing the author a command the skill can run** — L12/L6. Install, the terminating compile, the watch, and (on request) the generator are the skill's to execute.
 - **A second, hand-maintained copy of the template** — L13. Files change in `tools/template/`, and the leaves are regenerated.
+- **A third scaffolding mechanism** (a runnable `setup.bb`, say) — L12/L13. The generator is the one-command scaffolder and the manual route writes a derived copy of its files; a script would be a second generator.
 - **Writing tests for the author** — L5 cardinal rule.
 - **Drifting into application-code authoring** — L5/L10; the exit hand-off routes past-setup work to `re-frame2`.
 
@@ -161,16 +162,8 @@ The skill's shipped scaffold is proven end to end and drift-guarded in re-frame2
 
 Broader real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`) and the template's own tiers.
 
-## 9. Open questions (deferred to Mike)
+## 10. Open questions (deferred to Mike)
 
-### OQ1 — Should the skill cover non-Reagent greenfield? — RESOLVED (done)
-
-**Resolved: yes, at the recipe level, and completely.** The UIx route is the template's four-file swap, derived from `_uix/` (L4, L13). Reagent stays the default.
-
-### OQ2 — Should the skill ship a runnable `setup.bb` script? — RESOLVED (no)
-
-Superseded by L12/L13: the generator template is the one-command scaffolder and the skill runs it on request; the manual route writes a derived copy of the same files. A third mechanism would be a second generator.
-
-### OQ3 — Should troubleshooting move to its own leaf?
+### OQ1 — Should troubleshooting move to its own leaf?
 
 Currently inlined at the end of SKILL.md (`Troubleshooting`). If it grows beyond ~30 lines, promote to `references/troubleshooting.md`. Status: monitored; not a blocker.

@@ -13,45 +13,13 @@ Once the counter mounts, the author switches to the main `re-frame2` skill (for 
 
 ## Relationship to the generator template
 
-re-frame2 also ships a one-command project generator —
-`day8/re-frame2-template`, a [deps-new](https://github.com/seancorfield/deps-new)
-template living under [`tools/template/`](https://github.com/day8/re-frame2/tree/main/tools/template) in
-the monorepo today (planned external home
-`github.com/day8/re-frame2-template` — see
-[`tools/template/spec/005-Repo-Split.md`](https://github.com/day8/re-frame2/blob/main/tools/template/spec/005-Repo-Split.md)).
-Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
+re-frame2 also ships a one-command project generator, `day8/re-frame2-template` — a [deps-new](https://github.com/seancorfield/deps-new) template under [`tools/template/`](https://github.com/day8/re-frame2/tree/main/tools/template). Both routes are this skill's to run: an unqualified request writes the files itself, and a request for the generator has the skill run `clojure -Tnew create …` ([`SKILL.md` cardinal rule 4](SKILL.md)). Both routes land on the same canonical scaffold: the manual route's thirteen files are the template's own emission for its reference project `acme/my-app`, rendered into [`references/first-counter.md`](references/first-counter.md) by `tests/first_counter_derivation.clj` and drift-locked against the template in two test tiers.
 
-> Pre-split / pre-release caveat: the standalone `day8/re-frame2-template`
-> repo isn't published yet (see [`005-Repo-Split.md`](https://github.com/day8/re-frame2/blob/main/tools/template/spec/005-Repo-Split.md) §4),
-> so the `io.github.day8/…` invocation above can't auto-resolve against a
-> released template today. Until the split lands, scaffold via the working
-> `:local/root` dev route against a checkout of this repo — see
-> [Running the generator pre-publish](#running-the-generator-pre-publish) below for the
-> exact command (or just follow this skill's manual 6-step path). The published
-> invocation is forward-correct and will work once the repo split and first
-> release land. See [`tools/template/README.md`](https://github.com/day8/re-frame2/blob/main/tools/template/README.md) for both routes.
+That scaffold is core + the Reagent adapter + `reagent/reagent`, a two-build `shadow-cljs.edn`, the `init` / `^:dev/after-load mount!` entry namespace, split events / subs / views, a first story Story serves at `#/stories`, a starter `events_test.cljs`, the page, its stylesheet, a `.gitignore` and a README — no schemas, Xray or CSP on day one.
 
-The 2 routes are complementary, not redundant — and both are the skill's to execute: an unqualified request runs the manual scaffold (it writes the exact files), and when you ask for the generator route the skill runs the `clojure -Tnew create …` command itself (its `allowed-tools` cover it) — see [`SKILL.md` cardinal rule 4](SKILL.md). Both routes land on the same canonical scaffold: the manual route's thirteen files are the template's own emission for its reference project `acme/my-app`, rendered into [`references/first-counter.md`](references/first-counter.md) by `tests/first_counter_derivation.clj` and drift-locked against the template in two test tiers.
+Until the template has its own repository it resolves only through a `:local/root` into a checkout of this one: the exact command, its `-Tnew` prerequisite and the two coordinates it must keep apart are in [`references/generator-route.md`](references/generator-route.md), and the published `io.github.day8/re-frame2-template` coordinate is in [`tools/template/README.md`](https://github.com/day8/re-frame2/blob/main/tools/template/README.md) and [`005-Repo-Split.md`](https://github.com/day8/re-frame2/blob/main/tools/template/spec/005-Repo-Split.md).
 
-| Use the **template** when… | Use this **skill** when… |
-|---|---|
-| You're starting from an empty directory and want a working app in one command. | You're starting greenfield — a brand-new app, or an **empty** CLJS project (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — and want each step explained. (Adding re-frame2 to a **non-trivial** existing app — one with its own state management or substantial code — is an authoring task: route to [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2), not here. See [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#disqualifiers-vocabulary-alone-is-not-enough).) |
-| You want canonical defaults baked in (Reagent + shadow-cljs + counter sample). | You want to understand each step the template performs, or deviate from it. |
-| You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
-
-Either way you end up with the same thirteen files — core + the Reagent
-adapter + `reagent/reagent`, a two-build `shadow-cljs.edn`, the
-`init` / `^:dev/after-load mount!` entry namespace, split events / subs /
-views, a first story Story serves at `#/stories`, a starter
-`events_test.cljs`, the page, its stylesheet, a `.gitignore` and a README;
-no schemas, Xray or CSP on day one.
-The skill walks the 6-step path and writes them; the template emits
-them in one command. After the counter mounts, the same handoff to
-`re-frame2` / `re-frame2-pair` applies.
-
-### Running the generator pre-publish
-
-The exact pre-publish command, its `-Tnew` prerequisite and the two coordinates it must keep apart are in [`references/generator-route.md`](references/generator-route.md), the leaf the skill reads when it runs the generator for you.
+Run the generator yourself when you want the files without an agent; use the skill when you want them written, installed, compiled, tested and served from one prompt, or merged into an empty CLJS project. Adding re-frame2 to a non-trivial existing app — one with its own state management or substantial code — is authoring, not setup: route to [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) ([`skills/README.md` §Disqualifiers](https://github.com/day8/re-frame2/blob/main/skills/README.md#disqualifiers-vocabulary-alone-is-not-enough)).
 
 ## What it covers
 
@@ -60,14 +28,7 @@ Both routes require Java 21+ and the Clojure CLI: check `java -version` and
 project may not have the CLI; the scaffold's `:deps` mode requires it. The globally
 installed deps-new tool is needed only for the generator route.
 
-The canonical 6-step greenfield path, which the skill runs itself ([`SKILL.md`](SKILL.md#canonical-greenfield-path-six-steps) owns the detail):
-
-1. Write the thirteen files from `references/first-counter.md` — the generator template's own emission for `acme/my-app`, with the template's reviewed pins already in `deps.edn` / `package.json` (no question asked; an author-supplied pin, name or UIx request overrides). Day-one deps are `day8/re-frame2` + `day8/re-frame2-reagent` + `reagent/reagent`, plus Story on the `:dev` alias; on the npm side `react` / `react-dom` / `shadow-cljs` and Story's `@xyflow/react` / `elkjs` — nothing else. An empty CLJS project is converted and merged into instead (`references/existing-project.md`).
-2. Point the `day8/re-frame2*` coordinates, Story's included, at something that resolves — pre-publish, `:local/root` into the reviewed checkout the skill was installed from (the same step after the generator route).
-3. Run `npm install`.
-4. Run the terminating `npx shadow-cljs compile app` and the starter test, `npm test` — both must pass.
-5. Start `npx shadow-cljs watch app` detached, and read the URL it prints.
-6. Report the files, the compile and test results and that URL (`http://localhost:8280/` unless the port was taken); you open the page and click `+1`, and `#/stories` for Story. Done.
+The skill runs [`SKILL.md`'s six-step greenfield path](SKILL.md#canonical-greenfield-path-six-steps) itself, with no clarification round: it writes the thirteen files at the template's reviewed pins (or converts and merges into an empty CLJS project), points the `day8/re-frame2*` coordinates, Story's included, at something that resolves, runs `npm install`, the terminating `npx shadow-cljs compile app` and the starter test, starts the watch detached, and reports the URL the watch printed. You open the page and click `+1`, and `#/stories` for Story.
 
 ## What it deliberately does not cover
 
@@ -76,7 +37,7 @@ The canonical 6-step greenfield path, which the skill runs itself ([`SKILL.md`](
 - migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)
 - test infrastructure, CI, deployment — out of scope. The author chooses their own.
 - schemas, Xray, HTTP, SSR, CSP or hosting on day one. The scaffold is the counter and its story; each of those attaches later by its own recipe (the generated README's *Next steps* links Xray), and only when you ask.
-- anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. A UIx greenfield is the same thirteen files with four swapped — `deps.edn`, `core.cljs`, `views.cljs`, `stories.cljs` — carried in `references/entry-namespace.md` §UIx greenfield and derived from the template's `_uix/` tree; the generator produces the same project with `clojure -Tnew create ... :substrate :uix`, which the skill runs on request (see "Relationship to the generator template" above).
+- build tools other than shadow-cljs, or view layers other than Reagent and UIx. A UIx greenfield is the same thirteen files with four swapped — `deps.edn`, `core.cljs`, `views.cljs`, `stories.cljs` — carried in `references/entry-namespace.md` §UIx greenfield (the generator's `:substrate :uix`); Fresco is a later move with [`reagent-fresco-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-fresco-migration), not a scaffold option.
 
 ## Status
 
@@ -113,7 +74,7 @@ skills/re-frame2-setup/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the 6-step canonical path, and the default route reads exactly one leaf — `first-counter.md`, the thirteen files. The other 6 reference files are each one level deep and optional: `existing-project.md` to convert and merge into an empty CLJS project, `deps-versions.md` to override a pin or change the coordinate shape, `post-publish.md` for the coordinate shape once re-frame2 is on Clojars, `generator-route.md` for the exact generator command, `shadow-cljs.md` and `entry-namespace.md` to have the build and the boot explained; the UIx route reads `entry-namespace.md` for its four swapped files. No leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs; `tests/` holds the derivation script that renders the two generated regions from the template (`bb tests/first_counter_derivation.clj`), the structural drift guard (`bb tests/setup_drift_test.clj`), the project-identity parity guard (`bb tests/project_identity_test.clj`) and the generator-route command fixture (`bb tests/generator_route_test.clj`); `evals/` holds the eval fixture (trigger accuracy for every prompt, plus graded outcome expectations on the start-from-nothing prompts, the empty-CLJS merge route, the generator route and a custom qualified project name) — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
+`SKILL.md` is the router: the default route reads one leaf, `first-counter.md`, and `SKILL.md` §Reference files says when each of the others loads. `spec/` carries the skill's design and authoring meta-docs; `tests/` holds the derivation script that renders the two generated regions from the template (`bb tests/first_counter_derivation.clj`) and the Babashka drift guards (`bb tests/<name>_test.clj`, each mapped in `spec/design.md` §Testing & drift guards); `evals/` holds the trigger-accuracy and graded-outcome evals. All three are repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
 
 ## Install the skill in Claude Code
 
@@ -160,7 +121,7 @@ The skill's description auto-matches when you talk about starting a new re-frame
 
 ### What happens
 
-Claude reads `SKILL.md` and `references/first-counter.md`, writes the thirteen files, points the framework coordinates at the reviewed checkout, runs `npm install`, the terminating app compile and the starter test, starts the watch, and reports their results and the URL. It reads another leaf only when a step needs depth — an existing project to merge into, an overridden pin, an explanation of the build or the boot, the UIx swap.
+Claude reads `SKILL.md` and `references/first-counter.md` and runs the path in [What it covers](#what-it-covers). It reads another leaf only when a step needs depth — an existing project to merge into, an overridden pin, an explanation of the build or the boot, the UIx swap.
 
 The handoff asks you to open the served page, click `+1`, and check hot reload and Story. Those browser checks remain unverified until observed; compilation alone does not prove them. The main `re-frame2` skill covers code-writing after setup.
 
