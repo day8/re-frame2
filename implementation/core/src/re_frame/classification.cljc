@@ -445,14 +445,41 @@
   `re-frame.resources` facade; core stays decoupled — the event peer of the
   `:http/project-managed-fx-args` seam). Hook unbound (resources artefact
   absent) ⇒ pass-through: without the artefact the event has no handler at
-  all, the documented fail-open. Identity-preserving when nothing applies."
-  [event]
+  all, the documented fail-open. `frame-id` reaches the payload's `:reply-to`
+  address, which may name a spawned actor. Identity-preserving when nothing
+  applies."
+  [event frame-id]
   (if-let [project (rf.late-bind/get-fn :resources/project-execute-event-args)]
     (if (>= (count event) 2)
       (let [payload  (nth event 1)
-            payload' (project payload)]
+            payload' (project payload frame-id)]
         (if (identical? payload payload') event (assoc event 1 payload')))
       event)
+    event))
+
+(defn- project-reply-event-args
+  "Per-ARG DYNAMIC projection for a continuation reply map riding its
+  `:reply-to` target event, which `re-frame.reply/complete` appends as the
+  event's last argument. The reply's classification lives on the OWNER its
+  work ran for, named inside the reply, not on the target event's
+  registration, so the static registration layer cannot express it. Each
+  argument carrying `:rf.reply/work-kind` defers to the late-bound
+  `:resources/project-reply-event-arg` hook (published by `re-frame.resources`;
+  core stays decoupled), which resolves the owner in `frame-id`'s view. Hook
+  unbound ⇒ pass-through. Identity-preserving when nothing applies.
+  Spec 015 §Subsystem projection-relative classification."
+  [event frame-id]
+  (if-let [project (and (vector? event)
+                        (> (count event) 1)
+                        (rf.late-bind/get-fn :resources/project-reply-event-arg))]
+    (reduce (fn [event' i]
+              (let [arg (nth event' i)]
+                (if (and (map? arg) (contains? arg :rf.reply/work-kind))
+                  (let [arg' (project arg frame-id)]
+                    (if (identical? arg arg') event' (assoc event' i arg')))
+                  event')))
+            event
+            (range 1 (count event)))
     event))
 
 (defn- project-navigation-event-arg
@@ -536,13 +563,19 @@
      on the ROUTE it names, so the
      routing-published `:routing/project-url-change-event-args` hook projects
      it (`project-navigation-event-arg`). Unbound ⇒ pass-through.
+  3. Per-argument DYNAMIC classification: a resource or mutation continuation
+     reply riding its `:reply-to` target event takes its OWNER's declaration,
+     through the resources-published `:resources/project-reply-event-arg` hook
+     (`project-reply-event-args`). Unbound ⇒ pass-through.
 
   A spawn-error event — inner or routed to its parent — has its child-owned
   payload summarized whatever the parent declares (`project-spawn-error-event`).
 
   With `frame-id`, an event addressed to a spawned machine actor in that frame
-  takes its machine type's registration classification (`event-classification`);
-  without one, only `(first event)`'s own registration applies.
+  takes its machine type's registration classification (`event-classification`),
+  and every owner the dynamic layers name resolves in that frame's view; without
+  one, only `(first event)`'s own registration applies and owners resolve in the
+  ambient view.
 
   A no-op when `event` is not a `[event-id arg-map …]` vector or nothing
   applies.
@@ -563,12 +596,13 @@
                   (let [[sens large] (classification-paths class)]
                     (redact-event-vec event sens large))
                   event)
-         event' (project-spawn-error-event event')]
-     (case (when (vector? event') (first event'))
-       :rf.mutation/execute (project-execute-event-payload event')
-       (:rf.route/handle-url-change
-        :rf.route/navigate) (project-navigation-event-arg event')
-       event'))))
+         event' (project-spawn-error-event event')
+         event' (case (when (vector? event') (first event'))
+                  :rf.mutation/execute (project-execute-event-payload event' frame-id)
+                  (:rf.route/handle-url-change
+                   :rf.route/navigate) (project-navigation-event-arg event')
+                  event')]
+     (project-reply-event-args event' frame-id))))
 
 (defn- project-event-tags
   "Walk `:rf.event/dispatched` / `:rf.event/db-changed` / `:rf.fx/do-fx` tag
@@ -635,7 +669,8 @@
   not a bug this closes).
 
   `frame-id` is the frame the trace belongs to, which a `:dispatch` /
-  `:dispatch-later` target addressed to a spawned actor resolves its type in."
+  `:dispatch-later` target or a managed request's reply address addressed to
+  a spawned actor resolves its type in."
   [fx-id args frame-id]
   (let [args (if-let [class (classification-when :fx fx-id)]
                (redact-by-classification args class)
@@ -644,7 +679,7 @@
       :dispatch        (redact-event-by-registration args frame-id)
       :dispatch-later  (project-dispatch-later-args args frame-id)
       :rf.http/managed (if-let [project (rf.late-bind/get-fn :http/project-managed-fx-args)]
-                         (project args)
+                         (project args frame-id)
                          args)
       args)))
 

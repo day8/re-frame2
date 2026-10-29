@@ -86,3 +86,37 @@
         "the forwarded login reached the instance")
     (is (empty? (filter #(str/includes? (pr-str %) pw) traces))
         "neither the forwarder's fx traces nor the instance's carry the raw password")))
+
+(deftest an-instance-event-redacts-on-the-always-on-error-record
+  ;; The failure is an effect the action returns, because an action's own
+  ;; throw yields a structural record that carries no `:event`.
+  (let [sunk     (atom [])
+        frame-id :spawned-class/observed]
+    (rf/register-observability-sink! ::errors (fn [record] (swap! sunk conj record)))
+    (try
+      (rf/make-frame {:id frame-id :observability {:errors [{:sink ::errors}]}})
+      (rf/reg-fx :spawned-class/fail (fn [_ _] (throw (ex-info "effect failed" {}))))
+      (rf/reg-machine :spawned-class/failing {:sensitive [[1 :password]]}
+        {:initial :idle
+         :actions {:fail (fn [_] {:fx [[:spawned-class/fail nil]]})}
+         :states  {:idle {:on {:login {:target :done :action :fail}}} :done {}}})
+      (rf/reg-machine :spawned-class/failing-parent
+        {:initial :idle
+         :states  {:idle    {:on {:start :working}}
+                   :working {:spawn {:machine-id     :spawned-class/failing
+                                     :fixed-actor-id :spawned-class/failing-kid}}}})
+      (rf/dispatch-sync [:spawned-class/failing-parent [:start]] {:frame frame-id})
+      (let [record-event (fn [actor]
+                           (reset! sunk [])
+                           (rf/dispatch-sync [actor [:login {:email email :password pw}]]
+                                             {:frame frame-id})
+                           (some #(when (= :rf.error/fx-handler-exception (:rf.error/id %)) (:event %))
+                                 @sunk))]
+        (is (= [:spawned-class/failing-kid [:login {:email email :password rf.privacy/redacted-sentinel}]]
+               (record-event :spawned-class/failing-kid))
+            "the instance's :rf.observe/error record redacts the password and keeps the email")
+        (rf/dispatch-sync [:spawned-class/failing [:rf.machine/start]] {:frame frame-id})
+        (is (= [:spawned-class/failing [:login {:email email :password rf.privacy/redacted-sentinel}]]
+               (record-event :spawned-class/failing))
+            "control: the type's singleton redacts the same event on the same record"))
+      (finally (rf/unregister-observability-sink! ::errors)))))

@@ -1368,7 +1368,7 @@
                       :classification/redact-event-by-registration)
             trigger (if redact
                       (rf.live-frame/call-with-frame-resolution
-                        frame-id #(redact halting-event))
+                        frame-id #(redact halting-event frame-id))
                       halting-event)]
         (commit-halt! frame-id fs-now halting-time-ms :halted-depth
                       halt-reason trigger)))))
@@ -1526,7 +1526,7 @@
         redact (rf.late-bind/get-fn
                  :classification/redact-event-by-registration)]
     (if (and redact event)
-      (rf.live-frame/call-with-frame-resolution frame-id #(redact event))
+      (rf.live-frame/call-with-frame-resolution frame-id #(redact event frame-id))
       event)))
 
 (defn- halt-at-pending-destroy!
