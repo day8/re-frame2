@@ -227,10 +227,11 @@
   ([frame-id actor-id] (destroy-single-actor! frame-id actor-id nil))
   ([frame-id actor-id owner-token]
    (when (actor-live? actor-id (rf.frame/frame-runtime-db-value frame-id))
-     ;; This site does NOT emit `:rf.machine/destroyed` — its callers
-     ;; (`destroy-spawn-all-children!`, the frame-destroy walker) own that
-     ;; emit, gating it on this fn's truthy return so each actor's destroyed
-     ;; trace fires exactly once. So no emit-destroyed callback.
+     ;; This site does NOT emit `:rf.machine/destroyed` — its callers own
+     ;; that: `destroy-spawn-all-children!` gates it on this fn's truthy
+     ;; return so each actor's destroyed trace fires exactly once, and the
+     ;; frame-destroy walker emits its own `:rf.machine.lifecycle/destroyed`
+     ;; per actor before calling here. So no emit-destroyed callback.
      (teardown-live-actor! frame-id actor-id {:actor-id actor-id} nil owner-token))))
 
 (defn- authenticated-join-child

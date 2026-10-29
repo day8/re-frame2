@@ -615,8 +615,8 @@
   why it went away: `:on-destroy` when the replacement dropped the actor
   entirely, `:on-exit` when the actor survived but its declaring node is no
   longer on the active configuration. Both are the ORDINARY readings of the
-  Spec 005 §Trace event catalogue vocabulary — hydration adds no seventh
-  reason — so the scheduled→cancelled pairing a tool already renders on
+  Spec 005 §Trace event catalogue vocabulary — hydration adds no reason to
+  that closed set — so the scheduled→cancelled pairing a tool already renders on
   `(actor-id, state, epoch)` stays coherent across a hydration.
 
   Sibling frames are untouched (the table is per-frame), and a live

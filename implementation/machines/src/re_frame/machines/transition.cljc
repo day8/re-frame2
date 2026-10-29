@@ -291,7 +291,8 @@
 ;;
 ;; Return shapes are slot-specific (Spec 005 §Return shapes):
 ;;   :guard                                                → boolean
-;;   :action / :entry / :exit / :on-done / :spawn :data    → new :data map
+;;   :action / :entry / :exit / :on-done                   → {:data :fx} or nil
+;;   :spawn :data                                          → new :data map
 ;;   :after                                                → see slot docs
 ;;     (positive-int ms delay)
 ;;
@@ -3945,10 +3946,11 @@
   or a `rf.machines.result/fail` Result if any action or `:data` fn threw.
 
   Per Spec 005 §Entry/exit cascading along the LCA:
-   1. Compute LCA of source-path and target-leaf-path.
-   2. Exit each ancestor's :exit from leaf up to (but not including) LCA.
-   3. Run the transition's :action at the LCA level.
-   4. Enter each ancestor's :entry from (LCA depth + 1) down to target leaf.
+   1. Compute the LCCA of source-path and target-leaf-path (the transition
+      domain, never the source state itself — see `compute-transition-geometry`).
+   2. Exit each ancestor's :exit from leaf up to (but not including) the LCCA.
+   3. Run the transition's :action at the LCCA level.
+   4. Enter each ancestor's :entry from (LCCA depth + 1) down to target leaf.
 
   Internal transitions (no :target) skip exit/entry; the action fires
   and the state path is unchanged.
@@ -4825,7 +4827,7 @@
    (machine-transition-single machine snapshot event false))
   ([machine snapshot event defer-raises?]
    ;; SELECT phase (flat / compound path): resolve the matching transition
-   ;; against `snapshot`, then delegate to the 6-arity APPLY below. The
+   ;; against `snapshot`, then delegate to the 5-arity APPLY below. The
    ;; parallel broadcast does NOT route through here: it selects every region
    ;; against one frozen view and calls the APPLY-only seam directly, so the
    ;; parent can run eventless rounds only after the full set. Flat/compound

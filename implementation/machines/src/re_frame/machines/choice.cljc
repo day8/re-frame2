@@ -65,7 +65,7 @@
       `:on-timeout`, `:spawn`, `:spawn-all`, `:initial`, `:states`,
       `:final?` — a choice state only routes
       (`:rf.error/machine-choice-extra-keys`).
-    - the `:choice` vector MUST end with an unguarded DEFAULT / else
+    - the `:choice` vector MUST carry an unguarded DEFAULT / else
       candidate (a candidate with no `:guard`, an unconditional fallback).
       Without one the choice state could be ENTERED with every guard
       failing and NO candidate to take — a stuck transient node. Guards are
