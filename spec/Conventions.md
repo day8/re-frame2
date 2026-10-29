@@ -985,7 +985,7 @@ Adjacent element tokens, and each map key from its value, are separated by a sin
 (= (canonical {:page 1 :tag "cljs"}) (canonical {:tag "cljs" :page 1})) ;; => true
 ```
 
-**Sequences and sets.** Vectors and lists preserve their kind and element order and are distinct EDN facts (not silently collapsed). Sets are unordered — canonical encoding sorts elements by their canonical element encoding — and remain distinct from vectors/lists. Subsystems SHOULD prefer vectors for public identity tuples (idiomatic, order-preserving, already used for event vectors, resource keys, owner tokens, causes, and work ids).
+**Sequences and sets.** Vectors and lists preserve their kind and element order and are distinct EDN facts (not silently collapsed). Sets are unordered — canonical encoding sorts elements by their canonical element encoding — and remain distinct from vectors/lists. Two distinct elements whose canonical encodings are equal are invalid and MUST be rejected (`:duplicate-canonical-set-element`), as duplicate canonical map keys are. Subsystems SHOULD prefer vectors for public identity tuples (idiomatic, order-preserving, already used for event vectors, resource keys, owner tokens, causes, and work ids).
 
 ### The tagged-instant canonical form (`:rf.identity/instant`)
 
@@ -1021,7 +1021,7 @@ Proleptic-Gregorian UTC, inside JS Date's ±8.64e15 ms envelope; both boundaries
 
 Law 1: an already-tagged valid tuple is validated and returned unchanged — never reinterpreted as a generic vector. Law 2: the tuple and the host instant it denotes encode to the SAME `t:<text>` token (a plain string stays `s:`), so a value stored via `canonical` can never disagree with the same value compared via `canonical-bytes`. Laws 3–4: the tuple carries the instant KIND, so an instant never aliases a look-alike string on either surface.
 
-Consequences (both surfaces, per §Map key canonicalization above): a heterogeneous `{T :a, S :b}` map is a LEGAL two-entry map — an instant key and a look-alike string key are distinct canonical keys — while a `java.util.Date` and a `java.time.Instant` denoting one millisecond as two keys of one map remain DUPLICATE canonical keys and fail closed (`:duplicate-canonical-map-key`), as does a host instant alongside its own tagged tuple. Consumers inherit all of this without restating it: resource params and scopes ([016-Resources §Resource identity](016-Resources.md#resource-identity)), route params, and work ids treat an instant param and a look-alike string param as two DISTINCT identities end-to-end.
+Consequences (both surfaces, per §Map key canonicalization above): a heterogeneous `{T :a, S :b}` map is a LEGAL two-entry map — an instant key and a look-alike string key are distinct canonical keys — while a `java.util.Date` and a `java.time.Instant` denoting one millisecond as two keys of one map remain DUPLICATE canonical keys and fail closed (`:duplicate-canonical-map-key`), as does a host instant alongside its own tagged tuple; the same pairs as two elements of one set fail closed as `:duplicate-canonical-set-element`. Consumers inherit all of this without restating it: resource params and scopes ([016-Resources §Resource identity](016-Resources.md#resource-identity)), route params, and work ids treat an instant param and a look-alike string param as two DISTINCT identities end-to-end.
 
 ### Resource identity and work ids
 
