@@ -137,7 +137,7 @@ Reserved, not implemented:
 
 - **Fresco** (`day8/re-frame2-fresco`) — a third value of
   `:substrate`, gated on the repository's first `v*` tag so its
-  coordinate resolves before a scaffold names it. Owned by rf2-8urba.
+  coordinate resolves before a scaffold names it.
 - **A TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
   CLJS library. A `create-re-frame2-app` style npm template is
   reserved for a future iteration.

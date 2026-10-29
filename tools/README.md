@@ -17,7 +17,7 @@ deliberate — see the bundle-isolation contract below.
 | Who `:require`s it? | Consumers' production apps | Dev / story / agent surfaces |
 | What contract does it implement? | The Pattern Specification (`spec/`) | Downstream consumer of the spec's instrumentation API (Spec 009, Tool-Pair) |
 | Bundle exposure? | Shipped to end users | Must not reach a production build |
-| Release cadence? | Lockstep through `1.0` (rf2-w05l) | Per-tool, independent |
+| Release cadence? | Lockstep through `1.0` | Per-tool, independent |
 | Owns spec surface? | Yes — `implementation/core/` is the canonical reference | No — tools *consume* the surface |
 
 `implementation/core/` is the runtime; everything in `tools/` is a downstream
@@ -72,7 +72,7 @@ Node-side MCP servers publish to npm instead — `@day8/re-frame2-pair-mcp`).
 Two tools are deliberate exceptions to the Clojars publish model:
 
 - `tools/template/` distributes by git-coord, not Clojars
-  (rf2-dolpf §2.5) — the published artefact is a tagged commit on the
+  — the published artefact is a tagged commit on the
   template repo, invoked via `clojure -Tnew create`. See the `template`
   entry under "Shipped" below.
 - `tools/testbed-support/` is not a published jar at all — it
@@ -81,14 +81,13 @@ Two tools are deliberate exceptions to the Clojars publish model:
   an extra source path wired into the testbed builds. See its entry under
   "Shipped" below.
 
-A top-level `tools/deps.edn` (rf2-nuuk3) is the tool tier's CLASSPATH
+A top-level `tools/deps.edn` is the tool tier's CLASSPATH
 coordinator: it declares each tool as a `:local/root` dep so a REPL
 started from `tools/` sees the whole tier on one classpath. That is all
 it is — it carries no test alias, and there is no `tools/shadow-cljs.edn`.
-Both retired (rf2-6r9j.139 / rf2-6r9j.140): each was a second,
-hand-written inventory standing beside the per-tool configuration CI
-actually runs, each had drifted from it, and neither had a gate that
-would notice.
+Either would be a second, hand-written inventory standing beside the
+per-tool configuration CI actually runs, with no gate to notice it
+drifting.
 
 - **JVM tests.** The tool tier's JVM command is
   `scripts/test-jvm-tools.sh`, run from the repo root. Its roster is the
@@ -103,8 +102,7 @@ would notice.
   `implementation/shadow-cljs.edn` `:node-test` build instead; its
   `.clj`/`.cljc` slice — including the EP-0011 uniform reply-envelope
   tooling-projection coverage at
-  `xray/test/.../panels/reply_envelope_cljs_test.cljc` — runs on the JVM
-  (rf2-f2tkbt).
+  `xray/test/.../panels/reply_envelope_cljs_test.cljc` — runs on the JVM.
 - **CLJS builds.** A tool whose CLJS lane runs on its own classpath owns
   a `shadow-cljs.edn` beside its `deps.edn`, and those are the configs
   the npm scripts and CI jobs invoke: `re-frame2-pair-mcp/` (`server`,
@@ -126,8 +124,7 @@ wired into the build, and consumers can use it today.
 - `tools/xray/` — `day8/re-frame2-xray`. Xray, the in-app
   devtools panel for re-frame2 — structural successor to
   re-frame-10x (renamed per `tools/xray/spec/DESIGN-RATIONALE.md`
-  Lock #1; the standalone 10x port is now redirected into Xray per
-  rf2-jt6t / #556). Preloaded into dev builds via `:preloads`, which is
+  Lock #1; the standalone 10x port is redirected into Xray). Preloaded into dev builds via `:preloads`, which is
   dev build configuration — that build placement, not a gate inside
   Xray, is what keeps it out of a release build. The manual
   `init!` / mount path carries no `goog.DEBUG` gate, so a host
@@ -147,9 +144,9 @@ wired into the build, and consumers can use it today.
   rings, a UIx adapter) plus a read-only share-URL viewer page
   (`public/viewer.html` + `viewer.cljs`, built by the
   `machines-viz-viewer` Shadow build and hosted by the consumer — nothing
-  in this repository deploys it, rf2-8m344). Also ships the pure-data
+  in this repository deploys it). Also ships the pure-data
   Mermaid `stateDiagram-v2` emitter (relocated out of the runtime
-  `machines` artefact per rf2-sqhqu so the engine stays pure), SCXML
+  `machines` artefact so the engine stays pure), SCXML
   import/export round-trip, an AI-generate-a-machine seam, and PNG / SVG
   / Mermaid / share-URL exporters. Embedded by Xray's Machine Inspector
   panel; bundle-isolated like the rest of `tools/`. See
@@ -180,17 +177,16 @@ wired into the build, and consumers can use it today.
   `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
   default-suppress filter), `elision` (`:rf.size/large-elided`
   wire-boundary walker), `args` (MCP argument coercion helpers),
-  `diff-encode` (path-keyed structural diff, rf2-1wdzp),
-  `section-grouping` (patch-list → path-headed cluster sections,
-  rf2-qeous), `overflow` (overflow-marker payload shape, rf2-rvyzy),
-  `cap` (wire-boundary token-budget cap pipeline, rf2-eyelu), `cursor`
-  (shared cursor-pagination machinery, rf2-ee38b.19), `envelope`
-  (indicator-field `with-indicators` splice, rf2-ee38b.19),
+  `diff-encode` (path-keyed structural diff),
+  `section-grouping` (patch-list → path-headed cluster sections),
+  `overflow` (overflow-marker payload shape),
+  `cap` (wire-boundary token-budget cap pipeline), `cursor`
+  (shared cursor-pagination machinery), `envelope`
+  (indicator-field `with-indicators` splice),
   `descriptor-manifest` (tool-descriptor manifest generator +
-  drift-check, rf2-sofwv), `egress` (EP-0015 profile-adoption egress
-  filter, rf2-qus09h), and `dedup` (cross-MCP dedup-envelope, lifted
-  rf2-ttspi7). Pure `.cljc` with zero runtime deps beyond
-  `org.clojure/clojure`. Per rf2-vw4sq. See
+  drift-check), `egress` (EP-0015 profile-adoption egress
+  filter), and `dedup` (cross-MCP dedup-envelope). Pure `.cljc`
+  with zero runtime deps beyond `org.clojure/clojure`. See
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
 
 - `tools/mcp-conformance/` — End-to-end MCP-client conformance
@@ -201,8 +197,7 @@ wired into the build, and consumers can use it today.
   the cross-MCP wire-vocabulary conformance fixtures
   (`wire-vocab/`), the cross-MCP tool-naming convention
   (`NAMING.md`), and the cross-MCP token-budget posture
-  (`TOKEN-BUDGETS.md`). Per rf2-cum40 / rf2-j2z7o / rf2-mzf1r /
-  rf2-ll0yq. Spec posture: documented exemption from the per-tool
+  (`TOKEN-BUDGETS.md`). Spec posture: documented exemption from the per-tool
   `spec/` convention — the conformance contracts live on the
   servers being verified, not on the harness; the harness's
   normative contract is its test corpus + the 3 top-level docs
@@ -241,11 +236,11 @@ wired into the build, and consumers can use it today.
   and author registrations behind `--allow-writes`. The
   [owning registry contract](./story-mcp/spec/002-Tool-Registry.md)
   documents the current catalogue without a second tool-name/count inventory
-  here. Lands as Stage 7 of the Story epic (`rf2-tgci`).
+  here.
   See [`tools/story-mcp/README.md`](./story-mcp/README.md).
 
 - `tools/template/` — `day8/re-frame2-template`. The front-door
-  scaffolding tool for new re-frame2 apps (rf2-lrtc; rf2-dolpf). A
+  scaffolding tool for new re-frame2 apps. A
   [deps-new](https://github.com/seancorfield/deps-new) template; users
   invoke it via `clojure -Tnew create :template
   io.github.day8/re-frame2-template :name acme/my-app` and receive a
@@ -254,8 +249,7 @@ wired into the build, and consumers can use it today.
   uses the [local-development invocation](./template/spec/API.md#local-development-invocation),
   including the documented pre-publication coordinate setup before watch.
   Two substrate variants (Reagent / UIx) selectable via the top-level
-  `:substrate :uix` k/v. Distribution is git-coord, not Clojars
-  (rf2-dolpf §2.5).
+  `:substrate :uix` k/v. Distribution is git-coord, not Clojars.
 
   Note: `tools/template/` is build-time only; the template jar is
   never on a consumer's runtime classpath, so the bundle-isolation
@@ -317,7 +311,7 @@ canonical home stays with the tool artefact
 (`tools/mcp-base/spec/`) rather than being lifted into
 the project-level `spec/`. This is the [`spec/README.md` §Canonical
 homes outside `/spec`](../spec/README.md#canonical-homes-outside-spec)
-rule (rf2-0hs5t.3 (a)), and the surface is indexed back to the
+rule, and the surface is indexed back to the
 framework via a row in [`spec/Ownership.md`](../spec/Ownership.md).
 
 Two rules apply:
