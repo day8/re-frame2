@@ -4,8 +4,9 @@
   besides the current owner spec, a `:rf.sub/prev-value` takes the claims the
   policy it was computed with makes on the inputs it was computed from, while
   a `:rf.sub/value` computed after the re-registration follows the current
-  registration. A coarse `:sensitive?` root claim is the entry's whole-`:data`
-  claim in that policy, so it is recovered like a path claim. One boundary is
+  registration. A coarse `:sensitive?` root claim is that policy's claim on
+  each entry value slot, so it is recovered like a path claim, for the data
+  and the error channels alike. One boundary is
   pinned: the live value of a recompute is classified by the registration
   current when it is computed. A scenario
   runs re-registered and unchanged, the unchanged run its control, with two
@@ -252,12 +253,45 @@
         (is (= redacted (:rf.sub/prev-value
                           (last-run-tags [:rf.resource/data profile-q] window)))))))
   (testing "re-registered without it, the prior data stays redacted: the coarse
-            claim is the entry's whole-:data claim in the policy the prior value
+            claim claims the entry's whole :data in the policy the prior value
             was computed with (Spec 016 §Resource registration spec)"
     (let [[_ window] (remove-profile {:sensitive? true} {})]
       (when rf.interop/debug-enabled?
         (is (= redacted
                (:rf.sub/prev-value (last-run-tags [:rf.resource/data profile-q] window))))))))
+
+(def ^:private echoed "lafas-alice@example.com")
+
+(defn- remove-failed-profile
+  "Register the profile under `declaration`, fail its first load with a body
+  echoing `echoed`, re-register it under `re-registered` (when given), then
+  release and remove the entry. Returns the remove window."
+  [declaration re-registered]
+  (reg-profile! declaration)
+  (let [read! (hold [[:rf.resource/error profile-q]])]
+    (read!)
+    (rf/dispatch-sync [:rf.resource/ensure (assoc profile-q :owner [:app :profile])])
+    (rf/dispatch-sync (conj (:on-failure @last-managed-args)
+                            {:status :error
+                             :error  {:kind :rf.http/http-4xx :http-status 422
+                                      :body {:email [echoed]}}}))
+    (read!)
+    (when re-registered (reg-profile! re-registered))
+    (capture-traces
+      (fn []
+        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :profile]}])
+        (rf/dispatch-sync [:rf.resource/remove profile-q])
+        (read!)))))
+
+(deftest a-coarse-resource-re-registered-without-its-claim-keeps-its-prior-error-redacted
+  (testing "re-registered without it, the prior error body stays redacted: the
+            coarse claim is the whole-entry claim in the policy the prior value
+            was computed with, its error channels included"
+    (let [window (remove-failed-profile {:sensitive? true} {})]
+      (when rf.interop/debug-enabled?
+        (is (= [redacted false]
+               [(:rf.sub/prev-value (last-run-tags [:rf.resource/error profile-q] window))
+                (carries? echoed (sub-runs window))]))))))
 
 ;; ===========================================================================
 ;; 5. The live value, on a recompute the resource did not cause

@@ -150,6 +150,28 @@
     (is (not= (rf.resources.ssr/project-scoped-key k1 :omit nil)
               (rf.resources.ssr/project-scoped-key k2 :omit nil)))))
 
+(deftest a-metadata-only-entry-carries-none-of-its-value-slots
+  ;; A coarse row is withheld, so this shape ships nothing today; it is the
+  ;; fail-closed fallback should a caller ever ship one, and it covers the same
+  ;; value slots the coarse claim covers on the runtime-db.
+  (reg! :article/secret {:sensitive? true})
+  (reg! :article/bulky {:large? true})
+  (let [slots   {:data            {:ssn "123-45-6789"}
+                 :error           {:kind :rf.http/http-4xx :http-status 422 :body {:email "a@example.com"}}
+                 :refresh-error   {:kind :rf.http/http-4xx :http-status 409 :body {:pin "4321"}}
+                 :page-error      {:kind :rf.http/http-4xx :http-status 400 :body {:q "alice"}}
+                 :next-page-param {:cursor "tok-alice-7f3a"}
+                 :page-params     [nil {:cursor "tok-alice-0b11"}]}
+        project (fn [id]
+                  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global id {:slug "x"})
+                        [wire meta'] (#'re-frame.resources.ssr/project-entry
+                                       :rf/default 0
+                                       (merge (entry {:resource-id id}) slots {:resource/key k}))]
+                    [(:withheld? meta') (select-keys wire (keys slots))]))]
+    (is (= [true {:data rf.privacy/redacted-sentinel}] (project :article/secret))
+        "a sensitive entry keeps only the redacted :data the client's refetch plan reads")
+    (is (= [true {}] (project :article/bulky)) "a large entry keeps none")))
+
 ;; ---- the token contract, per classification --------------------------------
 ;;
 ;; `redact-value` emits a digest only for the classification that PERMITS one.

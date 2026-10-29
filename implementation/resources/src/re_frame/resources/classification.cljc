@@ -275,11 +275,13 @@
 ;; returns under `:source :resource` / `:source :mutation`. Spec 015 §Subsystem
 ;; projection-relative classification.
 
-(def ^:private entry-value-slots
+(def entry-value-slots
   "The value-bearing slots of a cache entry, which a coarse claim covers
   because it claims the whole entry: the data, the three error channels,
   whose bodies routinely echo a submitted value, and a feed's cursors, which
-  routinely carry a token. Spec 016 §Resource registration spec."
+  routinely carry a token. The one list every site lowering the claim reads:
+  this runtime-db classification, SSR's metadata-only entry and the read-sub
+  egress projection. Spec 016 §Resource registration spec."
   [:data :error :refresh-error :page-error :next-page-param :page-params])
 
 (defn- instance-declaration-paths
