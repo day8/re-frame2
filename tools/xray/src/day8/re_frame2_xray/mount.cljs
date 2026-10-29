@@ -139,10 +139,15 @@
   (some? @mount-state))
 
 (defn visible?
-  "True when the shell exists *and* its container is currently
-  visible (display != none)."
+  "True when the shell exists, its container is currently visible
+  (display != none), and the container is still in the document. A host
+  that re-rendered its `[data-rf-xray-host]` element dropped the node with
+  it, and a dropped shell shows nothing, so `toggle!`, the palette chord
+  and auto-open treat it as hidden and remount (`open!`)."
   []
-  (boolean (:visible? @mount-state)))
+  (let [{:keys [visible? node]} @mount-state]
+    (boolean (and visible?
+                  (not (false? (some-> ^js node .-isConnected)))))))
 
 (defn status
   "Return inspectable Xray mount/API status. Diagnostics are non-
@@ -906,8 +911,8 @@
 
 (register-first-mount-hook!
   ::auto-open-watcher
-  ;; Auto-open-on-error watcher — install lazily here so
-  ;; the persisted-true case picks up as soon as the user opens Xray.
+  ;; Auto-open-on-error watcher. The boot seat installs it already; this
+  ;; covers a frame seated by an open on a path that skipped that boot.
   ;; The watcher subscribes to `:rf.xray/issues-ribbon` (which lives
   ;; on `:rf/xray`'s app-db), so it CANNOT install until the frame
   ;; exists. Install is idempotent + guards against the toggle being
@@ -1245,8 +1250,10 @@
 (defn boot-on-runtime-ready!
   "Preload entry: wait briefly for the host app to call `rf/init!`, then run
   Xray's two runtime-dependent boot steps — SEAT the shell frame, and open
-  Xray in the true-inline host unless the host disabled auto-open. Missing
-  host emits a single actionable diagnostic; no alert and no blocking startup.
+  Xray on the persisted `[:general :panel-position]` (the true-inline host
+  by default, the overlay for `:fullscreen`) unless the host disabled
+  auto-open. Missing host emits a single actionable diagnostic; no alert
+  and no blocking startup.
 
   ## Why the frame is seated here
 
@@ -1319,8 +1326,19 @@
                     ;; Same call the public facade takes, so the
                     ;; seat-without-seeding rule is expressed once.
                     (ensure-seated! shell/default-frame-id)
+                    ;; The watcher reads `:rf/xray`, which exists from
+                    ;; here on, so a persisted "on" holds from boot, opened
+                    ;; or not (016 §Auto-open-on-error) — including on a
+                    ;; host that suppresses the open below.
+                    (when (config/get-setting :general :auto-open-on-error?)
+                      (settings-effects/install-auto-open-watcher!))
                     (if (config/auto-open-enabled?)
-                      (open!)
+                      ;; Open on the persisted surface, which the Settings
+                      ;; radio shows as the current one.
+                      (if (= :fullscreen
+                             (config/get-setting :general :panel-position))
+                        (open-overlay!)
+                        (open!))
                       (note-auto-open-disabled!)))
 
                   (< attempts 120)

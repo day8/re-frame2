@@ -107,6 +107,21 @@
   ;; attached.
   (atom nil))
 
+(defn- names-key?
+  "True when keydown `key` `k` is one of `keys`, or, when `k` names no
+  single ASCII character, when its physical `code` is `code-name`.
+
+  `key` is what the active layout prints, so it decides whenever it is a
+  plain character. `code` is a position on a US-QWERTY board, consulted
+  only for a `key` that cannot say: an IME's `\"Process\"`, a non-Latin
+  layout's letter. Consulted unconditionally it would bind by position,
+  so Colemak's `e` (physical K) would open the palette and Dvorak's
+  Ctrl+Shift+J (physical C) would toggle Xray."
+  [k code keys code-name]
+  (if (and (string? k) (= 1 (count k)) (< (.charCodeAt k 0) 128))
+    (contains? keys k)
+    (= code-name code)))
+
 (defn- ctrl-shift-key?
   "True when `event` is a Ctrl+Shift keydown (no Meta, no Alt) whose
   key payload satisfies `match?`, a `(fn [key code] truthy)` predicate
@@ -122,13 +137,13 @@
 
 (defn- xray-toggle-key?
   "True when `event` is a Ctrl+Shift+C keydown. Checks the C key via
-  both `key` (\"C\" / \"c\") and `code` (\"KeyC\"); some IME-active
-  contexts only populate `code`."
+  `key` (\"C\" / \"c\"), and via `code` (\"KeyC\") where `key` names no
+  character — see [[names-key?]]."
   [event]
   (ctrl-shift-key?
     event
     (fn [k code]
-      (or (= "C" k) (= "c" k) (= "KeyC" code)))))
+      (names-key? k code #{"C" "c"} "KeyC"))))
 
 (defn- mode-toggle-key?
   "True when `event` is the Xray Dynamic ↔ Static mode toggle —
@@ -156,7 +171,7 @@
              (and meta? (not ctrl?)))
          shift?
          (not alt?)
-         (or (= "M" k) (= "m" k) (= "KeyM" code)))))
+         (names-key? k code #{"M" "m"} "KeyM"))))
 
 (defn- palette-toggle-key?
   "True when `event` is a Cmd+K (macOS) or Ctrl+K (every other host)
@@ -173,7 +188,8 @@
   no Cmd key. Rejecting Shift / Alt means we don't collide with
   printable-character shortcuts (Ctrl+Shift+K is browser dev-tools
   on Firefox; Ctrl+Alt+K is some IME compositions). Checks the K
-  key via both `.key` and `.code`."
+  key via `.key`, and via `.code` where `.key` names no character
+  ([[names-key?]])."
   [event]
   (let [^js e event
         ctrl?  (.-ctrlKey e)
@@ -186,7 +202,7 @@
              (and meta? (not ctrl?)))
          (not shift?)
          (not alt?)
-         (or (= "k" k) (= "K" k) (= "KeyK" code)))))
+         (names-key? k code #{"k" "K"} "KeyK"))))
 
 (defn- escape-key?
   "True when `event` is a bare Escape keydown (no modifier required —
@@ -272,6 +288,22 @@
                                       "[data-rf-xray-mode=\"palette\"]"))]
         (boolean hit)))))
 
+(defn- space-key?
+  "True when `event` is the Space keydown — the ONE spine binding a
+  focused native control also claims for itself.
+
+  It is `spine-key-id`'s Space arm, so the activatable-target exemption
+  tracks exactly the key that needs it, the same way `step-key?` below
+  mirrors the j / k arms. Accepts key `\" \"`, the legacy `\"Spacebar\"`
+  spelling, and code `\"Space\"` where `key` names no character
+  ([[names-key?]]). Modifier state is deliberately not read: a modified
+  Space is not a spine binding at all (`spine-key-id` returns nil for
+  it), so the exemption has nothing to decide there."
+  [^js event]
+  (let [k    (.-key event)
+        code (.-code event)]
+    (or (= "Spacebar" k) (names-key? k code #{" "} "Space"))))
+
 (defn- spine-key-id
   "Map an unmodified keydown to the spine event id it dispatches, or
   nil when the key is not a spine binding.
@@ -289,28 +321,31 @@
   (when (and (not (.-ctrlKey event))
              (not (.-metaKey event))
              (not (.-altKey event)))
-    (let [k     (.-key event)
-          code  (.-code event)
-          shift? (.-shiftKey event)]
+    (let [k      (.-key event)
+          code   (.-code event)
+          shift? (.-shiftKey event)
+          ;; Letter arms take either case: `shift?` decides the arm, and
+          ;; Caps Lock flips the case `key` reports.
+          is?    (fn [keys code-name] (names-key? k code keys code-name))]
       (cond
         ;; Space — pause/resume LIVE feed
-        (or (= " " k) (= "Space" code) (= "Spacebar" k))
+        (space-key? event)
         (when-not shift? :rf.xray/toggle-live-pause)
 
         ;; L (lowercase, unshifted) — snap to LIVE
-        (and (not shift?) (or (= "l" k) (= "KeyL" code)))
+        (and (not shift?) (is? #{"l" "L"} "KeyL"))
         :rf.xray/follow-head
 
         ;; G (uppercase, Shift+G per the spec; mnemonic 'Go to head')
-        (and shift? (or (= "G" k) (= "KeyG" code)))
+        (and shift? (is? #{"G" "g"} "KeyG"))
         :rf.xray/follow-head
 
         ;; j — step backward (vim convention reused)
-        (and (not shift?) (or (= "j" k) (= "KeyJ" code)))
+        (and (not shift?) (is? #{"j" "J"} "KeyJ"))
         :rf.xray/focus-event-prev
 
         ;; k — step forward
-        (and (not shift?) (or (= "k" k) (= "KeyK" code)))
+        (and (not shift?) (is? #{"k" "K"} "KeyK"))
         :rf.xray/focus-event-next
 
         ;; , or s — toggle Settings popup. Per spec/007-UX-IA.md
@@ -320,27 +355,11 @@
         ;; the modal is open is not required (and is intercepted by
         ;; the modal's inner tab mnemonic — `s` would otherwise
         ;; re-toggle).
-        (and (not shift?) (or (= "," k) (= "Comma" code)))
+        (and (not shift?) (is? #{","} "Comma"))
         :rf.xray/settings-toggle
 
-        (and (not shift?) (or (= "s" k) (= "KeyS" code)))
+        (and (not shift?) (is? #{"s" "S"} "KeyS"))
         :rf.xray/settings-toggle))))
-
-(defn- space-key?
-  "True when `event` is the Space keydown — the ONE spine binding a
-  focused native control also claims for itself.
-
-  Mirrors the shape of `spine-key-id`'s Space arm (key `\" \"`, code
-  `\"Space\"`, and the legacy `\"Spacebar\"` key spelling) so the
-  activatable-target exemption tracks exactly the key that needs it,
-  the same way `step-key?` below mirrors the j / k arms. Modifier
-  state is deliberately not read: a modified Space is not a spine
-  binding at all (`spine-key-id` returns nil for it), so the exemption
-  has nothing to decide there."
-  [^js event]
-  (let [k    (.-key event)
-        code (.-code event)]
-    (or (= " " k) (= "Space" code) (= "Spacebar" k))))
 
 (defn- step-key?
   "True when `event` is one of the repeat-friendly spine STEP bindings —
@@ -357,8 +376,8 @@
        (not (.-shiftKey event))
        (let [k    (.-key event)
              code (.-code event)]
-         (or (= "j" k) (= "KeyJ" code)
-             (= "k" k) (= "KeyK" code)))))
+         (or (names-key? k code #{"j" "J"} "KeyJ")
+             (names-key? k code #{"k" "K"} "KeyK")))))
 
 ;; ---- surfaces ------------------------------------------------------------
 ;;

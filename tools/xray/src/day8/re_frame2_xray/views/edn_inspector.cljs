@@ -2811,7 +2811,11 @@
             ;; spacing (`, ` between map/record entries, a single space
             ;; between sequentials), via the shared `inline-separator-span`.
             sep       (inline-separator-span kind)
-            labelled? (#{:map :record :map-entry} kind)
+            ;; A map-entry is a 2-vector to the reader: it renders
+            ;; unlabelled like one and is told apart only by its
+            ;; accent brackets (Spec 021 §10.0.2). Labelling its
+            ;; 0 / 1 children would print `[0 :a 1 1]`.
+            labelled? (#{:map :record} kind)
             pairs     (children-of value)
             item-children
             (apply concat
@@ -2981,7 +2985,7 @@
     (let [inline-render
           (if width-fits?
             (render-inline-recursive value)
-            (let [labelled? (#{:map :record :map-entry} kind)
+            (let [labelled? (#{:map :record} kind)
                   pairs     (children-of value)]
               (into [:span {:style {:display "inline-flex"
                                     :align-items "baseline"
@@ -3283,6 +3287,14 @@
                         (diff-pair-count before value kind)
                         (child-count value kind))
         empty?        (zero? cnt)
+        ;; The node's ABSOLUTE path within the mounted value. Under zoom
+        ;; `path` is relative to the zoom root, and an expansion override
+        ;; belongs to the node, not to its position under whichever root
+        ;; is showing: keyed relatively, collapsing `[:profile]` at the
+        ;; root would collapse `[:user :profile]` when zoomed into `:user`.
+        ;; Testids and depth stay relative (Spec 021 zoom: the zoom is the
+        ;; new root).
+        slot-path     (into (vec zoom-path-prefix) path)
         ;; The operator's `{:expanded? true}` override
         ;; lifts the cap for THIS node, so the capped `▸ {…}` toggle
         ;; expands one level: its children render at `depth + 1`, capped
@@ -3291,7 +3303,7 @@
         ;; leave the click storing one nothing reads.
         depth-capped? (and (>= depth max-depth)
                            (not (resolve-expanded? expansion-map panel-id
-                                                   mount-id path false)))
+                                                   mount-id slot-path false)))
         ;; Op classification lives in
         ;; `classify-container-op` (the projection lookup + the
         ;; removed-ghost / emptied-collection structural overrides).
@@ -3329,7 +3341,7 @@
                               :value                   value}))
         expanded?     (and (not empty?)
                            (not depth-capped?)
-                           (resolve-expanded? expansion-map panel-id mount-id path default?))
+                           (resolve-expanded? expansion-map panel-id mount-id slot-path default?))
         ;; Width-aware inline-fit. When a measurement exists
         ;; and the whole value's pr-str fits the available column, render
         ;; the FULL tree inline (recursively). The strict gate
@@ -3352,7 +3364,7 @@
         ;; node open (`:expanded? true`), respect that — the inline gate
         ;; only fires when the operator hasn't overridden.
         operator-expanded?
-        (let [override (get expansion-map (expansion-key panel-id mount-id path))]
+        (let [override (get expansion-map (expansion-key panel-id mount-id slot-path))]
           (and (contains? override :expanded?) (boolean (:expanded? override))))
         inline-fit?   (and (not operator-expanded?)
                            (or width-fits? legacy-inline?))
@@ -3367,7 +3379,7 @@
         ;; (▸), and we use the computed `expanded?` for the rest.
         ;; Threading it into `on-toggle` lets the reducer invert from
         ;; the visible state on the first click.
-        toggle-fn     (on-toggle dispatch-fn panel-id mount-id path
+        toggle-fn     (on-toggle dispatch-fn panel-id mount-id slot-path
                                  (boolean (and expanded? (not depth-capped?))))
         ;; In diff mode the body walks the UNION of BEFORE +
         ;; AFTER children. Plain browse walks AFTER only, via
@@ -3403,14 +3415,19 @@
         ;; ABSOLUTE path = `(into zoom-path-prefix path)` so the zoom-slot
         ;; stores the full path from the original root. The attrs merge
         ;; onto the container's outer div below (nil when not zoomable).
+        ;; A removed-container ghost is no target: its path names a slot
+        ;; absent from `value`, so the zoom would not resolve, and the
+        ;; stored path would re-root the inspector unprompted once a later
+        ;; epoch set that slot again.
         zoom-attrs    (when (and zoomable?
                                  (not empty?)
+                                 (not removed-ancestor?)
                                  (seq path))
                         (zoom-trigger-attrs
                           {:dispatch-fn   dispatch-fn
                            :panel-id      panel-id
                            :mount-id      mount-id
-                           :absolute-path (into (vec zoom-path-prefix) path)}))]
+                           :absolute-path slot-path}))]
     [:div (merge {:data-testid (testid-for panel-id mount-id path)
                   :data-rf-kind (name kind)
                   :data-rf-expanded (if expanded? "1" "0")
@@ -3477,11 +3494,11 @@
      ;; column-1 width independently) and every row's value sits at the
      ;; single column-2 left edge.
      ;;
-     ;; Sequentials (vectors / lists / sets / seqs) use the per-row
-     ;; block flow — values are emitted bare (no key column), so a
+     ;; Sequentials (vectors / lists / sets / seqs) and map-entries use
+     ;; the per-row block flow — values are emitted bare (no key column), so a
      ;; grid template wouldn't add anything.
      (when (seq children)
-       (let [labelled?    (#{:map :record :map-entry} kind)
+       (let [labelled?    (#{:map :record} kind)
              ;; `children` is already the diff-aware triple
              ;; `[k after-value before-value]` when `diff?` is true (from
              ;; `children-of-pair`); plain browse hands back a

@@ -1087,10 +1087,13 @@ Light theme inverts lightness (`bg-0 #fbfbfb`, `bg-1 #f5f5f5`, `bg-2
 
 Every palette token is published as a `--rf-xray-<key>` CSS custom
 property on `:root` (default = dark palette), `.rf-xray-theme-dark`,
-and `.rf-xray-theme-light`. The shell-root class toggle written by
+and `.rf-xray-theme-light`. The class toggle written on `<html>` by
 `settings/effects/apply-theme!` flips which block is in scope, so a
 descendant reading `var(--rf-xray-bg-1)` resolves to the active
-theme's hex without any per-component branching.
+theme's hex without any per-component branching. The class never
+lands on the shell root: there it would re-declare every
+`--rf-xray-*` and shadow a host's `load-theme!` `:root { … }`
+override, which the shell otherwise inherits from `<html>`.
 
 The 357+ inline-style call sites that read `(:bg-1 tokens)` consume
 the canonical `theme.tokens/tokens` map — post the v1.0 sweep
@@ -1720,7 +1723,7 @@ of them ship post-rf2-ybjkx:
 
 | Command id | Label | Modes | Action |
 |---|---|---|---|
-| `:toggle-theme` | Toggle theme (dark ↔ light) | `#{:dynamic :static}` | Flips the `rf-xray-theme-{dark,light}` class on the shell root. |
+| `:toggle-theme` | Toggle theme (dark ↔ light) | `#{:dynamic :static}` | Flips the `rf-xray-theme-{dark,light}` class on `<html>`. |
 | `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `#{:dynamic :static}` | Three-state cycle: `:os` (OS pref alone) → `:always` (force reduce) → `:never` (force full). User override of `prefers-reduced-motion: reduce`; rides the `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
 | `:snapshot-app-db` | Snapshot app-db | `#{:dynamic :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. Both are off-box sinks, so the payload is routed through `egress/egress-value` first (pinned to the focused frame) — sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed; the verb has no raw opt-in (rf2-mxzgg). |
 | `:jump-to-settings` | Jump to Settings | `#{:dynamic :static}` | Equivalent to the `,` / `s` bare-key shortcut; available from the palette so the user can fuzzy-find the gesture without leaving the keyboard. |

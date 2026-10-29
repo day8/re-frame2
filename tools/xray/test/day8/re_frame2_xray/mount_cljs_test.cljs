@@ -235,6 +235,21 @@
                      [(count @calls) (identical? first-node (:node second-state))
                       (:mode second-state)])))))))))
 
+(deftest a-shell-whose-node-the-host-dropped-reads-hidden
+  ;; A dropped shell shows nothing, so `visible?` says so, and the one
+  ;; `toggle!` (Ctrl+Shift+C) that follows remounts it rather than hiding
+  ;; the detached node.
+  (with-stub-document
+    (fn [_doc]
+      (let [{:keys [render-fn calls]} (mk-render-stub)]
+        (with-redefs [rf.fresco/render! render-fn]
+          (let [first-node (:node (mount/open!))]
+            (set! (.-isConnected first-node) false)
+            (is (= [false false] [(mount/visible?) (:visible? (mount/status))]))
+            (mount/toggle!)
+            (is (= [2 true] [(count @calls) (mount/visible?)])
+                "one toggle remounted a visible shell")))))))
+
 (deftest close!-collapses-layout-host-slot-and-open!-restores-it
   (testing "close! collapses the layout host's slot (so its reserved width
             and chrome leave no residue) and open! restores the host's own
@@ -341,6 +356,44 @@
                 (finally
                   (set! js/console prior-console)
                   (config/set-auto-open! true))))))))))
+
+(deftest boot-on-runtime-ready!-opens-on-the-persisted-panel-position
+  (testing "a persisted `:fullscreen` boots the overlay, the surface the
+            Settings radio shows as current; the default boots inline"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [rf.fresco/render! render-fn]
+            (try
+              (doseq [[position mode] [[:fullscreen :overlay] [:right-rail :inline]]]
+                ;; `teardown!` re-arms the boot, which runs once per page.
+                (mount/teardown!)
+                (config/update-setting! :general :panel-position position)
+                (mount/boot-on-runtime-ready!)
+                (is (= [mode true] ((juxt :mode :visible?) (mount/status)))
+                    (str position)))
+              (finally
+                (mount/teardown!)
+                (config/reset-settings!)))))))))
+
+(deftest boot-on-runtime-ready!-installs-a-persisted-auto-open-watcher
+  (testing "the watcher reads `:rf/xray`, which the boot seats, so a
+            persisted auto-open-on-error holds from boot, on a host that
+            suppresses the auto-open too"
+    (let [installs (atom 0)]
+      (with-redefs [settings-effects/install-auto-open-watcher!
+                    (fn [] (swap! installs inc) nil)]
+        (try
+          (mount/teardown!)
+          (config/set-auto-open! false)
+          (config/update-setting! :general :auto-open-on-error? true)
+          (mount/boot-on-runtime-ready!)
+          (is (= [1 nil] [@installs @@#'mount/mount-state])
+              "installed once, with nothing opened")
+          (finally
+            (mount/teardown!)
+            (config/reset-settings!)
+            (config/set-auto-open! true)))))))
 
 (deftest open!-recovers-after-adapter-installs-late
   ;; With no adapter (a preload in a production bundle, or a host that never

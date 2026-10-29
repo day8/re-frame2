@@ -13,30 +13,31 @@
     `<html>` root so any Xray-owned surface (even out-of-tree
     portals) inherits the value.
 
-  - **theme** — toggled as a CSS class on the Xray shell root.
+  - **theme** — toggled as a CSS class on `<html>` (the opener's, and
+    each attached pop-out document's), never on the shell root.
     `rf-xray-theme-light` vs `rf-xray-theme-dark`. Default is
     `:light` (the authoritative reference renders light by
     default); both palettes resolve via the `var(--rf-xray-*)` block
-    `theme/global-styles/themes-css` emits, so the class toggle flips
-    the whole shell in one assignment.
+    `theme/global-styles/themes-css` emits, and the shell inherits
+    them, so the class toggle flips the whole shell in one assignment.
 
   - **panel-position** — routes to mount-layer fns:
     `:right-rail` is the default inline mount; `:fullscreen` mounts as
     the overlay via `mount/open-overlay!`. (There is no `:popout`
     option — the second-window pop-out is launched from the
     chrome's visible `⛶` button + the programmatic `(xray/popout!)` API,
-    not via panel-position.) Switching position does not tear down the
-    current mount — the user can sit in two surfaces at once if they
-    choose.
+    not via panel-position.) Switching position re-parents the one
+    shell onto the other surface. The boot open
+    (`mount/boot-on-runtime-ready!`) opens on the persisted position.
 
   - **auto-open-on-error?** — a re-frame subscription watcher set
     up by `install-auto-open-watcher!`. When the issues-ribbon sub
     flips from empty → non-empty AND the toggle is on AND Xray is
     not already visible, dispatches `mount/open!`. The watcher is
-    installed lazily from `mount/ensure-xray-frame!` (on first
-    Xray open, IFF the persisted toggle is on) and on flip-on
-    inside `:rf.xray/settings-update`. Detached on flip-off. Both
-    paths are idempotent; the install is a defensive no-op when
+    installed when the boot seats the `:rf/xray` frame and from
+    `mount/ensure-xray-frame!` (each IFF the persisted toggle is on),
+    and on flip-on inside `:rf.xray/settings-update`. Detached on
+    flip-off. Every path is idempotent; the install is a defensive no-op when
     the `:rf/xray` frame isn't yet registered (a pre-mount call
     would `(add-watch nil ...)` and throw under Story testbeds
     that never open Xray).
@@ -158,17 +159,23 @@
   ;; which the opener's root writes never reach.
   (atom []))
 
-(defn- root-elements
-  "Every element a DOM setting is written to: the inline shell root, the
-  opener's `<html>`, and the `<html>` of each attached document. Nils are
-  dropped. Each writer below guards its per-element write, because an
-  attached document's window can close under it."
+(defn- document-roots
+  "The opener's `<html>` and the `<html>` of each attached document. Nils
+  are dropped."
   []
   (into []
         (remove nil?)
-        (concat [(shell-root-element) (html-root-element)]
-                (map (fn [doc] (try (.-documentElement doc) (catch :default _ nil)))
-                     @attached-documents))))
+        (cons (html-root-element)
+              (map (fn [doc] (try (.-documentElement doc) (catch :default _ nil)))
+                   @attached-documents))))
+
+(defn- root-elements
+  "Every element a DOM setting is written to: the inline shell root and
+  the [[document-roots]]. Nils are dropped. Each writer below guards its
+  per-element write, because an attached document's window can close
+  under it."
+  []
+  (into [] (remove nil?) (cons (shell-root-element) (document-roots))))
 
 (declare apply-dom-settings!)
 
@@ -291,12 +298,19 @@
   "rf-xray-theme-")
 
 (defn apply-theme!
-  "Replace any existing `rf-xray-theme-*` class on the shell root +
-  `<html>` element with `rf-xray-theme-<name>`. No-op when neither
-  element is present."
+  "Replace any existing `rf-xray-theme-*` class on each `<html>` (the
+  [[document-roots]]) with `rf-xray-theme-<name>`. No-op when there is
+  none.
+
+  Never on the shell root: a theme class block re-declares every
+  `--rf-xray-*` on the element carrying it, so on the shell root it would
+  shadow the inherited value of a host's `load-theme!` `:root { … }`
+  override, which wins at `<html>` on order (`tools/xray/spec/API.md`,
+  `load-theme!`). The inline shell inherits the palette from `<html>`
+  instead."
   [theme]
   (let [klass (str theme-class-prefix (name (or theme :light)))]
-    (doseq [el (root-elements)]
+    (doseq [el (document-roots)]
       (let [cl (.-classList el)]
         ;; Drop any existing theme class so the toggle is exclusive.
         (doseq [c [(str theme-class-prefix "dark")
@@ -631,9 +645,10 @@
 ;; the first transition from empty → non-empty IFF the toggle is on AND
 ;; Xray is not already visible. (`toggle!` not `open!`: a reopen must
 ;; not re-parent a hidden overlay back inline, the same rule the
-;; palette + Ctrl+Shift+C routes follow.) Two
-;; install triggers, both idempotent: (1) `mount/ensure-xray-frame!`
-;; on first Xray open when the persisted toggle is on, (2)
+;; palette + Ctrl+Shift+C routes follow.) Three
+;; install triggers, all idempotent: (1) `mount/boot-on-runtime-ready!`
+;; when it seats the frame, and (2) `mount/ensure-xray-frame!` on first
+;; Xray open, each when the persisted toggle is on, (3)
 ;; `:rf.xray/settings-update` on toggle flip-on. Detached on flip-off.
 ;;
 ;; This is the always-on issues RIBBON signal: there is no dedicated
@@ -658,7 +673,7 @@
 ;; returns nil, and `(add-watch nil ...)` throws under Story
 ;; testbeds that never open Xray. The frame-presence guard below
 ;; makes the install a defensive no-op pre-mount; the install
-;; retries from the two trigger paths above as soon as the gates
+;; retries from the trigger paths above as soon as the gates
 ;; align.
 
 (defonce ^:private auto-open-watcher
@@ -694,8 +709,8 @@
   ;; and `(add-watch nil ...)` throws
   ;; `No protocol method IWatchable.-add-watch defined for type null`.
   ;; The frame guard makes pre-mount calls a silent no-op; the install
-  ;; is retried from `mount.cljs/ensure-xray-frame!` (when the user
-  ;; has previously persisted the toggle on) and from
+  ;; is retried from the boot seat and `mount.cljs/ensure-xray-frame!`
+  ;; (when the user has previously persisted the toggle on) and from
   ;; `:rf.xray/settings-update` on every toggle flip, so the watcher
   ;; lands as soon as both gates are satisfied.
   (when (and (nil? @auto-open-watcher)
@@ -837,12 +852,9 @@
     ;; `re-frame.core/configure!` returns nil so the call is a tap-only
     ;; no-op).
     (apply-events-retained! (get-in s [:buffer :events-retained]))
-    ;; Panel-position is intentionally NOT applied at boot — the
-    ;; preload's auto-open already handles the default `:right-rail`
-    ;; case, and reopening into the saved position would surprise a
-    ;; user who closed Xray from popout last session and now expects
-    ;; their app to load clean. The setting applies when the
-    ;; user changes it from the popup.
+    ;; Panel-position is not applied here: applying it opens Xray, and
+    ;; whether to open at all is the boot's decision. The boot open
+    ;; (`mount/boot-on-runtime-ready!`) opens on the persisted position.
     )
   nil)
 

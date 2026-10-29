@@ -725,10 +725,12 @@ shows whatever physical surface the shell was last realized on
 back inline). This is the same generic-reopen contract the
 `Ctrl+Shift+C` toggle and the command palette's "show the shell
 first" step honour — see [`011-Launch-Modes.md` §Closed
-state](./011-Launch-Modes.md). Two install triggers (both idempotent): (1) on toggle
-flip-on inside `:rf.xray/settings-update`, and (2) on first Xray
-open via `mount/ensure-xray-frame!` when the persisted toggle is
-already on. The install is a **defensive no-op pre-mount** — if the
+state](./011-Launch-Modes.md). Three install triggers (all idempotent): (1) on toggle
+flip-on inside `:rf.xray/settings-update`; (2) when
+`mount/boot-on-runtime-ready!` seats the `:rf/xray` frame, and (3) on
+first Xray open via `mount/ensure-xray-frame!`, each when the persisted
+toggle is already on — so a persisted toggle holds from boot, on a host
+that suppresses the auto-open too. The install is a **defensive no-op pre-mount** — if the
 `:rf/xray` frame isn't yet registered, the subscribe would return
 nil and `(add-watch nil …)` would throw; the frame-presence guard
 makes the early call safe and the watcher lands on first frame

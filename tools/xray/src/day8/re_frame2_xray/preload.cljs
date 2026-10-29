@@ -121,11 +121,13 @@
   ;; here would return nil, and `(add-watch nil ...)` throws
   ;; `No protocol method IWatchable.-add-watch defined for type
   ;; null` in test runtimes that never open Xray (Story testbeds).
-  ;; The install is driven from two correctness-safe hooks:
-  ;;   1. `mount/ensure-xray-frame!` — when Xray first opens, if
+  ;; The install is driven from correctness-safe hooks:
+  ;;   1. `mount/boot-on-runtime-ready!` — when it seats the frame, if
   ;;      the persisted setting is on, install (covers the user's
-  ;;      `:auto-open-on-error? true` round-trip across reloads).
-  ;;   2. `:rf.xray/settings-update` — on flip-on, install; on
+  ;;      `:auto-open-on-error? true` round-trip across reloads, opened
+  ;;      or not).
+  ;;   2. `mount/ensure-xray-frame!` — the same, on first open.
+  ;;   3. `:rf.xray/settings-update` — on flip-on, install; on
   ;;      flip-off, detach (covers the runtime toggle).
-  ;; Both paths are idempotent via the `auto-open-watcher` atom.
+  ;; Every path is idempotent via the `auto-open-watcher` atom.
   (mount/boot-on-runtime-ready!))

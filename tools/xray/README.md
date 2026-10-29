@@ -253,7 +253,7 @@ missing-host diagnostic when no host exists.
 | Auto-open | Page load after `rf/init!`, when `[data-rf-xray-host]` exists |
 | Suppress auto-open on tool-only pages | `(xray-config/configure! {:rf.xray/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
-| Close | `Esc` or `Ctrl+Shift+C` again |
+| Close | The chrome's `✕`, or `Ctrl+Shift+C` again |
 | Open command palette | `Ctrl+K` (`Cmd+K` on macOS) |
 | Toggle Dynamic ↔ Static mode | `Ctrl+Shift+M` (`Cmd+Shift+M` on macOS) |
 | Pop out to second window | Programmatic `(xray/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |

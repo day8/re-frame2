@@ -91,12 +91,16 @@
     (do
       (setup!)
       (ensure-stub-shell-root!)
-      (let [dark-light #(mapv (partial has-class? (shell-root))
+      (let [dark-light #(mapv (partial has-class? %)
                               ["rf-xray-theme-dark" "rf-xray-theme-light"])]
         (dispatch-update! :theme nil :dark)
-        (is (= [true false] (dark-light)))
+        (is (= [[true false] [false false]]
+               [(dark-light (html-root)) (dark-light (shell-root))])
+            "the class lands on <html>, which the shell inherits from, and
+             never on the shell root, where it would shadow a host's
+             `load-theme!` `:root` override")
         (dispatch-update! :theme nil :light)
-        (is (= [false true] (dark-light))
+        (is (= [false true] (dark-light (html-root)))
             "the toggle is exclusive: the dark class is removed")))))
 
 (deftest apply-all-restores-text-size-and-theme
@@ -106,9 +110,9 @@
       (ensure-stub-shell-root!)
       (config/update-setting! :general :text-size 12)
       (effects/apply-all!)
-      (let [el (shell-root)]
-        (is (= ["12px" true]
-               [(css-var el "--rf-xray-text-size") (has-class? el "rf-xray-theme-light")]))))))
+      (is (= ["12px" true]
+             [(css-var (shell-root) "--rf-xray-text-size")
+              (has-class? (html-root) "rf-xray-theme-light")])))))
 
 ;; ---- panel width --------------------------------------------------------
 

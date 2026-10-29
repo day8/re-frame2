@@ -4450,7 +4450,8 @@ the underlying ledger entries:
 
 ```clj
 (ns my-app.domain.money
-  (:require [day8.re-frame2-xray.views.edn-inspector-protocol
+  (:require [day8.re-frame2-xray.views.edn-inspector :as ei]
+            [day8.re-frame2-xray.views.edn-inspector-protocol
              :refer [IXrayEdnInspector]]))
 
 (deftype Money [amount currency ledger]
@@ -4462,12 +4463,16 @@ the underlying ledger entries:
                     :border-radius "3px"}}
      (str amount " " currency)])
   (-xray-render-body [_ opts]
-    [day8.re-frame2-xray.views.edn-inspector/render-node
-     (-> opts
-         (assoc :value ledger)
-         (update :path conj :ledger))]))
+    (ei/render-node
+      (-> opts
+          (assoc :value ledger)
+          (update :path conj :ledger)))))
 ```
 
+`render-node` is CALLED, never placed in head position: a body is
+hiccup that whichever head mounted the node lowers, and under the
+Fresco head the App-DB, Epoch and Trace panels mount, a plain function
+in head position is a loud error that unmounts the whole Xray root.
 The `(update :path conj :ledger)` matters: `opts` carries the PARENT
 node's `:path`, and recursing with it unchanged gives the ledger the
 parent's testid and expansion key. Mounted via

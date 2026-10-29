@@ -203,7 +203,7 @@
 ;; ---- per-theme CSS custom properties -----------------------------------
 ;;
 ;; Emit one CSS custom-property block per theme keyed by the theme
-;; class the shell carries (`rf-xray-theme-dark` / `rf-xray-theme-
+;; class `<html>` carries (`rf-xray-theme-dark` / `rf-xray-theme-
 ;; light`). Properties land at `:root` for the active theme so any
 ;; descendant can read them via `var(--rf-xray-bg-1)`. The LIGHT
 ;; block also publishes at `:root` *unconditionally* as a default
@@ -212,7 +212,7 @@
 ;; the authoritative reference's light-by-default render.
 ;;
 ;; The inline-style call sites resolve the `var(--rf-xray-*)` strings
-;; through `(:bg-1 tokens)`; the active theme class on the shell root
+;; through `(:bg-1 tokens)`; the active theme class on `<html>`
 ;; (`apply-theme!`, default `:light` per config) decides which palette
 ;; the browser substitutes at paint time.
 
@@ -257,7 +257,8 @@
     (palette->declarations (:light themes))
     "}\n"
     ;; Explicit class blocks — `apply-theme!` (settings/effects.cljs)
-    ;; writes one of these classes on the shell + `<html>` root.
+    ;; writes one of these classes on `<html>`, never on the shell
+    ;; root, where it would shadow a host's `load-theme!` `:root` override.
     ".rf-xray-theme-dark {\n"
     (palette->declarations (:dark themes))
     "}\n"

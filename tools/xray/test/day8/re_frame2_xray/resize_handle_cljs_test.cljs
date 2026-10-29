@@ -113,6 +113,35 @@
       (is (some #(= 530 (second %)) width-events)
           "drag left by 50px dispatched 530 (start 480 + 50 delta)"))))
 
+(deftest a-gesture-starts-from-the-width-the-host-renders
+  ;; A host stylesheet can render the host wider than the stored setting
+  ;; (`:root { --rf-xray-inline-width: 720px }` over the default 560), so a
+  ;; drag and an arrow key start from the rendered width rather than
+  ;; snapping the panel to the setting.
+  (setup!)
+  (let [dispatches (atom [])
+        host       #js {:getBoundingClientRect (fn [] #js {:width 720})}
+        handle     #js {:closest (fn [selector]
+                                   (when (= selector (config/get-layout-host-selector))
+                                     host))}
+        event      (fn [fields]
+                     (js/Object.assign #js {:currentTarget  handle
+                                            :pointerId      1
+                                            :preventDefault (fn [])}
+                                       fields))]
+    (with-redefs [rf/dispatch-impl (fn
+                                      ([ev]       (swap! dispatches conj ev) nil)
+                                      ([ev _opts] (swap! dispatches conj ev) nil))]
+      (rf/with-frame :rf/xray
+        (let [{:keys [on-pointer-down on-key-down]} (second (handle-markup))]
+          (on-pointer-down (event #js {:pageX 1000}))
+          (resize-handle/simulate-move! 990)
+          (resize-handle/simulate-up!)
+          (on-key-down (event #js {:key "ArrowLeft" :shiftKey false})))))
+    (is (= [[:rf.xray/set-panel-width-px 730] [:rf.xray/set-panel-width-px 728]]
+           (filter #(= :rf.xray/set-panel-width-px (first %)) @dispatches))
+        "a 10px drag left from 720, then one fine ArrowLeft from 720")))
+
 (deftest a-move-with-no-button-held-ends-the-drag
   ;; The release landed where no pointerup reached the listener, so the
   ;; next hover move ends the drag instead of resizing.

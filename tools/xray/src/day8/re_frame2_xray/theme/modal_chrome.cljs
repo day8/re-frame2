@@ -14,7 +14,9 @@
       `:rf.xray/modal-positioning` opt;
     * a click-to-dismiss `:on-click` on the backdrop + a
       `(.stopPropagation %)` `:on-click` on the dialog so clicks on
-      the dialog body don't bubble out and close it;
+      the dialog body don't bubble out and close it. A click whose
+      press began inside the dialog (a selection released over the
+      backdrop) does not dismiss either;
     * the WAI-ARIA modal contract on the dialog — `a11y/dialog-attrs`
       (role + aria-modal + accessible name) merged with the
       `focus-trap-ref` callback, which runs the `a11y/dialog-ref` focus
@@ -148,8 +150,19 @@
   (let [the-ref        (if (contains? opts :dialog-ref)
                          (:dialog-ref opts)
                          focus-trap-ref)
+        ;; Whether the press behind the next click began inside the
+        ;; dialog. A press and release on different elements click their
+        ;; nearest common ancestor, so a text selection dragged out of the
+        ;; dialog and released over the backdrop clicks the backdrop, and
+        ;; must not dismiss. Every press inside the dialog bubbles here.
+        press-inside?  (volatile! false)
         backdrop-props (cond-> {:data-rf-xray-modal-positioning
                                 (name (or positioning :fixed))
+                                :on-mouse-down
+                                (fn [^js e]
+                                  (vreset! press-inside?
+                                           (not (identical? (.-target e)
+                                                            (.-currentTarget e)))))
                                 ;; Click on the backdrop (outside the
                                 ;; dialog) dismisses. `stopPropagation`
                                 ;; keeps the click from bubbling past the
@@ -160,7 +173,10 @@
                                 ;; the outermost node of each mount).
                                 :on-click (fn [^js e]
                                             (.stopPropagation e)
-                                            (when on-dismiss (on-dismiss)))
+                                            (let [inside? @press-inside?]
+                                              (vreset! press-inside? false)
+                                              (when (and on-dismiss (not inside?))
+                                                (on-dismiss))))
                                 :style    backdrop-style}
                          backdrop-testid            (assoc :data-testid backdrop-testid)
                          on-backdrop-key-down       (assoc :on-key-down on-backdrop-key-down)
