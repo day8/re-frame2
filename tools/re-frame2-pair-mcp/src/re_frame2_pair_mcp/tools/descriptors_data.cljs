@@ -795,7 +795,9 @@
 (def get-path
   {:name "get-path"
    :description (str "Read the value at `path` (an EDN key vector, e.g. \"[:cart :items 0]\") in a frame's app-db; "
-                     "only that subtree crosses the wire. Returns {:ok? true :exists? true :path [...] :value "
+                     "only that subtree crosses the wire. A path rooted at a :rf.runtime/* key, as a snapshot "
+                     ":machines marker's :path is, reads the frame's runtime-db instead, which reads :rf/redacted "
+                     "unless `include-sensitive true`. Returns {:ok? true :exists? true :path [...] :value "
                      "<v>}, or {:ok? false :reason :path-not-found :deepest-valid-prefix [...]} so you can re-aim. "
                      "`paths` reads several in one call, returning :results keyed by path; it excludes `path`. "
                      "PRIVACY: the value crosses re-frame.core/project-egress under the :rf.egress/off-box-tool "
