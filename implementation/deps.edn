@@ -49,9 +49,11 @@
          day8/re-frame2-fresco  {:local/root "fresco"}}
 
  :aliases
- {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
-  ;; every artefact and the example sources on the classpath. Production
-  ;; CI runs each artefact's :test alias separately.
+ {;; The REPL classpath: every artefact's source and test trees and the
+  ;; example sources together, for `clj -M:test` here. It runs no tests:
+  ;; each artefact's suite runs from that artefact's own directory with its
+  ;; own `clojure -M:test`, and ../scripts/test-jvm-implementation.sh runs
+  ;; them all (scripts/jvm-lanes.txt is the roster).
   :test
   {;; ssr-ring on this classpath defaults the debug gate OFF; the suites
    ;; read traces.
@@ -102,16 +104,7 @@
                  "../examples/capabilities/ssr"
                  "../examples/patterns"
                  "../examples/real-apps"
-                 "../examples/substrates"]
-   ;; The test-quiet artefact owns the single Cognitect test-runner
-   ;; coordinate (implementation/test-quiet/deps.edn :deps); this alias
-   ;; resolves it TRANSITIVELY via the test-quiet local-root dep, and its
-   ;; `re-frame.test-quiet.runner` entry-point wraps the runner.
-   :extra-deps  {;; Silent-on-success reporter. Also the sole source of the
-                 ;; cognitect test-runner coordinate on this alias's
-                 ;; classpath (transitive).
-                 day8/re-frame2-test-quiet {:local/root "test-quiet"}}
-   :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+                 "../examples/substrates"]}
 
   ;; Splint — the dual-linter posture: clj-kondo catches bugs
   ;; (unresolved symbols, arity mismatch); Splint catches style smells
