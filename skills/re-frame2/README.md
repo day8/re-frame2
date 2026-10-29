@@ -74,7 +74,7 @@ The skill loads when a request is about writing or changing re-frame2 applicatio
 
 ## Status
 
-Alpha. Coverage is the [Layout](#layout) above. The `evals/` harness is a repo-maintenance artifact — not shipped with the skill (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` allow-list omits it; run the harness from a monorepo clone).
+Pre-alpha. Coverage is the [Layout](#layout) above. The `evals/` harness is a repo-maintenance artifact, outside `package.json`'s `files` allow-list, so it runs from a monorepo clone ([`evals/README.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/evals/README.md#repo-maintenance-artifact-not-shipped)).
 
 ## License
 
