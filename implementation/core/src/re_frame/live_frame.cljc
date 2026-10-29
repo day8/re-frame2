@@ -1025,14 +1025,22 @@
        ;; construction that throws rolls the record back, and evicting against
        ;; a generation that was never installed would churn a cache for nothing.
        ;; A displaced frame with no generation resolved live (or through the
-       ;; registrar), so its cached subs were built against neither image:
-       ;; compare from an empty generation, which condemns every sub the
-       ;; incoming generation resolves.
-       (invalidate-subs-for-generation-change!
-         runnable-id
-         (when-let [displaced (:displaced @outcome)]
-           (or (:generation displaced) {}))
-         (rf.frame/frame-generation runnable-id))
+       ;; registrar), so there is no old generation to diff, and any cached sub
+       ;; may be one the incoming generation does not select: condemn every
+       ;; cached slot, and each re-resolves through the new generation on its
+       ;; next subscribe. A re-make that stays live leaves the cache alone,
+       ;; because the store it resolves through did not move.
+       (let [displaced      (:displaced @outcome)
+             new-generation (rf.frame/frame-generation runnable-id)]
+         (if (and (some? displaced)
+                  (nil? (:generation displaced))
+                  (some? new-generation))
+           (rf.subs.cache/invalidate-frame-subs!
+             runnable-id
+             (into #{} (map first)
+                   (keys (some-> (rf.frame/frame runnable-id) :sub-cache deref))))
+           (invalidate-subs-for-generation-change!
+             runnable-id (:generation displaced) new-generation)))
        ;; THE CONSTRUCTION-WINDOW INVARIANT: a PARTIALLY-CONSTRUCTED frame is
        ;; never observable as live, so a registration that lands while a frame
        ;; is mid-construction is never lost.
@@ -1208,9 +1216,11 @@
   a swap that moves one registration does not churn the rest of the frame's
   cache, and other frames are never touched (the generation is per-record).
 
-  A no-op when `old-generation` is nil (frame CREATION — there is no cache
-  yet), when the generations are `=` (the reprojection path already guards
-  this, and a rolled-back construction restores the old value), or when no
+  A no-op when `old-generation` is nil (frame CREATION, or a frame that
+  resolved live re-made live; `make-frame` condemns a live frame's whole
+  cache itself when it is re-made with `:images`), when the generations are
+  `=` (the reprojection path already guards this, and a rolled-back
+  construction restores the old value), or when no
   `:sub` moved (an `:event`-only image edit leaves every reaction valid). A
   `new-generation` of nil (re-made without `:images`) condemns every sub the old
   one resolved. Returns nil."
