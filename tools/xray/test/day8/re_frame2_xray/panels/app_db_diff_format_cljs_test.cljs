@@ -30,3 +30,15 @@
         "large string inside a vector elides")
     (is (map? (:rf.size/large-elided (first (f/display-value #{big}))))
         "large string inside a set elides")))
+
+(deftest display-value-never-realises-a-lazy-seq
+  ;; The edn-inspector bounds an uncounted seq itself; this pre-pass runs
+  ;; before it on every section, so walking one would run app code inside
+  ;; the devtool, or hang the page on `(range)`.
+  (let [realised (atom 0)
+        lazy     (map (fn [x] (swap! realised inc) x) (range 5000))
+        m        {:lazy lazy :endless (range) :big (vec (range 3))}]
+    (is (identical? m (f/display-value m))
+        "a tree whose only seqs are uncounted passes through identical")
+    (is (zero? @realised)
+        (str "the pre-scan realised " @realised " elements of a lazy seq"))))

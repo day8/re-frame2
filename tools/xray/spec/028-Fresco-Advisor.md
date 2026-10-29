@@ -1,6 +1,6 @@
 # 028 — The hot-view advisor and the causal slice
 
-**Status**: shipped (rf2-hic-037) · **Tab**: `:fresco`, sub-views `Advisor` and `Causal`
+**Status**: shipped · **Tab**: `:fresco`, sub-views `Advisor` and `Causal`
 **Producers**: `re-frame.fresco.tool` (the four evidence reads) + Spec 009's retained ring
 **Consumer**: `day8.re-frame2-xray.panels.fresco-advisor` + `…panels.fresco-causal`
 **Normative upstream**: `docs/design/fresco/product/specification.md` §10 ·
@@ -26,11 +26,11 @@ and a mount landing between them would give a ranking about a census the slice n
 longer agrees with — the same reason the four evidence envelopes are taken
 together in the first place.
 
-Adding them moved **no governance pin**. The tab, its L4 registration, the focus
+They move **no governance pin**. The tab, its L4 registration, the focus
 mirror, the registry schema version, the palette counts and the feature-matrix
-handoff are all unchanged; `fresco-helpers/sub-modes` grew from four entries to
-six, and `empty-copy` grew two matching entries. The `:rf.xray.fresco/*` sub and
-event ids are the same three.
+handoff are the Fresco tab's own; the two views are two of the six
+`fresco-helpers/sub-modes` entries, each with its `empty-copy` entry, and they
+use the tab's three `:rf.xray.fresco/*` sub and event ids.
 
 ---
 
@@ -44,18 +44,17 @@ event ids are the same three.
 | React reconciliation / commit | — | no |
 | DOM layout / paint | — | no |
 
-The three unavailable rows are not an oversight awaiting a later bead.
+The three unavailable rows are unavailable by construction, not by omission.
 
 - **Boundary self time is ruled out by design** (`lanes/left-field-ideas.md`
-  §Capability receipts, from the `rf2-hic-081` spike). Chrome clamps its timer to
+  §Capability receipts). Chrome clamps its timer to
   a 0.1 ms grain while the quantity is single-digit microseconds, so a
   per-attempt interval reads either zero or one whole tick and *a ranking built
   on it orders noise*; independently, two clock reads per attempt inflate a
   boundary in proportion to its attempt COUNT rather than its true cost, so two
   boundaries close in true self time and far apart in attempt count invert.
 - **Commit, paint and attempt outcome are React's.** The producer ships no
-  field for them (the `:host` sub-projection went with v3 —
-  [`027`](027-Fresco-Evidence.md) §v2 → v3); `causal/link-host` states all
+  field for them ([`027`](027-Fresco-Evidence.md) §v2 → v3); `causal/link-host` states all
   three `:host-opaque` on the slice.
 - Fresco emits no `:rf.view/render` trace, and its User-Timing `:render`
   measures ride `re-frame.performance/enabled?` — an independently gated,
@@ -112,13 +111,13 @@ query, so its edges are REGISTRATIONS — `[frame-id sub-id]`. Fan-out joins ont
 the cell table, where `edge-row` carries `:query` on every edge and `read-row`
 on every read, so its edges are CELLS — `[frame-id sub-id query]`. Both
 derivations are taken DISTINCT, and each join takes the finest identity its own
-producer publishes; keying both on the coarser of the two throws one away, and
-did, in both directions at once (rf2-y8doi.26). On the fan-out side a boundary
-reading `[:todo/by-id 1]` was charged the reader population of every other row
-on the page — not an inflated number but a fabricated one, printed as *fan-out
-N* on the row `docs/core/fresco/16-diagnostics.md` teaches a reader to hunt. On
-the time side two cells of one registration collapsed to one timing key and the
-digest entry was looked up once per read, doubling `:runs` and `:elapsed-ms` —
+producer publishes; keying both on the coarser of the two would throw one away
+in both directions at once. On the fan-out side a boundary reading
+`[:todo/by-id 1]` would be charged the reader population of every other row on
+the page — not an inflated number but a fabricated one, printed as *fan-out N*
+on the row `docs/core/fresco/16-diagnostics.md` teaches a reader to hunt. On the
+time side two cells of one registration would collapse to one timing key, and a
+digest entry looked up once per read would double `:runs` and `:elapsed-ms` —
 **the axis the roster SORTS by**.
 
 The residual on the time side is stated rather than hidden: the ring's digest
@@ -148,7 +147,7 @@ already holds.
 The window is scoped **per frame**. Two frames are two applications, and summing
 frame B's clock into frame A's ranking would make an idle boundary look hot
 because something unrelated was busy next door — the defect `explain-render`
-already scopes its leads against (audit #7789).
+scopes its leads against.
 
 ### Five classifications, and the trio that must not collapse
 
@@ -156,7 +155,7 @@ already scopes its leads against (audit #7789).
 |---|---|---|---|
 | `:computation` | `:observation` | `:recomputes` | one read holds ≥ `dominance` of a total ≥ `computation-floor-ms` |
 | `:read-topology` | `:derivation` | any | the entry cache folded more than one entry onto this boundary's key (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor. The fold is read off the entry cache rather than off the ring, so it holds at any `:observed`. It is the one finding here that carries a loss on a row whose basis is sound — `:uncorrelated`, because a fold count cannot say which of three situations produced it |
-| `:unattributed` | `:host-opaque` | `:recomputes` | the window was searched, recomputes happened, and the measured half does not explain them |
+| `:unattributed` | `:host-opaque` | `:recomputes` | the window was searched and recomputes happened, but no measured read owns the boundary: *if* it is still slow, the owner is lowering, React or layout, which this door does not observe |
 | `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one — nothing recomputed |
 | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all, so no search happened |
 
@@ -180,9 +179,9 @@ whose key arrays differ only in order fold, and so do entries an egress policy
 elided onto one projected key. So `> 1` is at least three different situations —
 a read set that really oscillates, two declared views each holding their own
 order of the same set, or an elided-argument projection collapsing distinct raw
-sets — and only the first is what rung 2 was named for. This arm used to state
-the first as fact and route there, which is topology surgery recommended on a
-signal the producer documents as ambiguous.
+sets — and only the first is what rung 2 was named for. Stating the first as fact
+and routing there would recommend topology surgery on a signal the producer
+documents as ambiguous.
 
 The arm **keeps rung 2** and stamps `:loss {:reason :uncorrelated}` beside it,
 naming all three candidates in the sentence it renders. Keeping the arm is the
@@ -191,12 +190,12 @@ the read SET, and every other classification this window could fall to is
 strictly worse advice. What it must not do is claim the first. The panel already
 renders a classification's loss as a chip next to its sentence, so the
 qualification reaches the page and not only the data, and `:loss` is a field
-every classification already carries — this cost no schema bump.
+every classification carries, so the qualification needs no schema change.
 
-The field keeps the name `:read-orders`, deliberately: it is the producer's own
+The field is named `:read-orders`, deliberately: it is the producer's own
 spelling and it selects the arm. The ambiguity is stated where the finding is
 WORDED, which is where a reader meets it — which is why the axis table above
-still reports the unit under the producer's name.
+reports the unit under the producer's name.
 
 #### `:rf.sub/skip` means one thing, and both views say it
 
@@ -205,50 +204,46 @@ only when the cell was considered — it is *distinct from the case where the su
 was not considered at all* — so a retained skip is positive evidence that the
 window observed this read and the memo held.
 
-That fact reached the two views differently, and they contradicted each other
-about the same event (audit #8027, reproduced on `main` with one skip:
-`{:memo-hits 1, :advisor-basis :cap, :causal-holds [:a], :causal-evidenced true}`):
+Two readings of that fact would make the two views contradict each other about
+the same event:
 
-- the advisor recorded the skip as a memo hit — correctly, and calls it the
-  single most informative topology signal there is — but derived `searched?`
-  from **recompute runs alone**, so a skip-only window fell through to `:cap`,
-  said *no search happened*, and told the programmer to enlarge a window that
-  had already retained the evidence;
-- the causal slice's link 2 collected every `:subs` item carrying an
-  `:rf.sub/id` **without filtering the operation**, so the same skip appeared in
-  a roster labelled *subscriptions recomputed* under an `evidenced` chip. The
-  trace projection's `:subs` slot also carries `:rf.sub/dispose`, which was
-  landing in that roster too.
+- an advisor that records the skip as a memo hit — the single most informative
+  topology signal there is — but derives `searched?` from **recompute runs
+  alone** would let a skip-only window fall through to `:cap`, say *no search
+  happened*, and tell the programmer to enlarge a window that had already
+  retained the evidence;
+- a link 2 that collects every `:subs` item carrying an `:rf.sub/id` **without
+  filtering the operation** would show the same skip in a roster labelled
+  *subscriptions recomputed* under an `evidenced` chip — and `:rf.sub/dispose`
+  with it, which the trace projection's `:subs` slot also carries.
 
 An advisor that calls a window empty when the evidence was already retained is
 worse than no advisor: it sends the reader back to the instrument instead of to
 the code.
 
-The repair is **one predicate**, `fresco-helpers/sub-recompute?` (`#{:rf.sub/run}`)
-with `sub-skip?` beside it, in the shared algebra both derivations already
-consume — two definitions of *did work happen* is what produced the
-disagreement, and a third would have been worse. The advisor's private
-`sub-run?` is gone.
+So both views read **one predicate**, `fresco-helpers/sub-recompute?`
+(`#{:rf.sub/run}`) with `sub-skip?` beside it, in the shared algebra both
+derivations consume — two definitions of *did work happen* would give one window
+two answers.
 
-**A create is a REGISTRATION, not a run.** `:rf.sub/create` was in that set and
-left it (rf2-y8doi.26). Spec 009 is explicit twice over: it is emitted *at
+**A create is a REGISTRATION, not a run**, so `:rf.sub/create` is outside that
+set. Spec 009 is explicit twice over: it is emitted *at
 registration time, not first reference*, fired by `reg-sub` / `reg-runtime-sub`
 / `reg-frame-state-sub` immediately after the registrar write and explicitly NOT
 a first-deref signal — first materialisation lives in `:rf.sub/run`'s
-`:rf.sub/first-run?` tag instead. No body ran, so there is no
-`:rf.sub/elapsed-ms` to carry, and inside the work set a create therefore landed
-as an UNTIMED RUN: a `reg-sub` evaluated inside a handler scope pushed an
+`:rf.sub/first-run?` tag instead. No body runs, so there is no
+`:rf.sub/elapsed-ms` to carry, and inside the work set a create would land as an
+UNTIMED RUN: a `reg-sub` evaluated inside a handler scope would push an
 otherwise quiet boundary to `:unattributed` / `:host-opaque` — *recomputes
-happened and the measured half does not account for them* — whose remedy is *go
-and measure this in React DevTools*. A registration sent the reader to another
-tool. It joins `:rf.sub/dispose` rather than `:rf.sub/skip`, because a skip is
+happened and no measured read owns them* — whose remedy is *go and measure this
+in React DevTools*, a registration sending the reader to another tool. It joins `:rf.sub/dispose` rather than `:rf.sub/skip`, because a skip is
 the cell being CONSIDERED and answering without running, which is positive
 evidence about the read, while a create and an eviction say nothing about
 whether this window searched anything. Neither is counted anywhere, and that
 absence is the point: a counter for them would be a number with no decision
 attached to it.
 
-`classify` now asks two questions rather than one: `searched?` is about
+`classify` asks two questions rather than one: `searched?` is about
 recomputes and `considered?` is about activity of any kind. A skip-only window is
 `:host-opaque` / `:memo-hits-only`, routed to **measure-first** and never to the
 empty-window `:cap` advice, and its sentence says what the window actually held — *N memo
@@ -261,14 +256,13 @@ reclassifying the event would be the same lie one layer down.
 #### The operation is classified BEFORE the identity
 
 Sharing a predicate is not enough if a consumer can answer before consulting
-it. The advisor's timing fold tested `(nil? sid)` **first**, so identity loss
-short-circuited the operation question entirely and every untagged `:subs`
-event became a real unnamed RUN — while link 2, which filters on operation
-first, read the same events correctly. The two views therefore still disagreed,
-on exactly the path where identity is absent (audit #8063, reproduced on the
-merge):
+it. A timing fold that tested `(nil? sid)` **first** would let identity loss
+short-circuit the operation question entirely, making every untagged `:subs`
+event a real unnamed RUN — while link 2, which filters on operation first, reads
+the same events correctly. The two views would disagree on exactly the path
+where identity is absent:
 
-| Untagged event | The advisor said | Link 2 said |
+| Untagged event | An identity-first fold says | Link 2 says |
 |---|---|---|
 | `:rf.sub/skip` | `:unnamed-runs 1`, `:by-read {}` | `:holds []`, `:skipped {:count 1 :sub-ids []}` |
 | `:rf.sub/dispose` | `:unnamed-runs 1` | no recompute and no skip |
@@ -288,7 +282,7 @@ each:
 inside `:unnamed-runs`, and it carries its own `:unnamed-skip-loss`
 `:uncorrelated` account. A reader deciding what to do next needs to know
 whether the untagged half of a window was work or the ABSENCE of work, which is
-exactly the distinction the old ordering collapsed — and it is link 2's
+exactly the distinction an identity-first ordering collapses — and it is link 2's
 `:skipped {:count …}` over an empty `:sub-ids`, stated on the advisor's side of
 the same window.
 
@@ -336,15 +330,14 @@ it, and the newest retained one otherwise. Retention is checked through the same
 `bundle-for` the slice reads, so *the ring holds this dispatch* has one
 definition: a focus pinned to a dispatch since evicted falls back rather than
 drawing a slice whose every link is capped. A focus is a selection, not a claim
-about the window, and this is the one place the two meet. It was the newest
-dispatch unconditionally, which is `(peek history)` under another name — so the
-one view whose job is *one dispatch, walked* re-pointed itself under the reader
+about the window, and this is the one place the two meet. Walking the newest
+dispatch unconditionally would be `(peek history)` under another name: the one
+view whose job is *one dispatch, walked* would re-point itself under the reader
 on every application dispatch, and a developer who clicked an event on the spine
-and opened Causal got whatever had happened since. Spec 018 §6 is the ruling and
-needed no new one: `:rf.xray/focus` is its single selection axis, its per-layer
-table binds L4 detail content to the spine's `:dispatch-id`, and its atomicity
-contract already says no panel maintains its own selection state and no panel
-reads `(peek history)`.
+and opened Causal would get whatever had happened since. Spec 018 §6 governs:
+`:rf.xray/focus` is its single selection axis, its per-layer table binds L4
+detail content to the spine's `:dispatch-id`, and its atomicity contract says no
+panel maintains its own selection state and no panel reads `(peek history)`.
 
 | # | Link | Seam | Basis |
 |---|---|---|---|
@@ -379,11 +372,11 @@ not be the cell that ran, and the count is an upper bound on an association with
 no id behind it in either direction — which is the 2→3 join, restated where a
 reader meets the number. It earns its place because a slice whose recompute
 roster and whose moved reads share nothing at all is a different situation from
-one where they coincide exactly, and before it the reader had two adjacent lists
-and no statement about their relationship either way. Link 2 is built first and
-link 3 reads its roster, so the sentence quotes the roster this slice actually
-renders rather than re-deriving one beside it — a second derivation is how link 2
-and the advisor came to give one window two public answers in the first place.
+one where they coincide exactly, and without it the reader would have two
+adjacent lists and no statement about their relationship either way. Link 2 is
+built first and link 3 reads its roster, so the sentence quotes the roster this
+slice actually renders rather than re-deriving one beside it — a second
+derivation could give one window two public answers.
 
 Link 2's roster is **recomputes only**, and the memo hits ride a separate
 `:skipped` field on the same link — reported rather than discarded, because a
@@ -401,15 +394,15 @@ unmounted in between is absent from a set it was in. The link says so on the pag
 
 Its join onto the cell table is keyed on the **CELL** — `[frame-id sub-id
 query]`, arguments projected, which is the finest identity the egress policy
-allows — and not on the registration. Keyed on the registration, as it was, one
-moved cell matched every parameterization of its sub and the link named all of
+allows — and not on the registration. Keyed on the registration, one moved cell
+would match every parameterization of its sub and the link would name all of
 their readers as notified: on a list of `[:todo/by-id n]` rows, every row on the
-page reported as notified by a commit that touched one of them. This is the
+page would report as notified by a commit that touched one of them. This is the
 reverse edge, the one link here that answers *who re-runs because of this*, so
-that fabrication landed on the question the slice exists to answer. The finer key
-needed no new field — `edge-row` carries `:query` on every edge and
+that fabrication would land on the question the slice exists to answer. The finer
+key needs no field of its own — `edge-row` carries `:query` on every edge and
 `explanation`'s `:latest-reads` carries it on every moved read, for exactly this
-reason (rf2-y8doi.26).
+reason.
 
 Links 5, 6 and 7 are three different absences with three different authorities,
 not three phrasings of one. React DevTools answers the first two; the browser's
@@ -481,7 +474,7 @@ carry are otherwise the runtime's own.
 
 ## Rendering contract
 
-Every absence renders through the existing `fresco-helpers/loss-chip`, so the
+Every absence renders through the shared `fresco-helpers/loss-chip`, so the
 five states stay pairwise distinct in words and testid suffix on these two views
 exactly as on the other four.
 
@@ -495,9 +488,9 @@ exactly as on the other four.
 | causal root | `rf-xray-fresco-causal` |
 | one link | `rf-xray-fresco-causal-link-<id>` |
 | its basis, loss chip and JOIN | `…-basis`, `…-loss-<kind>`, `…-join` |
-| the two new empties | `rf-xray-fresco-empty-advisor`, `rf-xray-fresco-empty-causal` |
+| the two empties | `rf-xray-fresco-empty-advisor`, `rf-xray-fresco-empty-causal` |
 
-Row slugs are the existing `boundary-slug`, so the advisor's rows share the
+Row slugs are the shared `boundary-slug`, so the advisor's rows share the
 injective encoding `027-Fresco-Evidence.md` §The key is INJECTIVE established,
 and two frames' boundaries over one query cannot collide here either.
 
@@ -510,7 +503,7 @@ panel budget applies through `common-helpers/cap-rows` as elsewhere.
 
 ## Read-only, dev-only, bundle-isolated
 
-`fresco-reads/trace-windows` is the only new live read. It calls
+`fresco-reads/trace-windows` is the one live read beyond the four envelopes. It calls
 `trace-collector/bundles-for-frame` for the frames `explain-render`'s `:window
 :frames` already names — the union of the frames the runtime dispatches through
 and any frame a boundary reads from, computed by the producer for exactly the
@@ -519,13 +512,13 @@ none it falls back to the `:intents` envelope's own `:frames`, and to no frame a
 all when neither answers. Reading every frame in the process instead would let an
 unrelated application's activity inflate this one's ranking.
 
-**The ring is read through Xray's OWN gate, never bare** (rf2-y8doi.13). The call
-was `re-frame.trace.tooling/trace-buffer` straight, which made this Xray's
-second, seam-side reader of the framework rings — and those rings retain every
-emitted event with no `:sensitive?` check, by design — so under the fail-closed
+**The ring is read through Xray's OWN gate, never bare.** A straight
+`re-frame.trace.tooling/trace-buffer` call would make this Xray's second,
+seam-side reader of the framework rings — and those rings retain every emitted
+event with no `:sensitive?` check, by design — so under the fail-closed
 `:rf.egress/local-redacted` default a sensitive cascade that every trace-side
-surface hid still reached the advisor's ranking and the causal slice through
-here. `bundles-for-frame` applies the collector's gate, one policy for all three
+surface hides would still reach the advisor's ranking and the causal slice
+through here. `bundles-for-frame` applies the collector's gate, one policy for all three
 ingress paths, dropping WHOLE any bundle carrying a suppressed event rather than
 scrubbing it down to its survivors — a bundle is one dequeued event's cascade,
 and a surviving recompute in the same run can structurally reveal what the
@@ -551,9 +544,8 @@ by build placement — the host doesn't load it (see
 rather than by any gate of its own.
 The dependency points one way only: `tools/xray` → `implementation/`.
 
-Production erasure is rf2-hic-024's sentinel proof and is unchanged by this
-bead: no new sentinel, no new evidence machinery, and no code under
-`implementation/` was touched.
+Production erasure rests on the Fresco artefact's own sentinel proof: these views
+add no sentinel, no evidence machinery and no code under `implementation/`.
 
 ---
 
@@ -564,35 +556,30 @@ bead: no new sentinel, no new evidence machinery, and no code under
 | `…panels.fresco-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
 | `…panels.fresco-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
 | `…panels.fresco-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the empty-window `:cap` advice, while the same window's slice holds `[]` recomputes and one `:skipped`; the three unattributed states are pairwise distinct, exactly one sends the reader to reproduce the interaction, and none tells the reader to raise `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
-| `…panels.fresco-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real raw-React island (a function component mounted through `h/defhost`) reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
+| `…panels.fresco-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE — a real raw-React island (a function component mounted through `h/defhost`) reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
 
 The pair-in-one-row shape of the third suite is the point: an advisor-only row
 would go green against a causal slice that had drifted back, and a causal-only
-row against an advisor that had. Its red demonstration is the pre-repair
-predicate planted in both places, which fails it naming `:cap` where the
-window held evidence and a five-element roster where two recomputes ran.
+row against an advisor that had. Its red demonstration is a recompute predicate
+that counts skips, planted in both places, which fails it naming `:cap` where
+the window held evidence and a five-element roster where two recomputes ran.
 
-The matrix is the second control, and it exists because the first one **covered
-the adjacent case rather than the failing one**: an untagged RUN beside a tagged
-skip, which the pre-repair ordering happened to get right, while untagged
-non-work was what it got wrong. A table over four operations by tagged/untagged
-cannot leave a cell to nobody's row. Both assertions per cell are load-bearing —
-the absolute expectation alone is escapable by two views drifting together, and
-the cross-view agreement alone by both drifting the same way — and the untagged
-RUN row is the control that stops the table being satisfied by *everything
-untagged is zero*. It is the only one left. The untagged create row was a second
-such control until `:rf.sub/create` left `sub-recompute-operations`, and both
-create rows now read all zeros like the dispose rows (rf2-y8doi.26). That is a
-real loss of redundancy, recorded here rather than left for a reader to notice:
-the single surviving untagged control is load-bearing, and deleting it would make
-the whole table satisfiable by a fold that counted nothing at all.
+The matrix is the second control, because the first one **covers the adjacent
+case rather than the failing one**: an untagged RUN beside a tagged skip, which
+an identity-first ordering gets right, while untagged non-work is what it gets
+wrong. A table over four operations by tagged/untagged cannot leave a cell to
+nobody's row. Both assertions per cell are load-bearing — the absolute
+expectation alone is escapable by two views drifting together, and the
+cross-view agreement alone by both drifting the same way — and the untagged RUN
+row is the control that stops the table being satisfied by *everything untagged
+is zero*. It is the only such control: `:rf.sub/create` is not in
+`sub-recompute-operations`, so both create rows read all zeros like the dispose
+rows, and deleting the untagged RUN row would make the whole table satisfiable by
+a fold that counted nothing at all.
 
-Its red demonstration is the `(nil? sid)` branch
-restored to the head of the `cond`: **11 failures at exit 1**, four of them the
-matrix's two untagged non-work cells, over the same 1320 tests and 6246
-assertions the green run reports — so the plant stopped no namespace. Every
-pre-existing row in the suite stayed GREEN under that plant, which is the
-finding restated as a measurement.
+Its red demonstration is a `(nil? sid)` branch at the head of the `cond`: the
+matrix's two untagged non-work cells go red while every other row in the suite
+stays green, with no namespace stopped.
 
 The native-island suite is the one that needs a fiber, and it is the only one
 here that does. `n/use-sub` is a real React hook, and per
@@ -603,9 +590,8 @@ reading through the hook cannot be simulated at the node tier and the namespace 
 too (`cljs-test$` matches both suffixes), where each row degrades to a stated
 skip rather than to a false green.
 
-All four suites run in the existing `:node-test` build (`tools/xray/test` is
-already on its source paths), the two `.cljc` ones additionally under
-`tools/xray`'s `clojure -M:test`, and the native-island one additionally in the
-existing `:browser-test` build, whose `-dom-cljs-test$` selector already reaches
-`tools/xray/test`. No new build id, no new `:dev-http` port, no
-`implementation/shadow-cljs.edn` change.
+All four suites run in the `:node-test` build (`tools/xray/test` is on its
+source paths), the two `.cljc` ones additionally under `tools/xray`'s
+`clojure -M:test`, and the native-island one additionally in the
+`:browser-test` build, whose `-dom-cljs-test$` selector reaches
+`tools/xray/test`. None needs a build id or `:dev-http` port of its own.

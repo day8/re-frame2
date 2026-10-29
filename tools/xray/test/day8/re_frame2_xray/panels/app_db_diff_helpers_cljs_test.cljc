@@ -67,17 +67,16 @@
                    {:cart {:items []} :user "ada" :rf.machine/transient {:x 1}}
                    {:rf.runtime/routing {:current {:route-id :app/home}}}))))))
 
-(deftest current-state-sections-tolerates-whole-redacted-value
+(deftest current-state-sections-keeps-a-whole-redacted-value-on-screen
   (testing "the `:rf/redacted` scalar an unreachable observed frame fails
-            closed to reads as an empty partition, as nil does, rather than
-            being iterated"
-    (are [app-db runtime-db]
-         (= {:top {} :before-top h/no-diff :areas []}
-            (h/current-state-sections app-db runtime-db))
-      :rf/redacted :rf/redacted
-      nil          nil))
-  (testing "a whole-redacted pre-image reads as an empty one"
-    (is (= {:top {:counter 1} :before-top {} :areas []}
+            closed to stays the TOP value, so the panel shows the redaction
+            rather than an app-db with no keys; nil still reads as empty"
+    (is (= {:top :rf/redacted :before-top h/no-diff :areas []}
+           (h/current-state-sections :rf/redacted :rf/redacted)))
+    (is (= {:top {} :before-top h/no-diff :areas []}
+           (h/current-state-sections nil nil))))
+  (testing "a whole-redacted pre-image stays the TOP pre-image"
+    (is (= {:top {:counter 1} :before-top :rf/redacted :areas []}
            (h/current-state-sections {:counter 1} {}
                                      {:app :rf/redacted :runtime :rf/redacted})))))
 

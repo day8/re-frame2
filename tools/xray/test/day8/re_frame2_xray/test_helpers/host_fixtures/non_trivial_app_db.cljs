@@ -13,7 +13,7 @@
   - A frozen panel — the App-DB Diff sub stops re-firing after the
     second host dispatch arrives, so the diff renders the
     pre-dispatch app-db forever.
-  - Any regression in `:rf.xray/selected-epoch-record` that
+  - Any regression in `:rf.xray/app-db-current+diff` that
     silently drops the `:db-before` or `:db-after` slot for
     deep-tree mutations."
   (:require [re-frame.core :as rf]))

@@ -278,10 +278,13 @@
     - :navigation-blocked → 'blocked'      (warning — a :can-leave guard refused)
     - :entry-denied       → 'entry denied' (warning — a :can-enter guard refused)
     - :fragment-changed   → 'fragment changed' (info — anchor)
-    - a navigation that committed `:rf.route/not-found`, or navigated? with
-      no destination resolved → 'not-found' (error). Tested BEFORE
-      :on-match: an unmatched URL commits under `:rf.route/not-found` WITH
-      a nav-token, so it reads :on-match too."
+    - a navigation that committed `:rf.route/not-found` → 'not-found'
+      (error). Tested BEFORE :on-match: an unmatched URL commits under
+      `:rf.route/not-found` WITH a nav-token, so it reads :on-match too.
+
+  `navigated?` holds exactly when the bundle allocated a nav-token, which
+  is also what makes its phase :on-match, so no navigation falls past
+  these arms."
   [{:keys [phase]} navigated? to-id]
   (cond
     (and navigated? (= :rf.route/not-found to-id))
@@ -298,12 +301,6 @@
 
     (= phase :fragment-changed)
     {:label "fragment changed" :colour (:info tokens)}
-
-    (and navigated? (nil? to-id))
-    {:label "not-found" :colour (:error tokens)}
-
-    navigated?
-    {:label "transitioned" :colour (:green tokens)}
 
     :else nil))
 
@@ -686,6 +683,20 @@
   []
   (rf/registrations {:kind :route}))
 
+(defn- observed-frame-routes-value
+  "The routes `observed-frame` can resolve: its own registration view,
+  `(rf/registrations {:frame … :kind :route})`, so a frame loaded with a
+  subset of routes lists that subset, as Views topology and Frames read the
+  observed frame's image (tools/xray/spec/021 §7.3). With no observed frame,
+  or one the frame-targeted query refuses (neither image-loaded nor resolving
+  the live store), there is no image to read and the shared registry stands
+  in."
+  [observed-frame]
+  (or (when (some? observed-frame)
+        (try (rf/registrations {:frame observed-frame :kind :route})
+             (catch :default _ nil)))
+      (registered-routes-value)))
+
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db
   (`[:rf.runtime/routing :current]`; EP-0001 — runtime-db
@@ -749,8 +760,11 @@
   registrations. Registers:
 
     - `:rf.xray/registered-routes` — flat `{<route-id> <meta>}` map
-      sourced from `(rf/registrations {:kind :route})`. The Static Routes
-      panel also reads this sub — process-global, frame-agnostic.
+      sourced from `(rf/registrations {:kind :route})`, the shared
+      registry the Static Routes panel lists — process-global,
+      frame-agnostic.
+    - `:rf.xray/observed-frame-routes` — the routes the OBSERVED frame can
+      resolve ([[observed-frame-routes-value]]), the table this tab lists.
     - `:rf.xray/current-route-slice` — composite over the spine's
       target-frame RUNTIME-DB reading the routing slice at
       `[:rf.runtime/routing :current]` (EP-0001 — the route
@@ -782,6 +796,11 @@
     (fn [[_buffer] _query]
       (registered-routes-value)))
 
+  (rf/reg-sub :rf.xray/observed-frame-routes
+    {:inputs [[:rf.xray/trace-buffer] [:rf.xray/observed-frame]]}
+    (fn [[_buffer observed-frame] _query]
+      (observed-frame-routes-value observed-frame)))
+
   ;; `:rf.xray/observed-frame` rides as a second
   ;; input purely so the slice's `:query` and `:params` can be projected
   ;; under the frame whose classification actually governs them. Both keys,
@@ -801,7 +820,7 @@
   ;; View-facing composite (topology-plus-overlay shape) -------
 
   (rf/reg-sub :rf.xray/routing-tab-data
-    {:inputs [[:rf.xray/registered-routes]
+    {:inputs [[:rf.xray/observed-frame-routes]
               [:rf.xray/current-route-slice]
               [:rf.xray/event-bundles]
               [:rf.xray/focus]
@@ -881,6 +900,13 @@
     {:inputs [[:rf.xray/trace-buffer] [:rf.xray/registered-routes-override]]}
     (fn [[_buffer override] _query]
       (or override (registered-routes-value))))
+
+  (rf/reg-sub :rf.xray/observed-frame-routes
+    {:inputs [[:rf.xray/trace-buffer]
+              [:rf.xray/registered-routes-override]
+              [:rf.xray/observed-frame]]}
+    (fn [[_buffer override observed-frame] _query]
+      (or override (observed-frame-routes-value observed-frame))))
 
   ;; The override rides VERBATIM, and deliberately: it is a
   ;; value the TEST injected, never frame state, so there is nothing for an

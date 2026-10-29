@@ -252,13 +252,15 @@
 ;;     (silent-by-default).
 ;;   - If the event triggered ≥1 machine transitions → render one section
 ;;     per machine, each carrying the topology + current state + new
-;;     state + the transition-edge + any guards + any actions that ran.
+;;     state + the transition-edge.
 ;;
 ;; The helper folds the focused epoch record's `:trace-events` (per
 ;; spec/Spec-Schemas §`:rf/epoch-record`) into a vector of per-machine
-;; transition records the view consumes. Each record carries enough data
-;; for the view to highlight the chart + render the guards/actions lists
-;; without further trace-walking.
+;; transition records the view consumes. Guards, actions and history
+;; restores are not on these records: the panel renders them as rows of
+;; the shared machine-cascade mini-pipeline
+;; (`epoch.projection/machine-cascade-rows`), the same rows the Epoch
+;; panel draws.
 ;;
 ;; ## Trace-shape coverage
 ;;
@@ -268,57 +270,6 @@
 ;;     `:before` + `:after` snapshots + `:event` + `:machine-id`.
 ;;   - `:rf.machine.microstep/transition` — `:always`-driven microstep;
 ;;     same tag shape (some tests use `:from`/`:to` tag fallbacks).
-;;
-;; The substrate emits `:rf.machine/guard-evaluated` /
-;; `:rf.machine/action-ran` (see spec/009 §Trace event
-;; vocabulary). Those emits carry a `:frame` tag — without one
-;; epoch-capture would silently drop them — so they reach the focused
-;; epoch's `:trace-events` and flow through this projection.
-;;
-;; The `:guard-id` / `:action-id` slot is the user-declared ref AS-IS
-;; (per spec/Spec-Schemas: "keyword OR inline fn"). When a transition
-;; declares `:guard :user-has-credentials?` the slot is a keyword;
-;; when it inlines `:guard (fn [{data :data ev :event}] ...)` OR the state-node's
-;; `:entry` slot points at a raw fn, the slot is the fn itself. The
-;; view renders the id via `(name ...)` to build a `data-testid`
-;; suffix — and `cljs.core/name` blows up on fn values (`Doesn't
-;; support name: function ...`). `ref-display-id` coerces the
-;; ref into a renderable keyword (named via `:name` meta when
-;; available, `:rf.machine/anonymous-fn` otherwise) so the view
-;; contract stays simple.
-;;
-;; Per spec/005-StateMachines.md the guard / action functions are
-;; resolved off the transition object on the machine definition; we
-;; surface their refs so the view can label them as `:guards` /
-;; `:actions` lists even when no per-step trace fired.
-
-(def guard-operations
-  "Trace operations the focused-event lens treats as guard evaluations.
-  The substrate emits `:rf.machine/guard-evaluated`; the set also
-  accepts the other spelling, so the lens reads either without code
-  changes."
-  #{:rf.machine/guard-evaluated
-    :rf.machine.guard/evaluated})
-
-(def action-operations
-  "Trace operations the focused-event lens treats as action runs.
-  The substrate emits `:rf.machine/action-ran`; the other spellings are
-  accepted too — same posture as `guard-operations`."
-  #{:rf.machine/action-ran
-    :rf.machine.action/ran
-    :rf.machine/action-executed})
-
-(defn guard-event?
-  "True iff `ev` is one of the guard-evaluation operations."
-  [ev]
-  (and (map? ev)
-       (contains? guard-operations (:operation ev))))
-
-(defn action-event?
-  "True iff `ev` is one of the action-run operations."
-  [ev]
-  (and (map? ev)
-       (contains? action-operations (:operation ev))))
 
 (defn- transition-record-from-trace
   "Project a single `:rf.machine/transition` trace event into the
@@ -369,11 +320,7 @@
      :time         (:time ev)
      :id           (:id ev)
      :dispatch-id  (get-in ev [:tags :rf.trace/dispatch-id])
-     :microstep?   (= :rf.machine.microstep/transition (:operation ev))
-     ;; Guards/actions filled in by `attach-guards-and-actions` —
-     ;; default empty so the record shape is stable.
-     :guards       []
-     :actions      []}))
+     :microstep?   (= :rf.machine.microstep/transition (:operation ev))}))
 
 (defn- started-record-from-trace
   "Project a `:rf.machine/started` (machine BIRTH) trace into the same
@@ -394,11 +341,9 @@
     :cause      (:cause tag)  — :explicit / :lazy / :spawned
     :event      [:rf.machine/start] — the synthetic creation marker
 
-  Guards / actions default empty — the initial-entry cascade's actions
-  are not traced as `:rf.machine/action-ran`, so there is
-  nothing to attach. The record shape is otherwise identical to a
-  transition record so every downstream consumer (the section view, the
-  snapshot drill-in, the chart highlight) treats it uniformly."
+  The record shape is otherwise identical to a transition record so
+  every downstream consumer (the section view, the snapshot drill-in, the
+  chart highlight) treats it uniformly."
   [ev]
   (let [tags  (get ev :tags {})
         state (:state tags)
@@ -420,9 +365,7 @@
      :time        (:time ev)
      :id          (:id ev)
      :dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
-     :microstep?  false
-     :guards      []
-     :actions     []}))
+     :microstep?  false}))
 
 (defn- no-op-record-from-trace
   "Project a `:rf.machine.event/unhandled-no-op` (guard-blocked / unhandled /
@@ -447,11 +390,6 @@
                                 current state)
     :event      (:event tag)  — the inbound user event that produced the no-op
 
-  Guards / actions default empty: a guard-blocked transition's guard DOES run,
-  but the substrate does not emit `:rf.machine/guard-evaluated` for the
-  declining candidate (the no-op trace is the sole signal), so there is nothing
-  to attach. Guard traces on the no-op path would fit the same record shape.
-
   The record shape is otherwise identical to a transition record so every
   downstream consumer (section view, chart highlight, prev/next nav) treats it
   uniformly."
@@ -473,153 +411,7 @@
      :time        (:time ev)
      :id          (:id ev)
      :dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
-     :microstep?  false
-     :guards      []
-     :actions     []}))
-
-(defn- ref-display-id
-  "Coerce a guard/action ref to a renderable id for the per-transition
-  Guards / Actions list.
-
-  Per spec/Spec-Schemas §`:rf.machine/guard-evaluated` and
-  §`:rf.machine/action-ran`, the trace's `:guard-id` / `:action-id` slot
-  carries the user-declared ref AS-IS — a keyword when the transition
-  declared `:guard :foo` / `:action :foo`, or the fn itself when the
-  transition inlined `:guard (fn [...] ...)` / `:action (fn [...] ...)`
-  or pulled a raw fn from a state-node's `:entry` / `:exit` slot. The
-  view renders the id via `(name ...)` to build a stable data-testid
-  suffix, which blows up on fn values (`Doesn't support name:
-  function ...`).
-
-  Coerce to a renderable form here so the view contract is simple:
-
-    - keyword / string / symbol → return as-is (the view's `name`/`str`
-      both work).
-    - fn → return either `:rf.machine/<the fn's :name meta>` when the
-      fn carries `:name` metadata (named `(defn ...)` or `(fn name
-      [...] ...)`) or `:rf.machine/anonymous-fn` for truly anonymous
-      inline fns. The keyword form keeps the view's `(name ...)` call
-      working AND surfaces the fn's declared name when available, which
-      is what a consumer wants to see in the Guards / Actions list."
-  [ref]
-  (cond
-    (nil? ref)                          nil
-    (or (keyword? ref) (symbol? ref))   ref
-    (string? ref)                       ref
-    (fn? ref)
-    (if-let [nm (some-> ref meta :name)]
-      (keyword "rf.machine" (str nm))
-      :rf.machine/anonymous-fn)
-    :else                               ref))
-
-(defn- guard-record
-  "Project a guard-evaluated trace event into the record the view
-  renders inside the per-transition Guards section."
-  [ev]
-  (let [tags (get ev :tags {})]
-    {:guard-id (ref-display-id (or (:guard-id tags) (:guard tags)))
-     :input    (or (:input tags) (:args tags))
-     :outcome  (cond
-                 (contains? tags :outcome) (:outcome tags)
-                 (contains? tags :pass?)   (if (:pass? tags) :pass :fail)
-                 (contains? tags :passed?) (if (:passed? tags) :pass :fail)
-                 :else                     nil)
-     :time     (:time ev)}))
-
-(defn- action-record
-  "Project an action-ran trace event into the record the view renders
-  inside the per-transition Actions section."
-  [ev]
-  (let [tags (get ev :tags {})]
-    {:action-id (ref-display-id (or (:action-id tags) (:action tags)))
-     :input     (or (:input tags) (:args tags))
-     :outcome   (cond
-                  (contains? tags :outcome)   (:outcome tags)
-                  (contains? tags :exception) :fail
-                  :else                       :ok)
-     :time      (:time ev)}))
-
-(defn- attach-guards-and-actions
-  "Attach the guard/action records that fired against `transition-record`
-  to the record. Walks the cascade-window trace events and matches by
-  `:machine-id` + time-window (event :time between transition.start and
-  transition.end). The substrate emits guard/action traces (see
-  `guard-operations` / `action-operations`), so the per-transition lists
-  populate from them.
-
-  The match window is loose — any guard/action trace for the same
-  machine inside the cascade attributes to the only-or-first transition
-  for that machine. Explicit `:transition-id` / `:decl-path` tags on
-  guard/action traces would allow a tighter attribution."
-  [transition-record events]
-  (let [mid       (:machine-id transition-record)
-        guards    (->> events
-                       (filter (fn [ev]
-                                 (and (guard-event? ev)
-                                      (= mid (machine-id-of ev)))))
-                       (mapv guard-record))
-        actions   (->> events
-                       (filter (fn [ev]
-                                 (and (action-event? ev)
-                                      (= mid (machine-id-of ev)))))
-                       (mapv action-record))]
-    (cond-> transition-record
-      (seq guards)  (assoc :guards guards)
-      (seq actions) (assoc :actions actions))))
-
-;; ---- history restore / record -------------------------------------------
-;;
-;; Per Spec 009 §History trace events, a transition that resolves a history
-;; pseudo-state emits `:rf.machine.history/restored`; the exit that wrote a
-;; history-bearing compound's config emits `:rf.machine.history/recorded`.
-;; Both share the cascade's `:rf.trace/dispatch-id` with the macrostep's
-;; `:rf.machine/transition` and carry `:machine-id`. The focused-event lens
-;; surfaces them on the per-machine transition record so the Machine
-;; Inspector renders WHY a re-entry landed where it did — distinguishing a
-;; history restore from an ordinary descent (spec/003 §Machine-Inspector).
-
-(def history-restored-operation :rf.machine.history/restored)
-(def history-recorded-operation :rf.machine.history/recorded)
-
-(defn- history-restored-record [ev]
-  (let [tags (get ev :tags {})]
-    {:compound-path   (:compound-path tags)
-     :kind            (:kind tags)
-     :source          (:source tags)
-     :fallback        (:fallback tags)
-     :restored-config (:restored-config tags)
-     :resolved-leaf   (:resolved-leaf tags)}))
-
-(defn- history-recorded-record [ev]
-  (let [tags (get ev :tags {})]
-    {:compound-path   (:compound-path tags)
-     :kind            (:kind tags)
-     :recorded-config (:recorded-config tags)
-     :prev-config     (:prev-config tags)}))
-
-(defn- attach-history
-  "Attach the history restore / record records for `transition-record`'s
-  machine (keyed by `:machine-id`) off the cascade-window `events`.
-  A transition that resolved a history pseudo-state carries
-  `:history-restored [<record> …]`; one whose macrostep exited a
-  history-bearing compound carries `:history-recorded [<record> …]`. Neither
-  key is present on an ordinary (non-history) transition, so the inspector's
-  history surface is absent for those."
-  [transition-record events]
-  (let [mid      (:machine-id transition-record)
-        restored (->> events
-                      (filter (fn [ev]
-                                (and (= history-restored-operation (:operation ev))
-                                     (= mid (machine-id-of ev)))))
-                      (mapv history-restored-record))
-        recorded (->> events
-                      (filter (fn [ev]
-                                (and (= history-recorded-operation (:operation ev))
-                                     (= mid (machine-id-of ev)))))
-                      (mapv history-recorded-record))]
-    (cond-> transition-record
-      (seq restored) (assoc :history-restored restored)
-      (seq recorded) (assoc :history-recorded recorded))))
+     :microstep?  false}))
 
 (defn project-focused-event-transitions
   "Project the focused epoch's cascade window into a vector of
@@ -660,14 +452,8 @@
        :dispatch-id  <id|nil>
        :microstep?   <bool>
        :definition   <machine-def-or-nil>
-       :no-op?       <bool>                ;; true iff this is a guard-blocked /
+       :no-op?       <bool>}               ;; true iff this is a guard-blocked /
                                             ;; unhandled / no-op record
-       :guards       [<guard-record>...]
-       :actions      [<action-record>...]
-       :history-restored [<restore-record>...]  ;; only when a
-                                                 ;; history pseudo-state resolved
-       :history-recorded [<record-record>...]}  ;; only when a
-                                                 ;; history-bearing compound exited
 
   A machine BIRTH (`:rf.machine/started`) is surfaced as a
   first-class record alongside transitions: a pure start emits no
@@ -729,13 +515,8 @@
               (map (fn [ev]
                      (attach-def
                        (if (started-event? ev)
-                         ;; Birth: no guard/action/history attach — the
-                         ;; initial-entry cascade's actions are not traced as
-                         ;; `:rf.machine/action-ran`.
                          (started-record-from-trace ev)
-                         (-> (transition-record-from-trace ev)
-                             (attach-guards-and-actions events)
-                             (attach-history events))))))
+                         (transition-record-from-trace ev)))))
               (filter :machine-id)
               vec)
          ;; (2) Guard-blocked / unhandled / NO-OP machine events.

@@ -995,9 +995,9 @@
 
 (defn- guard-blocked?
   "True when a `:rf.machine/guard-evaluated` trace's `:outcome` signals
-  the guard DECLINED the candidate — `:fail` (guard returned falsey) or
-  `:threw` (guard threw; the engine treats throw as fail and walks on,
-  per machines · transition.cljc `evaluate-guard`)."
+  the guard blocked the edge — `:fail` (guard returned falsey) or
+  `:threw` (guard threw, which aborts transition selection, so no edge
+  fires either; Spec 005 §`:rf.machine/guard-evaluated`)."
   [ev]
   (contains? #{:fail :threw} (get-in ev [:tags :outcome])))
 
@@ -1005,8 +1005,8 @@
   "Pull the user-declared guard REF off a `:rf.machine/guard-evaluated`
   trace. The ref is the value AS-IS (keyword OR inline fn — Spec
   Schemas §`:rf.machine/guard-evaluated`); it rides `:tags :guard-id`
-  (the canonical slot) with a legacy `:tags :guard` fallback (mirrors
-  `machine_inspector_helpers/guard-record`). Returns the ref or nil."
+  (the canonical slot) with a legacy `:tags :guard` fallback. Returns the
+  ref or nil."
   [ev]
   (or (get-in ev [:tags :guard-id])
       (get-in ev [:tags :guard])))

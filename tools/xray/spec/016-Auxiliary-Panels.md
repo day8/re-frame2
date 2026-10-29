@@ -174,7 +174,8 @@ originally targeted the Event/Handler tab; rf2-5gl5r retired that panel
 and the Epoch panel now hosts the "fx handlers that ran" rows.)
 
 Per-fx invocation status (`:ok` / `:error` / `:overridden` /
-`:skipped`, plus `:noop` / `:rollback` on the synthesised `:db` row —
+`:skipped`, plus `:noop` on the synthesised `:db` row, whose rejected-
+before-install write reads `:error` —
 `badge/fx-row-status-glyph`) renders as the leading status glyph on each fx row of that
 step. Registered fx handlers are reachable through the Cmd-K palette's
 `:handler` source, which indexes the host's `:event` / `:sub` / `:fx` /

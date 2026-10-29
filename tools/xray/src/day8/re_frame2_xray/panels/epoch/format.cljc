@@ -92,11 +92,9 @@
 ;; (`re-frame.elision/elide-wire-value`) is SCHEMA-DRIVEN — it only
 ;; substitutes the `:rf.size/large-elided` marker on slots a schema marks
 ;; `{:large? true}`. View props are arbitrary positional render args, not
-;; a schema-addressed db path, so they ride through un-elided AND Xray
-;; reads RAW epoch records in-process (the egress walk never touches what
-;; Xray sees — see `panels.app-db-diff-helpers` head comment). Unguarded, a
-;; view that takes a substantial map/collection prop — which ANY real app
-;; does — would dump its FULL value into the cell.
+;; a schema-addressed db path, so no classification ever marks them large.
+;; Unguarded, a view that takes a substantial map/collection prop — which
+;; ANY real app does — would dump its FULL value into the cell.
 ;;
 ;; So the cell mirrors the App-db panel's large-state treatment: oversized
 ;; values render as the framework's canonical `{:rf.size/large-elided …}`
@@ -196,10 +194,9 @@
   (if (vector? render-args)
     (reduce-kv
       (fn [acc idx v]
-        (assoc acc idx
-               (if (> (pr-str-bytes v) render-args-byte-budget)
-                 (->size-marker v idx)
-                 v)))
+        (if (> (pr-str-bytes v) render-args-byte-budget)
+          (assoc acc idx (->size-marker v idx))
+          acc))
       render-args
       render-args)
     render-args))

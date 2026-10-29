@@ -17,15 +17,15 @@ facts, and machine processes + selectors **in one place**.
 > (`re-frame.derivation.graph`), and the redaction-metadata contract. This
 > doc is the Xray-side consumer contract: the panel sections, the
 > `:rf.xray/*` registry surface, the contributor map Xray supplies, the
-> on-box-raw / off-box-redacted posture, and the egress redaction call
+> on-box local-redacted / off-box redacted posture, and the egress redaction call
 > site. Where this doc and Derivations.md differ, Derivations.md governs the
 > algebra; this doc governs Xray's presentation.
 
 > **Xray is the EP's NAMED FIRST CONSUMER.** EP-0014 §Reference
 > Implementation / Bead Plan item 7: "Add an internal graph-inspection
 > helper for static and live graphs. Xray may consume it first." This panel
-> is that consumption — the disposition-1 proof that the structured graph
-> shape survives real use (rf2-9ett2d).
+> is that consumption — the proof that the structured graph shape survives
+> real use.
 
 ## Bug class
 
@@ -48,14 +48,14 @@ Every declared fact and process is a node over the frame fold. The five
 algebra-view tooling siblings each project one family
 ([`spec/Derivations.md`](../../../spec/Derivations.md) — subscriptions /
 flows / resources / routes / machines); the composer
-`re-frame.derivation.graph` (EP-0014 slice-7) stitches those per-family
+`re-frame.derivation.graph` stitches those per-family
 projections into the single `{:mode :nodes :edges}` view this panel renders.
 The composer is a **projection over the five sibling projections** — it adds
 no new fact identity and re-runs no source form (the registrar-derived
 discipline). It ships **no public accessor** and **no `re-frame.core` facade
-export** (the issue-1 disposition; the public name is deferred until a
-consumer beyond the two named first consumers — Xray + the conformance
-fixtures — needs it, the graduation gate).
+export** (the public name is deferred until a consumer beyond the two named
+first consumers — Xray + the conformance fixtures — needs it, the graduation
+gate).
 
 ## The two superkinds are the contract
 
@@ -87,7 +87,7 @@ graphs):
   edges, active resource cache entries keyed by scoped key, live machine
   instances + spawned actors, and the materialized route slice with its
   nav-token owner. The live graph additionally resolves the **realized
-  route-owned resource edge** (rf2-k0meap.1): a route-owned resource entry
+  route-owned resource edge**: a route-owned resource entry
   (whose lifecycle owner is `[:route route-id nav-token]`) draws a `:param`
   edge from the live route node to the **concrete** `[:resource <scoped-key>]`
   node — the live resolution of the static graph's `:parametric` route-resource
@@ -95,7 +95,7 @@ graphs):
   projections are dev-gated; their bodies DCE).
 
 Across **both** modes, a **machine-selector** subscription node is enriched
-with `:refinement :machine-selector` (rf2-k0meap.2) — it stays an ordinary
+with `:refinement :machine-selector` — it stays an ordinary
 `:derivation` superkind (the refinement is the colour axis, never a third
 superkind), and is the `:to` end of the `:selector` edge from the specific
 machine it reads.
@@ -121,15 +121,15 @@ statically `:require`s
 ([`spec/Derivations.md`](../../../spec/Derivations.md) §The graph-assembly
 composer — "the optional siblings it has"). As EP-0014's **named first
 consumer**, Xray hard-deps **all five** algebra-view families so the single
-graph it renders is complete (rf2-1fc459): core (→ `re-frame.subs.tooling`,
+graph it renders is complete: core (→ `re-frame.subs.tooling`,
 always present), routing (→ `re-frame.routing.tooling`), flows
 (→ `re-frame.flows.tooling`), resources (→ `re-frame.resources.tooling`),
 and machines (→ `re-frame.machines.tooling`). So
 `day8.re-frame2-xray.panels.derivation-graph/xray-contributors` carries
 **all five families**; a family with no registrations in the host app
-simply contributes no nodes — the no-machines / no-resources story now
-holds **per-app** (an app that never registered a machine), not per-tool
-(Xray missing the artefact). The panel's silent state names this when
+simply contributes no nodes — an empty family is a fact **per-app** (an
+app that never registered a machine), never per-tool (Xray missing the
+artefact). The panel's silent state names this when
 nothing at all is registered.
 
 > **Why hard deps, not the decoupled-slice posture.** The Resources panel
@@ -158,36 +158,52 @@ composer mines each selector subscription's **target machine ids** from its
 static `[:rf/machine machine-id …]` / `[:rf.machine/has-tag? machine-id …]`
 inputs and draws the `:selector` edge from **exactly** the
 `[:machine target-id]` node(s) the selector reads — never the cross product
-of every machine against every selector (rf2-4qmiij). In a multi-machine app
+of every machine against every selector. In a multi-machine app
 an unrelated machine receives **no** spurious selector edge.
 
-## Privacy — ON-BOX raw, OFF-BOX redacted
+## Privacy — ON-BOX local-redacted, OFF-BOX redacted
 
-This is the heart of the panel's egress contract, and it splits cleanly
-along the box boundary (the EP-0014 tail-2 redaction ruling, rf2-6y7wnb):
+This is the heart of the panel's egress contract, and it splits along the
+box boundary:
 
-### On-box rendering is RAW (Security.md permits on-box)
+### On-box rendering takes Xray's local-redacted default
 
 The panel renders in the developer's own browser, in the `:rf/xray` frame,
-against the developer's own app. On-box inspection sees **raw** value
-summaries — that is the in-process truth (raw-on-box is correct-as-designed
-for read-only projections; the composer composes nodes verbatim by design
-and does **no** redaction). `derivation-graph-helpers/summarize` produces
-bounded, render-safe previews **for display ergonomics only** (a multi-MB
-value would wreck the panel) — it is a size/shape projection, **not** an
-egress boundary, and consults no elision policy.
+against the developer's own app, under the on-box default every Xray panel
+renders under — `:rf.egress/local-redacted`
+([`spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md)
+§Projection profiles): large values stay visible, and a value the frame
+declared `:sensitive` does not. The composer composes nodes verbatim and does
+**no** redaction, so before a LIVE graph is summarised
+`derivation-graph-helpers/project-live-values` projects each node's
+value-bearing fields (`:value` / `:params` / `:query` / `:state`) through
+Xray's `local-render` seam under the graph's own `:frame`:
+
+- the route node's `:query` / `:params` take the route-slice arm, because a
+  route's declaration is re-rooted onto the runtime-db route slice and a
+  bare walk can never match it — so a route param the Routing tab redacts is
+  redacted here too;
+- every other field walks as a value;
+- a nil or destroyed frame fails closed and redacts each field whole.
+
+A static graph carries no live values. `derivation-graph-helpers/summarize`
+then produces bounded, render-safe previews for display ergonomics (a
+multi-MB value would wreck the panel); it is a size/shape projection, not an
+egress boundary. `:rf.xray/derivation-graph-tab-data` is the pure
+`derivation-graph-helpers/tab-data`, so the panel and its tests share one
+body.
 
 ### Off-box egress is REDACTED, per-frame, FAIL-CLOSED
 
-The egress redaction **call site is born here** — the wire boundary where a
+The egress redaction **call site lives here** — the wire boundary where a
 tool ships the graph **off** the developer's box (an MCP surface streaming
 the graph to a remote agent, a serialized capture written to disk / posted
 to a service). `derivation-graph-helpers/redact-graph-for-egress` is that
 call site. The redaction **algorithm** itself is owned by the
-bundle-isolated core tooling ns `re-frame.derivation.egress/project-graph`
-(rf2-mm3y49): `redact-graph-for-egress` is a thin **delegate** to it, so this
-panel and the derivation-conformance suite share **one** implementation
-rather than the two drifting copies they used to maintain. The owner lives in
+bundle-isolated core tooling ns `re-frame.derivation.egress/project-graph`:
+`redact-graph-for-egress` is a thin **delegate** to it, so this panel and the
+derivation-conformance suite share **one** implementation rather than two
+copies that would drift. The owner lives in
 `implementation/core` and is built entirely from `implementation/`-resident
 primitives (`project-egress` + `canonical-bytes`), so the delegation adds
 no `tools/` → `implementation/` dependency inversion. The call site behaves as
@@ -210,10 +226,9 @@ follows:
   projection must **not** do is OMIT the `:frame` key: an absent key falls
   through to the **ambient** dynamically-bound frame and ships value-bearing
   fields **raw** under that borrowed frame's (possibly empty) policy — the
-  ambient-borrow leak this contract abolishes (rf2-udkj69). This once
-  required minting a **dead-frame sentinel** — a fake non-nil id — because
-  the walker read a nil `:frame` as absence; it now believes the nil, so the
-  sentinel is gone (rf2-kuky.5). A sensitive-declared value → `:rf/redacted`;
+  ambient-borrow leak this contract abolishes. There is no **dead-frame
+  sentinel** (a fake non-nil id): the walker believes a nil `:frame`, so the
+  nil itself fails closed. A sensitive-declared value → `:rf/redacted`;
   a large-declared value → the `:rf.size/large-elided` marker.
 
 **Redaction MUST NOT lose graph structure** (the headline guarantee — a
@@ -223,7 +238,7 @@ classifications, `:source-form`, and `:refinement` are **structure, not
 values**, and are never walked. The value-bearing leaf fields inside node
 bodies are redacted by the policy walk above.
 
-#### Live resource IDENTITY redaction (rf2-k0meap.1, extended rf2-qo1l8w)
+#### Live resource IDENTITY redaction
 
 The value-path walk above matches a frame's declared `:sensitive` `:app-db`
 **paths** — but a live **resource** node carries its sensitive scope/params
@@ -250,7 +265,7 @@ every `:edges` endpoint that names a resource node — a redacted resource
 node is still a node, and the edges naming it still connect. Structure
 survives; the identity-embedded secret does not egress.
 
-The projection is **idempotent** (rf2-g197ep): a value may egress more than
+The projection is **idempotent**: a value may egress more than
 once (re-egress on re-render / re-subscribe / a forwarder cascade that ships
 an already-projected graph onward), so `redact-graph-for-egress` ∘
 `redact-graph-for-egress` **must equal** `redact-graph-for-egress` — a second
@@ -260,8 +275,8 @@ sentinel) **unchanged** instead of re-hashing it into a fresh, different
 handle. Without that guard the realized `:inputs` `[:scope …]` / `[:param …]`
 payloads — the one position projected unconditionally rather than gated by the
 scoped-key shape test — would be re-hashed on every pass, silently changing
-the live node's input-edge identity across the boundary even though the node
-key and `:id` (gated by the 3-tuple-with-map-tail shape) stayed stable.
+the live node's input-edge identity across the boundary while the node key
+and `:id` (gated by the 3-tuple-with-map-tail shape) stay stable.
 
 ## `:rf.xray/*` registry surface
 
@@ -273,11 +288,11 @@ read-only (assembling the graph dispatches nothing and pins nothing):
 | `:rf.xray/derivation-graph-mode` | sub | `:static` \| `:live` toggle (default `:static`) |
 | `:rf.xray/set-derivation-graph-mode` | event | set the mode toggle |
 | `:rf.xray/derivation-graph` | sub | the assembled `DerivationGraph` (static / live, over `xray-contributors`) — production registration reads the live source directly, no override branch |
-| `:rf.xray/derivation-graph-tab-data` | sub | the view-facing composite (on-box summaries + family grouping + summary header) |
+| `:rf.xray/derivation-graph-tab-data` | sub | the view-facing composite, `derivation-graph-helpers/tab-data` (live values projected for on-box render + summaries + family grouping + summary header) |
 
 The test-only graph override (`:rf.xray/derivation-graph-override` sub +
 `:rf.xray/set-derivation-graph-override-for-test` event) is **NOT**
-installed by `register-xray-handlers!` (rf2-e8330v / xxo3zz F3). It lives
+installed by `register-xray-handlers!`. It lives
 behind `derivation-graph/install-test-overrides!` (orchestrated by
 `test-support/install-test-overrides!`), which a test opts into AFTER
 production registration; the seam also re-registers `:rf.xray/derivation-
@@ -290,28 +305,33 @@ dispatches nothing, mutates no host state. Pure hiccup; the projection
 algebra + the egress redaction **call site** live in
 `derivation_graph_helpers.cljc` (JVM-portable), which **delegates** the
 redaction algorithm itself to the core-owned
-`re-frame.derivation.egress/project-graph` (rf2-mm3y49). Frame isolation comes
+`re-frame.derivation.egress/project-graph`. Frame isolation comes
 from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
 
 ## Test coverage
 
 - **`derivation_graph_helpers_cljs_test.cljc`** (JVM + node) — superkind
   classification by `:kind` alone; family grouping; edge role grouping;
-  on-box `summarize` raw-permitting posture; `summarize-node`
+  `summarize` size/shape bounding; `summarize-node`
   structure preservation; `graph-summary` tallies.
+- **`derivation_graph_on_box_redaction_cljs_test.cljc`** (JVM + node, runtime
+  fixture) — the on-box half: a route navigated for real, its node taken
+  from `route-slice-algebra-view`, previews a declared-sensitive param as
+  `:rf/redacted` through `tab-data` while the undeclared sibling previews
+  raw; a frameless live graph fails closed; a static graph passes through.
 - **`derivation_graph_redaction_cljs_test.cljc`** (JVM + node, runtime
-  fixture) — the **consumer/wiring** pin for the delegate (rf2-mm3y49). The
+  fixture) — the **consumer/wiring** pin for the delegate. The
   redaction algorithm is owned by `re-frame.derivation.egress` and its
   COMPREHENSIVE coverage lives in the derivation-conformance egress arms
   (`g-*`); this suite proves the Xray delegate wires that algorithm through,
   across the frame-policy value walk and the resource-identity projection.
-  The **positive** off-box egress test (rf2-yjarv6): a sensitive node value
+  The **positive** off-box egress test: a sensitive node value
   run through the frame's `project-egress` is elided **while** the node +
-  edge structure survives (the "redact value, keep edge" arm the EP-0014
-  testing-coverage audit flagged as missing); large elision → marker keeping
+  edge structure survives (the "redact value, keep edge" arm); large
+  elision → marker keeping
   structure; per-frame policy (a non-classifying frame ships the same value
   raw); frameless fail-closed — including the **nil-frame-under-an-ambient-
-  binding** arm (rf2-udkj69): a nil frame-id while an ambient frame is bound
+  binding** arm: a nil frame-id while an ambient frame is bound
   must still redact, never borrow that ambient frame and ship raw. Plus one
   **identity-projection wiring smoke**: a live resource scoped key carrying a
   session token in BOTH its cache scope and canonical params (and inside its
@@ -324,9 +344,9 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   in derivation-conformance, against the shared owner — Xray does not re-prove
   the algorithm.
 - **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
-  consumer** test (rf2-4wtllq): registers the panel handlers via
+  consumer** test: registers the panel handlers via
   `registry/register-xray-handlers!` + `test-support/install-test-overrides!`
-  (the override seam, rf2-e8330v), then
+  (the override seam), then
   asserts the `:rf.xray/derivation-graph` subscription actually calls the
   shared composer path — static mode returns a graph the composer produced
   (`:mode :static`, real node/edge counts, by-family grouping, edge roles
@@ -339,7 +359,7 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   through). This
   closes the seam the helper/registry/redaction tests leave: that Xray's
   ACTUAL subscriptions consume `re-frame.derivation.graph` in both modes
-  across all five families. Plus the **live-content** arm (rf2-k0meap.3): a
+  across all five families. Plus the **live-content** arm: a
   navigation materializes a route slice in the TARGET frame; live mode then
   surfaces that realized route node through the consumer path (graph +
   tab-data carry the live node + its `:routes` family grouping, NOT an empty
@@ -350,9 +370,8 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   derivation-algebra conformance test + the reference-only
   `derivation-graph-algebra.edn` fixture (the `:derivation-graph` call
   op) — including the **precise machine→selector edge
-  targeting** (rf2-4qmiij: two machines, one selector reading only one of
+  targeting** (two machines, one selector reading only one of
   them, asserting no edge from the unrelated machine), the **frame-scoped
   flow node id** (`[:flow <frame-id> <flow-id>]` — a reused flow-id across two
-  frames stays distinct, rf2-k0meap.2), the **`:machine-selector` refinement**
-  enrichment (rf2-k0meap.2), and the **realized route-owned resource edge**
-  (rf2-k0meap.1).
+  frames stays distinct), the **`:machine-selector` refinement**
+  enrichment, and the **realized route-owned resource edge**.

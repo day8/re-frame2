@@ -2,11 +2,11 @@
   "app-db tab — current-state inspector.
 
   The app-db tab is a CURRENT-STATE inspector in the re-frame-10x style:
-  it renders the observed frame's LIVE `app-db` value, sectioned by
-  reserved `:rf/*` area. It is NOT a diff view: the focused epoch's
-  changes are annotated inline on the current state (see [[panel-tree]]),
-  and there is no 'show me when this changed' affordance. Diff rendering
-  lives in the Epoch panel's `:db` + `:fx` section.
+  it renders the focused epoch's post-state `app-db` (the observed frame's
+  live value when nothing is focused), sectioned by reserved `:rf/*` area,
+  with that epoch's own changes annotated inline against its pre-state
+  (see [[panel-tree]]). There is no 'show me when this changed'
+  affordance.
 
   ## Layout
 
@@ -45,12 +45,10 @@
   - `app-db-diff-state` — the current-state section renderers (this
     panel's body).
   - `app-db-diff-subs` / `app-db-diff-events` — subs + events. This
-    panel reads only `:rf.xray/app-db-state` (← the atomic
+    panel reads only `:rf.xray/app-db-state` (← the atomic, projected
     `:rf.xray/app-db-current+diff`, which resolves the focused epoch's
     `:db-after`) + `:rf.xray/app-db-current+diff` for the per-epoch
-    React render key. There is no composite app-db diff sub: the Epoch
-    panel's `:db` diff reads `:rf.xray/selected-epoch-record` and runs its
-    own `db-diff-paths`, and agent access to app-db is
+    React render key. Agent access to app-db is
     `re-frame2-pair.runtime`'s."
   ;; `re-frame.core` is not required here: both reads are `rf.fresco/sub`
   ;; inside the boundary, and this panel dispatches nothing, so nothing in

@@ -103,8 +103,9 @@
   :day8.re-frame2-xray.fresco-advisor.timing/v1)
 
 (def timing-producer
-  "Spec 009's per-frame retained ring, read through
-  `re-frame.trace.tooling/trace-buffer`."
+  "Spec 009's per-frame retained ring, read through Xray's privacy-gated
+  collector (`fresco-reads/trace-windows`), never the bare
+  `re-frame.trace.tooling/trace-buffer` (Spec 028)."
   :re-frame/trace)
 
 ;; ---------------------------------------------------------------------------
@@ -253,8 +254,8 @@
       ;;                                  :memo-hits 9 :dispatch-ids #{41 42 43 44}}}
       ;;     :unnamed-runs 0 :unnamed-skips 0}
 
-  `windows` is `{frame-id [event-bundle …]}` exactly as
-  `re-frame.trace.tooling/trace-buffer` answers it, one entry per frame.
+  `windows` is `{frame-id [event-bundle …]}`, one entry per frame, as
+  `fresco-reads/trace-windows` reads it through Xray's gated collector.
 
   **The key is `[frame-id sub-id]` and not the sub-id**, for the same
   reason `explain-render` scopes its leads that way: two frames are two
@@ -629,13 +630,13 @@
        :observed   observed
        :loss       {:reason :host-opaque :dropped hh/unknown}
        :candidates (mapv :class unmeasured-classes)
-       :says       (str "the window was searched and the measured half does not "
-                        "account for this boundary: "
+       :says       (str "the window was searched: "
                         (if (number? ms) (format-ms ms) "no timed recompute")
                         " across " (:runs frequency) " recompute"
                         (when (not= 1 (:runs frequency)) "s")
-                        ". The owner is lowering, React or layout — and this "
-                        "door observes none of the three.")}
+                        ", which makes no subscription the owner. If the "
+                        "boundary is still slow the owner is lowering, React or "
+                        "layout — and this door observes none of the three.")}
 
       ;; OBSERVED, and what was observed is that nothing recomputed. The
       ;; window RETAINED this boundary's reads being considered, and the
@@ -783,16 +784,16 @@
    :native?  false
    :label    (if (= :cap (:basis classification))
                "Reproduce the interaction and read again"
-               "Measure the unattributed half elsewhere")
+               "If it is slow, measure the unattributed half elsewhere")
    :says     (if (= :cap (:basis classification))
                (str "Nothing was retained for this boundary, so no ranking here "
                     "is about it yet. The window is empty, not small, so a bigger buffer is not the remedy: "
                     "reproduce the interaction and read this tab again. Retention matters only when it is set to 0.")
-               (str "The measured half does not own this boundary, and the "
-                    "three classes that might are not observable from a "
-                    "subscription table or a trace ring. Recommending a native "
-                    "route from this evidence would be guessing with a number "
-                    "attached."))
+               (str "Nothing measured here makes this boundary heavy. If it is "
+                    "still slow, the three classes that might own it are not "
+                    "observable from a subscription table or a trace ring. "
+                    "Recommending a native route from this evidence would be "
+                    "guessing with a number attached."))
    :refusal  {:reason      (:basis classification)
               :refused     [:direct-element :native-island :native-screen]
               :says        (str "The native ladder addresses lowering, hooks, "

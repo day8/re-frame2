@@ -377,6 +377,22 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
           "the parent-epoch-link slot is also present"))))
 
+(deftest dispatch-source-machine-action-renders-parent-link-and-delay-test
+  (testing "`:source :machine-action` (a machine action's `:dispatch` /
+            `:dispatch-later`) names its kind and carries the parent-epoch
+            link and delay chip, like the fx-dispatch kinds"
+    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
+                :event [:door/chime]
+                :source :machine-action
+                :coord nil
+                :source-enrichment {:parent-dispatch-id 9001 :delay-ms 250}}
+          tree (view/render-dispatch-step step {9001 42})]
+      (is (string/includes? (or (text-of tree "rf-xray-epoch-dispatch-header") "")
+                            "from machine action"))
+      (is (string/includes? (or (text-of tree "rf-xray-epoch-dispatch-fx-later-delay") "")
+                            "250ms"))
+      (is (some? (find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))))))
+
 (deftest dispatch-source-fx-dispatch-unresolved-parent-test
   (testing "when the parent-dispatch-id has no matching
             epoch in the buffer (root cascade or aged out), the

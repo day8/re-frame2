@@ -21,9 +21,9 @@
   `panel-tree` — the pure projection `Panel` calls. `Panel` itself is an
   `rf.fresco/defview` boundary, a real React function component whose body
   may only run inside a React render window, so it is not callable here.
-  The value handed to `panel-tree` is built by the SAME expression the
-  panel's own `:rf.xray/derivation-graph-tab-data` sub uses, so a drift in
-  that projection surfaces here rather than being papered over by a
+  The value handed to `panel-tree` is built by `h/tab-data`, the function
+  the panel's own `:rf.xray/derivation-graph-tab-data` sub calls, so a drift
+  in that projection surfaces here rather than being papered over by a
   hand-written fixture of the composite's output."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -52,19 +52,8 @@
    :edges [{:from [:sub :cart/state] :to [:sub :cart/total] :role :input}
            {:from [:machine :auth]   :to [:sub :cart/state] :role :selector}]})
 
-(defn- tab-data
-  "The `:rf.xray/derivation-graph-tab-data` projection, spelled exactly as
-  `derivation-graph/install!` spells it."
-  [graph]
-  (let [summarized (h/summarize-graph graph)]
-    {:mode      (:mode graph)
-     :silent?   (h/empty-graph? graph)
-     :summary   (h/graph-summary graph)
-     :by-family (h/group-by-family summarized)
-     :edges     (:edges graph)}))
-
 (defn- render
-  ([]           (render (tab-data fixture-graph)))
+  ([]           (render (h/tab-data fixture-graph)))
   ([data]       (render data (fn [_ev] nil)))
   ([data disp]  (derivation-graph/panel-tree disp data)))
 
@@ -121,7 +110,7 @@
 (deftest empty-graph-renders-the-silent-state
   (testing "a graph with no nodes renders the silent state — the honest
             no-registrations story"
-    (is (seq (nodes-with-testid-prefix (render (tab-data {:mode :static :nodes {} :edges []}))
+    (is (seq (nodes-with-testid-prefix (render (h/tab-data {:mode :static :nodes {} :edges []}))
                                        "rf-xray-derivation-graph-silent")))))
 
 ;; ---- (2) THE KEY ROW -----------------------------------------------------
@@ -206,7 +195,7 @@
             rendered under, not on whatever ambient frame survives after
             render scope unwinds."
     (let [seen (atom [])
-          tree (render (tab-data fixture-graph) #(swap! seen conj %))
+          tree (render (h/tab-data fixture-graph) #(swap! seen conj %))
           live (first (nodes-with-testid-prefix tree "rf-xray-derivation-graph-mode-live"))
           on-click (:on-click (props-of live))]
       (on-click nil)

@@ -389,7 +389,12 @@
           (is (re-find #":realworld/favorite-article" (node-text row))
               "the mutation id surfaced")
           (is (some? (find-by-testid tree "rf-xray-resources-optimistic-row-60-committed"))
-              "the committed keys surfaced"))
+              "the committed keys surfaced")
+          (is (re-find #":article/by-slug" (node-text row))
+              "an affected key names its resource, not its scope")
+          (is (= "{:slug \"welcome\"} (1)"
+                 (node-text (find-by-testid tree "rf-xray-resources-optimistic-row-60-affected-0")))
+              "an affected key's chip previews its params"))
         ;; the FAILED apply paired with its rollback → :rolled-back + conflict
         (let [row (find-by-testid tree "rf-xray-resources-optimistic-row-62")]
           (is (re-find #"rolled back" (node-text row))

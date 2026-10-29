@@ -511,17 +511,22 @@
         reserved area diffs against the runtime-db pre-image. Pass `nil`
         / `no-diff` for the before-image map to stay in no-diff mode.
 
+  A WHOLE-redacted app-db — the `:rf/redacted` scalar an unreachable
+  observed frame fails closed to — is kept as the TOP value (and as
+  `:before-top` when the pre-image is), so the inspector paints the redacted
+  chip rather than the panel reading as an app-db with no keys. A
+  whole-redacted runtime-db carries no areas.
+
   Pure data → data. JVM-runnable. nil-safe throughout (absent / empty
   partitions, absent reserved keys, empty registries, absent before-images)."
   ([app-db runtime-db] (current-state-sections app-db runtime-db no-diff))
   ([app-db runtime-db before]
-   (let [;; Egress fail-closed: when the section model is fed a
-         ;; value the local-render seam redacted WHOLE (an unreachable /
-         ;; nil observed frame ⇒ the `:rf/redacted` sentinel, NOT a map),
-         ;; there is no decomposable structure — treat it as the empty
-         ;; partition rather than iterate the scalar sentinel (which would
-         ;; throw). Mirrors the nil-safety; a whole-redacted value
-         ;; carries no user-domain content to show.
+   (let [;; A value the local-render seam redacted WHOLE is the scalar
+         ;; `:rf/redacted` sentinel, NOT a map: it has no structure to
+         ;; decompose, so the walks below see an empty partition, while TOP
+         ;; keeps the sentinel itself so the redaction stays on screen.
+         whole        (fn [v] (when (and (some? v) (not (map? v))) v))
+         top-whole    (whole app-db)
          demap         (fn [v] (if (map? v) v {}))
          app-db        (demap (or app-db {}))
          runtime-db    (demap (or runtime-db {}))
@@ -543,9 +548,9 @@
                              ;; present-nil) diffs in place.
                              (if (= ::absent v) added v))
                            no-diff))]
-     {:top   (user-domain-db app-db)
+     {:top   (or top-whole (user-domain-db app-db))
       :before-top (if diff?
-                    (user-domain-db app-before)
+                    (or (whole (:app before)) (user-domain-db app-before))
                     no-diff)
       :areas (vec
                (for [area reserved-area-order

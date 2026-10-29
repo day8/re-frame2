@@ -35,7 +35,7 @@
       :settled-success  :green           handler ran, no
                                          exception, no warnings.
       :settled-error    :red             handler threw, or an
-                                         :rf.error/* trace
+                                         `:op-type :error` trace
                                          landed in the event-bundle.
       :paused-by-tool   :info            spine paused
                                          (LIVE+paused) — e.g.
@@ -117,7 +117,8 @@
   resolution happens through `theme/tokens` which is also JVM-loadable
   pure data."
   {:no-doc true}
-  (:require [day8.re-frame2-xray.theme.tokens :as tokens]))
+  (:require [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]
+            [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- vocabulary ---------------------------------------------------------
 
@@ -194,26 +195,22 @@
 ;; a dependency-injection indirection across namespaces.
 
 (defn- error-trace?
-  "True iff `ev` is an error trace — classified by the universal
-  severity axis (`:op-type :error`, per Spec 009) with a namespace
-  fallback for any `:rf.error/*` operation. Mirrors the namespace-based
-  idiom in `issues-ribbon-helpers/op-type->severity` rather than
-  enumerating individual ops the substrate may add over time."
-  [{:keys [op-type operation] :as _ev}]
-  (or (= :error op-type)
-      (and (keyword? operation) (= "rf.error" (namespace operation)))))
+  "True iff `ev` is an error trace. Severity is the trace's `:op-type`
+  (Spec 009 §op-type vocabulary), classified once by
+  `issues-ribbon-helpers/op-type->severity` — the predicate the issues
+  ribbon and the L2 wash share — so this glyph cannot disagree with them."
+  [{:keys [op-type] :as _ev}]
+  (= :error (issues/op-type->severity op-type)))
 
 (defn- warning-trace?
-  "True iff `ev` is a warning trace — `:op-type :warning` (per Spec 009)
-  with an `:rf.warning/*` namespace fallback. Severity-driven, not
-  op-enumerated."
-  [{:keys [op-type operation] :as _ev}]
-  (or (= :warning op-type)
-      (and (keyword? operation) (= "rf.warning" (namespace operation)))))
+  "True iff `ev` is a warning trace, by the same shared classifier as
+  `error-trace?`."
+  [{:keys [op-type] :as _ev}]
+  (= :warning (issues/op-type->severity op-type)))
 
 (defn- has-error?
-  "True iff the event-bundle carries ANY error trace (severity `:error` /
-  `:rf.error/*`) in its `:other` bucket. Pure predicate."
+  "True iff the event-bundle carries ANY error trace (`error-trace?`) in
+  its `:other` bucket. Pure predicate."
   [{:keys [other]}]
   (boolean (some error-trace? (or other []))))
 

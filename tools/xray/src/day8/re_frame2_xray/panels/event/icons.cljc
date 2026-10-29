@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.panels.event.icons
   "Inline SVG glyphs — small lucide-style icons per the Figma authority
-  (`tools/xray/design-reference/xray_devtools_reference.cljs`),
-  re-exported from `panels.epoch.icons`.
+  (`tools/xray/design-reference/xray_devtools_reference.cljs`).
+  `panels.epoch.icons` re-exports `external-link` from here.
 
   Shared, single-source-of-truth helper so every click-to-source
   affordance renders the SAME glyph at the SAME size with the SAME

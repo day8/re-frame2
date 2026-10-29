@@ -9,13 +9,14 @@
       the focused frame's app-db.
     - `:rf.xray/routing-tab-data` — the composite the view consumes.
 
-  At the e2e level we assert the composite resolves cleanly even
-  when the host has zero routes registered (the empty-route empty-
-  state shape MUST survive). A test with at least one registered
-  route needs the routing artefact's `reg-route` macro, which lives
-  outside `core/`; this file stays within the e2e helper's minimal
-  surface."
+  The host registers a real route with `rf/reg-route` and navigates to
+  it through the router's own URL-change door, so the slice under test
+  is the one the router writes. Route-table emptiness is not asserted:
+  other namespaces on the node-test classpath register routes at load
+  time."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.routing]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as e2e]
@@ -24,35 +25,34 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(deftest xray-registered-routes-resolves
-  (testing ":rf.xray/registered-routes returns a coll without throwing"
-    (e2e/with-host-and-xray-frames
-      {:install-host counter/install-and-init!}
-      (fn []
-        ;; `:rf.xray/registered-routes` reads the global route registry
-        ;; via `rf/registrations :route` so its value depends on every
-        ;; namespace that ran `reg-route` at load time. We assert
-        ;; resolution, not emptiness — emptiness is too noisy across
-        ;; the cross-tree node-test classpath.
-        (let [routes (e2e/sub-xray [:rf.xray/registered-routes])]
-          (is (or (nil? routes) (coll? routes) (map? routes))
-              ":rf.xray/registered-routes returned non-coll non-nil"))))))
+(defn- install-host! []
+  (counter/install-and-init!)
+  (rf/reg-route ::article {} "/routing-e2e/article/:slug"))
 
-(deftest xray-routing-tab-data-resolves-shape-empty
-  (testing ":rf.xray/routing-tab-data composes even with no routes"
+(deftest routing-tab-data-reads-a-real-navigation
+  (testing "a navigated host route lists in the topology, is the current
+            route with its params, and is the focused navigation's TO"
     (e2e/with-host-and-xray-frames
-      {:install-host counter/install-and-init!}
+      {:install-host install-host!}
       (fn []
+        (e2e/dispatch-host [:rf.route/handle-url-change "/routing-e2e/article/hello"
+                            {:rf.route/cause :link}])
         (let [data (e2e/sub-xray [:rf.xray/routing-tab-data])]
-          (is (map? data)
-              ":rf.xray/routing-tab-data did not return a map with no routes registered"))))))
+          (is (some #(= ::article (get-in % [:row :route-id])) (:topology data)))
+          (is (= ::article (get-in data [:current :route-id])))
+          (is (= {:slug "hello"} (get-in data [:current :params])))
+          (is (= [true ::article :on-match]
+                 ((juxt :navigated? :to-id (comp :phase :activity)) data))))))))
 
-(deftest xray-routing-tab-data-resolves-shape-after-host-dispatch
-  (testing "routing-tab-data still resolves after a non-route host event"
+(deftest routing-tab-data-is-quiet-for-a-non-route-event
+  (testing "CONTROL — a focused non-route event navigated nowhere: no
+            navigation, no activity, and the current route is unchanged"
     (e2e/with-host-and-xray-frames
-      {:install-host counter/install-and-init!}
+      {:install-host install-host!}
       (fn []
+        (e2e/dispatch-host [:rf.route/handle-url-change "/routing-e2e/article/hello"
+                            {:rf.route/cause :link}])
         (e2e/dispatch-host [:counter/inc])
         (let [data (e2e/sub-xray [:rf.xray/routing-tab-data])]
-          (is (map? data)
-              ":rf.xray/routing-tab-data did not return a map after host dispatch"))))))
+          (is (= [false nil] ((juxt :navigated? :activity) data)))
+          (is (= ::article (get-in data [:current :route-id]))))))))

@@ -385,3 +385,23 @@
       (rf/dispatch-sync [:rf.xray/focus-event 99 :rf/default] {:frame :rf/xray})
       (let [outcome (find-by-testid (panel-tree) "rf-xray-routing-nav-outcome")]
         (is (= "not-found" (node-text outcome)))))))
+
+;; ---- the route table is the observed frame's image ----------------------
+
+(deftest route-table-lists-only-the-routes-the-observed-frame-resolves
+  (testing "a frame loaded with a subset of the routes lists that subset, as
+            Views topology and Frames read the observed frame's image"
+    (rf/reg-route :route/in-image {:ns 'app.routes-in} "/in-image")
+    (rf/reg-route :route/elsewhere {:ns 'app.routes-out} "/elsewhere")
+    (rf/make-frame {:id     :app/subset
+                    :images [(rf/image {:select-ns {:include ["app.routes-in"]}})]})
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-frame :app/subset])
+      (let [routes @(rf/subscribe [:rf.xray/observed-frame-routes])]
+        (is (contains? routes :route/in-image)
+            (str "the frame's own route is missing: " (pr-str (keys routes))))
+        (is (not (contains? routes :route/elsewhere))
+            "a route outside the frame's image must not be listed"))
+      (is (contains? @(rf/subscribe [:rf.xray/registered-routes]) :route/elsewhere)
+          "CONTROL: the shared registry the Static Routes panel lists holds both"))))

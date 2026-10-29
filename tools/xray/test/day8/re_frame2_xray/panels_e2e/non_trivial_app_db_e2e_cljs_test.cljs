@@ -23,7 +23,7 @@
    [::nt/revoke-write-and-collapse-sidebar]])
 
 (deftest xray-app-db-diff-tracks-six-deep-mutations
-  (testing "each of the 6 deep-tree mutations advances the spine focus and surfaces in selected-epoch-record"
+  (testing "each of the 6 deep-tree mutations advances the spine focus, and the App-DB panel follows it to that mutation's epoch"
     (e2e/with-host-and-xray-frames
       {:install-host nt/install-and-init!}
       (fn []
@@ -32,11 +32,15 @@
         ;; panel-frozen class).
         (doseq [event mutation-events]
           (e2e/dispatch-host event)
-          (let [record (e2e/sub-xray [:rf.xray/selected-epoch-record])]
-
-            (is (= event (:trigger-event record))
-                (str "spine focus did not advance to " (pr-str event)
-                     " — panel-frozen regression"))))))))
+          (let [head (peek (e2e/sub-xray [:rf.xray/epoch-history]))
+                data (e2e/sub-xray [:rf.xray/app-db-current+diff])]
+            (is (= event (:trigger-event head))
+                (str "PRECONDITION: the head epoch is " (pr-str event)))
+            (is (= (:epoch-id head) (:epoch-id data))
+                (str "the App-DB panel did not advance to " (pr-str event)
+                     " — panel-frozen regression"))
+            (is (= (:db-after head) (:value data))
+                "the panel shows the mutation's own post-state")))))))
 
 (deftest xray-app-db-diff-final-state-matches-handler-effects
   (e2e/with-host-and-xray-frames

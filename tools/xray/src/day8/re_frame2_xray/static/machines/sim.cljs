@@ -878,7 +878,6 @@
      :from-highlight         (:from last-trans)
      :to-highlight           (:to last-trans)
      :sim?                   true
-     :show-after-rings?      false
      :inner-testid           "rf-xray-static-machines-sim-chart-svg"
      :on-edge-click
      (fn [payload]

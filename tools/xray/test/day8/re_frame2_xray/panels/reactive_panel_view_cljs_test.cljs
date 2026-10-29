@@ -19,6 +19,7 @@
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
             [day8.re-frame2-xray.panels.reactive-panel-view :as view]
+            [day8.re-frame2-xray.panels.shared.view-highlight :as view-highlight]
             [day8.re-frame2-xray.spine :as spine]))
 
 (defn- has-testid? [tree testid]
@@ -58,22 +59,21 @@
   the keys the view reads rather than ones the real focus never has."
   (spine/compose-focus {:mode :retro :dispatch-id 1} []))
 
-(deftest reactive-panel-empty-state-tells-a-focused-bundle-from-no-focus
-  (testing "the empty state reads the focus the SPINE composes: a pinned
-            bundle or epoch with no record says it captured nothing,
-            and only an unset focus says nothing is focused"
-    (let [empty-text (fn [focus]
+(deftest reactive-panel-empty-state-says-why-no-record-resolved
+  (testing "the empty state is worded by the shared resolver's status: an
+            evicted pin and a bundle that settled no epoch each say so, and
+            only an unset focus says nothing is focused"
+    (let [empty-text (fn [status focus]
                        (text-of (view/reactive-panel nil {:has-event-bundle? false
+                                                          :status            status
                                                           :focus             focus})
-                                "rf-xray-reactive-empty"))
-          pinned     (spine/compose-focus {:mode :retro :dispatch-id 42} [])
-          epoch-only (spine/compose-focus {:mode :retro :epoch-id 7} [])
-          unset      (spine/compose-focus nil [])]
-      (is (= "Focused event-bundle has no reactive activity captured yet."
-             (empty-text pinned)))
-      (is (= "Focused event-bundle has no reactive activity captured yet."
-             (empty-text epoch-only)))
-      (is (= "No event focused." (empty-text unset))))))
+                                "rf-xray-reactive-empty"))]
+      (is (= "This epoch has been evicted from the history buffer."
+             (empty-text :epoch-evicted (spine/compose-focus {:mode :retro :epoch-id 7} []))))
+      (is (= "The selected event settled no epoch."
+             (empty-text :no-epoch (spine/compose-focus {:mode :retro :dispatch-id 42} []))))
+      (is (= "No event focused."
+             (empty-text :no-focus (spine/compose-focus nil [])))))))
 
 (defn- seed-reactive-data!
   "Re-register the composite `:rf.xray/reactive-data` to return a
@@ -198,9 +198,14 @@
     (let [tree (panel-tree)
           node (rf.test-helpers/find-by-testid tree "rf-xray-reactive-view-node-_cart_Summary")]
       (is (fn? (rf.test-helpers/extract-handler node :on-mouse-enter))
-          "view node has an :on-mouse-enter handler (apply-highlight!)")
+          "view node has an :on-mouse-enter handler")
       (is (fn? (rf.test-helpers/extract-handler node :on-mouse-leave))
-          "view node has an :on-mouse-leave handler (clear-highlight!)"))))
+          "view node has an :on-mouse-leave handler")
+      (is (identical? view-highlight/clear-on-detach!
+                      (:ref (second (rf.test-helpers/find-by-testid
+                                      tree "rf-xray-reactive-flow-svg"))))
+          "the graph's svg clears the highlight when it detaches, since React
+           fires no mouseleave on unmount"))))
 
 (deftest sparse-cascade-shows-graph-empty-placeholder
   (testing "a focused cascade with no subs + no views

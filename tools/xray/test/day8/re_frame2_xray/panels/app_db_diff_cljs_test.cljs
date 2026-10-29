@@ -10,6 +10,7 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.routing]
             [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -212,10 +213,13 @@
                      {:auth {:username "ada" :password "old-secret"}}
                      {:auth {:username "ada" :password "new-secret"}})]])
       (rf/dispatch-sync [:rf.xray/select-epoch :e1])
-      (let [input (pr-str @(rf/subscribe [:rf.xray/app-db-current+diff]))
+      (let [input (pr-str @(rf/subscribe [:rf.xray/epoch-history]))
+            data  (pr-str @(rf/subscribe [:rf.xray/app-db-current+diff]))
             model (pr-str @(rf/subscribe [:rf.xray/app-db-state]))]
         (is (and (re-find #"old-secret" input) (re-find #"new-secret" input))
-            "the sub's input carries both secrets, so what removes them is the sub")
+            "the history carries both secrets, so what removes them is the sub")
+        (is (not (re-find #"secret" data))
+            (str "a secret reached the atomic sub every reader takes. data: " data))
         (is (re-find #":rf/redacted" model)
             (str "the sensitive slot must read :rf/redacted. model: " model))
         (is (not (re-find #"new-secret" model))
@@ -224,6 +228,107 @@
             (str "the pre-image's secret reached the section model. model: " model))
         (is (re-find #"ada" model)
             "the undeclared sibling reads raw")))))
+
+;; ---- (7d) a past epoch keeps the classification it was recorded with -----
+;;
+;; A route's classification covers its slice only while the route is active
+;; (the frame's policy re-roots the declaration onto the CURRENT route), so a
+;; past epoch's state walked under the live classification loses it the
+;; moment the operator navigates away. The rows navigate for real so the
+;; record, its recorded policy and its rollup are the substrate's own, and
+;; observe through the picker so the history passes Xray's real ingest gate.
+
+(def ^:private recorded-secret "recorded-secret-7d")
+
+(defn- route-epochs!
+  "Navigate `:rf/default` onto a route declaring `[:query :token]` sensitive,
+  then off it, and return the frame's epoch ring (oldest-first)."
+  []
+  (rf/make-frame {:id :rf/default})
+  (rf/reg-route ::oauth {:sensitive [[:query :token]]
+                         :query     [:map [:token :string] [:tab :string]]}
+                "/app-db-recorded/oauth")
+  (rf/reg-route ::home {} "/app-db-recorded/home")
+  (doseq [url [(str "/app-db-recorded/oauth?token=" recorded-secret "&tab=posts")
+               "/app-db-recorded/home"]]
+    (rf/dispatch-sync [:rf.route/handle-url-change url {:rf.route/cause :link}]
+                      {:frame :rf/default}))
+  (rf.epoch/epoch-history :rf/default))
+
+(defn- pin-epoch!
+  "Pin the spine RETRO on `epoch-id`, the state a click on a past L2 row
+  leaves, so focus holds it whatever the LIVE head is."
+  [epoch-id]
+  (rf/reg-event :test/pin-epoch
+    (fn [{:keys [db]} [_ id]]
+      {:db (update db :focus assoc :mode :retro :epoch-id id)}))
+  (rf/dispatch-sync [:test/pin-epoch epoch-id]))
+
+(defn- route-area [model]
+  (some (fn [a] (when (= :rf/route (:area a)) a)) (:areas model)))
+
+(deftest app-db-state-redacts-a-past-epoch-under-its-recorded-classification
+  (testing "the epoch that navigated ONTO the classified route shows its
+            token as :rf/redacted after the frame has navigated away, and
+            the unclassified sibling raw"
+    (let [[onto] (route-epochs!)]
+      (is (re-find (re-pattern recorded-secret) (pr-str (:frame-state-after onto)))
+          "PRECONDITION: the raw record carries the token")
+      (registry/register-xray-handlers!)
+      (rf/make-frame {:id :rf/xray})
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-frame :rf/default])
+        (pin-epoch! (:epoch-id onto))
+        (let [model @(rf/subscribe [:rf.xray/app-db-state])
+              query (get-in (route-area model) [:value :query])]
+          (is (= (:epoch-id onto) (:epoch-id @(rf/subscribe [:rf.xray/app-db-current+diff])))
+              "PRECONDITION: the panel is focused on the past epoch")
+          (is (= :rf/redacted (:token query))
+              (str "the recorded-sensitive token must read :rf/redacted. query: "
+                   (pr-str query)))
+          (is (= "posts" (:tab query))
+              "the unclassified sibling reads raw, so this is the declaration
+               matching and not a whole-value redaction")
+          (is (not (re-find (re-pattern recorded-secret) (pr-str model)))
+              "the token reached the section model"))))))
+
+(deftest app-db-state-redacts-a-past-epochs-pre-image-under-its-recorded-classification
+  (testing "the epoch that navigated OFF the classified route carries the
+            token in its pre-image only; the `← was` side must not show it"
+    (let [[_ off] (route-epochs!)]
+      (registry/register-xray-handlers!)
+      (rf/make-frame {:id :rf/xray})
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-frame :rf/default])
+        (pin-epoch! (:epoch-id off))
+        (let [model @(rf/subscribe [:rf.xray/app-db-state])]
+          (is (= :rf/redacted (get-in (route-area model) [:before :query :token]))
+              (str "the pre-image token must read :rf/redacted. area: "
+                   (pr-str (route-area model))))
+          (is (not (re-find (re-pattern recorded-secret) (pr-str model)))
+              "the token reached the section model through the pre-image"))))))
+
+;; ---- (7e) a focus with no value renders its placeholder ------------------
+
+(deftest app-db-renders-the-evicted-placeholder-not-the-live-db
+  (testing "a RETRO pin on an epoch no longer in the ring renders the
+            evicted line, never the live db passed off as that epoch's"
+    (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
+    (seed-host-frame! {:live/only "live-value"})
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-frame :rf/default])
+      (rf/dispatch-sync
+        [:rf.xray/sync-epoch-history
+         [(mk-record :e1 [:a/b] {:counter 1} {:counter 2})]])
+      (pin-epoch! :e-gone)
+      (let [tree (panel-tree)]
+        (is (= :epoch-evicted (:status @(rf/subscribe [:rf.xray/app-db-current+diff]))))
+        (is (some? (find-by-testid tree "rf-xray-app-db-state-epoch-evicted"))
+            "the evicted placeholder must render")
+        (is (not (re-find #"live-value" (pr-str tree)))
+            "the live db must not render under an evicted pin")))))
 
 ;; ---- (8) view renders — current-state inspector -------------------------
 ;;

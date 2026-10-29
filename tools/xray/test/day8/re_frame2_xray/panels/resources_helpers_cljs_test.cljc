@@ -75,7 +75,16 @@
   (testing "a preview past the budget is cut and marked :elided?"
     (is (= {:type "string" :size 500 :preview (str "\"" (apply str (repeat 19 "x")) "…")
             :elided? true :redacted? false :large? false}
-           (h/summarize (apply str (repeat 500 "x")) {:budget 20})))))
+           (h/summarize (apply str (repeat 500 "x")) {:budget 20}))))
+  (testing "the bounded print keeps the exact prefix of a value far wider than
+            the budget, single-character elements included"
+    (doseq [v [(vec (range 20000))
+               (vec (repeat 20000 1))
+               (into {} (map (fn [i] [i (vec (range 50))])) (range 2000))]]
+      (let [{:keys [preview elided? size]} (h/summarize v {:budget 40})]
+        (is (= (str (subs (pr-str v) 0 40) "…") preview))
+        (is (true? elided?))
+        (is (= (count v) size))))))
 
 ;; ---- project-registry ----------------------------------------------------
 
@@ -631,11 +640,20 @@
                           {:resource/id :dashboard/summary :status :loaded
                            :data {} :active-owners #{[:dashboard/opened "u-99"]}})
             rows   (h/project-instances pinned now)
-            orphans (h/orphaned-owner-lint rows trace-buffer)]
+            orphans (h/orphaned-owner-lint rows trace-buffer nil)]
         (is (= [[:dashboard/opened "u-99"]] (mapv :owner orphans))))
       (testing "a route/machine/ssr owner is framework-released — not linted"
-        (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer))
-            "the route-owned fresh entry is not an app-kind owner")))))
+        (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer nil))
+            "the route-owned fresh entry is not an app-kind owner")))
+    (testing "a release counts only in the frame it was emitted under"
+      (let [rows    [{:resource-id :dash/stats :active-owners [[:dashboard/opened 1]]}]
+            release (fn [frame] {:operation :rf.resource/owner-released
+                                 :tags {:rf.frame/id frame :owner [:dashboard/opened 1]}})]
+        (is (= [{:owner [:dashboard/opened 1] :resource-id :dash/stats}]
+               (h/orphaned-owner-lint rows [(release :frame-b)] :frame-a))
+            "frame B's release leaves frame A's owner orphaned")
+        (is (= [] (h/orphaned-owner-lint rows [(release :frame-a)] :frame-a))
+            "CONTROL — frame A's own release clears it")))))
 
 ;; ---- an EMPTY infinite feed is not has-data --------------------------------
 ;;
@@ -985,6 +1003,61 @@
     (testing "descriptor identity and the fail-closed evidence survive"
       (is (= [1 [[:article "welcome"]] []]
              ((juxt :descriptor-count #(get-in % [:dispatched 0 :tags]) :unresolved) gated))))))
+
+(deftest mutation-invalidation-evidence-gates-on-the-affected-keys-too
+  (let [ev  {:id 31 :operation :rf.mutation/succeeded
+             :tags {:mutation      :article/favorite
+                    :instance      opt-instance
+                    :affected-keys [opt-affected]
+                    :invalidation
+                    {:descriptor-count 1
+                     :dispatched [{:scope session-scope :cross-scope? false
+                                   :tags [[:article "welcome"]]
+                                   :refetch-populated? true
+                                   :exempt-keys []}]
+                     :unresolved []
+                     :populate-exempt []}}}
+        row #(first (h/mutation-invalidation-evidence [ev] %))]
+    (testing "a settlement whose only sensitive key is an AFFECTED one still
+              redacts the descriptor scope, as §6 does for the same plan"
+      (is (= [true] (redacted-at (row sensitive-rids) [[:dispatched 0 :scope]]))))
+    (testing "CONTROL — ungated it prints"
+      (is (= [false] (redacted-at (row nil) [[:dispatched 0 :scope]]))))))
+
+(deftest project-instances-redacts-every-payload-of-a-sensitive-resource
+  (let [secret   "SECRET-abc123"
+        key-of   (fn [rid] [[:rf.scope/session {:user secret}] rid {:id secret}])
+        entry    (fn [rid] {:resource/id     rid
+                            :resource/key    (key-of rid)
+                            :status          :loaded
+                            :infinite?       true
+                            :data            [{:ssn secret}]
+                            :error           {:kind :rf.http/http-4xx :body {:echo secret}}
+                            :refresh-error   {:kind :rf.http/http-5xx :body {:echo secret}}
+                            :page-error      {:kind :rf.http/http-4xx :body {:echo secret}}
+                            :next-page-param {:after secret}
+                            :page-params     [nil {:after secret}]
+                            :generation      3
+                            :active-owners   #{}})
+        entries  {"kid-sensitive" (entry :article/by-slug)
+                  "kid-plain"     (entry :comments/list)}
+        rows     (h/project-instances entries 0 nil sensitive-rids)
+        row-of   (fn [rid] (some #(when (= rid (:resource-id %)) %) rows))
+        ;; Page 0's cursor is the nil seed, which has nothing to redact.
+        payloads (fn [row] (concat [(:scope row) (:params row) (:data row) (:error row)
+                                    (:refresh-error row) (:page-error row) (:cursor row)]
+                                   (rest (:page-params row))))
+        leaks?   (fn [row] (boolean (re-find (re-pattern secret)
+                                             (pr-str (map :preview (payloads row))))))]
+    (testing "every payload slot of the :sensitive? resource renders redacted"
+      (is (not (leaks? (row-of :article/by-slug)))
+          (pr-str (map :preview (payloads (row-of :article/by-slug)))))
+      (is (every? :redacted? (remove nil? (payloads (row-of :article/by-slug))))))
+    (testing "the metadata still projects from the raw entry"
+      (is (= [:loaded 3 true]
+             ((juxt :status :generation :infinite?) (row-of :article/by-slug)))))
+    (testing "CONTROL — the undeclared resource's payloads preview raw"
+      (is (leaks? (row-of :comments/list))))))
 
 (deftest optimistic-reach-lint-redacts-a-sensitive-resource-on-box
   (let [ev      {:id 40 :operation :rf.mutation/optimistic-reconciled

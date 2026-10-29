@@ -305,6 +305,12 @@
   the framework `egress-value` size walker instead."
   120)
 
+(def ^:private preview-print-level
+  "The `*print-level*` a preview prints under: deep enough that an
+  ordinary value's preview is its full print, shallow enough that a
+  wide, deep cached value prints a bounded number of elements."
+  6)
+
 (def redacted-sentinel
   "The framework sensitive-redaction sentinel. A value already redacted
   upstream (the runtime emits `:rf/redacted` for `:sensitive?` slots via
@@ -360,12 +366,20 @@
   A value already redacted/elided upstream (the runtime emits the
   framework sentinels for `:sensitive?` / `:large?` slots) keeps its
   sentinel status and renders no raw preview. NEVER returns the raw
-  value — the caller renders the summary map, not the value."
+  value — the caller renders the summary map, not the value.
+
+  The print is bounded, because this runs per row on every trace tick
+  over cached data of any size: `*print-length*` stops each collection
+  just past the point where it must overflow `budget` (so the kept
+  prefix is exact), and `*print-level*` stops depth."
   ([v] (summarize v nil))
   ([v {:keys [budget] :or {budget default-preview-budget}}]
    (let [redacted? (= v redacted-sentinel)
          large?    (= v large-elided-sentinel)
-         pr        (when-not (or redacted? large?) (pr-str v))
+         pr        (when-not (or redacted? large?)
+                     (binding [*print-length* (inc (quot budget 2))
+                               *print-level*  preview-print-level]
+                       (pr-str v)))
          elided?   (and pr (> (count pr) budget))
          preview   (cond
                      redacted? "[redacted]"
@@ -856,12 +870,26 @@
   classifies nothing in the entries: a preview reaches the screen even
   though the runtime-db never leaves the box. The on-box panel therefore
   passes the observed frame's classification
-  (`resources/on-box-resource-egress-fn`)."
+  (`resources/on-box-resource-egress-fn`).
+
+  Optional `sensitive-rids`: an entry of a `:sensitive?` resource collapses
+  EVERY payload value — scope, params, data, error, cursors — to
+  `[redacted]`, as the attempt and timeline rows for the same resource do.
+  The frame classification cannot do it alone: it lowers the coarse claim
+  onto the entry's `:data` only (Spec 016 §Resource registration spec), and
+  scope and params are identity, so it never covers them (tools/xray/spec/024
+  §2)."
   ([entries] (project-instances entries nil nil))
   ([entries now-ms] (project-instances entries now-ms nil))
-  ([entries now-ms egress-fn]
+  ([entries now-ms egress-fn] (project-instances entries now-ms egress-fn nil))
+  ([entries now-ms egress-fn sensitive-rids]
    (->> (or entries {})
-        (mapv #(instance-row % now-ms egress-fn))
+        (mapv (fn [[_ entry :as entry+key]]
+                (let [rid (or (scoped-key-resource-id (:resource/key entry))
+                              (:resource/id entry))]
+                  (instance-row entry+key now-ms
+                                (sensitive-eg egress-fn
+                                              (names-sensitive? sensitive-rids [rid]))))))
         (sort-by (juxt (comp str :resource-id) (comp - (fnil identity 0) :generation)))
         vec)))
 
@@ -1566,9 +1594,10 @@
   Pure over the trace vector. Per Spec 016.
 
   Optional `sensitive-rids`: a settlement row any of whose
-  exempt scoped keys names a `:sensitive?` resource redacts every descriptor's
-  resolved `:scope` and every exempt key on box. `:unresolved` /
-  `:descriptor-count` / `:tags` are identity and counts, never redacted."
+  exempt or affected scoped keys names a `:sensitive?` resource redacts every
+  descriptor's resolved `:scope` and every exempt key on box, as §6 does for
+  the same invalidation. `:unresolved` / `:descriptor-count` / `:tags` are
+  identity and counts, never redacted."
   ([trace-buffer] (mutation-invalidation-evidence trace-buffer nil))
   ([trace-buffer sensitive-rids]
    (->> (or trace-buffer [])
@@ -1579,7 +1608,8 @@
                   (when (and (contains? mutation-settlement-ops op) (map? inv))
                     (let [exempt-rids (->> (:dispatched inv)
                                            (mapcat :exempt-keys)
-                                           (concat (:populate-exempt inv))
+                                           (concat (:populate-exempt inv)
+                                                   (:affected-keys tags))
                                            (map scoped-key-resource-id))
                           eg          (sensitive-eg
                                         identity
@@ -1748,36 +1778,6 @@
               acc))
           {} (or trace-buffer [])))
 
-(defn- optimistic-settlement-index
-  "PURE: index the terminal settle dispositions (`:reconciled` / `:rolled-back`)
-  by `[<frame> <snapshot-id>]`, so an `:applied` row can be paired with its
-  outcome. Each value is `{:outcome (:reconciled|:rolled-back) :id <trace-id>}`
-  (the LAST terminal seen for a key wins, though a snapshot settles exactly once
-  in practice). Apply rows with no terminal settle and no supersession row are
-  left `:pending` — see `optimistic-supersession-index` for the third case.
-
-  THE FRAME IS PART OF THE KEY for the same reason it is part of the
-  supersession index's, and the reason is easy to miss here because
-  a `:snapshot-id` LOOKS opaque enough to be unique. It is not: the runtime
-  derives it from the mutation instance id plus the generation and nothing else,
-  both of them frame-local, so it INHERITS that collision rather than escaping
-  it. Two frames settling the same instance at the same generation therefore
-  mint the same `:snapshot-id`, and on this panel's deliberately cross-frame
-  buffer frame B's reconcile would settle frame A's apply."
-  [trace-buffer]
-  (reduce (fn [acc ev]
-            (let [op (trace-op ev)]
-              (if (or (= op optimistic-reconcile-op) (= op optimistic-rollback-op))
-                (let [sid (:snapshot-id (trace-tags ev))]
-                  (cond-> acc
-                    (some? sid)
-                    (assoc [(trace-frame ev) sid]
-                           {:outcome (if (= op optimistic-reconcile-op)
-                                       :reconciled :rolled-back)
-                            :id      (:id ev)})))
-                acc)))
-          {} (or trace-buffer [])))
-
 (defn- rollback-disposition-summary
   "Summarize ONE `:rf.mutation/optimistic-rolled-back` per-key disposition
   `{:resource/key … :restored (bool) :conflict (bool) :on-conflict …}` for a
@@ -1849,15 +1849,14 @@
   ([trace-buffer] (optimistic-lifecycle trace-buffer nil))
   ([trace-buffer sensitive-rids]
   (let [buffer    (or trace-buffer [])
-        settle-ix (optimistic-settlement-index buffer)
         super-ix  (optimistic-supersession-index buffer)
-        ;; index the terminal settle EVENTS by [frame snapshot-id] so the apply
-        ;; row can pull the matching facets (committed / restored / … ). Keyed
-        ;; exactly as `optimistic-settlement-index` is and for the same reason;
-        ;; a bare snapshot-id would let a FOREIGN frame's settle lend this
-        ;; apply the keys IT committed, which is the worse half of the collision
-        ;; — a wrong `:outcome` at least reads as a settlement, where a borrowed
-        ;; `:committed` list reads as this mutation's own evidence.
+        ;; The terminal settle EVENTS (reconcile / rollback) by
+        ;; `[frame snapshot-id]`: the apply row reads its outcome and its
+        ;; facets (committed / restored / …) off the matching one. The runtime
+        ;; derives a `:snapshot-id` from the frame-local instance id and
+        ;; generation, so the frame belongs in this key too (see
+        ;; `optimistic-supersession-index`). The last terminal seen for a key
+        ;; wins, though a snapshot settles exactly once in practice.
         terminal-by-key
         (reduce (fn [acc ev]
                   (let [op (trace-op ev)]
@@ -1872,21 +1871,21 @@
                  (let [tags     (trace-tags ev)
                        sid      (:snapshot-id tags)
                        instance (:instance tags)
-                       ;; Every lookup below is scoped to THIS apply's own
-                       ;; frame. The buffer is deliberately cross-frame and
-                       ;; each of instance / work-id / generation / snapshot-id
-                       ;; is frame-local, so the frame is what makes an otherwise
-                       ;; exact-looking join actually exact.
+                       ;; Every lookup below is scoped to THIS apply's own frame.
                        frame    (trace-frame ev)
+                       term-ev  (get terminal-by-key [frame sid])
                        ;; A settle op wins over a supersession row: an apply
                        ;; that DID reconcile or roll back has its own terminal,
                        ;; and a later reply for the same instance being
                        ;; suppressed says nothing about it.
-                       settled  (or (get settle-ix [frame sid])
+                       settled  (or (when term-ev
+                                      {:outcome (if (= optimistic-reconcile-op (trace-op term-ev))
+                                                  :reconciled
+                                                  :rolled-back)
+                                       :id      (:id term-ev)})
                                     (get super-ix [:work frame instance (:work/id tags)])
                                     (get super-ix [:gen frame instance (:generation tags)]))
                        outcome  (:outcome settled :pending)
-                       term-ev  (get terminal-by-key [frame sid])
                        term     (trace-tags term-ev)
                        eg       (sensitive-eg
                                   identity
@@ -2055,13 +2054,16 @@
   nav supersession, machine on actor destroy, ssr on request teardown),
   so only APP-kind owners are linted here.
 
-  `instance-rows` supplies the live `:active-owners`; `trace-buffer`
-  supplies the observed `:rf.resource/owner-released` events. Returns
+  `instance-rows` supplies `frame`'s live `:active-owners`; `trace-buffer`
+  supplies the observed `:rf.resource/owner-released` events, counted only
+  when emitted under `frame`, because an owner id is frame-local and a
+  release in another frame frees nothing here. Returns
   `[{:owner <owner> :resource-id R}]` for each app-kind owner still
   pinning an entry with no release seen. Pure."
-  [instance-rows trace-buffer]
+  [instance-rows trace-buffer frame]
   (let [released (->> (or trace-buffer [])
-                      (filter #(= :rf.resource/owner-released (trace-op %)))
+                      (filter #(and (= :rf.resource/owner-released (trace-op %))
+                                    (= frame (trace-frame %))))
                       (keep #(:owner (trace-tags %)))
                       (into #{}))
         app-kind? (fn [owner]
@@ -2088,20 +2090,18 @@
   `:committed` keys and `:reconciliation-refetches`, minus the
   `:affected-keys` on the `:rf.mutation/succeeded` settlement of the same
   FRAME, instance and work id (the union survives that settlement row having
-  left the buffer, since both reconcile facets are subsets of it). The frame
-  is part of that identity because instance and work id are both frame-local
-  — see `optimistic-supersession-index` for the full reasoning.
+  left the buffer, since both reconcile facets are subsets of it).
 
   A key in a scope the write-side `:rf.warning/mutation-scope-mismatch`
   tripwire already named as `:other-scope` for the same mutation IN THE SAME
   FRAME is left to that warning: a wrong-scope descriptor gets one diagnostic,
-  not two. The frame is part of THAT identity for the same reason it is part
-  of the settlement one.
+  not two.
 
   Informational and dedupe-keyed on `[frame mutation instance missing-keys]`
   (raw keys, not their summaries), so a settled instance seen twice is one
-  row, while the SAME instance id in two frames stays two rows — it is two
-  different mutations that happen to share a frame-local name:
+  row. Every join and the dedupe key lead with the frame, for the reason
+  `optimistic-supersession-index` gives; here a missing frame fails in the
+  reassuring direction, a finding silently erased by another frame's rows:
 
       [{:id           <reconciled trace id>
         :mutation     :realworld/favorite-article
@@ -2120,12 +2120,6 @@
   ([trace-buffer] (optimistic-reach-lint trace-buffer nil))
   ([trace-buffer sensitive-rids]
   (let [buffer (or trace-buffer [])
-        ;; Keyed by [frame instance work-id] — as the two optimistic
-        ;; settlement indexes above are, and for the same reason: instance
-        ;; and work-id are both frame-local, so without the frame a
-        ;; settlement in ANOTHER frame would answer for this one and the
-        ;; finding would simply disappear. That is the reassuring
-        ;; direction for a lint — silence reads as a clean panel.
         affected-by-work
         (reduce (fn [acc ev]
                   (if (= :rf.mutation/succeeded (trace-op ev))
@@ -2134,14 +2128,6 @@
                               (fnil into #{}) (:affected-keys tags)))
                     acc))
                 {} buffer)
-        ;; Keyed by [frame mutation other-scope] — as `affected-by-work`
-        ;; above is, for the same reason.
-        ;; A wrong-scope descriptor is a property of the frame that dispatched
-        ;; it, so keyed without the frame a warning in ANOTHER frame would
-        ;; erase this frame's finding outright. Reassuring direction again,
-        ;; and a worse one than the join above: there the finding would
-        ;; merely go missing, here a DIFFERENT diagnostic's existence would
-        ;; delete it.
         warned-scopes
         (into #{}
               (comp (filter #(= :rf.warning/mutation-scope-mismatch (trace-op %)))
@@ -2166,11 +2152,6 @@
                                    (sort-by pr-str)
                                    vec)]
                   (when (seq missing)
-                    ;; The frame leads the dedupe key because
-                    ;; `mutation`, `instance` and the missing keys are all
-                    ;; frame-local: without it, two frames' genuinely
-                    ;; independent findings would read as one finding seen
-                    ;; twice and the reducer below would drop the second.
                     {:dedupe-key   [(trace-frame ev) mutation instance missing]
                      :id           (:id ev)
                      :mutation     mutation

@@ -454,12 +454,9 @@ defmachine).
   is mounted by the Static Machines surface; the
   `:rf.xray.static.machines/sim-*` engine events / subs are
   registered against the `:rf/xray` frame from that ns.
-- No per-instance arc overlay; no mini-scrubber. The
-  `:rf.xray/machine-scrubber-position` SLOT survives (read/write
-  events still registered) because the `:after`-rings overlay reads it
-  to gate ring rendering to the `:present` position; the scrubber UI
-  itself is gone. (rf2-nugvv removed the share-URL surface that
-  previously also round-tripped it.)
+- No per-instance arc overlay; no mini-scrubber, and no scrubber slot.
+  The `:after`-rings overlay gates on the spine focus instead: it draws
+  nothing while the focus is `:retro` (§M.2).
 - No Browse-all UI entry. The browse-all index algebra in the
   helpers ns remains for the Static re-host.
 
@@ -1761,10 +1758,7 @@ state-trajectory:
 
 Design reference; nothing here ships either. The Dynamic panel renders
 no mini-scrubber — no slider, no present button, no per-instance
-rewind. What exists is the `:rf.xray/machine-scrubber-position` slot,
-which reads `:present` unless `:rf.xray/set-scrubber-position` writes an
-index into it. No Xray view writes it, and the `:after`-rings overlay
-reads it to gate ring rendering to the `:present` position.
+rewind, and no scrubber-position slot.
 
 The design lets the user rewind ONE focused machine instance without
 affecting the rest of Xray:
@@ -2177,9 +2171,12 @@ node has a **thin countdown ring** with an animated arc representing
 time-elapsed/total. Starts at 12 o'clock, rotates clockwise to fill.
 
 - **Live mode:** the ring animates in real time.
-- **Retro mode (scrubber-driven):** the ring is static at the
-  elapsed-fraction the timer had reached at the focused-cascade's
-  timestamp.
+- **Retro mode** (the spine focus pinned to a past event, `:mode
+  :retro`): **no ring is drawn**, and the tick clock stops. The rings
+  fold the whole trace buffer, which already holds every timer's later
+  fate, so drawing them over a past epoch would put the present's timers
+  on the past's states. A frozen ring at the focused cascade's instant
+  needs a fold bounded at that instant; it is not built.
 - **Stale timer** (epoch mismatch): **no ring is drawn.** A
   `:rf.machine.timer/stale-after` closes the record as `:stale`, and
   closed records (`:fired`, `:stale`, `:guard-suppressed`, `:skipped`)
@@ -2200,24 +2197,16 @@ writes the hover to an app-db slot, but no sub reads it and clicking a
 ring does nothing. The popover's intended fields were `:scheduled-at`, `:delay`,
 `:epoch`, `:delay-source` (`:literal` / `:fn` / `:named`).
 
-**Affordance:** `:after` countdown rings + scrubber-aware retro-replay
+**Affordance:** live `:after` countdown rings
 (M-C2). Time IS the bug surface; the ring makes wall clock visible on a
 tool that previously rendered only the snapshot. **Stately doesn't ship
 this. Nobody does.**
 
-**v1 ships:** no rings (transition-history ribbon only). **Future:** the
-full countdown-ring system + retro-replay (Phase 2 per
-[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §6).
-
-> **Shipped (rf2-7hwwe, parent rf2-2tkza).** The countdown-ring system
-> above landed — `panels/machine-after-rings.cljs` + `panels/machine-
-> after-rings-helpers.cljc`. The retro-mode anchor (freeze at the
-> elapsed-fraction reached at the focused-cascade's timestamp) was
-> itself bugged until rf2-8i1tg3: the view fed the live wall clock into
-> the ring projection unconditionally, so leaving `:present` mode froze
-> the ring wherever the live clock last sat rather than at the focused
-> cascade. `machine-after-rings-helpers/resolve-now-ms` now branches on
-> `scrubber-position` to supply the correct anchor.
+**Implementation:** `panels/machine_after_rings.cljs` (the overlay and
+its tick clock — one rAF loop per frame, gated on that frame's mounted
+overlays) and `panels/machine_after_rings_helpers.cljc` (the pure fold,
+ring maths and tick predicate). Retro replay is the unbuilt part of
+Phase 2 per [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §6.
 
 ### M.3 — Cancellation cascade ambiguity
 

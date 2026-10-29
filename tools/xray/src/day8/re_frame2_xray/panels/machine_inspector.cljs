@@ -197,19 +197,27 @@
   actors' snapshot paths (`:source :machine`, Spec 015 §Subsystem
   projection-relative classification) — there is no frame `:sensitive` /
   `:large {:app-db …}` annotation. A frame that classifies no matching
-  `:data` path leaves the snapshot unchanged. Returns the redacted snapshot
-  (or the input verbatim when it is not a map, or when redaction is
-  unavailable)."
+  `:data` path leaves the snapshot unchanged. Returns the redacted snapshot,
+  or the input verbatim when it is not a map.
+
+  Fails closed: when the projection throws or answers no snapshot, `:data`
+  becomes `:rf/redacted` rather than riding raw, because the trace path
+  this mirrors never shows an unprojected snapshot either (Spec 015
+  §Direct reads)."
   [frame-id machine-id snapshot]
   (if-not (map? snapshot)
     snapshot
-    (let [ev  {:operation :rf.machine/snapshot-updated
-               :tags      {:machine-id machine-id
-                           :frame      frame-id
-                           :snapshot   snapshot}}
-          out (try (rf.classification/project-trace-event ev)
-                   (catch :default _ ev))]
-      (or (get-in out [:tags :snapshot]) snapshot))))
+    (let [ev        {:operation :rf.machine/snapshot-updated
+                     :tags      {:machine-id machine-id
+                                 :frame      frame-id
+                                 :snapshot   snapshot}}
+          projected (try (get-in (rf.classification/project-trace-event ev)
+                                 [:tags :snapshot])
+                         (catch :default _ nil))]
+      (if (map? projected)
+        projected
+        (cond-> snapshot
+          (contains? snapshot :data) (assoc :data :rf/redacted))))))
 
 (defn- redact-live-snapshots
   "Redact a `{machine-id snapshot}` map of LIVE snapshots, per-slot, so a
@@ -515,8 +523,7 @@
                                    [:rf.xray/machine-state-clicked
                                     {:machine-id machine-id
                                      :path       path}]
-                                   {:frame frame}))
-           :show-after-rings?  true}]]])]))
+                                   {:frame frame}))}]]])]))
 
 ;; ---- prev/next nav (per-machine epoch walking) -------------------------
 
@@ -886,13 +893,9 @@
 ;; wraps the panel in is what puts `:rf/xray` in that context.
 ;;
 ;; The Tier 4 sub-component (the after-rings overlay) renders UNDER
-;; `Panel` and is not independently mountable, so it needs no bridge of
-;; its own for this panel. It does carry one
-;; (`machine_after_rings/AfterRingsOverlay-bridge`), but NOT for this
-;; panel's sake: `machine-canvas/Chart-view` is a boundary and heads the
-;; overlay directly. The bridge serves the `reg-view`
-;; `machine-canvas/Chart`, which the two Static Reagent-island consumers
-;; head.
+;; `Panel` and is not independently mountable, so it needs no bridge:
+;; `machine-canvas/Chart-view` is a boundary and heads the overlay
+;; directly.
 ;;
 ;; NOT SCAFFOLDING — THE PAIR IS PERMANENT. `panels/mount-machine-inspector!`
 ;; reaches this bridge through `render-panel!`, which is ratom-family,
@@ -1016,8 +1019,6 @@
     - the per-machine projection composite (`:rf.xray/machine-inspector-data`)
     - the focused-event lens composite (`:rf.xray/machine-transitions-for-focused-event`)
     - the per-machine prev/next nav events
-    - the scrubber-position slot (read by the `:after`-rings overlay to
-      gate ring rendering to the `:present` position)
     - the rings install (`:after` countdown ring overlay)
 
   The Sim engine + UI live in `static.machines.sim`, installed via
@@ -1041,9 +1042,8 @@
   ;; (the `re-frame.classification` trace projection) the trace stream rides. The
   ;; trace-derived `:before` / `:after` the mini-pipeline renders ARE
   ;; redacted at emit (epoch-capture sees the projected event), but a
-  ;; consumer reading THIS sub directly (the chart's live-snapshot
-  ;; `:current-state-override` `:data`, after-rings, sim) would see RAW
-  ;; `:data`. So each live snapshot is routed through the SAME
+  ;; consumer reading THIS sub directly (the Static Machines panel) would
+  ;; see RAW `:data`. So each live snapshot is routed through the SAME
   ;; `project-trace-event` chokepoint as a synthetic
   ;; `:rf.machine/snapshot-updated` event STAMPED with the OBSERVED frame:
   ;; a FRAME-declared sensitive `:data` path lands as `:rf/redacted`, a
@@ -1152,24 +1152,18 @@
   ;; numbered machine-cascade itself. The Machine tab subscribes to this
   ;; sub for those events; Prev/Next moves the spine focus, which moves
   ;; the resolved focused epoch, which re-feeds BOTH this mini-pipeline
-  ;; AND the chart highlights together. `:event-id` is the head record's
-  ;; machine-id — the `:event` handler id `handler-meta` resolves so the
-  ;; cascade rows' guard / action source-coords resolve identically to
-  ;; the Epoch panel.
+  ;; AND the chart highlights together.
   (rf/reg-sub :rf.xray/machine-focused-epoch-cascade
     {:inputs [[:rf.xray/focus]
-              [:rf.xray/epoch-history]
-              [:rf.xray/machine-transitions-for-focused-event]]}
-    (fn [[focus history records] _query]
-      (let [record   (h/focused-epoch-record history focus)
-            events   (when record (:trace-events record))
-            event-id (some-> records first :machine-id)]
+              [:rf.xray/epoch-history]]}
+    (fn [[focus history] _query]
+      (let [record (h/focused-epoch-record history focus)
+            events (when record (:trace-events record))]
         {;; The projected machine-cascade rows the SHARED mini-pipeline
          ;; renders — the SAME `machine-cascade-rows` projection the
          ;; Epoch panel's HANDLER row uses (`projection/handler-row`),
          ;; so the two surfaces are byte-for-byte identical.
-         :cascade  (epoch-proj/machine-cascade-rows (or events []))
-         :event-id event-id})))
+         :cascade (epoch-proj/machine-cascade-rows (or events []))})))
 
   ;; Test-only seeding events for the focused-event composite
   ;; (`:rf.xray/set-epoch-history-for-test`, `:rf.xray/set-focus-epoch-
@@ -1359,31 +1353,6 @@
         {:db (cond-> (assoc db :selected-machine-id machine-id)
                (some? machine-id) (focus-latest-for-machine machine-id))})))
 
-  ;; ---- scrubber-position slot ----------
-
-  ;; There is no scrubber UI; the slot exists because the `:after`-rings
-  ;; overlay reads it
-  ;; (`machine_after_rings*` gate ring rendering to the `:present`
-  ;; position). Reads default to `:present`. The companion `set-scrubber-
-  ;; position` event keeps the contract bidirectional.
-  (rf/reg-sub :rf.xray/machine-scrubber-position
-    (fn [db _query]
-      (get db :machine-inspector/scrubber-position :present)))
-
-  (rf/reg-event :rf.xray/set-scrubber-position
-    (fn [{:keys [db]} [_ position]]
-      {:db (cond
-        (= :present position)
-        (assoc db :machine-inspector/scrubber-position :present)
-
-        (integer? position)
-        (assoc db :machine-inspector/scrubber-position position)
-
-        (nil? position)
-        (assoc db :machine-inspector/scrubber-position :present)
-
-        :else db)}))
-
   ;; ---- Sim engine ------------------------------------------------
   ;;
   ;; The Sim engine + UI live under `static.machines.sim` (the
@@ -1419,13 +1388,15 @@
 (defn install-test-overrides!
   "Install the Machine Inspector panel's test-only override seam:
 
-    - `:rf.xray/set-registered-machines-override-for-test`,
-      `:rf.xray/set-machine-snapshots-override-for-test`,
+    - `:rf.xray/set-registered-machines-override-for-test` and
       `:rf.xray/set-machine-definitions-override-for-test` — override
-      events + companion `*-override` subs, with the production
-      `:rf.xray/registered-machines` / `:rf.xray/machine-snapshots` /
-      `:rf.xray/machine-definitions` subs RE-registered to layer the
-      override read on top.
+      events, with the production `:rf.xray/registered-machines` /
+      `:rf.xray/machine-definitions` subs RE-registered to read the
+      override first.
+    - `:rf.xray/set-machine-snapshots-override-for-test` — an override
+      event and its `:rf.xray/machine-snapshots-override` sub, which the
+      Static Machines panel reads beside the production
+      `:rf.xray/machine-snapshots` (left as registered).
     - `:rf.xray/set-epoch-history-for-test`,
       `:rf.xray/set-focus-epoch-id-for-test` — pure SEEDING events that
       write the real `:epoch-history` / `:focus` slots (no override sub).

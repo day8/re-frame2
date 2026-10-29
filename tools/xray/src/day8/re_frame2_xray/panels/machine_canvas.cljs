@@ -8,10 +8,11 @@
   The chart adapter — a thin wrapper around `mv-chart/MachineChart` that
   wires the focused-event lens from-state / to-state highlights, the
   on-state-click dispatch, and the after-rings overlay: one body,
-  `chart-tree`, behind TWO heads: `Chart` for a Reagent parent and
-  `Chart-view` for a Fresco boundary. `chart-tree`'s docstring carries
-  why both are needed and what differs between them. It registers no
-  subs, events or fx.
+  `chart-tree`, behind TWO heads: `Chart` for a Reagent parent (the
+  Static surfaces, which draw no rings) and `Chart-view` for a Fresco
+  boundary (the Dynamic panel, which does). `chart-tree`'s docstring
+  carries why both are needed and what differs between them. It
+  registers no subs, events or fx.
 
   ## What this does not own
 
@@ -35,15 +36,14 @@
   to find each bearing node's bounding box and absolute-positions a
   ring there. No special wiring needed from this ns — the overlay
   is mounted as a sibling of the chart and reads the DOM itself.
+  `Chart-view` mounts it; `Chart` does not, because its callers are the
+  Static surfaces, which have no live focused event to time.
 
   ## Static-mode parity
 
   The static topology consumer (`static/machines/topology.cljs`)
   embeds this `Chart` view too, so zoom + pan + fit are uniform
-  across Static and Dynamic. Static callers pass:
-
-    :show-after-rings?      false  — no live focused event on static.
-    :testid                 \"rf-xray-static-machines-topology\""
+  across Static and Dynamic."
   (:require [re-frame.core :as rf]
             ;; `debug-enabled?` gates the `reg-view` below,
             ;; so a release bundle that mis-ships the preload registers
@@ -95,9 +95,9 @@
   ## Why there are two heads rather than one
 
   `Chart` answers hiccup, but that hiccup is NOT head-free: it mounts
-  `mv-chart/MachineChart`, a Reagent component, and the after-rings
-  overlay. So the standard HD-016 repair — inline it into the calling
-  boundary — cannot terminate here, and the door is Fresco's component
+  `mv-chart/MachineChart`, a Reagent component. So the standard HD-016
+  repair — inline it into the calling boundary — cannot terminate here,
+  and the door is Fresco's component
   ABI: a React ELEMENT is a legal child anywhere.
 
   `Chart` cannot simply BE [[Chart-view]], because two of its
@@ -126,11 +126,9 @@
   not Xray's. So this is a REAL island with a defined end, and the end is
   not in this tree.
 
-  `overlay` is the after-rings mount, which differs by HEAD rather than by
-  wrapping and so cannot ride `as-child`: the Reagent lane heads
-  `after-rings/AfterRingsOverlay-bridge`, the boundary heads the
-  `rf.fresco/defview` directly. It is used only when
-  `:show-after-rings?` is on, so a caller may build it unconditionally.
+  `overlay` is the after-rings mount, or nil for none. [[Chart-view]]
+  heads the `rf.fresco/defview` directly; [[Chart]] passes nil, because
+  its only callers are the Static surfaces.
 
   Args (map):
 
@@ -190,9 +188,6 @@
                           edge's label is clicked. The Static Machines
                           on-chart sim wires this to `sim-step`.
     :on-state-click     — `(fn [path] ...)` invoked on node click.
-    :show-after-rings?  — when true (default) overlay the
-                          `:after`-timer countdown rings. Dynamic
-                          keeps true; Static passes false.
     :show-controls?     — when true (default) render xyflow's built-in
                           zoom/pan/fit Controls inside the chart.
     :fit-signal         — Opaque fit-on-entry nonce forwarded
@@ -217,11 +212,9 @@
            fired-edge-ids guard-blocked-edge-ids context-band
            context-band-inferred?
            sim? on-state-click on-edge-click
-           show-after-rings?
            show-controls? theme testid inner-testid
            fit-signal]
     :or   {context-band-inferred?  true
-           show-after-rings?       true
            show-controls?          true
            ;; Xray's surface is dark; the chart `:theme`
            ;; defaults to `@default-chart-theme` (`:dark`). Held in a
@@ -290,14 +283,7 @@
    ;; The overlay walks the chart's node DOM by data-testid to find bbox
    ;; positions; no positioned-graph prop is needed (xyflow
    ;; owns positions internally).
-   ;;
-   ;; The overlay is an `rf.fresco/defview`, so WHICH head
-   ;; mounts it is the caller's to decide and arrives as `overlay`: a
-   ;; Reagent tree cannot head a boundary and takes the `as-component`
-   ;; bridge, while [[Chart-view]] heads the boundary itself. Building the
-   ;; value is free, so callers build it unconditionally and this is the
-   ;; only place `:show-after-rings?` is read.
-   (when show-after-rings? overlay)])
+   overlay])
 
 ;; ---- the two public heads -----------------------------------------------
 
@@ -309,7 +295,8 @@
 
     One call to [[chart-tree]] and nothing else; that fn's docstring carries
     the args, the two spellings, and why [[Chart-view]] cannot replace
-    this head.
+    this head. It mounts no after-rings overlay: a Static chart has no
+    live focused event whose timers it could time.
 
     Registered via `reg-view` so a Reagent parent can HEAD it, which a
     boundary cannot offer. This body performs no read at all, so nothing
@@ -317,16 +304,16 @@
 
     Returns hiccup."
     [props]
-    (chart-tree props identity [after-rings/AfterRingsOverlay-bridge])))
+    (chart-tree props identity nil)))
 
 (rf.fresco/defview Chart-view
   "[[Chart]], for a caller that is already a Fresco boundary —
   `panels/machine_inspector.cljs`'s ELEMENT 3.
 
   Same value, same props, same renderer; the ONLY differences are the head
-  and the two spellings [[chart-tree]] takes — `substrate/as-element` for
-  the machines-viz mount, and the after-rings boundary headed directly
-  rather than through its `as-component` bridge.
+  and the two arguments [[chart-tree]] takes — `substrate/as-element` for
+  the machines-viz mount, and the after-rings boundary, which only this
+  head draws.
 
   NO `:mount-id`, and that is a property of this widget rather than an
   omission: a boundary cannot mint its own per-mount identity, but this

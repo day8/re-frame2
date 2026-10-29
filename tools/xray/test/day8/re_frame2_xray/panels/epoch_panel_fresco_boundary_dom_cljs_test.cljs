@@ -29,15 +29,11 @@
   on the first render — loudly, which is why W1 asserting the panel painted
   at all is already most of that claim.
 
-  The second read is the narrow parent-epoch index rather than
-  `:rf.xray/selected-epoch-record`, a second read of the RAW epoch record:
-  that would route around the redaction seam the pipeline sub applies to
-  the record's `:db-before` / `:db-after`, and would disagree with the
-  pipeline besides (it is deliberately head-fallback-free, so under
-  head-fallback the cascade would render the head epoch while the `:db`
-  diff beside it got nil). The cascade takes its record from the
-  pipeline's own `:record`, and the parent-epoch link — the one thing here
-  that genuinely needs the epoch ring — gets its own narrow sub.
+  The cascade takes its record from the pipeline's own `:record`, which
+  the pipeline sub has already projected, rather than from a second read
+  of the record: one record for one panel, and no raw one in the view. The
+  parent-epoch link — the one thing here that genuinely needs the epoch
+  ring — gets its own narrow sub.
 
   ## The mount is the SHELL's mount, taken from the registry
 

@@ -96,8 +96,8 @@
 ;; recordable leaf). `:rf/time-ms` is framework-stamped + always recordable,
 ;; handled verbatim by the projection independent of this set. A
 ;; parameterized `[id arg]` requirement delivers under the bare `id`, so we
-;; key on the leaf id. Fail-soft: any registry lookup that throws degrades
-;; to nil → the projection's show-all fallback rather than crashing.
+;; key on the leaf id. The store read answers an ambiguous id as
+;; unregistered (`host-registrar/store-meta`), so no lookup throws.
 
 (defn- requires-leaf-id
   "The bare cofx leaf id of one `:rf.cofx/requires` entry — a keyword
@@ -112,7 +112,7 @@
 (defn- recordable-cofx-id?
   "True iff `cofx-id` is registered as a RECORDABLE-grade coeffect
   (`:recordable? true` on its `reg-cofx` metadata). `:rf/time-ms` is the
-  framework's always-recordable provided fact. Fail-soft on lookup error."
+  framework's always-recordable provided fact."
   [cofx-id]
   (or (= cofx-id :rf/time-ms)
       (boolean
@@ -121,83 +121,58 @@
 (defn resolve-event-recordables
   "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017
   §9): the bare cofx ids of `:rf.cofx/requires` whose cofx
-  registration is recordable-grade. nil when the event is unregistered or
-  declares no recordable requirements — the projection then falls back to
-  its documented show-all behaviour. The RECORDABLE COEFFECTS lens uses this
-  set to filter the raw token's `:rf.cofx` leaves down to what the handler
-  declared + received, so an undeclared leaf that merely rode the token is
-  not falsely presented as a recordable input."
+  registration is recordable-grade. A registered event that declares none
+  answers `#{}`, so the lens shows no leaf it was not delivered. nil only
+  when the event is unregistered (or ambiguous in the host registrar) — the
+  projection then falls back to its show-all behaviour, having nothing to
+  filter against. The RECORDABLE COEFFECTS lens uses this set to filter
+  the raw token's `:rf.cofx` leaves down to what the handler declared +
+  received, so an undeclared leaf that merely rode the token is not
+  falsely presented as a recordable input."
   [event-id]
   (when (some? event-id)
-    (let [meta     (host-registrar/store-meta :event event-id)
-          requires (:rf.cofx/requires meta)]
-      (when (seq requires)
-        (let [recordables (into #{}
-                                (comp (keep requires-leaf-id)
-                                      (filter recordable-cofx-id?))
-                                requires)]
-          (when (seq recordables)
-            recordables))))))
+    (when-let [meta (host-registrar/store-meta :event event-id)]
+      (into #{}
+            (comp (keep requires-leaf-id)
+                  (filter recordable-cofx-id?))
+            (:rf.cofx/requires meta)))))
 
-;; ---- render-side egress for the record's db snapshots --------------------
+;; ---- render-side egress for the record's state snapshots -----------------
 ;;
-;; THE EPOCH RECORD'S `:db-before` / `:db-after` ARE RAW APP-DB. The
-;; epoch assembler (`re-frame.epoch.assembly/build-record`) takes them
-;; straight from the app partition of the frame-state captured before and
-;; after the cascade, with no elision on the way, and the HANDLER step's `:db` sub-section hands BOTH to the shared
-;; edn-inspector (`view/handler-db-diff-block`: `:value` the post-handler
-;; db, `:before` the record's `:db-before`). Nothing between the two
-;; applies the observed frame's `:sensitive` policy, so without this seam
-;; the panel would print the WHOLE app-db — declared-sensitive slots
-;; included — for a record the App-DB tab redacts.
+;; The epoch record's `:db-before` / `:db-after` and frame-state pair are RAW
+;; frame state (`re-frame.epoch.assembly/build-record` captures them with no
+;; elision), and the HANDLER step's `:db` sub-section hands them to the shared
+;; edn-inspector (`view/handler-db-diff-block`). So the pipeline projects them
+;; before the view sees the record, each under the classification it was
+;; RECORDED with (`local-render/local-render-record-state`, Spec 015 §Retained
+;; values keep their recorded classification): a path a since-replaced
+;; classification marked `:sensitive` stays redacted.
 ;;
-;; The Trace panel closes the same gap through
-;; the same seam (`local-render/local-render-value`, the projection the
-;; App-DB tab applies); here it is WIDER: the Trace panel's exposure is
-;; the CHANGED PATHS of a diff, this one's the whole tree.
+;; Large values are elided here (`:rf.egress/include-large? false`), unlike
+;; the App-DB tab. The HANDLER `:db` diff's post-handler side is the t1
+;; trace snapshot, which the framework elided at emit under the frame's
+;; classification (`re-frame.classification`'s `:rf.event/db` projection), so
+;; both sides of the one diff must take the same policy or every large path
+;; reads as changed.
 ;;
-;; The upstream `epoch/redact-history` ingest gate does NOT make this
-;; redundant. That gate drops a record whole on its stamped
-;; `:rf.epoch/sensitive?` rollup; this projects the values a SURVIVING
-;; record carries — a record with no rollup slot at all (a synthetic
-;; history seeded through `:rf.xray/sync-epoch-history`), or one whose
-;; rollup was computed before the app classified the path.
-;;
-;; WHAT THIS SEAM DOES NOT RECOVER, stated plainly because it is a real
-;; residual and not an oversight: the edn-inspector derives its diff
-;; annotations by comparing `:value` against `:before`, and both sides
-;; are projected, so a declared-sensitive leaf that CHANGED reads as
-;; unchanged — both sides are the same `:rf/redacted` sentinel. The path
-;; and its withheld-ness stay on screen (the inspector paints the
-;; sentinel as a first-class chip), so nothing VANISHES — the failure the
-;; Trace panel has to engineer around, where rows derived FROM the diff
-;; would disappear with it. Keeping the
-;; change-signal here would mean a second sentinel meaning "changed but
-;; withheld", i.e. new vocabulary in the shared inspector, which is
-;; outside this panel and more machinery than the residual is worth.
-;;
-;; Absent slots are left absent rather than projected: an added
-;; `:db-after` would turn the view's honest "— db-after not available in
-;; epoch record" line into a redaction chip over data that was never
-;; there.
+;; The `epoch/redact-history` ingest gate does not make this redundant: it
+;; drops a record whole on its `:rf.epoch/sensitive?` rollup, and this projects
+;; the values a surviving record carries. A declared-sensitive leaf that
+;; changed reads as unchanged (both sides are `:rf/redacted`); the path and
+;; its redaction chip stay on screen, and the App-DB tab's redacted-modified
+;; count is where the suppressed change surfaces (tools/xray/spec/004 §Count
+;; semantics). Absent slots stay absent, so the view's "db-after not
+;; available" line is never replaced by a chip over data that was not there.
 
 (defn- redact-record-db
-  "Project an epoch record's raw `:db-before` / `:db-after` snapshots
-  through `observed-frame`'s egress policy, leaving every other slot
-  untouched. nil record in, nil record out.
-
-  Fail-closed, inherited whole from `local-render-value`: a nil /
-  destroyed / never-registered observed frame redacts the WHOLE
-  snapshot rather than ship it raw under no policy."
+  "Project `record`'s state snapshots for the Epoch panel's on-box render
+  under the classification each was recorded with, eliding large values as
+  the emit-time trace snapshots are, and leave every other slot untouched.
+  nil record in, nil record out. Fail-closed: a nil / destroyed /
+  never-registered observed frame redacts each snapshot whole."
   [record observed-frame]
-  (if (nil? record)
-    record
-    (cond-> record
-      (contains? record :db-before)
-      (update :db-before local-render/local-render-value observed-frame)
-
-      (contains? record :db-after)
-      (update :db-after local-render/local-render-value observed-frame))))
+  (local-render/local-render-record-state record observed-frame
+                                          {:rf.egress/include-large? false}))
 
 ;; ---- public Panel surface ------------------------------------------------
 
@@ -229,9 +204,6 @@
     - `:rf.xray.epoch/parent-epoch-index` sub (the narrow parent link)
     - `:rf.xray/epoch-pipeline` composite sub (focused record + observed
       frame → projection rows + focus-status)
-    - `:rf.xray.epoch/expanded-rows` sub
-    - `:rf.xray.epoch/toggle-row-expand` event
-    - `:rf.xray.epoch/clear-row-expand` event
     - L4 tab registration (`:epoch`, mnem `e`, order 5)
 
   `:rf.xray/focused-epoch-record` joins the spine's `:rf.xray/focus`
@@ -338,12 +310,9 @@
                         resolve-event-recordables}))]
         {:status         status
          :epoch-id       epoch-id
-         ;; The REDACTED record. The view reads `:db-before` / `:db-after`
-         ;; off this for the HANDLER step's `:db` diff and must not reach
-         ;; the raw one — which is why the view does not subscribe to
-         ;; `:rf.xray/selected-epoch-record` for it (that sub answers the
-         ;; raw record, and reaching it here would route straight around
-         ;; the seam above).
+         ;; The PROJECTED record. The view reads `:db-before` / `:db-after`
+         ;; off this for the HANDLER step's `:db` diff, so it never holds the
+         ;; raw one.
          :record         record
          ;; The TOOL-SIDE outcome (`:ok` / `:error`) derived
          ;; from the projected steps (any step carrying an exception or
@@ -354,34 +323,6 @@
          ;; `projection/epoch-outcome`).
          :outcome        (proj/epoch-outcome steps)
          :steps          (vec (or steps []))})))
-
-  ;; ---- per-row expand state ---------------------------------------------
-  ;;
-  ;; The view supports per-row drill-down by toggling a `[step-kw row-id]`
-  ;; pair in the expanded-set. State lives on the Xray app-db so toggles
-  ;; survive sub-recomputes + integrate naturally with time-travel.
-  ;; The current view doesn't render expansion UI for every row (the
-  ;; design prefers always-visible content for the event-bundle's punch),
-  ;; but the surface is in place so follow-on rich expansions
-  ;; (full-handler source code, full-fx EDN, etc.) compose without
-  ;; reshaping the panel.
-
-  (rf/reg-sub :rf.xray.epoch/expanded-rows
-    (fn [db _query]
-      (get db :epoch-panel-expanded-rows #{})))
-
-  (rf/reg-event :rf.xray.epoch/toggle-row-expand
-    (fn [{:keys [db]} [_ step-kw row-id]]
-      {:db (let [k (vector step-kw row-id)
-            current (get db :epoch-panel-expanded-rows #{})]
-        (assoc db :epoch-panel-expanded-rows
-               (if (contains? current k)
-                 (disj current k)
-                 (conj current k))))}))
-
-  (rf/reg-event :rf.xray.epoch/clear-row-expand
-    (fn [{:keys [db]} _event]
-      {:db (dissoc db :epoch-panel-expanded-rows)}))
 
   ;; ---- SUBSCRIPTIONS [all][changed][unchanged] filter ------------------
   ;;

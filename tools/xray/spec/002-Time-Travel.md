@@ -15,8 +15,8 @@
 >   stream key, the `restore-epoch!` rewind with its documented failure modes,
 >   and the redaction hook — all shipped in core (`re-frame.epoch`, dev-only).
 > - **Xray id catalogue** — [014-Registry-Catalogue.md §Time-travel scrubber](./014-Registry-Catalogue.md#time-travel-scrubber).
->   The surviving Xray-side ids: `:rf.xray/selected-epoch-record`,
->   `:rf.xray/select-epoch` (passive scrub), `:rf.xray/reset-to-epoch`
+>   The Xray-side ids: `:rf.xray/select-epoch` (passive scrub),
+>   `:rf.xray/reset-to-epoch`
 >   (confirmed rewind), `:rf.xray/sync-epoch-history`, and the
 >   `:rf.xray.fx/restore-epoch` effect.
 > - **Where it surfaces in the UI** — [018-Event-Spine.md](./018-Event-Spine.md).

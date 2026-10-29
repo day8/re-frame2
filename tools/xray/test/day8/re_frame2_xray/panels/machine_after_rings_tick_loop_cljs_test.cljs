@@ -2,11 +2,15 @@
   "The off-render `tick-loop!` that drives the countdown rings' sweep.
 
   It runs as a rAF/next-tick callback after any `with-frame` scope has
-  unwound, so its reads must carry the frame `kick-tick!` captured: an
-  ambient `rf/subscribe` would throw, the loop's `catch` would swallow it,
-  and the ring would paint once and never sweep. These rows call the
-  private `tick-loop!` outside `rf/with-frame` to reproduce that, and await
-  its real async `:rf.xray/timer-tick` dispatch with `poll-until`."
+  unwound, so its reads must carry its own frame: an ambient
+  `rf/subscribe` would throw, the loop's `catch` would swallow it, and the
+  ring would paint once and never sweep. These rows run the queued loop
+  outside `rf/with-frame` to reproduce that, and await its real async
+  `:rf.xray/timer-tick` dispatch with `poll-until`.
+
+  An overlay is MOUNTED here by calling the React ref callback the
+  overlay's root element carries, with a stand-in element (and with nil to
+  unmount) — exactly the two calls React makes."
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -109,6 +113,19 @@
           (recur (inc n)))
       n)))
 
+(defn- ref-for
+  "The React ref callback an overlay rendered in `frame` carries."
+  [frame]
+  (@#'day8.re-frame2-xray.panels.machine-after-rings/overlay-ref frame))
+
+(defn- mount! [frame] ((ref-for frame) #js {}))
+(defn- unmount! [frame] ((ref-for frame) nil))
+
+(defn- tick-state []
+  @@#'day8.re-frame2-xray.panels.machine-after-rings/tick-state)
+
+(defn- running? [frame] (true? (get-in (tick-state) [frame :running?])))
+
 (def ^:private closed-at
   "`:time` of the seeded `/cancelled` trace ⇒ the ring's `:closed-at`."
   2000)
@@ -122,7 +139,6 @@
           orig-now (.-now js/Date)
           clock    (atom closed-at)
           pending  (atom nil)
-          ts       @#'day8.re-frame2-xray.panels.machine-after-rings/tick-state
           deadline (+ closed-at rings-h/cancelled-retention-ms)
           ;; the frame that first sees the ring expired, +1 for the frame
           ;; that runs exactly ON the boundary (still on screen there).
@@ -135,14 +151,13 @@
         (focus-machine!        :auth/login)
         (push-scheduled! 1000 :auth/login :idle 5000 0)
         (push-cancelled! closed-at :auth/login :idle 0)
-        (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
         (is (= [[:cancelled closed-at]]
                (mapv (juxt :status :closed-at)
                      @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])))
             "NOT VACUOUS: one crossed ring and no armed timer")
         (is (nil? (:rings/now-ms (rf.frame/frame-app-db-value :rf/xray)))
             "every now-ms read below is one the LOOP published")
-        (after-rings/kick-tick! :rf/xray))
+        (mount! :rf/xray))
       (let [frames (try
                      (drive-frames! pending clock frame-step-ms 500)
                      (finally
@@ -150,7 +165,7 @@
                              (if had? orig-raf js/undefined))
                        (set! (.-now js/Date) orig-now)))]
         ;; TERMINATION
-        (is (false? (:running? @ts))
+        (is (not (running? :rf/xray))
             "the loop STOPPED: kept alive for ever it would trade a stuck ring
              for a spinning CPU")
         (is (<= frames max-frames)
@@ -183,16 +198,14 @@
                 nil))
             (.then (fn [_]
                      (after-rings/stop-tick!)
-                     (swap! ts assoc :mounted? false)
                      (done))))))))
 
 (deftest overlay-kick-arms-the-clock-for-a-cancelled-ring-with-no-armed-timer
-  ;; The OTHER gate on the same predicate: a render that finds only a
-  ;; crossed ring must still arm the single per-chart clock.
+  ;; The OTHER gate on the same predicate: a re-render of a mounted overlay
+  ;; that finds only a crossed ring must re-arm a clock that has stopped.
   (let [had?     (exists? js/requestAnimationFrame)
         orig-raf (when had? js/requestAnimationFrame)
-        pending  (atom nil)
-        ts       @#'day8.re-frame2-xray.panels.machine-after-rings/tick-state]
+        pending  (atom nil)]
     (set! js/requestAnimationFrame (fn [f] (reset! pending f) 0))
     (after-rings/stop-tick!)
     (try
@@ -202,19 +215,102 @@
         (focus-machine!        :auth/login)
         (push-scheduled! 1000 :auth/login :idle 5000 0)
         (push-cancelled! closed-at :auth/login :idle 0)
-        (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
         (let [timers @(rf/subscribe
-                        [:rf.xray/active-timers-for-focused-machine])]
+                        [:rf.xray/active-timers-for-focused-machine])
+              render #(after-rings/overlay-tree
+                        {:timers   timers
+                         :live-now closed-at
+                         :frame    :rf/xray})]
           (is (= [:cancelled] (mapv :status timers))
               "one crossed ring, no armed timer")
-          (after-rings/overlay-tree
-            {:timers   timers
-             :live-now closed-at
-             :scrub    :present
-             :frame    :rf/xray})))
-      (is (true? (:running? @ts))
-          "rendering over a ring that still has a deadline arms the clock")
+          (is (= (ref-for :rf/xray) (:ref (second (render))))
+              "the overlay root carries its frame's ref callback")
+          (is (not (running? :rf/xray))
+              "an UNMOUNTED render arms nothing: no ref would stop the loop")
+          (mount! :rf/xray)
+          (is (running? :rf/xray) "the mount arms the clock")
+          ;; The loop has since stopped, as it does once nothing ticks.
+          (swap! @#'day8.re-frame2-xray.panels.machine-after-rings/tick-state
+                 assoc-in [:rf/xray :running?] false)
+          (render)))
+      (is (running? :rf/xray)
+          "re-rendering over a ring that still has a deadline re-arms the clock")
       (finally
         (set! js/requestAnimationFrame (if had? orig-raf js/undefined))
-        (after-rings/stop-tick!)
-        (swap! ts assoc :mounted? false)))))
+        (after-rings/stop-tick!)))))
+
+(defn- seed-armed-timer! []
+  (override-machines!    [:auth/login])
+  (override-definitions! {:auth/login fixture-definition})
+  (focus-machine!        :auth/login)
+  (push-scheduled! 1000 :auth/login :idle 5000 0))
+
+(defn- run-queued!
+  "Run every rAF callback queued so far, once. Callbacks they queue in turn
+  wait for the next call."
+  [queue]
+  (let [fs @queue]
+    (reset! queue [])
+    (doseq [f fs] (f))))
+
+(deftest the-survivor-keeps-its-clock-when-another-overlay-unmounts
+  ;; The mount gate is a count per frame: unmounting one overlay must not
+  ;; freeze another in the same frame, nor one in another frame. The huge
+  ;; `*tick-min-delta-ms*` keeps every iteration from dispatching, so the
+  ;; rows read only the loops' own re-arm decisions.
+  (let [had?     (exists? js/requestAnimationFrame)
+        orig-raf (when had? js/requestAnimationFrame)
+        queue    (atom [])]
+    (set! js/requestAnimationFrame (fn [f] (swap! queue conj f) 0))
+    (after-rings/stop-tick!)
+    (try
+      (binding [after-rings/*tick-min-delta-ms* js/Number.MAX_SAFE_INTEGER]
+        (rf/with-frame :rf/xray (seed-armed-timer!))
+        (mount! :rf/xray)
+        (mount! :rf/xray)
+        (mount! ::other)
+        (is (and (running? :rf/xray) (running? ::other))
+            "each frame armed its own clock")
+        (unmount! :rf/xray)
+        (unmount! ::other)
+        (run-queued! queue)
+        (is (running? :rf/xray)
+            "one of two overlays unmounted: the survivor's clock re-armed")
+        (is (= 1 (count @queue)) "and only its clock is queued")
+        (is (not (running? ::other))
+            "the other frame's last overlay unmounted: its clock stopped")
+        (unmount! :rf/xray)
+        (run-queued! queue)
+        (is (not (running? :rf/xray))
+            "the last overlay unmounted: the clock stopped")
+        (is (empty? @queue) "and nothing is queued"))
+      (finally
+        (set! js/requestAnimationFrame (if had? orig-raf js/undefined))
+        (after-rings/stop-tick!)))))
+
+(defn- reg-pin-focus-mode! []
+  (rf/reg-event ::pin-focus-mode
+    (fn [{:keys [db]} [_ mode]]
+      {:db (update db :focus (fnil assoc {}) :mode mode)})))
+
+(deftest the-clock-stops-while-the-focus-is-pinned-to-a-past-event
+  ;; Retro draws no ring (xray/003 §M.2), so its clock must not run either.
+  (let [had?     (exists? js/requestAnimationFrame)
+        orig-raf (when had? js/requestAnimationFrame)
+        queue    (atom [])]
+    (set! js/requestAnimationFrame (fn [f] (swap! queue conj f) 0))
+    (after-rings/stop-tick!)
+    (reg-pin-focus-mode!)
+    (try
+      (binding [after-rings/*tick-min-delta-ms* js/Number.MAX_SAFE_INTEGER]
+        (rf/with-frame :rf/xray (seed-armed-timer!))
+        (mount! :rf/xray)
+        (run-queued! queue)
+        (is (running? :rf/xray) "NON-VACUITY: live, the armed timer keeps it running")
+        (rf/with-frame :rf/xray (rf/dispatch-sync [::pin-focus-mode :retro]))
+        (run-queued! queue)
+        (is (not (running? :rf/xray)) "retro: the clock stopped")
+        (is (empty? @queue) "and did not re-arm"))
+      (finally
+        (set! js/requestAnimationFrame (if had? orig-raf js/undefined))
+        (after-rings/stop-tick!)))))

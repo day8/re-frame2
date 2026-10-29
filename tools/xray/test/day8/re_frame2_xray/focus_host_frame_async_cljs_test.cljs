@@ -79,11 +79,13 @@
   and the Machines focused-event lens and cascade rows bind to it."
   [{:keys [epoch-id dispatch-id]}]
   (let [f (e2e/sub-xray [:rf.xray/focus])]
-    (is (= [epoch-id dispatch-id :retro [[:deep/main :idle :active]] :deep/main]
+    ;; The unrelated head epoch carries no machine cascade, so non-empty
+    ;; cascade rows can only be the pinned machine epoch's.
+    (is (= [epoch-id dispatch-id :retro [[:deep/main :idle :active]] true]
            [(:epoch-id f) (:dispatch-id f) (:mode f)
             (mapv (juxt :machine-id :from-state :to-state)
                   (e2e/sub-xray [:rf.xray/machine-transitions-for-focused-event]))
-            (:event-id (e2e/sub-xray [:rf.xray/machine-focused-epoch-cascade]))]))))
+            (boolean (seq (:cascade (e2e/sub-xray [:rf.xray/machine-focused-epoch-cascade]))))]))))
 
 (deftest host-frame-focus-sent-async-pins-the-epoch-and-machines-follow
   (testing "`(focus! host-frame {:epoch-id … :dispatch-id …})`

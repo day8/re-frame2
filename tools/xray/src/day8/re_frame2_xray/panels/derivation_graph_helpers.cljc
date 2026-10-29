@@ -32,16 +32,16 @@
   groups + classifies by `:kind`. A node carrying an unknown future
   refinement still classifies correctly off its superkind.
 
-  ## ON-BOX rendering is RAW (Security.md permits on-box)
+  ## ON-BOX rendering takes Xray's local-redacted default
 
-  The panel renders in the developer's own browser, in the `:rf/xray`
-  frame, against the developer's own app. On-box inspection sees raw values
-  — that is the in-process truth (raw-on-box is correct for read-only
-  projections; the composer composes nodes verbatim by design and does NO
-  redaction).
-  So `summarize-graph` produces bounded, render-safe PREVIEWS purely for
-  display ergonomics (a 4MB value would wreck the panel), NOT for privacy —
-  it is a size/shape projection, not an egress boundary.
+  The composer composes nodes verbatim and does no redaction. Before the
+  panel renders a LIVE graph, `project-live-values` projects each node's
+  value-bearing fields through Xray's on-box seam (`local-render`, the
+  `:rf.egress/local-redacted` profile every Xray panel renders under): a
+  value the frame declared `:sensitive` reads `:rf/redacted` here exactly as
+  it does on the Routing or App-DB tab. `summarize-graph` then produces
+  bounded PREVIEWS for display ergonomics (a 4MB value would wreck the
+  panel); it is a size/shape projection, not an egress boundary.
 
   ## OFF-BOX egress is REDACTED, per-frame, FAIL-CLOSED
 
@@ -75,7 +75,8 @@
             ;; DELEGATES to it. Xray is a dev tool, so reaching an
             ;; implementation/ ns preserves the tools → implementation
             ;; dependency arrow (nothing in implementation/ requires Xray).
-            [re-frame.derivation.egress :as rf.derivation.egress]))
+            [re-frame.derivation.egress :as rf.derivation.egress]
+            [day8.re-frame2-xray.panels.local-render :as local-render]))
 
 ;; ---------------------------------------------------------------------------
 ;; Superkind classification (the contract axis).
@@ -440,10 +441,38 @@
 
 (defn summarize-graph
   "Map `summarize-node` over the graph's `:nodes`, returning the graph with
-  each node carrying its ON-BOX `:summaries`. The on-box display projection
-  — raw-permitting, size-bounding. NOT the egress boundary."
+  each node carrying its ON-BOX `:summaries`. The display projection —
+  size-bounding only; `project-live-values` is what redacts."
   [graph]
   (update graph :nodes update-vals summarize-node))
+
+(defn- project-node-values
+  "`node` with its value-bearing fields projected for on-box render under
+  `frame-id`. The route node's `:query` / `:params` take the route-slice arm,
+  because a route's declaration is re-rooted onto the runtime-db route slice
+  and a bare walk can never match it; every other field walks as a value."
+  [node-id node frame-id]
+  (if (or (= :rf/route node-id) (= :route-fact (:refinement node)))
+    (local-render/local-render-route-slice node frame-id)
+    (reduce (fn [n k]
+              (if (contains? n k)
+                (update n k local-render/local-render-value frame-id)
+                n))
+            node
+            value-bearing-node-keys)))
+
+(defn project-live-values
+  "Project a LIVE graph's node values for on-box render under the graph's own
+  `:frame`, failing closed when that frame is nil or gone. A static graph
+  carries no live values and passes through. Spec 015 §Projection profiles;
+  tools/xray/spec/025 §Privacy."
+  [{:keys [mode frame] :as graph}]
+  (if (= :live mode)
+    (update graph :nodes
+            (fn [nodes]
+              (into {} (map (fn [[id node]] [id (project-node-values id node frame)]))
+                    nodes)))
+    graph))
 
 ;; ===========================================================================
 ;; OFF-BOX EGRESS REDACTION.
@@ -497,15 +526,28 @@
   [{:keys [nodes]}]
   (empty? nodes))
 
+(defn tab-data
+  "The `:rf.xray/derivation-graph-tab-data` composite for `graph`: live values
+  projected for on-box render (`project-live-values`), then summarised,
+  grouped by family, and counted for the header. Pure, so the sub and its
+  tests share one body."
+  [graph]
+  (let [summarized (summarize-graph (project-live-values graph))]
+    {:mode      (:mode graph)
+     :silent?   (empty-graph? graph)
+     :summary   (graph-summary graph)
+     :by-family (group-by-family summarized)
+     :edges     (:edges graph)}))
+
 ;; ---------------------------------------------------------------------------
 ;; Display labels.
 ;; ---------------------------------------------------------------------------
 
 (defn node-label
-  "A short human label for a node id — the family tag stripped to its
-  fact identity for the row heading. `[:sub :cart/total]` → `:cart/total`;
-  `[:resource <scoped-key>]` → the printed scoped key; `:rf/route` → the
-  route fact id."
+  "A short human label for a node id — a two-element `[<family> <id>]` id
+  printed as its second element (`[:sub :cart/total]` → `:cart/total`;
+  `[:resource <scoped-key>]` → the printed scoped key), and any other id
+  printed whole (`:rf/route`, a frame-scoped flow id)."
   [node-id]
   (cond
     (and (vector? node-id) (= 2 (count node-id))) (pr-str (second node-id))

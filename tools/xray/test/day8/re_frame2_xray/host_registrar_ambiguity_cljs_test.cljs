@@ -63,8 +63,17 @@
     (let [{:keys [entries resolve-meta-fn]} (epoch-panel/resolve-event-interceptors :host/edit)]
       (is (= [:host/audit] entries))
       (is (nil? (resolve-meta-fn :host/audit))))
-    (is (nil? (epoch-panel/resolve-event-recordables :host/edit))
+    (is (= #{} (epoch-panel/resolve-event-recordables :host/edit))
         "an ambiguous cofx is not a declared recordable leaf")))
+
+(deftest epoch-panel-recordables-of-a-registered-event-declaring-none
+  (register-once! :event :host/plain {:handler-fn ::plain})
+  (is (= #{} (epoch-panel/resolve-event-recordables :host/plain))
+      "a registered event that declares no recordables filters every
+       undeclared leaf, rather than reading as no resolver and showing all")
+  (is (nil? (epoch-panel/resolve-event-recordables :host/unregistered))
+      "control: an unregistered event leaves the projection's show-all
+       fallback in place"))
 
 (deftest static-interceptors-catalogue-lists-an-ambiguous-ref
   (register-twice! :interceptor :host/audit

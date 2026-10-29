@@ -388,9 +388,10 @@
     {:first? false :testid "rf-xray-resources-instances"}
     (section-caption "Live instances" "rf-xray-resources-instances-caption")
     (if (seq rows)
-      (into [:div {:data-testid "rf-xray-resources-instances-body"
-                   :style {:display "flex" :flex-direction "column" :gap "2px"}}]
-            (map instance-row-view rows))
+      (capped-body {:panel-id "resources-instances"
+                    :testid   "rf-xray-resources-instances-body"
+                    :gap      "2px"}
+                   instance-row-view rows)
       (empty-caption "No live resource instances in this frame."
                      "rf-xray-resources-instances-empty"))))
 
@@ -1011,17 +1012,17 @@
        (into [:div {:style {:display "flex" :flex-wrap "wrap" :gap "6px"
                             :padding-left "12px"}}
               [:span {:style {:color (:text-tertiary tokens)}} "affected"]]
-             ;; `summary-chip` is a SHARED helper called from a dozen
-             ;; positions and it owns no key of its own — the identity is
-             ;; the affected KEY, which the chip never sees. So the key
-             ;; rides on a fragment wrapping the call: `[:<> …]` takes an
-             ;; optional attr map and carries `:key` on the fragment
-             ;; itself (`re-frame.fresco.impl.codec`'s head table), which
-             ;; adds no DOM node and leaves the shared helper's signature
-             ;; alone. Every other row in this file keys its own root.
-             (for [k (:affected-keys row)]
-               [:<> {:key (str (:resource-id k) (get-in k [:params :preview]))}
-                (summary-chip (:scope k) nil)])))
+             ;; Each key reads as resource-id plus params, as §6's matched
+             ;; keys do: one patch usually touches several keys under ONE
+             ;; scope, so a scope chip would repeat the same preview and
+             ;; never say which keys were patched.
+             (map-indexed
+               (fn [i k]
+                 [:span {:key   (str (:resource-id k) i)
+                         :style {:display "flex" :gap "2px" :align-items "baseline"}}
+                  [:span {:style {:color mode-accent}} (str (:resource-id k))]
+                  (summary-chip (:params k) (str testid "-affected-" i))])
+               (:affected-keys row))))
      ;; ON RECONCILE — the committed keys (authoritative write owned them)
      (when (= :reconciled (:outcome row))
        [:div {:data-testid (str testid "-committed")
@@ -1523,7 +1524,8 @@
             ;; accessors. A no-egress call would leak raw values.
             instance-rows (h/project-instances
                             entries now-ms
-                            (on-box-resource-egress-fn observed-frame))
+                            (on-box-resource-egress-fn observed-frame)
+                            sensitive-rids)
             ;; The attempt rows take the resource-id gate: no per-instance
             ;; declaration is lowered under `:work` or `:recent-work`, so the
             ;; frame classification above cannot match their values, and the
@@ -1602,7 +1604,7 @@
          :cache-growth  (h/cache-growth instance-rows work-rows)
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)
-                         :orphans      (h/orphaned-owner-lint instance-rows family-rows)
+                         :orphans      (h/orphaned-owner-lint instance-rows family-rows observed-frame)
                          ;; Optimistic keys the settlement never reached
                          :optimistic-reach (h/optimistic-reach-lint family-rows sensitive-rids)}})))
 

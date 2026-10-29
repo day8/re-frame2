@@ -62,32 +62,22 @@
       ;; event becomes a no-op — the visualiser still has the trace-id
       ;; pinned via the row's data-testid so the user can grep on it.
       ;;
-      ;; The re-dispatched events target the SURROUNDING
-      ;; instance frame captured at handler entry (the handler runs in
-      ;; the dispatching frame's context), not a `{:frame :rf/xray}`
-      ;; literal that pins the singleton.
-      (let [here (rf/current-frame-id)]
-        {:fx (cond-> []
-               dispatch-id
-               (conj [:dispatch [[:rf.xray/select-dispatch-id
-                                  dispatch-id frame]
-                                 {:frame here}]])
-               ;; Flip the visible tab to Epoch so the row jump lands on
-               ;; the focused cascade's pipeline detail. Epoch is the
-               ;; cascade-pipeline master view
-               ;; the `:rf.xray/select-dispatch-id` spine pin drives
-               ;; (epoch_panel.cljs :order -1), and `:epoch` is a LIVE
-               ;; Dynamic L4 tab (focus.cljc `valid-panels`). There is no
-               ;; `:event` tab, so selecting one would land the shell's
-               ;; unknown-tab stub, and the 4-layer shell reads no
-               ;; `:rf.xray/select-panel` slot.
-               dispatch-id
-               (conj [:dispatch [[:rf.xray/select-tab :epoch]
-                                 {:frame here}]])
-               ;; Also close the popover when a row jump fires — the
-               ;; user has navigated away.
-               true
-               (conj [:dispatch [[:rf.xray/cancellation-cascade-close]
-                                 {:frame here}]]))})))
+      ;; The children land in the frame this handler runs in: a `:dispatch`
+      ;; child inherits the parent envelope's `:frame` (Spec 002 §Run
+      ;; propagation), so the surrounding Xray instance takes the jump, never
+      ;; a `:rf/xray` literal. `frame` is the HOST frame the row's trace came
+      ;; from, which `select-dispatch-id` needs because dispatch ids are unique
+      ;; only within a frame.
+      {:fx (cond-> []
+             dispatch-id
+             (conj [:dispatch [:rf.xray/select-dispatch-id dispatch-id frame]])
+             ;; Flip the visible tab to Epoch, the live Dynamic L4 tab the
+             ;; `:rf.xray/select-dispatch-id` pin drives, so the jump lands
+             ;; on the focused cascade's pipeline.
+             dispatch-id
+             (conj [:dispatch [:rf.xray/select-tab :epoch]])
+             ;; The operator has navigated away, so the popover closes.
+             true
+             (conj [:dispatch [:rf.xray/cancellation-cascade-close]]))}))
 
   nil)

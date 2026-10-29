@@ -4,13 +4,14 @@
   the `views-panel` component).
 
   The Views panel renders the reactive event-bundle as a node-and-edge
-  graph. The event-bundle is a DAG flowing
-  left → right across four columns:
+  graph. The event-bundle is a DAG flowing left → right:
 
-      col 0  app-db        — a single source node at the far left
-      col 1  Level-1 subs  — extractors (read app-db directly)
-      col 2  Level-2+ subs — derived (`:inputs` composition; OPTIONAL layer)
-      col 3  views         — the right-most focus; each (rerendered)
+      col 0     app-db        — a single source node at the far left
+      col 1     Level-1 subs  — extractors (read app-db directly)
+      col 2..N  Level-2+ subs — derived (`:inputs` composition), each in the
+                                column one past its deepest input, so every
+                                sub→sub edge runs rightward
+      col N+1   views         — the right-most focus; each (rerendered)
 
   ## Why a pure layout ns
 
@@ -43,8 +44,8 @@
      each sub INSTANCE (concrete query-v) routes to the view instances
      whose `:deref-subs` hold it, and a row with no
      query-v falls back to the registration-level `:sub-readers` map
-     (`{sub-id [view-id ...]}`). A sub read by ≥2 views is SHARED — its
-     node carries `:shared-count`.
+     (`{sub-id [view-id ...]}`). A sub instance with edges to ≥2 view
+     instances is SHARED — its node carries `:shared-count`, that edge count.
   3. `:rf.view/triggered-by` (the per-view cause sub) + `:rf.view/
      elapsed-ms` (render timing) ride each view row; the
      view node carries them through for the renderer's cause + timing
@@ -88,13 +89,12 @@
 (def ^:private label-inset 3)          ; px kept clear each side of a label
 
 ;; Column x-origins. app-db sits at pad-x; each subsequent column starts
-;; after the previous column's widest node + the inter-column gap. The
-;; Level-1 / Level-2 columns use `node-w`; views use `view-node-w`.
-(def ^:private col-x
-  {:appdb pad-x
-   :l1    (+ pad-x appdb-w col-gap)
-   :l2    (+ pad-x appdb-w col-gap node-w col-gap)
-   :view  (+ pad-x appdb-w col-gap node-w col-gap node-w col-gap)})
+;; after the previous column's node width + the inter-column gap. Sub
+;; columns use `node-w`; views use `view-node-w`.
+(defn- sub-col-x
+  "x-origin of sub column `depth` (1 = Level-1)."
+  [depth]
+  (+ pad-x appdb-w col-gap (* (dec depth) (+ node-w col-gap))))
 
 ;; ---- pure helpers ------------------------------------------------------
 
@@ -164,11 +164,46 @@
             [[] {}]
             nodes)))
 
+(defn- input-id
+  "The registration id a declared input names: a bare id, or the head of
+  a query-v."
+  [input]
+  (if (vector? input) (first input) input))
+
+(defn- row-inputs [row]
+  (or (:input-query-vs row) (:inputs row)))
+
+(defn- l2-depths
+  "Each Level-2 row's sub column, in row order: one past the deepest sub
+  it reads, where a Level-1 sub (or an input not in this bundle) is
+  column 1. A chain `:a → :b → :c` therefore lays out across three
+  columns rather than drawing `:b → :c` backwards inside one."
+  [l2-rows]
+  (let [by-id (group-by :sub-id l2-rows)
+        memo  (volatile! {})
+        depth (fn depth [sid seen]
+                (cond
+                  (not (contains? by-id sid)) 1
+                  ;; a malformed cycle stops rather than recursing for ever
+                  (contains? seen sid)        1
+                  :else
+                  (or (get @memo sid)
+                      (let [d (inc (reduce max 1
+                                           (for [r  (get by-id sid)
+                                                 in (row-inputs r)]
+                                             (depth (input-id in) (conj seen sid)))))]
+                        (vswap! memo assoc sid d)
+                        d))))]
+    (mapv (fn [row]
+            (inc (reduce max 1 (map #(depth (input-id %) #{(:sub-id row)})
+                                    (row-inputs row)))))
+          l2-rows)))
+
 (defn- col-nodes
-  "Build the node maps for one sub column (`:l1` / `:l2`). Each row is the
-  panel's sub-row map (`{:sub-id :query-v? :changed? :inputs?
-  :input-query-vs? :coord? :readers?}`). `shared` is the set of sub-ids
-  read by ≥2 views (the shared-sub set).
+  "Build the node maps for the sub rows `rows` (Level-1 or Level-2), each
+  placed at `(col-of i)` and stacked among the rows sharing its column.
+  Each row is the panel's sub-row map (`{:sub-id :query-v? :changed?
+  :inputs? :input-query-vs? :coord? :readers?}`).
 
   A row is one INSTANCE of a registration: three list
   rows reading `[:todo/by-id 1]` … `[:todo/by-id 3]` are three rows
@@ -177,32 +212,38 @@
   `[sub-id]` shape when the row carries none) and keys the node and its
   edges, and a parameterized instance is labelled by its query-v so the
   boxes can be told apart."
-  [rows kind canvas-mid shared]
-  (let [x (get col-x kind)
-        n (count rows)]
+  [rows kind col-of canvas-mid]
+  (let [cols     (mapv col-of (range (count rows)))
+        col-size (frequencies cols)]
     (keyed
-      (for [[i row] (map-indexed vector rows)
-            :let [sid   (:sub-id row)
+      (first
+        (reduce
+          (fn [[out seen] [i row]]
+            (let [col   (nth cols i)
+                  slot  (get seen col 0)
+                  sid   (:sub-id row)
                   qv    (:query-v row)
-                  label (if (and (vector? qv) (next qv)) (pr-str qv) (id->str sid))]]
-        {:kind        kind
-         :id          sid
-         :instance    (or qv [sid])
-         :query-v     qv
-         :slug        (slug sid)
-         :label       label
-         :display-label (fit-label label node-w label-font-size)
-         :changed?    (boolean (:changed? row))
-         :inputs      (vec (:inputs row))
-         :input-query-vs (:input-query-vs row)
-         :readers     (vec (:readers row))
-         :coord       (:coord row)
-         :shared-count (when (contains? shared sid)
-                         (count (:readers row)))
-         :x           x
-         :y           (stack-y i node-h canvas-mid n)
-         :w           node-w
-         :h           node-h}))))
+                  label (if (and (vector? qv) (next qv)) (pr-str qv) (id->str sid))]
+              [(conj out
+                     {:kind        kind
+                      :id          sid
+                      :instance    (or qv [sid])
+                      :query-v     qv
+                      :slug        (slug sid)
+                      :label       label
+                      :display-label (fit-label label node-w label-font-size)
+                      :changed?    (boolean (:changed? row))
+                      :inputs      (vec (:inputs row))
+                      :input-query-vs (:input-query-vs row)
+                      :readers     (vec (:readers row))
+                      :coord       (:coord row)
+                      :x           (sub-col-x col)
+                      :y           (stack-y slot node-h canvas-mid (get col-size col))
+                      :w           node-w
+                      :h           node-h})
+               (assoc seen col (inc slot))]))
+          [[] {}]
+          (map-indexed vector rows))))))
 
 (defn- view-nodes
   "Build the view-column node maps. `view-rows` are render rows
@@ -214,9 +255,8 @@
   `:render-key` (`[view-id token]`, or `[view-id i]` without one) and
   `:deref-subs` its own read-set, which is what routes each sub
   instance's edge to the view instance that read it."
-  [view-rows canvas-mid]
-  (let [x (get col-x :view)
-        n (count view-rows)]
+  [view-rows x canvas-mid]
+  (let [n (count view-rows)]
     (keyed
       (for [[i row] (map-indexed vector view-rows)
             :let [vid (:view-id row)]]
@@ -237,16 +277,6 @@
          :h            view-node-h}))))
 
 ;; ---- public layout -----------------------------------------------------
-
-(defn shared-sub-set
-  "Set of sub-ids read by TWO OR MORE views this event-bundle — the shared-
-  subscription set. Reads each sub row's `:readers` (the views that
-  deref it, from `:sub-readers`). Pure."
-  [sub-rows]
-  (into #{}
-        (comp (filter (fn [r] (> (count (:readers r)) 1)))
-              (map :sub-id))
-        sub-rows))
 
 (defn layout
   "Compute the full node + edge geometry for the reactive-flow graph.
@@ -271,7 +301,9 @@
 
   Nodes are INSTANCES: `:id` is the registration id,
   `:key` the unique instance key the renderer uses as the React key, and
-  an edge's `:from-key` / `:to-key` name the instances it joins.
+  an edge's `:from-key` / `:to-key` name the instances it joins. A sub
+  node's `:shared-count` counts its own sub→view edges, so it agrees with
+  the edges drawn.
 
   Edge `:kind` ∈ #{:appdb-l1 :sub-sub :sub-view}; `:changed?` drives the
   solid-accent vs dashed-dim/cut styling. View rows with `:action
@@ -283,20 +315,24 @@
         ;; unmounts list in their own section — the graph shows the
         ;; live render event-bundle only.
         v-rows    (filterv #(not= :unmount (:action %)) (or view-rows []))
-        shared    (shared-sub-set (concat l1-rows l2-rows))
+        depths    (l2-depths l2-rows)
+        ;; The derived column stays reserved when no Level-2 sub ran, so
+        ;; the view column does not jump left between bundles.
+        view-x    (sub-col-x (inc (reduce max 2 depths)))
         ;; Tallest column drives the canvas height so every column
         ;; centres on one mid-line.
-        max-rows  (max 1 (count l1-rows) (count l2-rows) (count v-rows))
+        max-rows  (reduce max 1 (concat [(count l1-rows) (count v-rows)]
+                                        (vals (frequencies depths))))
         canvas-h  (+ (* 2 pad-y)
                      (max node-h
                           (- (* max-rows (+ view-node-h row-gap)) row-gap)))
         canvas-mid (/ canvas-h 2.0)
-        appdb     {:x (get col-x :appdb)
+        appdb     {:x pad-x
                    :y (- canvas-mid (/ node-h 2.0))
                    :w appdb-w :h node-h}
-        l1        (col-nodes l1-rows :l1 canvas-mid shared)
-        l2        (col-nodes l2-rows :l2 canvas-mid shared)
-        views     (view-nodes v-rows canvas-mid)
+        l1        (col-nodes l1-rows :l1 (constantly 1) canvas-mid)
+        l2        (col-nodes l2-rows :l2 depths canvas-mid)
+        views     (view-nodes v-rows view-x canvas-mid)
         ;; Edges resolve to INSTANCES. Keying nodes by registration id
         ;; would keep only the LAST instance per id, so every edge into a
         ;; list of one view would land on its last box. l1 + l2 share the
@@ -354,10 +390,15 @@
            :from-key (:key n) :to-key (:key tgt)
            :x1 x1 :y1 y1 :x2 x2 :y2 y2
            :changed? (:changed? n) :kind :sub-view})
-        edges (vec (concat appdb-edges sub-sub-edges sub-view-edges))]
-    {:width   (+ (get col-x :view) view-node-w pad-x)
+        edges (vec (concat appdb-edges sub-sub-edges sub-view-edges))
+        fan   (frequencies (map :from-key sub-view-edges))
+        shared (fn [nodes]
+                 (mapv #(let [c (get fan (:key %) 0)]
+                          (assoc % :shared-count (when (> c 1) c)))
+                       nodes))]
+    {:width   (+ view-x view-node-w pad-x)
      :height  canvas-h
      :appdb   appdb
-     :nodes   {:l1 l1 :l2 l2 :view views}
+     :nodes   {:l1 (shared l1) :l2 (shared l2) :view views}
      :edges   edges
      :empty?  (and (empty? l1-rows) (empty? l2-rows) (empty? v-rows))}))

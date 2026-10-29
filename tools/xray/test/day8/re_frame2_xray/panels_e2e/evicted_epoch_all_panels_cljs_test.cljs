@@ -25,8 +25,9 @@
   shared `panels.shared.focus-resolver/find-epoch-record`, which returns
   nil for a pinned-but-evicted epoch (keeping only the spec-correct
   NIL-focus head-fallback); App-DB Diff (`find-epoch-in-history`)
-  resolves nil too. So ALL panels resolve the evicted epoch to nil and
-  render the §10.7 placeholder.
+  resolves nil too and carries the resolver's `:epoch-evicted` status. So
+  ALL panels resolve the evicted epoch to nil and render the §10.7
+  placeholder.
 
   This test drives the REAL panel composite subs (`:rf.xray/focus` →
   `compose-focus` RETRO branch + the per-panel projections) over a
@@ -163,7 +164,7 @@
     (let [trace     (sub-xray [:rf.xray/trace-feed])
           epoch     (sub-xray [:rf.xray/epoch-pipeline])
           issues    (sub-xray [:rf.xray/issues-ribbon])
-          app-db    (sub-xray [:rf.xray/selected-epoch-record])
+          app-db    (sub-xray [:rf.xray/app-db-current+diff])
           machine   (sub-xray [:rf.xray/machine-transitions-for-focused-event])
           reactive  (sub-xray [:rf.xray/reactive-data])]
       ;; The shared-resolver panels.
@@ -176,8 +177,10 @@
       (is (= :epoch-evicted (:empty-kind issues))
           (str "Issues ribbon must report :epoch-evicted. issues: "
                (pr-str (select-keys issues [:empty-kind]))))
-      (is (nil? app-db)
-          "App-DB Diff must resolve no record for an evicted pin")
+      (is (= :epoch-evicted (:status app-db))
+          (str "App-DB Diff must report :epoch-evicted. app-db: " (pr-str app-db)))
+      (is (not (contains? app-db :value))
+          "App-DB Diff must carry no value for an evicted pin, live or head")
       ;; The two panels with their own focused-epoch-record helpers.
       (is (= [] machine)
           "Machine Inspector must resolve no transitions for an evicted pin")

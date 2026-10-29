@@ -150,9 +150,11 @@
     {:op-type :rf.event :operation :rf.event/dispatched
      :tags {:rf.event/v [:counter/inc]}}
 
-    "[:counter]  1 → 2"
-    {:op-type :rf.event :operation :rf.event/db-changed
-     :tags {:rf.db/path [:counter] :rf.db/old 1 :rf.db/new 2}}
+    ;; db-changed carries only the event and frame; the per-path list
+    ;; beneath the row carries the change (spec/023 §10.1)
+    nil
+    (teb/ev :rf.event :rf.event/db-changed
+            {:rf.event/v [:counter/inc] :frame :rf/default})
 
     ;; fx args ride the canonical plural `:rf.fx/args`, read by KEY
     ;; presence: false is a valid effect argument
@@ -170,13 +172,36 @@
     ":app/counter"
     {:op-type :rf.sub :operation :rf.sub/run :tags {:rf.sub/id :app/counter}}
 
+    ;; a recompute shows `prev-value → value`, by KEY presence
+    ":app/counter  1 → 2"
+    (teb/sub-run-ev [:app/counter] true 1 2)
+
+    ":app/flag  false → nil"
+    (teb/sub-run-ev [:app/flag] true false nil)
+
+    ;; a first run has no prior value: the nil `:rf.sub/prev-value` the
+    ;; producer stamps is not an old value
+    ":app/counter"
+    (teb/ev :rf.sub :rf.sub/run {:rf.sub/id         :app/counter
+                                 :rf.sub/query-v    [:app/counter]
+                                 :rf.sub/first-run? true
+                                 :rf.sub/prev-value nil
+                                 :rf.sub/value      0})
+
+    ;; a view re-render names the sub that triggered it ...
+    ":app/header ← :app/counter"
+    (teb/view-rendered-ev :app/header [[:app/counter]] nil {:triggered-by :app/counter})
+
+    ;; ... and a mount names none
+    ":app/header"
+    (teb/view-rendered-ev :app/header [[:app/counter]] nil {:mount? true})
+
     ":title/flow idle → loading"
     {:op-type :rf.machine :operation :rf.machine/transition
      :tags {:machine-id :title/flow :from :idle :to :loading}}
 
     ":totals → [:totals]"
-    {:op-type :rf.event :operation :rf.flow/computed
-     :tags {:rf.flow/id :totals :rf.flow/path [:totals]}}
+    (teb/flow-recomputed-ev :totals [:totals] nil 3)
 
     ;; lifecycle rows carry the [scope resource-id params] scoped key ...
     ":article/by-slug  gen 3"
