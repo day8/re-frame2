@@ -92,17 +92,19 @@
 
 (def ^:private sample-uuid (uuid "6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
 
-(deftest uuid-body-rendered-when-expanded
-  ;; A mounted uuid takes the protocol path, which renders open: the
-  ;; compact header (full form on hover) and the full-form body together.
+(deftest uuid-renders-the-compact-header-alone
+  ;; A mounted uuid takes the protocol path: the compact header with the
+  ;; full form on hover, and no body repeating the full form under it.
   (let [h      (render-at-root sample-uuid)
         header (find-attr h :data-rf-default-fmt "uuid")]
     (is (= ["#uuid \"…4fd430c8\""
             "#uuid \"6ba7b810-9dad-11d1-80b4-00c04fd430c8\""
-            "#uuid \"6ba7b810-9dad-11d1-80b4-00c04fd430c8\""]
+            nil]
            [(collect-text header)
             (:title (second header))
-            (collect-text (find-attr h :data-rf-default-fmt-body "uuid"))]))))
+            (find-attr h :data-rf-default-fmt-body "uuid")]))
+    (is (not (re-find #"6ba7b810-9dad-11d1-80b4-00c04fd430c8" (collect-text h)))
+        "the full form appears only on hover")))
 
 ;; =========================================================================
 ;; inst (js/Date)
@@ -113,11 +115,12 @@
     (is (= ["#inst \"3m ago\"" "2025-11-30T23:57:00.000Z"]
            [(collect-text h) (:title (second h))]))))
 
-(deftest inst-body-rendered-when-expanded
-  ;; A mounted js/Date takes the protocol path, and its ISO body renders open.
-  (is (= "#inst \"2025-12-01T00:00:00.000Z\""
-         (collect-text (find-attr (render-at-root (js/Date. epoch-2026))
-                                  :data-rf-default-fmt-body "inst")))))
+(deftest inst-renders-the-relative-header-alone
+  ;; A mounted js/Date takes the protocol path: the relative header, with
+  ;; the ISO form on hover and no body.
+  (let [h (render-at-root (js/Date. epoch-2026))]
+    (is (some? (find-attr h :data-rf-default-fmt "inst")))
+    (is (nil? (find-attr h :data-rf-default-fmt-body "inst")))))
 
 ;; =========================================================================
 ;; Consumer override wins — CLJS protocol-dispatch precedence

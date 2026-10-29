@@ -350,6 +350,8 @@
   `raw-query`  — `:rf.xray/palette-query`, passed through UNDEFAULTED.
   `results`    — `:rf.xray/palette-results`.
   `cursor`     — `:rf.xray/palette-cursor`.
+  `total`      — how many candidates `:rf.xray/palette-index` holds, the
+                 denominator of the `N / total` count a query shows.
 
   THE `(or … \"\")` LIVES HERE RATHER THAN AT THE BOUNDARY, so the pure
   fn defends itself for every caller — the boundary, the node lane's
@@ -362,7 +364,7 @@
   callable only inside a real React commit; taking values keeps this
   callable from the node lane, which is what lets a node row walk the
   SHIPPED tree."
-  [dispatch raw-query results cursor]
+  [dispatch raw-query results cursor total]
   (let [query (or raw-query "")]
     ;; Shared backdrop + dialog scaffold. The palette keeps
     ;; its own `backdrop-style` / `dialog-style` and its `:auto-focus`
@@ -424,7 +426,7 @@
                        :font-family mono-stack
                        :font-size "11px"}}
         (str (count results)
-             (when (seq query) (str " / " (count results))))]]
+             (when (and (seq query) (number? total)) (str " / " total)))]]
       (if (empty? results)
         [:ul {:data-testid "rf-xray-palette-list"
               ;; Empty-state list is presentational — no options to

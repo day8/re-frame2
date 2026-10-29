@@ -113,6 +113,23 @@
       (is (some #(= 530 (second %)) width-events)
           "drag left by 50px dispatched 530 (start 480 + 50 delta)"))))
 
+(deftest a-move-with-no-button-held-ends-the-drag
+  ;; The release landed where no pointerup reached the listener, so the
+  ;; next hover move ends the drag instead of resizing.
+  (setup!)
+  (let [dispatches (atom [])]
+    (with-redefs [rf/dispatch (fn
+                                 ([ev]       (swap! dispatches conj ev) nil)
+                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+      (resize-handle/start-drag! (stub-event 1000) 480)
+      ((deref #'resize-handle/on-document-move) #js {:pageX 900 :buttons 0}))
+    (is (= [false []] [(resize-handle/dragging?) @dispatches]))))
+
+(deftest only-a-primary-press-starts-a-drag
+  (is (= [true true false false]
+         (mapv resize-handle/primary-press?
+               [#js {} #js {:button 0} #js {:button 2} #js {:button 1}]))))
+
 ;; ---- clamp at write-time (event handler) -------------------------------
 
 (deftest set-panel-width-event-clamps-to-floor

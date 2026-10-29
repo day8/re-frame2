@@ -231,8 +231,18 @@
         `static-machines-panel/install!` and `machine-inspector/install!`.
         Nine registrations nothing used are REMOVED
         (`schema-7-registrations-removed`) and cleared in place, as
-        schema 6's were."
-  8)
+        schema 6's were.
+    9 — Withheld epochs and the pop-out's own close: ONE new sub,
+        `:rf.xray/epoch-withheld`, becomes an input of every focus-status
+        reader (the app-db, Epoch, Views and Trace panels and
+        `:rf.xray/issues-ribbon`), the epoch slot's writers record what
+        they withhold, the Sim subs are keyed by machine id, and the
+        pop-out's `✕` gains `:rf.xray/close-popout` and
+        `:rf.xray.fx/close-popout`, and `:rf.xray/add-filter` /
+        `:rf.xray/remove-filter` move into `filters/install!`. Additions
+        and CHANGED bodies alike, so the migration re-runs each owning
+        installer."
+  9)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -357,11 +367,87 @@
            :rf.xray/clear-selected-dispatch-id]
    :fx    [:rf.xray.machine-canvas/persist-chart-collapsed]})
 
-(defn- migrated-through-8
+(defn- install-issues-ribbon!
+  "Register `:rf.xray/issues-ribbon`. Its own fn because the schema-9
+  migration re-registers it (`migrated-through-9`)."
+  []
+  ;; `:rf.xray/issues-ribbon` projects the focused epoch's
+  ;; `:trace-events` into the issue subset (errors + warnings per
+  ;; Spec 009 §Error event catalogue). Issues surface
+  ;; inline in the Epoch panel, via the L2 event-row pink-wash, and
+  ;; via the always-on issues ribbon signal (the auto-open-on-error
+  ;; watcher); there is no dedicated Issues tab or session-wide
+  ;; triage list. This composite is the canonical projection the
+  ;; auto-open watcher reads (settings/effects.cljs/
+  ;; install-auto-open-watcher!) — the cross-epoch "something is
+  ;; wrong" signal. The pure-data projection lives in
+  ;; `issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
+  ;; predicate via `panels/l2-timeline/event-bundle-has-issue?`), so the
+  ;; algebra runs under the JVM test target.
+  ;;
+  ;; Per spec/021 §1.2 the projection is focused-epoch-scoped — it
+  ;; joins `:rf.xray/focus`'s `:epoch-id` AND its pinned `:dispatch-id`
+  ;; against the per-frame `:rf.xray/epoch-history`, classifies focus
+  ;; status (no-focus / no-epoch / focused / evicted; head-fallback),
+  ;; looks up the epoch record, and threads it through `project-feed`.
+  ;;
+  ;; THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
+  ;; second data axis. A focus the
+  ;; operator SET to an event bundle that settled no epoch carries a nil
+  ;; `:epoch-id` (`spine/epoch-id-for-event-bundle` answers nil for a
+  ;; dispatch refused before any handler ran, a bundle still mid-build, a
+  ;; bundle whose epoch aged out, and an `:ungrouped` pin alike), which is
+  ;; SHAPE-IDENTICAL to the cold-start UNSET focus that the
+  ;; head-fallback exists to serve. Reading `:epoch-id` alone, the
+  ;; 2-arities cannot tell the two apart and answer the HEAD for both, so
+  ;; this ribbon would project a DIFFERENT event's issues underneath the
+  ;; operator's selection.
+  ;;
+  ;; That is not merely cosmetic here, because this composite has no
+  ;; rendered consumer: it is the auto-open-on-error SIGNAL, and
+  ;; `install-auto-open-watcher!` fires on `(count (:issues …))` going
+  ;; non-zero — so the head epoch's issues could pop Xray open while the
+  ;; operator's own selection had settled nothing at all.
+  ;;
+  ;; Passing the pin into the 3-arities (as the Epoch panel, Trace and
+  ;; the Machine Inspector also do) is what separates them.
+  ;;
+  ;; The `:no-epoch` `:empty-kind` comes from `project-feed` itself, like
+  ;; every other status. It must never read `:no-issues`,
+  ;; which would assert that a focused epoch ran and carried no issues
+  ;; when in truth no epoch was resolved at all.
+  (rf/reg-sub :rf.xray/issues-ribbon
+    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history] [:rf.xray/epoch-withheld]]}
+    (fn [[focus epoch-history withheld] _query]
+      (let [focus-epoch-id    (:epoch-id focus)
+            focus-dispatch-id (:dispatch-id focus)
+            focus-status      (issues-helpers/resolve-focus-status focus-epoch-id
+                                                                   focus-dispatch-id
+                                                                   epoch-history
+                                                                   withheld)
+            record            (issues-helpers/find-epoch-record focus-epoch-id
+                                                                focus-dispatch-id
+                                                                epoch-history)]
+        (issues-helpers/project-feed record focus-status)))))
+
+(defn- install-popout-close!
+  "Register `:rf.xray/close-popout`, the pop-out's `✕`
+  (`defaults/close-event-for`): close the pop-out window and leave the
+  opener's shell as it is. Its own fn because the schema-9 migration
+  re-registers it (`migrated-through-9`)."
+  []
+  (rf/reg-event :rf.xray/close-popout
+    (fn [_cofx _event]
+      {:fx [[:rf.xray.fx/close-popout]]})))
+
+(defn- migrated-through-9
   "The tail clauses — schema 5's ADDITION, schema 6's REMOVAL, schema 7's
-  ADDITION and schema 8's REPLACEMENT plus REMOVAL. All four migrate live in
-  full, so they sit past schema 4's fork rather than inside it, and the fn
-  returns TRUE unconditionally.
+  ADDITION, schema 8's REPLACEMENT plus REMOVAL and schema 9's ADDITION
+  plus REPLACEMENT. All five migrate live in full, so they sit past schema
+  4's fork rather than inside it, and the fn returns TRUE unconditionally.
+
+  Schema 9 — re-running the owning installers adds the new sub, event and
+  fx and replaces each changed sub and event in place.
 
   Schema 8 — re-running the two owning installers replaces each changed sub
   in place (the registrar's replacement hook evicts the stale reaction) and
@@ -401,6 +487,17 @@
     (doseq [[kind ids] schema-7-registrations-removed
             id         ids]
       (rf/clear kind id)))
+  (when (< from 9)
+    (filters/install!)
+    (epoch/install!)
+    (app-db-diff/install!)
+    (epoch-panel/install!)
+    (reactive-panel/install!)
+    (trace/install!)
+    (static-machines-panel/install!)
+    (install-issues-ribbon!)
+    (install-popout-close!)
+    (mount/install-fx!))
   true)
 
 (defn- migrate-schema!
@@ -479,8 +576,8 @@
       ;; the upgrade.
       (if (donor-ownership-resident?)
         (do (warn-donor-ownership-resident!) false)
-        (migrated-through-8 from)))
-    (migrated-through-8 from)))
+        (migrated-through-9 from)))
+    (migrated-through-9 from)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.
@@ -937,66 +1034,8 @@
           (= tab-id :machines)
           (update :machine-tab-activations (fnil inc 0)))}))
 
-    ;; ---- Issues feed composite ------------------------------------
-    ;;
-    ;; `:rf.xray/issues-ribbon` projects the focused epoch's
-    ;; `:trace-events` into the issue subset (errors + warnings per
-    ;; Spec 009 §Error event catalogue). Issues surface
-    ;; inline in the Epoch panel, via the L2 event-row pink-wash, and
-    ;; via the always-on issues ribbon signal (the auto-open-on-error
-    ;; watcher); there is no dedicated Issues tab or session-wide
-    ;; triage list. This composite is the canonical projection the
-    ;; auto-open watcher reads (settings/effects.cljs/
-    ;; install-auto-open-watcher!) — the cross-epoch "something is
-    ;; wrong" signal. The pure-data projection lives in
-    ;; `issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
-    ;; predicate via `panels/l2-timeline/event-bundle-has-issue?`), so the
-    ;; algebra runs under the JVM test target.
-    ;;
-    ;; Per spec/021 §1.2 the projection is focused-epoch-scoped — it
-    ;; joins `:rf.xray/focus`'s `:epoch-id` AND its pinned `:dispatch-id`
-    ;; against the per-frame `:rf.xray/epoch-history`, classifies focus
-    ;; status (no-focus / no-epoch / focused / evicted; head-fallback),
-    ;; looks up the epoch record, and threads it through `project-feed`.
-    ;;
-    ;; THE PINNED `:dispatch-id` IS A DISCRIMINATOR, not a
-    ;; second data axis. A focus the
-    ;; operator SET to an event bundle that settled no epoch carries a nil
-    ;; `:epoch-id` (`spine/epoch-id-for-event-bundle` answers nil for a
-    ;; dispatch refused before any handler ran, a bundle still mid-build, a
-    ;; bundle whose epoch aged out, and an `:ungrouped` pin alike), which is
-    ;; SHAPE-IDENTICAL to the cold-start UNSET focus that the
-    ;; head-fallback exists to serve. Reading `:epoch-id` alone, the
-    ;; 2-arities cannot tell the two apart and answer the HEAD for both, so
-    ;; this ribbon would project a DIFFERENT event's issues underneath the
-    ;; operator's selection.
-    ;;
-    ;; That is not merely cosmetic here, because this composite has no
-    ;; rendered consumer: it is the auto-open-on-error SIGNAL, and
-    ;; `install-auto-open-watcher!` fires on `(count (:issues …))` going
-    ;; non-zero — so the head epoch's issues could pop Xray open while the
-    ;; operator's own selection had settled nothing at all.
-    ;;
-    ;; Passing the pin into the 3-arities (as the Epoch panel, Trace and
-    ;; the Machine Inspector also do) is what separates them.
-    ;;
-    ;; The `:no-epoch` `:empty-kind` comes from `project-feed` itself, like
-    ;; every other status. It must never read `:no-issues`,
-    ;; which would assert that a focused epoch ran and carried no issues
-    ;; when in truth no epoch was resolved at all.
-    (rf/reg-sub :rf.xray/issues-ribbon
-      {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history] [:rf.xray/epoch-withheld]]}
-      (fn [[focus epoch-history withheld] _query]
-        (let [focus-epoch-id    (:epoch-id focus)
-              focus-dispatch-id (:dispatch-id focus)
-              focus-status      (issues-helpers/resolve-focus-status focus-epoch-id
-                                                                     focus-dispatch-id
-                                                                     epoch-history
-                                                                     withheld)
-              record            (issues-helpers/find-epoch-record focus-epoch-id
-                                                                  focus-dispatch-id
-                                                                  epoch-history)]
-          (issues-helpers/project-feed record focus-status))))
+    ;; ---- Issues feed composite (`install-issues-ribbon!`) ---------
+    (install-issues-ribbon!)
 
     ;; ---- Static-mode chrome ---------------------------------------
     ;;
@@ -1064,29 +1103,8 @@
     ;; moment any `:rf.xray/set-mode` / `:toggle-mode` lands.
     (static-persistence/install-fx!)
 
-    ;; L1 filter pills — add / remove. Mode is :in or :out; index
-    ;; identifies the pill within its mode bucket. The pure reducers
-    ;; live here so direct dispatchers (palette quick-actions, the
-    ;; pill cluster's `×` remove button) stay history-clean; the rich
-    ;; edit popup in `filters/save-edit-popup` composes against the
-    ;; same slot but threads through the popup's draft.
-    ;;
-    ;; Neither surface persists: the pills are transient by policy and
-    ;; reset on every load.
-    (rf/reg-event :rf.xray/add-filter
-      (fn [{:keys [db]} [_ mode pill]]
-        (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
-          {:db next-db})))
-
-    (rf/reg-event :rf.xray/remove-filter
-      (fn [{:keys [db]} [_ mode idx]]
-        (let [next-db
-              (update-in db [:active-filters mode]
-                         (fn [pills]
-                           (let [v (or pills [])]
-                             (vec (concat (subvec v 0 (min idx (count v)))
-                                          (subvec v (min (inc idx) (count v))))))))]
-          {:db next-db})))
+    ;; L1 filter pills — `:rf.xray/add-filter` / `:rf.xray/remove-filter`
+    ;; are `filters/install!`'s.
 
     ;; Ribbon right-icon events. The chrome carries a VISIBLE `⛶`
     ;; pop-out button (shell.cljs `ribbon-right-icons`) that dispatches
@@ -1117,11 +1135,7 @@
         {:db (assoc db :close-requested? true)
          :fx [[:rf.xray.fx/hide-shell]]}))
 
-    ;; The pop-out's `✕` (`defaults/close-event-for`): close the pop-out
-    ;; window and leave the opener's shell as it is.
-    (rf/reg-event :rf.xray/close-popout
-      (fn [_cofx _event]
-        {:fx [[:rf.xray.fx/close-popout]]}))
+    (install-popout-close!)
 
     ;; Install the DOM-side `:rf.xray.fx/hide-shell` effect that the
     ;; `:rf.xray/close-shell` event above fires. Idempotent — re-frame's
@@ -1289,13 +1303,11 @@
     ;; Per-event-id mute filter. Installs the
     ;; `:rf.xray/muted-event-ids` slot + the mute / unmute / clear
     ;; events + the localStorage persistence fx + the unmute manager
-    ;; modal open / close state. Installs AFTER `filters/install!` so
-    ;; the `:rf.xray/filtered-event-bundles` sub it composes against is
-    ;; already registered; the mute filter wraps the filtered-event-bundles
-    ;; via the standalone `:rf.xray/spine-filtered-event-bundles` sub
-    ;; below (the L2 event list + spine consumers swap their dependency
-    ;; from `filtered-event-bundles` → `spine-filtered-event-bundles` so the
-    ;; mute strip rides atop the existing IN/OUT pill filter).
+    ;; modal open / close state. `filters/install!`'s
+    ;; `:rf.xray/filtered-event-bundles` reads `:rf.xray/muted-event-ids`
+    ;; as an input and strips the muted ids last
+    ;; (`spine-filters/filter-event-bundles`), so the mute rides atop the
+    ;; IN/OUT pill filter in the one sub every L2 consumer reads.
     (spine-filters/install!)
     ;; Spine MUST install before the cross-panel selection shims —
     ;; the by-dispatch-id selection events write through the spine slot,

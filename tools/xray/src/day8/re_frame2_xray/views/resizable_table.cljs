@@ -408,17 +408,6 @@
         (let [left-px0  (.-offsetWidth left-el)
               right-px0 (.-offsetWidth right-el)
               start-x   (.-clientX ev)
-              ;; Pointermove dispatches the no-persist
-              ;; tick; pointerup dispatches the commit (one
-              ;; localStorage write per drag, not one per pixel).
-              on-move   (fn [m-ev]
-                          (let [delta     (- (.-clientX m-ev) start-x)
-                                new-left  (max min-col-width-px (+ left-px0 delta))
-                                new-right (max min-col-width-px (- right-px0 delta))]
-                            (dispatch-fn [:rf.xray.column-widths/resize-pair-tick
-                                          table-id
-                                          left-id new-left
-                                          right-id new-right])))
               ;; Pointerup AND an interrupted-drag
               ;; pointercancel both commit the last tick (persisting the
               ;; widths already painted on screen, so stored never
@@ -428,6 +417,21 @@
               finish!   (fn []
                           (dispatch-fn [:rf.xray.column-widths/resize-pair-commit])
                           (detach-window-listeners!))
+              ;; Pointermove dispatches the no-persist
+              ;; tick; pointerup dispatches the commit (one
+              ;; localStorage write per drag, not one per pixel). A move
+              ;; with no button held finishes the drag: its pointerup
+              ;; never arrived (released outside the window, or lost).
+              on-move   (fn [m-ev]
+                          (if (let [b (.-buttons m-ev)] (and (number? b) (zero? b)))
+                            (finish!)
+                            (let [delta     (- (.-clientX m-ev) start-x)
+                                  new-left  (max min-col-width-px (+ left-px0 delta))
+                                  new-right (max min-col-width-px (- right-px0 delta))]
+                              (dispatch-fn [:rf.xray.column-widths/resize-pair-tick
+                                            table-id
+                                            left-id new-left
+                                            right-id new-right]))))
               on-up     (fn [_] (finish!))
               on-cancel (fn [_] (finish!))
               ^js win   (gutter-window gutter-el)]
@@ -518,8 +522,10 @@
                       (name table-id) "-" (name left-id))
     :data-rf-xray-resizable-gutter (name left-id)
     :style       gutter-style
+    ;; Only a primary-button press drags; a right-click keeps its menu.
     :on-pointer-down (fn [ev]
-                       (on-pointer-down dispatch-fn table-id left-id right-id ev))}])
+                       (when (let [b (.-button ev)] (or (not (number? b)) (zero? b)))
+                         (on-pointer-down dispatch-fn table-id left-id right-id ev)))}])
 
 ;; ---- Body row spacer (non-interactive) ----------------------------------
 

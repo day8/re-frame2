@@ -717,7 +717,7 @@ chrome affordances besides the tabs:
 L4 fills the remaining canvas (60% default; resizable via L2/L3 drag handle). All value displays in the detail panel use the cljs-devtools-shaped renderer, whose three verbs are:
 
 - `inspect <value>` — expandable hero
-- `inspect-view <value>` — `inspect` for a panel re-authored in the Fresco view layer
+- `inspect-view <value> <node-key>` — `inspect` for a panel re-authored in the Fresco view layer; the node-key is required because it is also the boundary's mount-id
 - `inspect-inline <value>` — one-line tail-elided
 
 **Diff is not a fourth verb.** There is no `inspect-diff` on the facade at any arity. Diff is an opt-in `:before` mode on the same widget — `[edn-inspector <after> {:before <before>}]` in `views/edn_inspector.cljs`, where `:before` is the prior value to annotate against.

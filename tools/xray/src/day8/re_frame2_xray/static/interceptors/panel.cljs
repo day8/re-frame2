@@ -159,7 +159,10 @@
 (defn collect-interceptors
   "Walk every registered event's `:interceptors` chain and return a
   vector of row maps. Collapses by `:id` so an interceptor that appears
-  on many chains lands as one row with `:chain-count` set.
+  on many chains lands as one row with `:chain-count` set, and `:args`
+  holding every distinct factory arg its references carry (sorted by
+  printed form), so `[:rf.interceptor/path [:cart]]` and `[… [:user]]` both
+  show on the one row and both are searchable.
 
   EP-0022 ref-aware: a chain entry may be an INLINE interceptor value OR a
   REFERENCE (bare keyword / `[id arg]`) into the `:interceptor` registrar.
@@ -175,18 +178,20 @@
                  [(classify-entry entry resolve-ref-fn) event-id])
          by-id (reduce
                  (fn [acc [info event-id]]
-                   (-> acc
-                       (update-in [(:id info) :sample] #(or % info))
-                       (update-in [(:id info) :event-ids]
-                                  (fnil conj #{}) event-id)))
+                   (cond-> (-> acc
+                               (update-in [(:id info) :sample] #(or % info))
+                               (update-in [(:id info) :event-ids]
+                                          (fnil conj #{}) event-id))
+                     (some? (:arg info))
+                     (update-in [(:id info) :args] (fnil conj #{}) (:arg info))))
                  {}
                  pairs)]
      (->> by-id
-          (map (fn [[icpt-id {:keys [sample event-ids]}]]
+          (map (fn [[icpt-id {:keys [sample event-ids args]}]]
                  {:id          icpt-id
                   :ref?        (boolean (:ref? sample))
                   :authored    (:authored sample)
-                  :arg         (:arg sample)
+                  :args        (vec (sort-by pr-str args))
                   :factory?    (boolean (:factory? sample))
                   :before?     (boolean (:before? sample))
                   :after?      (boolean (:after? sample))
@@ -196,13 +201,14 @@
           (sort-by (fn [{:keys [id]}] (pr-str id)))
           vec))))
 
-(defn- row-haystack [{:keys [id doc authored]}]
+(defn- row-haystack [{:keys [id doc authored args]}]
   (str/lower-case
     (str (pr-str id) " "
          (or doc "") " "
-         ;; EP-0022 — a reference row is findable by its authored form too
-         ;; (e.g. searching the factory arg `[:cart]`).
-         (if (some? authored) (pr-str authored) ""))))
+         ;; EP-0022 — a reference row is findable by its authored form and
+         ;; by every factory arg its chains carry (e.g. `[:user]`).
+         (if (some? authored) (pr-str authored) "") " "
+         (str/join " " (map pr-str args)))))
 
 (defn filter-rows
   [rows query]
@@ -261,7 +267,7 @@
 (defn- interceptor-row
   ;; Non-interactive catalogue entry (no row-level dispatch); the shared
   ;; `catalogue-row` owns the `role=listitem` `li` chrome.
-  [{:keys [id ref? authored arg factory? before? after? default? chain-count
+  [{:keys [id ref? authored args factory? before? after? default? chain-count
            doc] :as _row}]
   (let [id-text (pr-str id)
         row-id  (if (and (> (count id-text) 0) (= \: (first id-text)))
@@ -293,7 +299,7 @@
          :else                "—")]
       ;; EP-0022 — a REFERENCE row carries a "ref" badge so an author can
       ;; tell a by-reference chain entry from an inline interceptor value at
-      ;; a glance; a parameterized `[id arg]` ref also shows its arg.
+      ;; a glance; a parameterized `[id arg]` ref also shows its args.
       (when ref?
         [:span {:data-testid (str "rf-xray-static-interceptors-ref-" row-id)
                 :title (str "by-reference chain entry (resolved at chain "
@@ -307,13 +313,13 @@
                         :text-transform "uppercase"
                         :letter-spacing "0.5px"}}
          "ref"])
-      (when (and ref? (some? arg))
+      (when (and ref? (seq args))
         [:span {:data-testid (str "rf-xray-static-interceptors-arg-" row-id)
-                :title "factory reference arg"
+                :title "factory reference args"
                 :style {:color (:text-tertiary tokens)
                         :font-family mono-stack
                         :font-size "10px"}}
-         (pr-str arg)])
+         (str/join " " (map pr-str args))])
       (when default?
         [:span {:data-testid (str "rf-xray-static-interceptors-default-" row-id)
                 :title "Framework-emitted auto-wrapper"

@@ -321,6 +321,10 @@
       (fn []
         (open-in-editor/open! nil)
         (open-in-editor/open! "javascript:alert(1)")
+        ;; A tab inside the scheme and a leading control character are
+        ;; how a naive prefix check is bypassed.
+        (open-in-editor/open! (str "java" (char 9) "script:alert(1)"))
+        (open-in-editor/open! (str (char 1) "javascript:alert(1)"))
         (is (= [] @calls) "neither nil nor a forbidden scheme reaches the navigator")
         (open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
         (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)

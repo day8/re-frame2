@@ -220,6 +220,21 @@
                        [(count @calls) (identical? first-node (:node second-state))
                         (.-display (.-style first-node)) (:visible? second-state)]))))))))))
 
+(deftest open!-remounts-when-the-host-dropped-the-node
+  ;; The host re-rendered its `[data-rf-xray-host]` element, so the node
+  ;; Xray painted into is no longer in the document.
+  (with-stub-document
+    (fn [_doc]
+      (let [{:keys [render-fn calls]} (mk-render-stub)]
+        (with-redefs [rf.fresco/render! render-fn]
+          (let [first-node (:node (mount/open!))]
+            (mount/close!)
+            (set! (.-isConnected first-node) false)
+            (let [second-state (mount/open!)]
+              (is (= [2 false :inline]
+                     [(count @calls) (identical? first-node (:node second-state))
+                      (:mode second-state)])))))))))
+
 (deftest close!-collapses-layout-host-slot-and-open!-restores-it
   (testing "close! collapses the layout host's slot (so its reserved width
             and chrome leave no residue) and open! restores the host's own

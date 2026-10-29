@@ -479,7 +479,7 @@
 (def ^:private valid-editor-override-keywords
   "Enumerated keyword overrides accepted by `valid-editor-override?`.
   Mirror of `set-editor!`'s accepted shape. Adding a new
-  editor here requires a matching `defmethod` in
+  editor here requires a matching scheme builder and `cond` arm in
   `re-frame.source-coords.editor-uri/editor-uri`."
   #{:vscode :cursor :windsurf :zed :idea})
 
@@ -2040,7 +2040,9 @@
   `re-frame.source-coords.editor-uri/editor-uri` that
   reads the current preference from the atom AND threads the
   configured project-root through the helper's 3-arg form. Returns a
-  string URI, or nil when the source-coord has no `:file`."
+  string URI, or nil when the source-coord has no `:file`. The
+  open-in-editor chip and fx build through it
+  (`open-in-editor/resolve-uri`)."
   [source-coord]
   (rf.source-coords.editor-uri/editor-uri (get-editor) source-coord
                          {:project-root (get-project-root)}))

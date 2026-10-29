@@ -464,28 +464,30 @@
   ;; The dispatch lands on the instance frame the divider was rendered
   ;; under. Falls back to `rf/dispatch` defensively (test-driven drags
   ;; that bypassed `start-drag!`).
-  (when-let [{:keys [col-id start-x start-width dispatch-fn]} @col-divider-drag-state]
-    ;; Every divider sits to the LEFT of the column named
-    ;; by `col-id` (between `event id` and `source`, between `source`
-    ;; and `timestamp`, between `timestamp` and `duration`); `event id`
-    ;; is the row's SOLE `flex 1 1 auto` column, far to the left of
-    ;; every divider, and it silently absorbs whatever width any
-    ;; resizable column gives up or takes (the row's total width is
-    ;; fixed). So GROWING `col-id` by `dx` steals `dx` from `event id`
-    ;; — which moves the divider itself (sitting at `event id`'s
-    ;; trailing edge, transitively, however many fixed columns sit
-    ;; between them) LEFT by `dx` while the pointer moved RIGHT by
-    ;; `dx`: a 2×dx divergence per drag-frame, and the classic
-    ;; "handle recedes from the cursor" bug. Correct split-pane
-    ;; semantics: dragging the divider TOWARD a column shrinks that
-    ;; column (the boundary is encroaching on it) and grows whatever
-    ;; is on the far side (ultimately `event id`, the shared elastic
-    ;; pool) — i.e. SHRINK `col-id` by `dx` so the divider's own
-    ;; position moves by exactly `+dx`, matching the pointer 1:1.
-    (let [dx        (- (.-pageX e) start-x)
-          new-width (- start-width dx)]
-      ((or dispatch-fn rf/dispatch)
-       [:rf.xray/set-event-list-col-width col-id new-width]))))
+  (if (resize-handle/released? e)
+    (col-divider-detach-listeners!)
+    (when-let [{:keys [col-id start-x start-width dispatch-fn]} @col-divider-drag-state]
+      ;; Every divider sits to the LEFT of the column named
+      ;; by `col-id` (between `event id` and `source`, between `source`
+      ;; and `timestamp`, between `timestamp` and `duration`); `event id`
+      ;; is the row's SOLE `flex 1 1 auto` column, far to the left of
+      ;; every divider, and it silently absorbs whatever width any
+      ;; resizable column gives up or takes (the row's total width is
+      ;; fixed). So GROWING `col-id` by `dx` steals `dx` from `event id`
+      ;; — which moves the divider itself (sitting at `event id`'s
+      ;; trailing edge, transitively, however many fixed columns sit
+      ;; between them) LEFT by `dx` while the pointer moved RIGHT by
+      ;; `dx`: a 2×dx divergence per drag-frame, and the classic
+      ;; "handle recedes from the cursor" bug. Correct split-pane
+      ;; semantics: dragging the divider TOWARD a column shrinks that
+      ;; column (the boundary is encroaching on it) and grows whatever
+      ;; is on the far side (ultimately `event id`, the shared elastic
+      ;; pool) — i.e. SHRINK `col-id` by `dx` so the divider's own
+      ;; position moves by exactly `+dx`, matching the pointer 1:1.
+      (let [dx        (- (.-pageX e) start-x)
+            new-width (- start-width dx)]
+        ((or dispatch-fn rf/dispatch)
+         [:rf.xray/set-event-list-col-width col-id new-width])))))
 
 (defn- col-divider-on-up [^js _e]
   (col-divider-detach-listeners!))
@@ -642,7 +644,8 @@
                                        " column · double-click to reset · "
                                        "arrow keys (Shift = coarse)")
            :on-pointer-down       (fn [^js e]
-                                    (col-divider-start-drag! e col-id col-px dispatch-fn))
+                                    (when (resize-handle/primary-press? e)
+                                      (col-divider-start-drag! e col-id col-px dispatch-fn)))
            :on-key-down           (fn [^js e]
                                     (when (col-divider-handle-keydown! e col-id col-px dispatch-fn)
                                       (try (.preventDefault e)

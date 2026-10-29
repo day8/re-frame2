@@ -81,7 +81,8 @@
     (view/palette-view (:dispatch (rf/capture-frame))
                        (rf.fresco/sub [:rf.xray/palette-query])
                        (rf.fresco/sub [:rf.xray/palette-results])
-                       (rf.fresco/sub [:rf.xray/palette-cursor]))))
+                       (rf.fresco/sub [:rf.xray/palette-cursor])
+                       (count (rf.fresco/sub [:rf.xray/palette-index])))))
 
 ;; ---- the `as-component` bridge -------------------------------------------
 ;;

@@ -10,13 +10,19 @@
    {:id :trace    :label "Trace"}
    {:id :machines :label "Machines"}])
 
+(defn- dispatched
+  "A `:rf.event/dispatched` trace row in the envelope the router emits."
+  [id event-v]
+  {:id id :op-type :rf.event :operation :rf.event/dispatched
+   :tags {:rf.trace/dispatch-id id :frame :rf/default :rf.event/v event-v}})
+
 (def sample-trace-buffer
   ;; oldest → newest
-  [{:id 100 :op :rf.event/handled :event-id [:user/login]}
-   {:id 101 :op :rf.event/handled :event-id [:user/logout]}
-   {:id 102 :op :rf.event/dispatched :event-id [:cart/add 42]}
-   {:id 103 :op :trace/note}            ;; filtered — not an event op
-   {:id 104 :op :rf.event/handled :event-id [:cart/remove]}])
+  [(dispatched 100 [:user/login])
+   (dispatched 101 [:user/logout])
+   (dispatched 102 [:cart/add 42])
+   {:id 103 :op-type :rf.sub :operation :rf.sub/run :tags {}}   ;; filtered — not a dispatch
+   (dispatched 104 [:cart/remove])])
 
 (def sample-frames [:rf/default :rf/xray :app/main])
 
@@ -37,9 +43,11 @@
 
 (deftest recent-event-items-skips-non-event-ops
   (let [items (sources/recent-event-items sample-trace-buffer)]
-    (is (= [[100 3] [101 2] [102 1] [104 0]]
-           (mapv (juxt :id :recency-rank) items))
-        "the :trace/note row is filtered out; the latest event is rank 0")
+    (is (= [[100 3 "[:user/login]"] [101 2 "[:user/logout]"]
+            [102 1 "[:cart/add 42]"] [104 0 "[:cart/remove]"]]
+           (mapv (juxt :id :recency-rank :label) items))
+        "the sub-run row is filtered out; the latest event is rank 0, and the
+         label is the dispatched event vector")
     (is (every? #(true? (:popout? %)) items)
         "recent events pop out into event-detail on Ctrl+Enter")))
 
@@ -62,8 +70,7 @@
         "the label still shows the event vector")))
 
 (deftest recent-event-cap
-  (let [big-buffer (vec (for [i (range 50)]
-                          {:id i :op :rf.event/handled :event-id [:noise i]}))]
+  (let [big-buffer (vec (for [i (range 50)] (dispatched i [:noise i])))]
     (is (= (map vector (range 40 50) (range 9 -1 -1))
            (map (juxt :id :recency-rank) (sources/recent-event-items big-buffer 10)))
         "the cap keeps the latest rows, ranked within what it kept")))
@@ -75,6 +82,19 @@
                  :internal-frames #{:rf/xray :rf/re-frame2-pair}})]
     (is (= #{:rf/default :app/main}
            (set (keep #(when (= :frame (:source %)) (:id %)) index))))))
+
+(deftest handler-items-drop-xray-and-share-the-cap-across-kinds
+  ;; The registrations read is process-wide: Xray's own ids are not the
+  ;; host's, and a host with many events must still list its subs.
+  (let [events (for [i (range 300)] {:id (keyword "app" (str "e" i)) :kind :event})
+        xray   [{:id :rf.xray/select-tab :kind :event} {:id :rf.xray.static/tab :kind :sub}]
+        subs   [{:id :app/total :kind :sub} {:id :app/items :kind :sub}]
+        ids    (set (map :id (sources/handler-items (concat xray events subs))))]
+    (is (contains? ids [:sub :app/total]))
+    (is (contains? ids [:sub :app/items]))
+    (is (not-any? #(= "rf.xray" (namespace (second %))) ids))
+    (is (not (contains? ids [:sub :rf.xray.static/tab])))
+    (is (= 200 (count ids)))))
 
 (deftest handler-items-include-meta
   (is (= ["user.cljs:12" true]

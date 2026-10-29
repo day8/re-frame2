@@ -68,7 +68,10 @@
 
    :cart/clear
    {:interceptors [:my/logging                       ; same ref → collapses
-                   {:id :rf/event-handler :rf/default? true :before identity}]}})
+                   {:id :rf/event-handler :rf/default? true :before identity}]}
+
+   :user/rename
+   {:interceptors [[:rf.interceptor/path [:user]]]}})
 
 ;; A stub resolver standing in for `(rf/handler-meta {:kind :interceptor :id id})` so the
 ;; pure helper test never needs a live registrar.
@@ -102,7 +105,7 @@
     (is (= [{:id          :my/logging
              :ref?        true
              :authored    :my/logging
-             :arg         nil
+             :args        []
              :factory?    false
              :before?     true
              :after?      false
@@ -112,17 +115,17 @@
             {:id          :rf.interceptor/path
              :ref?        true
              :authored    [:rf.interceptor/path [:cart]]
-             :arg         [:cart]
+             :args        [[:cart] [:user]]
              :factory?    true
              :before?     false
              :after?      false
              :default?    false
-             :chain-count 1
+             :chain-count 2
              :doc         "framework path interceptor"}
             {:id          :rf/event-handler
              :ref?        false
              :authored    nil
-             :arg         nil
+             :args        []
              :factory?    false
              :before?     true
              :after?      false
@@ -130,6 +133,14 @@
              :chain-count 2
              :doc         nil}]
            (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)))))
+
+(deftest every-factory-arg-is-searchable
+  ;; Two chains reference one factory with different args; both args are
+  ;; on the one row, so either finds it.
+  (let [rows (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)]
+    (is (= [[:rf.interceptor/path] [:rf.interceptor/path]]
+           [(mapv :id (panel/filter-rows rows "[:user]"))
+            (mapv :id (panel/filter-rows rows "[:cart]"))]))))
 
 (deftest collect-interceptors-arity-1-uses-default-resolver
   ;; The 1-arity (production) form resolves through the live registrar, and

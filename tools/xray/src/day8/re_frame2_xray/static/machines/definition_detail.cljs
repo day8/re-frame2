@@ -438,14 +438,14 @@
        ;; nil when sim isn't active for the selected machine.
        :sim-values  (when (= sub-mode :sim)
                       {:sim         (rf.fresco/sub
-                                      [:rf.xray.static.machines/sim-state])
+                                      [:rf.xray.static.machines/sim-state selected-id])
                        :transitions (rf.fresco/sub
-                                      [:rf.xray.static.machines/sim-available-transitions])
+                                      [:rf.xray.static.machines/sim-available-transitions selected-id])
                        :suggestions (rf.fresco/sub
-                                      [:rf.xray.static.machines/sim-event-suggestions])
+                                      [:rf.xray.static.machines/sim-event-suggestions selected-id])
                        :current     (rf.fresco/sub
-                                      [:rf.xray.static.machines/sim-current-state])
+                                      [:rf.xray.static.machines/sim-current-state selected-id])
                        :last-trans  (rf.fresco/sub
-                                      [:rf.xray.static.machines/sim-last-transition])})}
+                                      [:rf.xray.static.machines/sim-last-transition selected-id])})}
       (:dispatch (rf/capture-frame))
       substrate/as-element)))

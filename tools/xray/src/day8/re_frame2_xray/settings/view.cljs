@@ -802,7 +802,7 @@
     [:p {:style (hint-style)}
      "Master switch for Xray's global keydown listener. Off → "
      "Xray swallows no keystrokes; the host app's bindings fire "
-     "unimpeded. May require a page reload to fully detach. "
+     "unimpeded. Takes effect immediately. "
      "(Setting: " [:code {:style {:font-family mono-stack
                                   :color (:text-tertiary tokens)}}
                    ":rf.xray/keybinding-enabled?"] ")"]]

@@ -31,3 +31,14 @@
   ;; before the first match stays free.
   (is (= 6 (score "xbd" "bd")))       ; b 1, d 1+4 (run)
   (is (= 0 (score "xbxxd" "bd"))))    ; b 1, two gaps -2, d 1
+
+(deftest the-best-start-wins
+  ;; `ep` scores the `Ep` of `Epoch` (word start 1+8, run 1+4), not the
+  ;; `e` of `Open` followed by a gap to a later `p`.
+  (is (= 14 (score "Open Epoch panel" "ep"))))
+
+(deftest a-character-that-lower-cases-to-two-code-units-does-not-shift-the-scan
+  ;; `İ` (U+0130) lower-cases to two code units; a whole-string lower-case
+  ;; would index past the candidate's end on a full scan.
+  (is (nil? (score "event :user/İsim" "zz")))
+  (is (some? (score "event :user/İsim" "sim"))))

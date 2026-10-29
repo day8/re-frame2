@@ -209,7 +209,8 @@ yields a clickable URI rather than a no-op. Source-coords without a
 `:file` MUST hide the click chip entirely. The canonical URI builder
 lives at `re-frame.source-coords.editor-uri` (core artefact, CLJC);
 Xray's open-in-editor chip consumes it via
-`day8.re-frame2-xray.config/editor-uri`.
+`day8.re-frame2-xray.config/editor-uri` (through
+`open-in-editor/resolve-uri`).
 
 The full set of URI-construction rules — default-editor behaviour
 when unset, line/column defaults, no-URL-encoding posture, the

@@ -662,7 +662,7 @@
                             :invalidation (:orange tokens)
                             :gc           (:text-tertiary tokens)
                             :dedupe       (:info tokens)
-                            :hydration    (:purple tokens)
+                            :hydration    (:magenta tokens)
                             (:text-primary tokens))
                    :font-weight 600 :min-width "9rem"}}
     (:label row)]

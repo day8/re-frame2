@@ -53,7 +53,7 @@
 
 (defn palette-tree
   "The open palette's hiccup, read the way `palette/ModalView` reads it —
-  the same four keys in the same order, behind the same open-gate.
+  the same five reads in the same order, behind the same open-gate.
   Answers `nil` when the palette is closed, as the boundary does."
   ([] (palette-tree (:dispatch (rf/capture-frame))))
   ([dispatch]
@@ -61,4 +61,5 @@
      (view/palette-view dispatch
                         @(rf/subscribe [:rf.xray/palette-query])
                         @(rf/subscribe [:rf.xray/palette-results])
-                        @(rf/subscribe [:rf.xray/palette-cursor])))))
+                        @(rf/subscribe [:rf.xray/palette-cursor])
+                        (count @(rf/subscribe [:rf.xray/palette-index]))))))

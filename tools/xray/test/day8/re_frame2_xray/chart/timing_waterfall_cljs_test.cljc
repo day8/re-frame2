@@ -4,24 +4,21 @@
                :cljs [cljs.test    :refer-macros [deftest is]])
             [day8.re-frame2-xray.chart.timing-waterfall :as wf]))
 
-(deftest normalise-phases-projects-width-and-offset-per-phase
+(deftest normalise-phases-projects-a-width-per-phase
   (doseq [[wire rows]
           [;; no :total-ms — the sum of the durations is the total
            [{:phases [[:dns 50] [:connect 50]]}
-            [[:dns 0.5 0.0] [:connect 0.5 0.5]]]
+            [[:dns 0.5] [:connect 0.5]]]
            [{:phases [[:a 50] [:b 50]] :total-ms 200}
-            [[:a 0.25 0.0] [:b 0.25 0.25]]]
+            [[:a 0.25] [:b 0.25]]]
            ;; a phase longer than the total clamps to 100%
            [{:phases [[:x 9999]] :total-ms 100}
-            [[:x 1.0 0.0]]]
-           ;; the offset is the running sum of every preceding width
-           [{:phases [[:a 25] [:b 25] [:c 50]] :total-ms 100}
-            [[:a 0.25 0.0] [:b 0.25 0.25] [:c 0.5 0.5]]]
+            [[:x 1.0]]]
            ;; negative and non-numeric durations drop; a zero-length phase
            ;; stays, because managed-fx emits [[:issued 0] [:elapsed N]]
            [{:phases [[:a 100] [:b 0] [:c -10] [:d "x"]] :total-ms 100}
-            [[:a 1.0 0.0] [:b 0.0 1.0]]]]]
-    (is (= rows (mapv (juxt :phase :width-pct :offset-pct)
+            [[:a 1.0] [:b 0.0]]]]]
+    (is (= rows (mapv (juxt :phase :width-pct)
                       (wf/normalise-phases wire)))
         (pr-str wire))))
 
@@ -31,6 +28,9 @@
            ;; a zero-length phase is never the slowest, though
            ;; normalise-phases keeps it as a row
            [{:phases [[:issued 0]]} nil]
+           ;; the managed-fx shape: one positive phase is not "slow"
+           [{:phases [[:issued 0] [:elapsed 3]]} nil]
+           [{:phases [[:a 1] [:b 2]]} nil]
            [{} nil]]]
     (is (= slowest (wf/slowest-phase wire)) (pr-str wire))))
 

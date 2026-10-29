@@ -91,9 +91,11 @@
   they light up Xray's Issues surface legitimately, per frame.
 
   This testbed carries no spec.cjs; regression coverage for multi-frame
-  isolation lives in the substrate contract tests (`npm run test:cljs`)
-  + the Xray feature-matrix gate's `multi-frame isolation substrate`
-  scenario (on the framework `testbeds/multi_frame` surface)."
+  isolation lives in the substrate contract tests (`npm run test:cljs`),
+  the Xray feature-matrix gate's `multi-frame isolation substrate`
+  scenario (on the framework `testbeds/multi_frame` surface), and its own
+  feature-matrix scenario, which drives the FLOW and APP-SCHEMA rungs in
+  both frames and asserts each frame's app-db is untouched by the other."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Requiring `standard-epochs.core` installs every handler /

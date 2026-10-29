@@ -173,6 +173,35 @@
 
 ;; ---- install -----------------------------------------------------------
 
+(defn remove-at
+  "`v` without the element at `idx`, as a vector; `v` unchanged in length
+  when `idx` is past its end. `v` may be nil or any seq — a host seed
+  built with `map` is a seq, which `subvec` refuses."
+  [v idx]
+  (let [v (vec v)
+        n (count v)]
+    (into (subvec v 0 (min idx n)) (subvec v (min (inc idx) n)))))
+
+(defn replace-at
+  "`v` with the element at `idx` replaced by `x`, as a vector; `x` is
+  appended when `idx` is past the end. `v` may be nil or any seq."
+  [v idx x]
+  (let [v (vec v)
+        n (count v)]
+    (-> (subvec v 0 (min idx n))
+        (conj x)
+        (into (subvec v (min (inc idx) n))))))
+
+(defn- open-popup
+  "Pure reducer — open the edit popup for `trigger`, its draft built from
+  the trigger's pill in the trigger's mode."
+  [db {:keys [mode pill] :as trigger}]
+  (-> db
+      (assoc :edit-popup-open? true)
+      (assoc :edit-popup-trigger trigger)
+      (assoc :edit-popup-draft (-> (edit-popup/pill->draft (or pill {}))
+                                   (assoc :mode mode)))))
+
 (defn- close-popup
   "Pure reducer — reset the popup slots."
   [db]
@@ -203,7 +232,8 @@
               `:rf.xray/edit-popup-open?`, `:rf.xray/edit-popup-
               trigger`, `:rf.xray/edit-popup-draft`.
 
-    - Events: `:rf.xray/open-edit-popup`, `:rf.xray/close-edit-popup`,
+    - Events: `:rf.xray/add-filter`, `:rf.xray/remove-filter`,
+              `:rf.xray/open-edit-popup`, `:rf.xray/close-edit-popup`,
               `:rf.xray/edit-popup-set-mode`,
               `:rf.xray/edit-popup-set-pattern`,
               `:rf.xray/save-edit-popup`,
@@ -360,17 +390,11 @@
   ;; row → add' arrives with the event-id pre-filled.
 
   (rf/reg-event :rf.xray/open-edit-popup
-    (fn [{:keys [db]} [_ {:keys [source mode idx pill] :as trigger}]]
-      {:db (let [draft (-> (edit-popup/pill->draft (or pill {}))
-                      (assoc :mode (or mode :in)))]
-        (-> db
-            (assoc :edit-popup-open? true)
-            (assoc :edit-popup-trigger
-                   {:source source
-                    :mode   (or mode :in)
-                    :idx    idx
-                    :pill   pill})
-            (assoc :edit-popup-draft draft)))}))
+    (fn [{:keys [db]} [_ {:keys [source mode idx pill]}]]
+      {:db (open-popup db {:source source
+                           :mode   (or mode :in)
+                           :idx    idx
+                           :pill   pill})}))
 
   (rf/reg-event :rf.xray/close-edit-popup
     (fn [{:keys [db]} _event]
@@ -385,6 +409,23 @@
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ pattern]]
       {:db (assoc-in db [:edit-popup-draft :pattern] (or pattern ""))}))
+
+  ;; ---- events: add / remove ---------------------------------------------
+  ;;
+  ;; L1 filter pills — add / remove. Mode is :in or :out; index
+  ;; identifies the pill within its mode bucket. Direct dispatchers
+  ;; (palette quick-actions, the pill cluster's `×` remove button) use
+  ;; these; the edit popup below composes against the same slot through
+  ;; its draft. Neither persists: the pills are transient by policy and
+  ;; reset on every load.
+
+  (rf/reg-event :rf.xray/add-filter
+    (fn [{:keys [db]} [_ mode pill]]
+      {:db (update-in db [:active-filters mode] (fnil conj []) pill)}))
+
+  (rf/reg-event :rf.xray/remove-filter
+    (fn [{:keys [db]} [_ mode idx]]
+      {:db (update-in db [:active-filters mode] remove-at idx)}))
 
   ;; ---- events: save / delete -------------------------------------------
   ;;
@@ -413,28 +454,18 @@
                 ;; in place we replace at the same idx.
                 same-mode?        (= mode old-mode)
                 idx               (:idx trig)
-                without-old
-                (if (and editing-existing? (some? idx))
-                  (update-in db [:active-filters old-mode]
-                             (fn [v]
-                               (let [v (or v [])]
-                                 (vec (concat (subvec v 0 (min idx (count v)))
-                                              (subvec v (min (inc idx) (count v))))))))
-                  db)
                 next-db
                 (if (and editing-existing? same-mode? (some? idx))
                   ;; Replace at the original index so pill order is
                   ;; preserved across an edit.
-                  (update-in db [:active-filters mode]
-                             (fn [v]
-                               (let [v (or v [])]
-                                 (vec (concat (subvec v 0 (min idx (count v)))
-                                              [pill]
-                                              (subvec v (min (inc idx) (count v))))))))
+                  (update-in db [:active-filters mode] replace-at idx pill)
                   ;; New pill or mode-flip — append to the target
-                  ;; bucket of the without-old base.
-                  (update-in without-old [:active-filters mode]
-                             (fnil conj []) pill))
+                  ;; bucket, after removing a flipped pill from its old one.
+                  (cond-> db
+                    (and editing-existing? (some? idx))
+                    (update-in [:active-filters old-mode] remove-at idx)
+                    :always
+                    (update-in [:active-filters mode] (fnil conj []) pill)))
                 final-db (close-popup next-db)]
             {:db final-db})))))
 
@@ -445,11 +476,7 @@
             idx  (:idx trig)]
         (if (and (= :pill (:source trig)) (some? idx) (some? mode))
           (let [next-db (-> db
-                            (update-in [:active-filters mode]
-                                       (fn [v]
-                                         (let [v (or v [])]
-                                           (vec (concat (subvec v 0 (min idx (count v)))
-                                                        (subvec v (min (inc idx) (count v))))))))
+                            (update-in [:active-filters mode] remove-at idx)
                             (close-popup))]
             {:db next-db})
           {:db (close-popup db)}))))
@@ -470,14 +497,9 @@
 
   (rf/reg-event :rf.xray/hide-event-type
     (fn [{:keys [db]} [_ event-id]]
-      {:db (let [pill {:pattern (when event-id (str event-id))}]
-        (-> db
-            (assoc :edit-popup-open? true)
-            (assoc :edit-popup-trigger
-                   {:source :context :mode :out :pill pill})
-            (assoc :edit-popup-draft
-                   (-> (edit-popup/pill->draft pill)
-                       (assoc :mode :out)))))}))
+      {:db (open-popup db {:source :context
+                           :mode   :out
+                           :pill   {:pattern (when event-id (str event-id))}})}))
 
   ;; ---- typed-predicate add events -------------------------------------
   ;;
@@ -526,13 +548,17 @@
   ;; The single `:active-filters` write seam. Despite the `hydrate-`
   ;; name it reads NO localStorage: the only production dispatch is
   ;; `mount.cljs`'s `::seed-configured-filters` first-mount hook handing
-  ;; over the host's `:rf.xray/filters` seed.
+  ;; over the host's `:rf.xray/filters` seed. Each bucket is stored as a
+  ;; vector, whatever collection the host built it with, because the
+  ;; pill reducers splice by index.
 
   (rf/reg-event :rf.xray/hydrate-filters
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ filters]]
       {:db (assoc db :active-filters
-                (or filters {:in [] :out []}))}))
+                  (-> (or filters {})
+                      (update :in (fnil vec []))
+                      (update :out (fnil vec []))))}))
 
   ;; NO hydrate on install. The USER's IN/OUT pills are a TRANSIENT
   ;; exploration filter — they reset to unfiltered on every page load so

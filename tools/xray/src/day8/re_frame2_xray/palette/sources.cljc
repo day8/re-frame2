@@ -46,7 +46,8 @@
   (the aggregator orders sources by importance). Within a source, the
   caller is responsible for upstream dedup."
   (:require [clojure.string :as str]
-            [day8.re-frame2-xray.palette.fuzzy :as fuzzy]))
+            [day8.re-frame2-xray.palette.fuzzy :as fuzzy]
+            [day8.re-frame2-xray.self-noise :as self-noise]))
 
 ;; ---- per-source boosts ---------------------------------------------------
 ;;
@@ -98,10 +99,11 @@
     panel-entries))
 
 (defn recent-event-items
-  "Indexed from Xray's `:trace-buffer` snapshot. Only `:rf.event/handled`
-  + `:rf.event/dispatched` rows are surfaced — the buffer carries every
-  trace kind but a recent-events palette source means recent
-  dispatches, not every internal trace event.
+  "Indexed from Xray's `:trace-buffer` snapshot. Only `:rf.event/dispatched`
+  rows are surfaced — the buffer carries every trace kind but a
+  recent-events palette source means recent dispatches, not every
+  internal trace event. The label is the dispatched event vector
+  (`[:tags :rf.event/v]`).
 
   Recency rank rises with index from the end (the most-recently-
   pushed event is rank 0). Caps at 30 rows by default — beyond that
@@ -114,12 +116,7 @@
   ([buffer]
    (recent-event-items buffer 30))
   ([buffer max-rows]
-   (let [event-rows (->> buffer
-                         (filter (fn [t]
-                                   (contains?
-                                     #{:rf.event/handled :rf.event/dispatched}
-                                     (or (:operation t) (:op t)))))
-                         vec)
+   (let [event-rows (into [] (filter #(= :rf.event/dispatched (:operation %))) buffer)
          total      (count event-rows)
          taken      (cond-> event-rows
                       (pos? total)
@@ -130,9 +127,7 @@
          (fn [i t]
            ;; Last row of `taken` is the most recent — recency-rank 0.
            (let [rank   (- (dec taken-cnt) i)
-                 ev-id  (or (:event-id t)
-                            (get-in t [:tags :rf.event/v])
-                            (:id t))
+                 ev-id  (or (get-in t [:tags :rf.event/v]) (:id t))
                  label  (str (pr-str ev-id))]
              {:source       :recent-event
               :id           (or (:id t) [ev-id i])
@@ -183,12 +178,22 @@
   "Indexed from a `[{:id k :kind k :doc s :file s :line n} ...]`
   seq. The caller assembles this seq from `re-frame.registrar/
   registrations` calls; the aggregator stays substrate-agnostic.
-  Caps at 200 handlers by default — beyond that the fuzzy pass
-  starts to dominate sub recomputation cost."
+
+  Xray's own `:rf.xray*` registrations are dropped — the registrations
+  read is process-wide, and they are not the host's handlers. The rest
+  caps at 200 by default (beyond that the fuzzy pass starts to dominate
+  sub recomputation cost), taken a row of each kind at a time, so a host
+  with many events still lists its subs, fx and cofx."
   ([handler-entries]
    (handler-items handler-entries 200))
   ([handler-entries max-rows]
    (->> handler-entries
+        (remove (comp self-noise/xray-internal-event-id? :id))
+        (group-by :kind)
+        vals
+        (mapcat #(map-indexed vector %))
+        (sort-by first)
+        (map second)
         (take max-rows)
         (mapv (fn [{:keys [id kind doc file line]}]
                 {:source :handler

@@ -66,9 +66,10 @@
 
   ## Why a shared ns
 
-  This namespace is the reference RUNNER all six numbered-button decks
-  consume — standard_epochs, routes_epochs, machine_epochs, edn_inspector,
-  managed_http, and (via standard-epochs mounted twice) two_frame_isolation.
+  This namespace is the reference RUNNER the numbered-button decks
+  consume — standard_epochs, routes_epochs, edn_inspector, managed_http,
+  and (via standard-epochs mounted twice) two_frame_isolation.
+  machine_epochs runs its own multi-track picker instead.
   The shared dependency makes the app-db/events/subs API atomic by
   construction: every deck adopts it together. A deck supplies its own
   step vector + prefix + host-frame via `reg-runner!`.

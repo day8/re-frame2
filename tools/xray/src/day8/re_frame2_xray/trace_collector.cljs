@@ -160,6 +160,13 @@
   ;; in flight.
   (atom false))
 
+(defn- cascade-key
+  "The `[frame dispatch-id]` a trace event belongs to, or nil when it
+  carries no dispatch-id."
+  [ev]
+  (when-some [dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])]
+    [(get-in ev [:tags :frame]) dispatch-id]))
+
 (defn snapshot-from-rings
   "Materialise every registered HOST frame's flat trace events + the
   frameless secondary ring into one oldest-first vector. Pure-data;
@@ -239,13 +246,6 @@
           ;; sort to the tail.
           (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
                    all))))
-
-(defn- cascade-key
-  "The `[frame dispatch-id]` a trace event belongs to, or nil when it
-  carries no dispatch-id."
-  [ev]
-  (when-some [dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])]
-    [(get-in ev [:tags :frame]) dispatch-id]))
 
 (defn bundles-for-frame
   "The gated per-frame EVENT-BUNDLE read — one bundle per

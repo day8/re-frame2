@@ -19,7 +19,11 @@
   ## Score shape
 
   Returns `nil` when the candidate does not contain every query
-  character as a subsequence. Returns a `long` ≥ 0 otherwise:
+  character as a subsequence. Otherwise returns the best `long` score over
+  every placement that starts at an occurrence of the query's first
+  character — so `ep` against `Open Epoch panel` scores the `Ep` of
+  `Epoch`, not the `e` of `Open`. The score can be negative (gaps cost
+  more than a short match earns):
 
   - Base: each matched char contributes +1.
   - Word-start bonus: +8 when the char follows a separator
@@ -116,34 +120,28 @@
       (or (separator? prev)
           (and (upper? curr) (lower? prev))))))
 
-(defn score-with-meta
-  "Score `candidate` against `query`. Both args are strings.
+(defn- lower-chars
+  "`s` as a vector of each character lower-cased ON ITS OWN, so index `i`
+  is always the character at index `i` of `s`. Lower-casing the whole
+  string first would not keep that: `İ` (U+0130) lower-cases to two code
+  units, shifting every later index."
+  [s]
+  (mapv #(str/lower-case (str %)) s))
 
-  Returns `nil` when the query is not a case-insensitive subsequence
-  of the candidate. Returns `{:score long}` otherwise.
-
-  Empty query short-circuits to a tiny non-zero score (`1`) — every
-  candidate qualifies for empty-input mode and the caller's recency /
-  boost weights dominate the order."
-  [candidate query]
-  (cond
-    (nil? candidate) nil
-    (nil? query)     nil
-    (zero? (count query))
-    {:score 1}
-
-    :else
-    (let [c-lc (str/lower-case candidate)
-          q-lc (str/lower-case query)
-          c-len (count c-lc)
-          q-len (count q-lc)]
-      (loop [ci 0
+(defn- score-from
+  "The score of the greedy placement of `q-lc` (from `lower-chars`) that
+  starts scanning `candidate` at index `start`, or nil when the query does
+  not fit from there."
+  [candidate c-lc q-lc start]
+  (let [c-len (count c-lc)
+        q-len (count q-lc)]
+      (loop [ci start
              qi 0
              score 0
              last-match-idx -2]
         (cond
           (= qi q-len)
-          {:score score}
+          score
 
           (= ci c-len)
           nil
@@ -182,5 +180,33 @@
                      (if (>= last-match-idx 0)
                        (dec score)
                        score)
-                     last-match-idx))))))))
+                     last-match-idx)))))))
+
+(defn score-with-meta
+  "Score `candidate` against `query`. Both args are strings.
+
+  Returns `nil` when the query is not a case-insensitive subsequence
+  of the candidate. Returns `{:score long}` otherwise — the best score
+  over every start at an occurrence of the query's first character.
+
+  Empty query short-circuits to a tiny non-zero score (`1`) — every
+  candidate qualifies for empty-input mode and the caller's recency /
+  boost weights dominate the order."
+  [candidate query]
+  (cond
+    (nil? candidate) nil
+    (nil? query)     nil
+    (zero? (count query))
+    {:score 1}
+
+    :else
+    (let [c-lc   (lower-chars candidate)
+          q-lc   (lower-chars query)
+          q0     (first q-lc)
+          scores (keep (fn [start]
+                         (when (= q0 (nth c-lc start))
+                           (score-from candidate c-lc q-lc start)))
+                       (range (count c-lc)))]
+      (when (seq scores)
+        {:score (apply max scores)}))))
 
