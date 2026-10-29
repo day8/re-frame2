@@ -55,13 +55,11 @@
   (:require [re-frame.frame :as rf.frame]
             [re-frame.machines.lifecycle-fx.exit-cascade :as rf.machines.lifecycle-fx.exit-cascade]
             [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
-            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.lifecycle-fx.resource-release :as rf.machines.lifecycle-fx.resource-release]
             [re-frame.machines.lifecycle-fx.teardown :as rf.machines.lifecycle-fx.teardown]
             [re-frame.machines.lifecycle-fx.traces :as rf.machines.lifecycle-fx.traces]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.registrar :as rf.registrar]))
+            [re-frame.machines.timer :as rf.machines.timer]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -86,54 +84,25 @@
        (contains? (get-in runtime-db (rf.machines.paths/snapshot-path)) actor-id)))
 
 (defn- actor-live?
-  "The silent-idempotent liveness probe, shared by the
-  keyword/tracked destroy paths (`destroy-machine-fx` /
-  `destroy-tracked!`) and the per-actor
-  `destroy-single-actor!` path. An actor with a resolved
-  `actor-id` is live iff EITHER of the following survives:
+  "The ONE liveness probe every destroy shape consults: an actor is live iff
+  `runtime-db` carries its snapshot (Spec 005 §Liveness is derived from
+  runtime-db). A registrar entry is never liveness. A machine DEFINITION is the
+  shared TYPE and outlives every instance, so a destroyed or never-started
+  singleton reads dead and a second destroy is the silent no-op Spec 005
+  §Destroy is silent-idempotent requires; and spawned actors have no
+  per-instance entry, so the only other `:event` entry an actor address can
+  carry is an application's own handler, which a destroy must never touch.
 
-    - **A NON-MACHINE registrar entry present** at `actor-id`. Normal spawned
-      actors resolve lazily without a per-instance entry, but teardown still
-      recognises and clears a stale or externally installed PER-INSTANCE entry.
-      A DEFINITION-bearing entry (`:rf/machine? true` — what `reg-machine`
-      installs) is deliberately NOT a liveness signal: it is a shared load-time
-      TYPE whose lifetime is the registrar's, never any one instance's (Spec 005
-      §Destroy is silent-idempotent). Without that exclusion a destroyed
-      singleton — whose definition survives its teardown — would still read
-      live, so a second `[:rf.machine/destroy <id>]` would re-run the whole
-      pipeline: phantom `:rf.machine/destroyed` trace plus re-fired resource
-      release. Destroying a NEVER-STARTED singleton is a genuine no-op for
-      the same reason.
-    - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`
-      in `runtime-db`.
-
-  `runtime-db` is the frame's runtime-db as the caller read it, and no write
-  lands between that read and this probe, so it IS the live value: the
-  `:rf.machine/destroy` effect reads it at entry, after every earlier effect
-  in the same `:fx` vector has committed (an actor a spawn there installed is
-  in it); `reap-tracked-children!` re-reads it per slot; and
-  `destroy-single-actor!` reads it as the argument. It is durable state, so
-  an in-process runtime-state install (`restore-epoch!`,
-  `replace-frame-state!`) that rewinds PAST a spawn leaves the discarded
-  actor absent, and destroying it is the silent no-op Spec 005 §Destroy is
-  silent-idempotent requires.
-
-  A truly-already-destroyed actor has both signals gone — the unified
-  teardown projection and registrar cleanup run atomically per
-  `destroy-single-actor!` / `destroy-resolved!` / `finalize-machine`.
-  See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
-
-  This is the ONE liveness probe every destroy shape consults.
-  The tracked form pairs it with the exact-incarnation
-  predicate (`slot-owned-incarnation?`); tracked-slot PRESENCE is
-  ownership bookkeeping, never a liveness signal."
+  `runtime-db` is the frame's runtime-db as the caller read it, with no write
+  between that read and this probe, so it IS the live value: an actor a spawn
+  earlier in the same `:fx` vector installed is in it, and an in-process
+  install (`restore-epoch!`, `replace-frame-state!`) that rewinds past a spawn
+  leaves the discarded actor absent. The tracked form pairs this with the
+  exact-incarnation predicate (`slot-owned-incarnation?`); tracked-slot
+  PRESENCE is ownership bookkeeping, never a liveness signal."
   [actor-id runtime-db]
-  (and actor-id
-       (or (and (some? (rf.registrar/lookup :event actor-id))
-                ;; ... but a DEFINITION-bearing entry is not this actor's own —
-                ;; it is the shared TYPE, and it outlives every instance.
-                (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
-           (snapshot-present? runtime-db actor-id))))
+  (and (some? actor-id)
+       (snapshot-present? runtime-db actor-id)))
 
 (declare reap-tracked-children!)
 
@@ -170,9 +139,7 @@
        — `destroy-resolved!` emits here so the
        trace lands after `:exit`; `destroy-single-actor!`'s
        callers own the emit, so they pass nil;
-    7. when the swap landed, clear any PER-INSTANCE registrar entry (normal
-       spawned actors have none) — never a machine DEFINITION;
-    8. release the actor's resource owners — fire
+    7. release the actor's resource owners — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind) so a resource the actor
        `ensure`d under its machine-owner key does not leak the owner (keep
@@ -214,24 +181,7 @@
     ;; (6) emit `:rf.machine/destroyed`.
     (when emit-destroyed!-fn
       (emit-destroyed!-fn))
-    ;; (7) when the projection landed, clear any registrar entry
-    ;; (`:rf.registry/handler-cleared`).
-    ;; EXCEPT when the address carries a machine DEFINITION. A
-    ;; `reg-machine` registration is a shared load-time TYPE, not this actor's
-    ;; own per-instance entry: the registration is the PROGRAM that makes the
-    ;; address creatable, the snapshot is the INSTANCE, and teardown ends the
-    ;; instance and never the program (Spec 005 §Liveness is derived from
-    ;; runtime-db). Clearing it would strand every later spawn of that type
-    ;; with `:rf.error/machine-spawn-unregistered-type`, and — for a singleton
-    ;; — silently delete an authoring artefact the destroy never named.
-    ;; `rf/clear` remains the public spelling for permanent removal. A plain
-    ;; `reg-event` handler squatting here carries no `:rf/machine? true`, so
-    ;; `spec-from-registry` returns nil and step (7) still clears it — which
-    ;; is the stale/externally-installed case this step exists for.
-    (when (and db-swapped?
-               (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry actor-id)))
-      (rf.registrar/unregister! :event actor-id))
-    ;; (8) release the actor's resource owners once it is gone, so
+    ;; (7) release the actor's resource owners once it is gone, so
     ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
     ;; keep refetching/polling.
     ;; Guarded on resources being loaded (machines never depends on resources).
@@ -246,7 +196,7 @@
   the active configuration's `:exit` cascade, apply the
   unified teardown projection (per
   `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
-  `:rf.http/managed` requests, and clear any registrar entry.
+  `:rf.http/managed` requests.
   The ordered teardown pipeline is shared with `destroy-resolved!` via
   `teardown-live-actor!`.
 
@@ -260,7 +210,7 @@
   requests, logs, dispatches) execute against the live snapshot.
 
   Silent-idempotent guard: an already-destroyed actor
-  (all liveness signals gone) is a no-op. Returns the teardown's own
+  (no snapshot) is a no-op. Returns the teardown's own
   `db-swapped?` commit flag when the actor was live — `true` when the teardown
   projection committed, `false` when the durable write did not land — and `nil`
   (the `when`'s falsey value) for the silent no-op. So callers (notably
@@ -476,15 +426,14 @@
   The liveness probe must distinguish *already-destroyed* (the actor was
   alive and the teardown projection ran) from *alive* — including an actor
   a spawn earlier in the same `:fx` vector has just installed. Liveness is
-  the shared `actor-live?` probe — registrar entry / snapshot in `old-db`,
+  the shared `actor-live?` probe — snapshot presence in `old-db`,
   identical for every shape (a tracked slot naming a dead actor is STALE
   OWNERSHIP BOOKKEEPING, pruned by `destroy-tracked!` without re-running
   lifecycle teardown, never a liveness signal).
 
-  A truly-already-destroyed actor has ALL the probe's signals gone — the
-  unified teardown projection and registrar cleanup run atomically per
-  `destroy-single-actor!` and `finalize-machine`.
-  See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
+  A truly-already-destroyed actor has no snapshot — the unified teardown
+  projection removes it atomically per `destroy-single-actor!` and
+  `finalize-machine`. See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
 
   `owner-token` is threaded into `teardown-live-actor!` so the durable writes
   ride the effect owner's token. Before teardown,
@@ -503,17 +452,28 @@
       (let [reason     (:reason teardown)
             join-child (:join-child teardown)
             child-rt   (get-in old-db (rf.machines.paths/snapshot-path actor-id :rf/runtime))
-            ;; The keyword form names only the actor. A declarative
-            ;; single-`:spawn` child names its spawn in its own
-            ;; `:parent-id` / `:invoke-id` runtime stamps, so its trace and
-            ;; cancel row carry the coordinates its done or error row
-            ;; carries. The teardown below still prunes only the slots the
-            ;; caller named: a keyword destroy leaves the tracked slot to
-            ;; the parent's exit (`destroy-tracked!`).
+            ;; The keyword form names only the actor, so the trace and cancel
+            ;; row take the coordinates the actor carries itself: a declarative
+            ;; single-`:spawn` child's `:parent-id` / `:invoke-id` stamps, or a
+            ;; `:spawn-all` child's authenticated join membership — the same
+            ;; coordinates its done or error row carries.
             [spawn-parent-id spawn-invoke-id]
-            (if (and (nil? invoke-id) (some? (:invoke-id child-rt)))
-              [(:parent-id child-rt) (:invoke-id child-rt)]
-              [parent-id invoke-id])
+            (cond
+              (some? invoke-id)             [parent-id invoke-id]
+              (some? (:invoke-id child-rt)) [(:parent-id child-rt) (:invoke-id child-rt)]
+              (some? (:invoke-id teardown)) [(:parent-id teardown) (:invoke-id teardown)]
+              :else                         [parent-id invoke-id])
+            ;; A keyword destroy of a single-`:spawn` child also prunes the
+            ;; parent's slot and `:spawned` mirror when they still name it, so
+            ;; neither names a dead id until the parent exits. A join child's
+            ;; `:children` entry stays: the join's accounting reads it.
+            prune-slot? (and (nil? invoke-id)
+                             (some? (:invoke-id child-rt))
+                             (= actor-id (get-in old-db (rf.machines.paths/spawned-path
+                                                          spawn-parent-id spawn-invoke-id))))
+            teardown-args (if prune-slot?
+                            {:actor-id actor-id :parent-id spawn-parent-id :invoke-id spawn-invoke-id}
+                            {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id})
             ;; A single-`:spawn` child has no membership record; the
             ;; `:work-generation` its spawn stamped sets its generation,
             ;; exactly as `finalize-machine` reads it for the attempt's done
@@ -530,7 +490,7 @@
       ;; destroyed) so both destroy entry-points share one ordering convention.
       (teardown-live-actor!
         frame-id actor-id
-        {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
+        teardown-args
         ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
         ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
         ;; auto-destroy on `:final?`).
@@ -542,6 +502,8 @@
                      :invoke-id         spawn-invoke-id
                      :work-bearing-path (or spawn-invoke-id (:invoke-id join-child))
                      :reason            reason}
+              (some? (:child-id teardown))
+              (assoc :child-id (:child-id teardown))
               (some? work-generation)
               (assoc :work-generation work-generation))))
         owner-token))))
@@ -574,27 +536,17 @@
 
 (defn- slot-owned-incarnation?
   "The exact-incarnation half of the tracked form's shared
-  liveness/incarnation predicate. True iff the actor at
-  `actor-id` is the incarnation THIS `[:spawned parent-id invoke-id]` slot
-  owns: its snapshot's `:rf/runtime` carries the `:parent-id` +
-  `:invoke-id` ownership stamps (written by `actor-runtime` at spawn — the
-  same stamps the spawn-`:on-error` routing reads) matching the slot
-  coordinates exactly.
-
-  A same-id REPLACEMENT actor spawned through another path (a hand-emitted
-  `:fixed-actor-id` re-spawn, a different parent) carries different — or
-  no — ownership stamps, so a STALE slot can never destroy it: exact
-  incarnation identity is respected. A live actor with no snapshot — live
-  only through a per-instance registrar entry at its id — has no stamps to
-  contradict the slot, so it counts as owned and the tracked destroy
-  proceeds."
+  liveness/incarnation predicate. True iff the live actor at `actor-id` is the
+  incarnation THIS `[:spawned parent-id invoke-id]` slot owns: its snapshot's
+  `:rf/runtime` carries the `:parent-id` + `:invoke-id` ownership stamps
+  (written by `actor-runtime` at spawn — the same stamps the spawn-`:on-error`
+  routing reads) matching the slot coordinates exactly. A same-id REPLACEMENT
+  spawned through another path carries different — or no — stamps, so a STALE
+  slot can never destroy it."
   [runtime-db actor-id parent-id invoke-id]
-  (let [snap (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))]
-    (if (map? snap)
-      (let [rt (:rf/runtime snap)]
-        (and (= parent-id (:parent-id rt))
-             (= invoke-id (:invoke-id rt))))
-      true)))
+  (let [rt (get-in runtime-db (rf.machines.paths/snapshot-path actor-id :rf/runtime))]
+    (and (= parent-id (:parent-id rt))
+         (= invoke-id (:invoke-id rt)))))
 
 (defn- prune-tracked-slot!
   "Stale ownership-slot cleanup, SEPARATED from actor lifecycle teardown:
@@ -768,34 +720,15 @@
 ;; ---- occupied-address replacement ------------------------------------------
 
 (defn occupant-actor-live?
-  "Is `actor-id` OCCUPIED by a live spawned ACTOR, for the purpose of deciding
-  what a spawn arriving there means? True iff the frame's LIVE `runtime-db`
-  carries a snapshot there.
-
-  DELIBERATELY NOT `actor-live?`, and that difference is the whole of this
-  predicate. `actor-live?` is the shared silent-idempotent DESTROY probe,
-  and it also counts a bare non-machine registrar entry because
-  `[:rf.machine/destroy <id>]` must still recognise and clear a stale or
-  externally installed one. That disjunct answers \"is there anything here to
-  clean up?\" — the right question for destroy and the WRONG one here, where the
-  question is \"is a live ACTOR occupying this address?\". A plain event handler
-  registered at the address has an `:event` entry and no actor at all, so
-  `actor-live?` would report the address occupied and a spawn at that
-  `:fixed-actor-id` would tear the handler down as if it were an occupant.
-  Spec 005 §Liveness is derived from runtime-db makes a spawned
-  actor's liveness identical to its snapshot's presence and nothing else, which
-  is exactly this predicate.
-
-  TWO CALLERS, ONE PROBE, OPPOSITE VERDICTS. Occupancy at a SUPPLIED
-  `:fixed-actor-id` means REPLACE — `destroy-occupant-for-replacement!` below.
-  Occupancy at a GENERATED `<type>#<n>` address means REJECT: nobody named that
-  address, so nobody asked for a replacement, and the runtime allocated it only
-  because its counter did not know the occupant existed. That is
-  `lifecycle-fx.spawn/generated-address-collision?`. The predicate is shared
-  deliberately — the two paths must never disagree about what \"occupied\"
-  means — and it is PUBLIC for that second caller alone."
+  "Is `actor-id` OCCUPIED by a live actor in the frame's LIVE runtime-db? The
+  destroy probe (`actor-live?`) against a fresh read, shared by the two callers
+  that decide what a spawn arriving at an occupied address means — so they can
+  never disagree about what occupied means. Occupancy at a SUPPLIED
+  `:fixed-actor-id` means REPLACE (`destroy-occupant-for-replacement!` below);
+  at a GENERATED `<type>#<n>` address it means REJECT, because nobody named
+  that address (`lifecycle-fx.spawn/generated-address-collision?`)."
   [frame-id actor-id]
-  (snapshot-present? (rf.frame/frame-runtime-db-value frame-id) actor-id))
+  (actor-live? actor-id (rf.frame/frame-runtime-db-value frame-id)))
 
 (defn destroy-occupant-for-replacement!
   "Tear a LIVE occupant of `actor-id` down through the ORDINARY destroy path so

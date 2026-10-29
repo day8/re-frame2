@@ -17,9 +17,9 @@
     4. Tear down the child INSTANCE: dissoc snapshot, clear
        `[:rf.runtime/machines :spawned ...]` slot,
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
-       (D6 enrichment), abort in-flight HTTP, and clear any PER-INSTANCE
-       registrar entry — never a `reg-machine` DEFINITION, which is a
-       load-time TYPE outliving every instance.
+       (D6 enrichment), and abort in-flight HTTP. The registrar is not
+       touched: the instance has no entry of its own, and a `reg-machine`
+       DEFINITION is a load-time TYPE outliving every instance.
     5. Mint the completion carrier into the parent — the reserved event
        `[<parent-id> [:rf.machine.spawn/done <invoke-id> <completion>]]`
        (`dispatch-spawn-done!`), or, for the ERROR leaf of a single-`:spawn`
@@ -54,7 +54,6 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines.error-emit :as rf.machines.error-emit]
             [re-frame.machines.data-validation :as rf.machines.data-validation]
-            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.lifecycle-fx.resource-release :as rf.machines.lifecycle-fx.resource-release]
             [re-frame.machines.lifecycle-fx.spawn-error :as rf.machines.lifecycle-fx.spawn-error]
             [re-frame.machines.lifecycle-fx.teardown :as rf.machines.lifecycle-fx.teardown]
@@ -65,7 +64,6 @@
             [re-frame.machines.timer :as rf.machines.timer]
             [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.machines.work :as rf.machines.work]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -505,15 +503,14 @@
         ;; exactly this reading; the same rule stands at `destroy/
         ;; actor-live?`. Resolving the parent's `:spawn` spec is what the
         ;; DEFINITION is FOR, and the parent's own engine does that when the
-        ;; carrier arrives; only the liveness question is asked here. A
-        ;; non-machine entry squatting at the parent address counts.
+        ;; carrier arrives; only the liveness question is asked here.
         ;;
         ;; The predicate is SHARED with the action-exception producer
         ;; (`registration`'s child-action-failure projection), which asks the
         ;; identical question about the identical address. Two spellings of
         ;; "is the parent live?" could disagree, so both failure routes read
-        ;; ONE predicate, and `parent-instance-live?` reads exactly the two
-        ;; signals named above.
+        ;; ONE predicate, and `parent-instance-live?` reads the parent's
+        ;; snapshot and nothing else.
         ;;
         ;; The gate reads the WORK coordinates, which fall
         ;; back to the `:join-child` membership record. A `:spawn-all` join
@@ -612,7 +609,7 @@
                                   :parent-id parent-id
                                   :invoke-id invoke-id})]
     ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
-    ;; (D6 enrichment) before registrar cleanup.
+    ;; (D6 enrichment).
     (rf.machines.lifecycle-fx.traces/emit-destroyed! {:frame     frame-id
                              :actor-id  machine-id
                              :parent-id parent-id
@@ -624,21 +621,11 @@
     (abort-actor-in-flight-http! frame-id machine-id)
     ;; Cancel armed `:after` timers (`:reason :on-destroy`).
     (rf.machines.timer/cancel-actor-timers! frame-id machine-id)
-    ;; `rf.registrar/unregister!` emits a synchronous callback-bearing
-    ;; `:rf.registry/handler-cleared` trace.
+    ;; Nothing is unregistered: a spawned actor has no registrar entry, and a
+    ;; singleton's is its DEFINITION, which outlives the instance (Spec 005
+    ;; §Liveness is derived from runtime-db).
     ;;
-    ;; EXCEPT when the address carries a machine DEFINITION.
-    ;; That entry is the shared load-time TYPE every
-    ;; `[:rf.machine/spawn {:machine-id <id>}]` resolves through — not this
-    ;; instance's own. Finality ends the INSTANCE; the definition
-    ;; is the PROGRAM that made the address creatable and outlives it
-    ;; (Spec 005 §Liveness is derived from runtime-db, D4/D7). `rf/clear`
-    ;; remains the public spelling for permanent removal. The identical
-    ;; gate stands at `destroy/teardown-live-actor!` step (7); a
-    ;; non-machine entry squatting here still gets cleared.
-    (when (nil? (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
-      (rf.registrar/unregister! :event machine-id))
-    ;; (7) ROUTE THE COMPLETION TO THE PARENT. The child is fully torn
+    ;; (7) ROUTE THE COMPLETION TO THE PARENT.    ;; (7) ROUTE THE COMPLETION TO THE PARENT. The child is fully torn
     ;; down by now — finality means teardown (D4) — so what reaches the
     ;; parent is a value, never a live child.
     ;;

@@ -36,7 +36,9 @@
   payload. Returns a human reason string for the FIRST defect, or nil when
   the payload is well-shaped. A payload is well-shaped iff it is a vector of
   valid concrete `:rf/path` vectors, the same shape `reg-classification`
-  accepts.
+  accepts, each rooted at `:data` — egress applies only `:data`-rooted paths,
+  so any other root would be accepted and then redact nothing (Spec 005
+  §Privacy).
   Value-INDEPENDENT: validates the SHAPE of the declaration, never a runtime
   value."
   [k payload]
@@ -53,11 +55,35 @@
                    "must be a path vector; got " (pr-str p))
               :else
               (try
-                (rf.path/normalize-concrete p)
-                nil
+                (when-not (= :data (first (rf.path/normalize-concrete p)))
+                  (str "each path in the machine `" k "` classification "
+                       "declaration is rooted at the actor snapshot's :data, so "
+                       "it must start with :data (write [:data " (pr-str (first p))
+                       " …] for a :data slot); got " (pr-str p)))
                 (catch #?(:clj Throwable :cljs :default) e
                   (str "an invalid path in the machine `" k "` classification "
                        "declaration: " (or (ex-message e) (str e)))))))
+          payload)))
+
+(defn- opts-declaration-defect
+  "PURE validator for one `reg-machine` OPTS classification axis. The opts map
+  is the machine's event registration, so its paths classify the dispatched
+  event through `re-frame.classification/redact-event-by-registration`, which
+  roots them at the event's arg-map — for a machine, the routed inner event
+  vector. A path that does not start with an index into that vector (or is not
+  the whole-value `[]`) can never match it, and a `:data` path would redact the
+  snapshot on traces while every other egress ships it raw. Returns a reason
+  string for the first such path, or nil. Malformed shapes are `reg-event`'s
+  own check."
+  [k payload]
+  (when (vector? payload)
+    (some (fn [p]
+            (when (and (sequential? p) (seq p) (not (integer? (first p))))
+              (str "a reg-machine opts `" k "` path classifies the routed event, "
+                   "so it starts with an index into that event vector (e.g. [1 "
+                   ":password] for its arg-map); got " (pr-str p) ". Durable "
+                   ":data slots are declared on the machine spec instead: {" k
+                   " [[:data …]]}")))
           payload)))
 
 (defn validate-machine-classification!
@@ -84,6 +110,26 @@
            :extra    {:machine-id machine-id
                       :axis       k
                       :value      (get spec k)}}))))
+  nil)
+
+(defn validate-machine-opts-classification!
+  "Fail LOUD at the `reg-machine` boundary when the opts map's `:sensitive` /
+  `:large` holds a path that cannot classify the routed event
+  (`opts-declaration-defect`), with `:rf.error/invalid-machine-classification`.
+  Spec 005 §Privacy."
+  [machine-id opts]
+  (doseq [k classification-axis-keys]
+    (when-let [reason (opts-declaration-defect k (get opts k))]
+      (rf.error/throw-error!
+        :rf.error/invalid-machine-classification
+        'rf-machines/reg-machine
+        (str "reg-machine " machine-id " declares an opts " k " path that "
+             "cannot classify its events: " reason)
+        {:recovery :fix-registration
+         :extra    {:machine-id machine-id
+                    :axis       k
+                    :where      :opts
+                    :value      (get opts k)}})))
   nil)
 
 (defn machine-declarations

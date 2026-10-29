@@ -44,8 +44,7 @@
   (:require [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
             [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.transition :as rf.machines.transition]
-            [re-frame.registrar :as rf.registrar]))
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -68,23 +67,18 @@
   spawn correlation no longer names a live actor) and §Destroy is
   silent-idempotent forbids reading as liveness in the first place.
 
-  The two signals, exactly as `destroy/actor-live?` reads them:
+  Liveness is the parent's SNAPSHOT at `[:rf.runtime/machines :snapshots
+  <parent-id>]`, exactly as `destroy/actor-live?` reads it — the canonical
+  instance signal for singleton and nested-spawn parents alike.
 
-    - a SNAPSHOT at `[:rf.runtime/machines :snapshots <parent-id>]` — the
-      canonical instance signal for singleton and nested-spawn parents alike;
-    - a NON-MACHINE registrar entry squatting at the parent's address, which
-      counts as somebody home.
-
-  This fences FRAMEWORK-OWNED delivery only. D5 applies to authored events:
+  This fences FRAMEWORK-OWNED delivery only.  This fences FRAMEWORK-OWNED delivery only. D5 applies to authored events:
   an ordinary AUTHORED event dispatched to an address that still carries a definition
   finds no snapshot and is answered by a fresh instance, exactly as before its
   first start."
   [db parent-id]
   (boolean
     (when parent-id
-      (or (some? (get-in db (rf.machines.paths/snapshot-path parent-id)))
-          (let [reg (rf.registrar/lookup :event parent-id)]
-            (and (some? reg) (not (:rf/machine? reg))))))))
+      (some? (get-in db (rf.machines.paths/snapshot-path parent-id))))))
 
 (defn dispatch-carrier!
   "Queue a completion carrier `event` into the spawning parent on `frame-id`.

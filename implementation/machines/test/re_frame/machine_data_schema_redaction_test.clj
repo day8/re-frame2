@@ -280,6 +280,43 @@
              :states    {:idle {}}}))
         "a non-vector :sensitive axis is rejected at registration")))
 
+(defn- registration-error
+  "The ex-data `(reg-machine* id opts spec)` throws, or nil."
+  [id opts spec]
+  (try (rf.machines/reg-machine* id opts spec) nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(def ^:private one-state {:initial :idle :data {} :states {:idle {}}})
+
+(deftest machine-classification-path-not-rooted-at-data-fails-loud
+  (testing "egress applies only :data-rooted paths, so a spec path rooted
+            anywhere else is refused rather than accepted to redact nothing"
+    (doseq [axis [:sensitive :large]]
+      (is (= [:rf.error/invalid-machine-classification axis]
+             ((juxt :rf.error/id :axis)
+              (registration-error :rf.machine-redaction/unrooted nil
+                                  (assoc one-state axis [[:data :ok] [:token]]))))
+          (str axis " [[:token]] is refused")))
+    (is (nil? (registration-error :rf.machine-redaction/rooted nil
+                                  (assoc one-state :sensitive [[:data :token] [:data]])))
+        "[:data …] and the whole-:data [:data] register")))
+
+(deftest machine-opts-classification-path-must-index-the-routed-event
+  (testing "the opts map classifies the routed event, so a path that does not
+            index that vector — a :data path above all — is refused"
+    (is (= [:rf.error/invalid-machine-classification :sensitive :opts]
+           ((juxt :rf.error/id :axis :where)
+            (registration-error :rf.machine-redaction/opts-data
+                                {:sensitive [[:data :token]]} one-state)))
+        "an opts [:data …] path is refused (it would redact traces but not SSR)")
+    (is (= [:rf.error/invalid-machine-classification :large :opts]
+           ((juxt :rf.error/id :axis :where)
+            (registration-error :rf.machine-redaction/opts-key
+                                {:large [[:blob]]} one-state))))
+    (is (nil? (registration-error :rf.machine-redaction/opts-ok
+                                  {:sensitive [[1 :password] []]} one-state))
+        "an index-rooted path and the whole-event [] register")))
+
 ;; ---- (7) a thrown action's exception row ---------------------------------
 ;; A message routinely quotes the value that failed, so once a machine declares
 ;; any `:sensitive` path its exception row redacts the text and the raw
