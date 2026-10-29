@@ -664,8 +664,8 @@
      ;; time (a whole-shell mount would cram Xray's 4-layer chrome
      ;; into a 320px column), chip-row picker for runtime swap, popout
      ;; chip for the full-shell escape hatch. Per-story author
-     ;; intent rides the `:xray-panel` slot (or legacy
-     ;; `:xray :panel`); user clicks override for the session.
+     ;; intent rides the `:xray-panel` slot (or its `:xray :panel`
+     ;; alias); user clicks override for the session.
      ;;
      ;; The whole band is OMITTED from a published
      ;; static export. `static-mode?` is a `release` build, where Xray

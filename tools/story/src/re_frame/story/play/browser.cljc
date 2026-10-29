@@ -171,7 +171,7 @@
 (defn eval-visual-snapshot
   "Evaluate a `:rf.assert/visual-snapshot` assertion (spec/017 §Visual,
   a11y, and browser checks — requires `:browser` / `:pixels`). Returns the
-  ONE assertion-record shape, and today that record is always `:cannot-run`
+  ONE assertion-record shape, and that record is always `:cannot-run`
   naming the missing `:pixels` evidence.
 
   `payload` is the assertion atom's args (`[]` or `[opts]`). `ctx` may carry
