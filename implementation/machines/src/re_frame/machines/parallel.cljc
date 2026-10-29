@@ -591,6 +591,24 @@
       (not (contains? parent-machine :rf/cofx-mint-policy))
       (dissoc :rf/cofx-mint-policy))))
 
+(defn- region-snapshot
+  "One region's view of the parallel snapshot: its own `:state`, the shared
+  `:data` / `:meta` / `:rf/runtime` / `:rf/history`, and the cross-region
+  `:all-state` / `:tags` coordination view (the XState v5 `stateIn` / SCXML
+  `In()` equivalent) — the frozen pre-step view at every site. `:all-state`
+  doubles as the parallel-region marker `call-guard` / `call-action` key off,
+  and `:meta` is the snapshot slot every callback ctx carries (Spec 005
+  §Callback context). The one constructor every region step uses, so no site
+  can drop a slot."
+  [{:keys [state data meta all-state tags runtime history]}]
+  (cond-> {:state     state
+           :data      data
+           :all-state all-state
+           :tags      tags}
+    (some? meta)    (assoc :meta meta)
+    (some? runtime) (assoc :rf/runtime runtime)
+    (some? history) (assoc :rf/history history)))
+
 (defn- reduce-regions
   "The APPLY fold: apply `step-fn` to each region of `parent-machine` in
   declaration order, threading `:data` + `:rf/runtime` + `:rf/history`
@@ -739,54 +757,25 @@
               ;; attribution) always runs against the LIVE runtime context —
               ;; never the cached snapshot.
               region-spec (region-spec-overlaid parent-machine rn)
-              region-snap (cond-> {:state (get state-map rn)
-                                   :data  cur-data
-                                   ;; Thread the
-                                   ;; cross-region coordination context into
-                                   ;; every region's guard/action ctx — the
-                                   ;; XState v5 `stateIn` / SCXML `In()`
-                                   ;; equivalent.
-                                   ;;
-                                   ;; `:all-state` is the full region-name →
-                                   ;; active-state map (the PRECISE sibling-
-                                   ;; state read); `:tags` is the MACHINE-WIDE
-                                   ;; tag union across every region (the coarse
-                                   ;; tag-as-stateIn substitute).
-                                   ;;
-                                   ;; Both resolve against the
-                                   ;; FROZEN pre-broadcast snapshot (`state-map`
-                                   ;; → `frozen-all-state` / `frozen-tags`,
-                                   ;; computed ONCE above), NOT the evolving
-                                   ;; `new-states`. So a region's guard / action
-                                   ;; sees siblings' PRE-EVENT states regardless
-                                   ;; of declaration order — the
-                                   ;; SELECT-then-APPLY two-phase model in
-                                   ;; substrate-honest form (only `cur-data`
-                                   ;; flows; the cross-region view is frozen).
-                                   ;; This is exact v5/SCXML parity and
-                                   ;; declaration-order-independent. Across the
-                                   ;; FIFO raise drain, each re-broadcast runs a
-                                   ;; FRESH `reduce-regions` that recomputes a
-                                   ;; fresh frozen view from the latest
-                                   ;; `cur-snap`, so same-event coordination
-                                   ;; settles on the NEXT microstep
-                                   ;; (statechart-idiomatic), not the same pass.
-                                   ;;
-                                   ;; `:all-state` doubles as the parallel-
-                                   ;; region marker `call-guard`/`call-action`
-                                   ;; key off (transition.cljc) — flat/compound
-                                   ;; machines never set it, so their ctx is
-                                   ;; unchanged.
-                                   :all-state frozen-all-state
-                                   :tags      frozen-tags}
-                            (some? cur-runtime)
-                            (assoc :rf/runtime cur-runtime)
-                            ;; Seed the region snapshot with the shared
-                            ;; (region-qualified) `:rf/history` so a restore
-                            ;; reads the prior recording and a record writes
-                            ;; the region's own key.
-                            (some? cur-history)
-                            (assoc :rf/history cur-history))
+              ;; Every region reads siblings through the FROZEN pre-broadcast
+              ;; view (`frozen-all-state` / `frozen-tags`, computed ONCE
+              ;; above), not the evolving `new-states`, so a region's guard /
+              ;; action sees siblings' PRE-EVENT states whatever the
+              ;; declaration order — the SELECT-then-APPLY model, with only
+              ;; `cur-data` flowing. Each re-broadcast of the FIFO raise drain
+              ;; runs a fresh `reduce-regions` over the latest snapshot, so
+              ;; same-event coordination settles on the NEXT microstep.
+              region-snap (region-snapshot {:state     (get state-map rn)
+                                            :data      cur-data
+                                            :meta      (:meta snapshot)
+                                            :all-state frozen-all-state
+                                            :tags      frozen-tags
+                                            :runtime   cur-runtime
+                                            ;; The shared region-qualified
+                                            ;; `:rf/history`, so a restore reads
+                                            ;; the prior recording and a record
+                                            ;; writes the region's own key.
+                                            :history   cur-history})
               step-result (step-fn region-spec region-snap)]
           (if (rf.machines.result/fail? step-result)
             step-result
@@ -1015,12 +1004,13 @@
                     (reduce
                       (fn [acc rn]
                         (let [region-spec (region-spec-overlaid machine rn)
-                              region-snap (cond-> {:state     (get state-map rn)
-                                                   :data      frozen-data
-                                                   :all-state frozen-all-state
-                                                   :tags      frozen-tags}
-                                            (some? rt)   (assoc :rf/runtime rt)
-                                            (some? hist) (assoc :rf/history hist))]
+                              region-snap (region-snapshot {:state     (get state-map rn)
+                                                            :data      frozen-data
+                                                            :meta      (:meta snapshot)
+                                                            :all-state frozen-all-state
+                                                            :tags      frozen-tags
+                                                            :runtime   rt
+                                                            :history   hist})]
                           (assoc! acc rn
                                   (rf.machines.transition/pick-transition
                                     region-spec
@@ -1054,12 +1044,13 @@
       (reduce
         (fn [acc rn]
           (let [region-spec (region-spec-overlaid machine rn)
-                region-snap (cond-> {:state     (get state-map rn)
-                                     :data      frozen-data
-                                     :all-state frozen-all-state
-                                     :tags      frozen-tags}
-                              (some? rt)   (assoc :rf/runtime rt)
-                              (some? hist) (assoc :rf/history hist))
+                region-snap (region-snapshot {:state     (get state-map rn)
+                                              :data      frozen-data
+                                              :meta      (:meta snapshot)
+                                              :all-state frozen-all-state
+                                              :tags      frozen-tags
+                                              :runtime   rt
+                                              :history   hist})
                 match       (rf.machines.transition/pick-always-transition
                               region-spec
                               (rf.machines.transition/state-path (get state-map rn))
@@ -1168,16 +1159,19 @@
 
 (defn- root-region-snapshot
   "Region `region-name`'s snapshot inside a root transition's accumulator
-  `acc` (`{:data :rf/runtime :rf/history :state-map :fx :cascade}`): the
-  region's own `:state` and the shared `:data` / `:rf/runtime` /
-  `:rf/history`, the same flow `reduce-regions` uses."
+  `acc` (`{:data :meta :all-state :tags :rf/runtime :rf/history :state-map
+  :fx :cascade}`): the region's own `:state`, the shared `:data` /
+  `:rf/runtime` / `:rf/history`, and the `:meta` / `:all-state` / `:tags`
+  frozen at the pre-transition snapshot — the same view `reduce-regions`
+  gives a region-local event."
   [acc region-name]
-  (cond-> {:state (get-in acc [:state-map region-name])
-           :data  (:data acc)}
-    (some? (:rf/runtime acc))
-    (assoc :rf/runtime (:rf/runtime acc))
-    (some? (:rf/history acc))
-    (assoc :rf/history (:rf/history acc))))
+  (region-snapshot {:state     (get-in acc [:state-map region-name])
+                    :data      (:data acc)
+                    :meta      (:meta acc)
+                    :all-state (:all-state acc)
+                    :tags      (:tags acc)
+                    :runtime   (:rf/runtime acc)
+                    :history   (:rf/history acc)}))
 
 (defn- root-region-plan
   "One targeted region's share of a root transition: its overlaid region spec,
@@ -1281,6 +1275,9 @@
                            (map (fn [t] [(first t) t]))
                            (normalise-root-targets (:target transition)))
         seed         {:data       (:data snapshot)
+                      :meta       (:meta snapshot)
+                      :all-state  (:state snapshot)
+                      :tags       (compute-tags-parallel machine (:state snapshot))
                       :rf/runtime (:rf/runtime snapshot)
                       :rf/history (:rf/history snapshot)
                       :state-map  (:state snapshot)
@@ -1677,8 +1674,9 @@
   :fired? false` on a guard-suppressed drop) via `rf.machines.transition/emit-pick-
   traces!`. Returns the SEED Result the macrostep drains from:
    - the applied root-`:after` transition Result (handled) on a live fire;
-   - a no-op `(ok snapshot [])` on a stale / guard-suppressed timer (the
-     transition does not fire — matching the single-machine `:after` drop).
+   - the unchanged snapshot marked unhandled on a stale / guard-suppressed /
+     unmatched timer (the transition does not fire — matching the
+     single-machine `:after` drop).
 
   The returned seed is stabilized by the same parent-owned eventless/raise
   loop as every other parallel transition."
@@ -1694,7 +1692,7 @@
                                   (get-in machine [:rf/cofx :rf/time-ms]))
     (cond
       (or (nil? match) (:stale? match) (:guard-suppressed? match))
-      (rf.machines.result/ok snapshot [])
+      (rf.machines.result/with-handled (rf.machines.result/ok snapshot []) false)
 
       :else
       (apply-root-parallel-transition machine snapshot event

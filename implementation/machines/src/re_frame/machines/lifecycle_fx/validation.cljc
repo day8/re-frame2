@@ -2007,18 +2007,20 @@
       `:delays` registries (a parallel region inherits the root's), and the parallel
       root's `:region-order` (`rf.machines.parallel/normalise-region-order`
       stamps it once at registration);
-    - the registration metadata that folds onto the machine body per
-      `registration/reg-machine*`: `:doc` is the registration doc string;
-      `:sensitive` / `:large` are the machine-level data-classification
-      declarations (projection-relative `:data` classification); `:schema` is
-      the event-vector boundary schema for the dispatched OUTER vector;
-      `:raise-depth-limit` / `:always-depth-limit` are the per-machine
-      cycle-detection depth overrides (`transition/raise-depth-limit-default`).
+    - the root keys the rest of the framework reads off the definition:
+      `:doc` (the tooling's static node shows it); `:sensitive` / `:large`,
+      the machine-level data-classification declarations (projection-relative
+      `:data` classification); `:raise-depth-limit` / `:always-depth-limit`,
+      the per-machine cycle-detection depth overrides
+      (`transition/raise-depth-limit-default`).
 
   On a nested state or a parallel region body nothing reads them, so the
-  child-node walk refuses them as root-only."
+  child-node walk refuses them as root-only. `:schema` is NOT here: the
+  event-vector boundary schema is registration metadata that only the opts
+  map carries, so on the root it would validate nothing (`check-node-keys!`
+  names the fix)."
   #{:data :schemas :internal-events :guards :actions :delays :region-order
-    :doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
+    :doc :sensitive :large :raise-depth-limit :always-depth-limit})
 
 (def ^:private spawn-spec-keys-with-own-refusal
   "Spawn-spec keys a DEDICATED check refuses with a diagnostic that names the
@@ -2097,6 +2099,17 @@
                        at-root? (into known-machine-root-extra-keys))
           offending (unknown-bare-keys state-node known)
           root-only (filterv known-machine-root-extra-keys offending)]
+      (when (and at-root? (contains? state-node :schema))
+        (throw (validation-error
+                 :rf.error/machine-unknown-node-key
+                 (str "the machine root declares :schema, which validates "
+                      "nothing there: the dispatched event-vector schema is "
+                      "registration metadata, so it goes in the opts map — "
+                      "(reg-machine id {:schema …} machine). A schema for the "
+                      "machine's :data goes under :schemas {:data …}.")
+                 {:state          state-key
+                  :offending-keys [:schema]
+                  :valid-keys     known})))
       (when (seq offending)
         (throw (validation-error
                  :rf.error/machine-unknown-node-key
@@ -2571,9 +2584,9 @@
   ;; so a name resolves only to a well-formed delay.
   (validate-delays! machine)
   (validate-after-delays! machine)
-  ;; Validate guard/action references at construction time. machine-id
-  ;; isn't known yet (it's the registration-site id), so error tags use
-  ;; a placeholder; real misuse traces at handler-call time fill it in.
+  ;; Validate guard/action references at construction time. The machine id
+  ;; is the registration site's; `registration/register-machine-event!`
+  ;; stamps it onto every error thrown from here.
   (let [guards-map  (:guards machine)
         actions-map (:actions machine)
         ;; Follow the FULL chase-ref chain, not just the first

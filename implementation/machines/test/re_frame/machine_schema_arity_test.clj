@@ -138,3 +138,23 @@
            (rf.machines/reg-machine* :rf.machine-arity/nil-opts
              nil
              {:initial :idle :states {:idle {}}})))))
+
+(defn- registration-failure [id machine]
+  (try (rf.machines/reg-machine* id machine) nil
+       (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest a-root-schema-is-refused-naming-the-opts-map
+  ;; The event-vector schema is registration metadata; on the root it would
+  ;; validate nothing.
+  (let [e (registration-failure :msa/root-schema
+                                {:initial :a :schema [:tuple :keyword] :states {:a {}}})]
+    (is (= [:rf.error/machine-unknown-node-key [:schema]]
+           ((juxt :rf.error/id :offending-keys) (ex-data e))))
+    (is (re-find #"opts map" (ex-message e)))))
+
+(deftest a-registration-error-names-its-machine
+  (let [e (registration-failure :msa/bad-guard
+                                {:initial :a :states {:a {:on {:go {:target :a :guard :valid?}}}}})]
+    (is (= [:rf.error/machine-unresolved-guard :msa/bad-guard]
+           ((juxt :rf.error/id :machine-id) (ex-data e))))
+    (is (re-find #"reg-machine :msa/bad-guard" (ex-message e)))))

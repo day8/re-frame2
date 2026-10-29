@@ -70,3 +70,34 @@
     (is (true? (:handled? (step parallel par-snap [:root-reset])))))
   (testing "every region declines"
     (is (false? (:handled? (step parallel par-snap [:blocked]))))))
+
+(deftest a-parallel-root-after-that-does-not-fire-is-unhandled
+  ;; A root :after timer whose delay names no entry, whose epoch is stale, or
+  ;; whose guard declines selects nothing, exactly as a flat :after does.
+  (let [machine {:type    :parallel
+                 :data    {}
+                 :guards  {:never (fn [_] false)}
+                 :after   {1000 {:target [:r :b] :guard :never}}
+                 :regions {:r {:initial :a :states {:a {} :b {}}}}}
+        at-a    {:state {:r :a} :data {}}]
+    (doseq [event [[:rf.machine.timer/after-elapsed 5000 1 []]
+                   [:rf.machine.timer/after-elapsed 1000 999 []]
+                   [:rf.machine.timer/after-elapsed 1000 1 []]]]
+      (is (= [:ok false {:r :a}]
+             ((juxt :status :handled? (comp :state :snapshot)) (step machine at-a event)))
+          (pr-str event)))))
+
+(deftest a-region-callback-sees-the-snapshot-meta
+  ;; Region-local events and root transitions build the region view through
+  ;; one constructor, so `:meta` reaches every region callback.
+  (let [machine {:type    :parallel
+                 :data    {}
+                 :guards  {:meta? (fn [{m :meta}] (= {:k 1} m))}
+                 :on      {:reset {:target [:r :a]}}
+                 :regions {:r {:initial :a
+                               :states  {:a {:on {:go {:target :b :guard :meta?}}}
+                                         :b {:exit (fn [{m :meta d :data}]
+                                                     {:data (assoc d :exit-meta m)})}}}}}
+        at      (fn [s] {:state {:r s} :data {} :meta {:k 1}})]
+    (is (= {:r :b} (:state (:snapshot (step machine (at :a) [:go])))))
+    (is (= {:k 1} (get-in (step machine (at :b) [:reset]) [:snapshot :data :exit-meta])))))
