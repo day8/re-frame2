@@ -116,13 +116,15 @@
 ;; ## Privacy
 ;;
 ;; The tape projections enforce the Spec 009 §Privacy posture for the only
-;; fact that carries a payload — dispatched event vectors:
-;; `dispatched-events` drops the `:trigger-event` of any epoch flagged
-;; `:rf.epoch/sensitive?` while Story's local-render egress profile redacts
-;; (the `:rf.egress/local-redacted` default, EP-0015), so a sensitive event
-;; vector never lands raw on an assertion record's `:actual`. Warning
-;; records
-;; carry only `:operation` / `:reason` metadata (no payload), so the
+;; fact that carries a payload — dispatched event vectors. Matching reads
+;; the raw trigger events (`dispatched-events`), and the record shows the
+;; trigger of an epoch flagged `:rf.epoch/sensitive?` as
+;; `[event-id :rf/redacted]` while Story's local-render egress profile
+;; redacts (the `:rf.egress/local-redacted` default, EP-0015) — the same
+;; compare-raw, record-projected rule `:rf.assert/path-equals` follows. So a
+;; classified variant can still assert on what it dispatched, and a
+;; sensitive event vector never lands raw on a record's `:actual`. Warning
+;; records carry only `:operation` / `:reason` metadata (no payload), so the
 ;; `:warnings` projection — which agrees with the run-result slot — counts
 ;; them without a payload-leak risk.
 ;; ---------------------------------------------------------------------------
@@ -218,34 +220,35 @@
     (run-slice (get @run-epoch-baselines frame-id) (epoch-history frame-id))
     (catch #?(:clj Throwable :cljs :default) _ [])))
 
-(defn dispatched-events
-  "Project the events dispatched against `frame-id` from its epoch tape —
-  the per-epoch `:trigger-event` (the cascade-top event each committed
-  epoch settled), in tape order. Pure-ish (the only read is the late-bound
-  tape). The SSOT for `:rf.assert/dispatched?` + the loaders'
-  `:loaders-complete-when` vector form.
-
-  Assertion events (`:rf.assert/*`) are excluded — an `[:assert …]`
-  checkpoint dispatches its wrapped atom, which commits an epoch, but a
-  verdict is not behaviour-under-test (the same `assertion-event?` skip
-  `rf.story.play.evidence/narrative`'s span-attribution rule applies).
-
-  Privacy (Spec 009 §Privacy + EP-0015 issue 7): the
-  `:trigger-event` of an epoch flagged `:rf.epoch/sensitive?` is dropped
-  while the egress profile resolved FOR THIS FRAME redacts
-  (`:rf.egress/local-redacted` — the default), so a sensitive event vector
-  never reaches an assertion record's `:actual`. The reveal decision is
-  frame-scoped: only when this frame has been explicitly revealed to the
-  trusted-local `:rf.egress/local-raw` boundary do its sensitive
-  trigger-events pass through — revealing a sibling frame does not."
+(defn- dispatched-epochs
+  "`[trigger-event sensitive?]` for each epoch committed against `frame-id`
+  in the current run, in tape order. Assertion events (`:rf.assert/*`) are
+  excluded: an `[:assert …]` checkpoint commits an epoch, but a verdict is
+  not behaviour under test (the same `assertion-event?` skip
+  `rf.story.play.evidence/narrative` applies)."
   [frame-id]
-  (let [show? (rf.story.config/include-sensitive? frame-id)]
-    (into []
-          (comp (remove (fn [{:keys [rf.epoch/sensitive?]}]
-                          (and sensitive? (not show?))))
-                (keep :trigger-event)
-                (remove rf.story.predicates/assertion-event?))
-          (frame-tape frame-id))))
+  (into []
+        (comp (keep (fn [{ev :trigger-event sensitive? :rf.epoch/sensitive?}]
+                      (when ev [ev (boolean sensitive?)])))
+              (remove (comp rf.story.predicates/assertion-event? first)))
+        (frame-tape frame-id)))
+
+(defn dispatched-events
+  "The RAW events dispatched against `frame-id` — each committed epoch's
+  `:trigger-event`, in tape order. The match source for
+  `:rf.assert/dispatched?` and the loaders' `:loaders-complete-when` vector
+  form; never written to a record as is (see §Privacy above)."
+  [frame-id]
+  (mapv first (dispatched-epochs frame-id)))
+
+(defn- project-dispatched
+  "The record-side form of one `[event sensitive?]` entry: a sensitive
+  epoch's trigger shows as `[event-id :rf/redacted]` unless `show?` (this
+  frame is revealed to `:rf.egress/local-raw`)."
+  [show? [ev sensitive?]]
+  (if (and sensitive? (not show?) (next ev))
+    [(first ev) rf.privacy/redacted-sentinel]
+    ev))
 
 (defn- non-framework-fx?
   "True iff `fx-id` is a user fx (not the ubiquitous framework `:db` / `:fx`
@@ -591,7 +594,9 @@
     schema))
 
 (defn- malli-validate
-  "Best-effort Malli validation. Returns `[passed? explanation]`. Malli
+  "Best-effort Malli validation. Returns `[passed? explanation]`, the
+  explanation being Malli's explain map, or a string when validation could
+  not run. Malli
   is a Story dep (per tools/story/deps.edn) so the require resolves on
   both runtimes; production `:advanced` builds with Story disabled DCE
   the entire assertion vocabulary anyway.
@@ -612,11 +617,28 @@
               ex  (when-not ok?
                     (try (malli/explain schema value)
                          (catch #?(:clj Throwable :cljs :default) _ nil)))]
-          [ok? (when ex (pr-str ex))])
+          [ok? ex])
         (catch #?(:clj Throwable :cljs :default) e
           [false (str "malli validation threw: "
                       #?(:clj (.getMessage ^Throwable e)
                          :cljs (str e)))])))))
+
+(defn- redact-explanation
+  "Project the values a Malli explain map carries — the validated value at
+  its root and the failing value in each error — through `redact-at` at the
+  app-db path each one sits at, so `:explanation` is as leak-free as
+  `:actual` (spec 004 §Privacy). A string explanation carries no value."
+  [frame-id path ex]
+  (if-not (map? ex)
+    ex
+    (-> ex
+        (assoc :value (redact-at frame-id path (:value ex)))
+        (update :errors (fn [errors]
+                          (mapv (fn [e]
+                                  (assoc e :value (redact-at frame-id
+                                                             (into (vec path) (:in e))
+                                                             (:value e))))
+                                errors))))))
 
 (defn- evaluate-path-matches
   [frame-id db [path schema]]
@@ -631,7 +653,9 @@
                          "value at path validates against schema"
                          (str "value at " (pr-str path) " failed schema "
                               (pr-str schema)))}
-      explanation (assoc :explanation explanation))))
+      explanation (assoc :explanation
+                         (let [ex (redact-explanation frame-id path explanation)]
+                           (if (string? ex) ex (pr-str ex)))))))
 
 (defn- evaluate-sub-equals
   [frame-id frame-state [sub-vec expected]]
@@ -686,14 +710,17 @@
                             " but got " (pr-str actual)))}))
 
 (defn- evaluate-dispatched?
-  "`observed` is the tape-projected dispatched-events vector
-  (`dispatched-events`). Pure data → data."
-  [observed [needle]]
-  (let [matched (some #(event-matches? % needle) observed)
-        passed? (boolean matched)]
+  "`observed` is the `[event sensitive?]` tape projection
+  (`dispatched-epochs`); the needle matches the raw events and the record
+  carries the projected ones. Pure data → data."
+  [observed show? [needle]]
+  (let [hit     (first (filter #(event-matches? (first %) needle) observed))
+        passed? (some? hit)]
     {:passed?  passed?
-     :expected needle
-     :actual   (vec observed)
+     :expected (if (and hit (vector? needle))
+                 (project-dispatched show? hit)
+                 needle)
+     :actual   (mapv #(project-dispatched show? %) observed)
      :reason   (if passed?
                  "matching event was dispatched during play"
                  (str "no dispatched event matched "
@@ -1231,7 +1258,9 @@
                          ;; runtime), not the bare app-db `:db` cofx — else
                          ;; runtime-db-projection subs read nil.
                          :sub-equals      (evaluate-sub-equals      frame-id {:rf.db/app db :rf.db/runtime rt} payload)
-                         :dispatched?     (evaluate-dispatched?     (dispatched-events frame-id) payload)
+                         :dispatched?     (evaluate-dispatched?     (dispatched-epochs frame-id)
+                                                                    (rf.story.config/include-sensitive? frame-id)
+                                                                    payload)
                          ;; EP-0001: machine snapshots live in
                          ;; runtime-db; read the `:rf.db/runtime` coeffect.
                          :state-is        (evaluate-state-is        (or rt {}) payload)
