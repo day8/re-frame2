@@ -330,6 +330,32 @@
         (finally
           (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
+(deftest a-coord-carrying-a-control-character-opens-nothing
+  (testing "a path, line or column carrying a tab, newline or other control
+            character opens no editor at Story's own call site: the chip
+            resolves no URI, `open!` refuses such a URI, and `open-coord!`
+            reaches neither the endpoint nor the URI fallback"
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/a\tb.cljs" :line 3})))
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/a.cljs" :line "3\n"})))
+    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "\u0001src/a.cljs" :line 3})))
+    (is (some? (rf.story.ui.open-in-editor/resolve-uri {:file "src/a b.cljs" :line 3}))
+        "control: a space is an ordinary path character")
+    (let [[nav calls] (capturing-navigator)
+          launched    (atom [])
+          prev        (rf.source-coords.open-endpoint/set-launcher!
+                        (fn [url fallback!] (swap! launched conj url) (fallback!)))]
+      (try
+        (with-stub-navigator nav
+          (fn []
+            (rf.story.ui.open-in-editor/open! "vscode://file/src/a\tb.cljs:1:1")
+            (rf.story.ui.open-in-editor/open-coord! {:file "src/a\u0001b.cljs" :line 1})
+            (rf.story.ui.open-in-editor/open-coord! {:file "src/ok.cljs" :line 1})))
+        (is (= ["vscode://file/src/ok.cljs:1:1"] @calls)
+            "only the clean coord reaches the navigator")
+        (is (= 1 (count @launched)) "and only it reaches the endpoint")
+        (finally
+          (rf.source-coords.open-endpoint/set-launcher! prev))))))
+
 ;; The URI rows above use hand-typed coords; this block reads back the
 ;; coordinate this very compile stamped. `coords-form` absolutises `:file` on
 ;; the JVM at macroexpansion, so when the endpoint declines with 422 and no

@@ -5,8 +5,8 @@
 
   Nothing above a render catches, so a compile that throws during render
   unmounts the whole React root: one bad variant would blank the sidebar,
-  the toolbar and every other variant. The broken variant here leaves a
-  `[:arg k]` nothing supplies, an everyday authoring state.
+  the toolbar and every other variant. The broken variant's script names
+  an `[:arg k]` nothing supplies, an everyday authoring state.
 
   The trees are expanded to plain hiccup, as the canvas and workspace
   routing tests do, so no DOM or React runs. `canvas-inner` and
@@ -41,8 +41,9 @@
   (rf.story/reg-variant* :story.plan-error/healthy
     {:doc "Compiles." :args {:label "ok"}})
   (rf.story/reg-variant* :story.plan-error/broken
-    {:doc "Leaves an [:arg] nothing supplies, so its plan does not compile."
-     :args {:label [:arg :nobody-supplies-this]}}))
+    {:doc    "Its script names an [:arg] nothing supplies, so its plan does not compile."
+     :args   {:label "broken"}
+     :script [[:dispatch [:plan-error/probe [:arg :nobody-supplies-this]]]]}))
 
 (defn- reset-all! []
   (rf.story/clear-all!)
@@ -74,9 +75,8 @@
   (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree id))
 
 (defn- card-text [tree]
-  (some->> (find-test-id tree "story-plan-error")
-           rf.story.test-helpers.e2e-multi-frame/text-nodes
-           (str/join " ")))
+  (some-> (find-test-id tree "story-plan-error")
+          rf.story.test-helpers.e2e-multi-frame/text-nodes))
 
 (defn- ready! [variant-id]
   (rf/make-frame {:id variant-id})
@@ -103,7 +103,7 @@
       (is (str/includes? (or text "") "does not compile"))
       (is (str/includes? (or text "") ":rf.error/")
           "the card names the error id")
-      (is (str/includes? (str/join " " (rf.story.test-helpers.e2e-multi-frame/text-nodes tree))
+      (is (str/includes? (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)
                          ":story.plan-error/broken")
           "the title row around the card still renders")
       (is (nil? (find-test-id tree "plan-error-probe")) "no subject renders"))))
