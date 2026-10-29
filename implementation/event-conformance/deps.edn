@@ -1,4 +1,4 @@
-;; Cross-artefact conformance for the public event model. The suites exercise
+;; Conformance for the public event model, over core alone. The suites exercise
 ;; one-form event registration, recordable coeffects, image-scoped dispatch,
 ;; and the always-on event/error channels against core's public facade and
 ;; runtime seams.

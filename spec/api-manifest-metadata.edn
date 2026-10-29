@@ -1666,7 +1666,6 @@
   ;; not.
   ["re-frame.flows" "run-flows-on-db"]       {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "reset-flows!"]          {:tier :implementation :owner "013" :status "v1"}
-  ["re-frame.flows" "reset-last-inputs!"]    {:tier :implementation :owner "013" :status "v1"}
 
   ;; =========================================================================
   ;; Managed HTTP — optional artefact (day8/re-frame2-http), §014.

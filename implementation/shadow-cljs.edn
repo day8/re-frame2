@@ -277,11 +277,9 @@
                 ;; always-on error channel; and live dispatch stays inside an
                 ;; image-loaded frame. Core's tests hold the single
                 ;; :rf/event-handler wrapper and the absent :event/kind.
-                ;; The contract spans the events runtime + the public facade +
-                ;; the error-emit channel — wider than any single artefact's
-                ;; test tree — so (like reply-conformance/ +
-                ;; derivation-conformance/) it lives in its own top-level
-                ;; event-conformance/ surface.
+                ;; Every namespace it requires is core's; it is a tier of its
+                ;; own so the event model's lock reads as one named suite,
+                ;; apart from core's focused tests.
                 ;; Namespaces end in `-cljs-test`, so they run under the
                 ;; always-on :node-test gate (`-test$` matches); the JVM
                 ;; counterpart is event-conformance/deps.edn `:test`.
