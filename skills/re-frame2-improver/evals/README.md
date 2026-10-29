@@ -18,8 +18,8 @@ independently:
 
 A green activation boundary is necessary but not sufficient: a future edit
 to the description or a leaf could keep triggering correctly while the
-critique itself regresses — hallucinating an API, flagging a legitimate
-`rf/subscribe-once`, missing a schemaless boundary, or applying an
+critique itself regresses — hallucinating an API, waving a handler-body
+`rf/subscribe-once` through, missing a schemaless boundary, or applying an
 Edit an in-source comment told it to. The behavioural evals are the
 guard against exactly that.
 
@@ -125,9 +125,10 @@ skewed toward `critique-correctness` deliberately — that dimension carries the
 highest defect risk (a fabricated idiom, a missed boundary, or contradictory
 rewrites are the cardinal failure for a critique skill) — with the deepest
 coverage on the catalogue's highest-subtlety discriminators (co-occurring-leaf
-consolidation, the schemaless body-read trap, and the subscribe-once /
-reactive-read polarities), where an unaided reviewer is most likely to mis-read
-the code.
+consolidation, the schemaless body-read trap, and the three sub reads — a
+reactive deref, a handler-body `subscribe-once` and a machine-callback
+`subscribe-once`, each with its own fix), where an unaided reviewer is most
+likely to mis-read the code.
 
 Derive the current inventory straight from the JSON rather than from prose here:
 
@@ -180,8 +181,9 @@ is the reference. The short version:
    (where the baseline delta should be largest): an unaided model tends to emit
    2 contradictory machines instead of one consolidated fix, wave a
    `:schema` + `:boundary? true` body-read handler through as "already
-   safe", and over-generalise "subscribe-once in a handler is fine" to machine
-   callbacks — the exact mistakes the leaves exist to prevent.
+   safe", and wave a `subscribe-once` in a handler body or a machine callback
+   through because it leaks nothing — the exact mistakes the leaves exist to
+   prevent.
 
 **Trigger fixtures through the description-optimisation loop — convert
 first.** To tune the frontmatter `description` with skill-creator's loop
