@@ -370,13 +370,32 @@
   (swap! replacement-hooks conj f)
   nil)
 
+(defn- report-hook-exception!
+  "Leave a dev breadcrumb for a registration or replacement hook that threw.
+  Hooks run isolated, so the throw stops neither the registration nor the
+  hooks after it; this warning is how a hook's own bug surfaces. Reached
+  through the `:trace/emit-error!` late-bind hook, because `re-frame.trace`
+  requires this namespace. Spec 009 §Error event catalogue
+  (`:rf.warning/registration-hook-exception`)."
+  [hook {:keys [kind id]} ex]
+  (when rf.interop/debug-enabled?
+    (when-let [emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
+      (emit-error! :rf.warning/registration-hook-exception
+                   {:hook      hook
+                    :kind      kind
+                    :id        id
+                    :exception ex
+                    :recovery  :ignored})))
+  nil)
+
 (defn- run-replacement-hooks!
-  "Call every replacement hook with `change`. Hooks run isolated — a
-  listener's failure does not propagate."
+  "Call every replacement hook with `change`. Hooks run isolated: a hook's
+  throw is reported (`report-hook-exception!`) and the rest still run."
   [change]
   (doseq [f @replacement-hooks]
     (try (f change)
-         (catch #?(:clj Throwable :cljs :default) _ nil))))
+         (catch #?(:clj Throwable :cljs :default) e
+           (report-hook-exception! :replacement change e)))))
 
 (defonce ^:private registration-hooks
   ;; Subscribers to "any id was registered" — first-time OR re-registration.
@@ -768,7 +787,8 @@
     ;; fully-recorded world.
     (doseq [f @registration-hooks]
       (try (f {:kind kind :id id :was previous :now metadata})
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+           (catch #?(:clj Throwable :cljs :default) e
+             (report-hook-exception! :registration {:kind kind :id id} e))))
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
