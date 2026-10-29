@@ -2049,7 +2049,10 @@
   `:rf.egress/threshold-bytes` overrides (which compose on top of the
   profile — the override wins), and the `:rf/epoch-record`-only
   `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` /
-  `:rf.egress/include-event-args?`. An unknown profile throws
+  `:rf.egress/include-event-args?`. `include-runtime-db?` lifts the
+  runtime-db partition whole, so a resource entry's scope and params ride it
+  raw while the resource's classification still redacts the entry's data
+  (Spec 016 §Xray and AI tooling). An unknown profile throws
   `:rf.error/unknown-egress-profile`; any other key throws
   `:rf.error/bad-egress-opts`. Fail-closed: projects a tree slot
   only when the frame is known; no `:rf/default` synthesis. Per Spec 015
