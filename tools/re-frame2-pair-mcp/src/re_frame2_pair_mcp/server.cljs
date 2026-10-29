@@ -549,10 +549,12 @@
 
   pair-mcp has exactly two consumer-facing error relays, and WHERE in a
   tool body a throw fires decides which one it meets. This one is
-  reached by anything thrown while the tool body BUILDS its request,
-  before the nREPL round-trip; `probe/err->result` (relay 2) is reached
-  by anything thrown from an `eval-after-runtime!` `on-value` callback,
-  i.e. all response shaping after it.
+  reached by anything thrown while the tool body BUILDS its request, and
+  by a failed nREPL round-trip — a connection that closes while the op
+  is pending rejects it here, though the op may already have run in the
+  browser; `probe/err->result` (relay 2) is reached by anything thrown
+  from an `eval-after-runtime!` `on-value` callback, i.e. all response
+  shaping once a reply arrives.
 
   Each relay carries both the message and the ex-data; a relay keeping
   only one half would discard half of what a throw site's author wrote
@@ -567,8 +569,9 @@
   ex-data merges UNDER `:reason` and `:message`, not over them. At relay
   2 the ex-data's `:reason` IS the payload's discriminator, so it wins
   there. Here `:reason :handler-threw` is the ENVELOPE's discriminator —
-  it is how an agent knows the tool body threw before reaching the
-  runtime at all — and a site's own `:reason` (`eval_form`'s `emit-name`
+  it is how an agent knows the tool call raised instead of returning an
+  envelope, which does not show that the op never reached the runtime —
+  and a site's own `:reason` (`eval_form`'s `emit-name`
   carries one) must not silently replace it. The site's discriminator
   has its own uncontested slot in `:rf.error/id`. Likewise `:message`:
   the relayed ex-message is the Spec 009 canonical sentence, and no
