@@ -19,6 +19,7 @@ const path = require('path');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
+const { withTimeout } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 const BASE_URL = process.env.STORY_FEATURE_LOAD_BASE_URL || 'http://127.0.0.1:8031';
 const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '300000', 10);
@@ -48,17 +49,6 @@ const SPEC_FILES = SPEC_FILTER
 
 if (SPEC_FILTER && SPEC_FILES.length === 0) {
   throw new Error(`STORY_FEATURE_LOAD_SPEC=${SPEC_FILTER} matched no Story specs`);
-}
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Spec '${label}' timed out after ${ms}ms`)),
-      ms,
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function formatStoryContext(ctx) {
@@ -120,7 +110,7 @@ function formatStoryContext(ctx) {
     let failure = null;
     try {
       await page.goto(fullUrl, { waitUntil: 'load', timeout: TIMEOUT_MS });
-      await withTimeout(spec.run(page), TIMEOUT_MS, label);
+      await withTimeout(spec.run(page), TIMEOUT_MS, `Spec '${label}'`);
 
       if (consoleErrors.length > 0 || pageErrors.length > 0) {
         throw new Error(
