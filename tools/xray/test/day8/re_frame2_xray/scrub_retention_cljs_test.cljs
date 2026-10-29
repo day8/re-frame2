@@ -34,6 +34,8 @@
   Node-test (`npm run test:cljs`) — no DOM, no browser."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
+            [day8.re-frame2-xray.epoch :as xray-epoch]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -99,3 +101,24 @@
         "the framework's per-frame ring is emptied")
     (is (zero? (count (trace-collector/buffer-for-test)))
         "and so is the snapshot every Xray consumer reads")))
+
+(deftest scrub-keeps-pre-scrub-epochs-out-of-the-slot
+  (testing "the framework epoch ring survives the scrub as restore material,
+            so the next ingest must not bring every pre-scrub record back"
+    (seed-frame!)
+    (ping! 3)
+    (xray-epoch/install!)
+    (rf/make-frame {:id :rf/xray})
+    (let [slot #(rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame probe-frame]))
+      (is (= 3 (count (slot))) "precondition: the slot holds the three pings")
+      (trace-collector/retroactive-scrub!)
+      (ping! 1)
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/epoch-recorded probe-frame]))
+      (is (= 4 (count (rf.epoch/epoch-history probe-frame)))
+          "the framework ring still holds all four")
+      (is (= [(:epoch-id (peek (rf.epoch/epoch-history probe-frame)))]
+             (mapv :epoch-id (slot)))
+          "only the post-scrub epoch reaches the slot"))))

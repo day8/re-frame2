@@ -28,6 +28,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.assembly :as rf.epoch.assembly]
+            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]))
 
@@ -83,11 +84,47 @@
          (rf.epoch.assembly/sensitive-trace? (:trace-events record))
          (true? (:rf.epoch/sensitive? record)))))
 
+;; ---- the scrub watermark --------------------------------------------------
+;;
+;; `trace-collector/retroactive-scrub!` clears the trace rings, but the
+;; framework's epoch rings are not Xray's to clear — they are restore
+;; material. So the scrub records which `[frame epoch-id]` pairs the rings
+;; held at that moment, and the gate keeps them out of `:epoch-history`
+;; afterwards; without it the next ingest re-read the ring and restored every
+;; pre-scrub record (tools/xray/spec/013 §Retroactive scrub). Pairs that age
+;; out of a ring age out of the next scrub's snapshot, so the set stays
+;; bounded by the rings themselves.
+
+(defonce ^:private scrubbed-epochs
+  (atom #{}))
+
+(defn scrub-epoch-history!
+  "Keep every epoch the framework rings hold now out of `:epoch-history`
+  from here on."
+  []
+  (reset! scrubbed-epochs
+          (into #{}
+                (for [frame-id (rf.frame/frame-ids)
+                      record   (rf.epoch/epoch-history frame-id)]
+                  [frame-id (:epoch-id record)])))
+  nil)
+
+(defn forget-scrubbed!
+  "Drop the scrub watermark. Test fixtures call it through
+  `trace-collector/reset-for-test!`."
+  []
+  (reset! scrubbed-epochs #{})
+  nil)
+
+(defn- scrubbed? [record]
+  (contains? @scrubbed-epochs [(:frame record) (:epoch-id record)]))
+
 (defn redact-history
   "Gate `records` — a framework per-frame epoch ring, oldest-first — keeping
-  every record `withheld?` does not withhold. Pure. Returns a vector."
+  every record that is neither scrubbed nor `withheld?`. Pure apart from the
+  scrub watermark read. Returns a vector."
   [records]
-  (into [] (remove withheld?) records))
+  (into [] (remove #(or (scrubbed? %) (withheld? %))) records))
 
 (defn assoc-history
   "Write `records` into `db` through the ingest gate: the kept records into
@@ -100,7 +137,7 @@
   (`panels.shared.focus-resolver/resolve-focus-status`). An id is all the
   stub carries — the envelope itself is what the gate keeps off screen."
   [db records]
-  (let [held? (group-by (comp boolean withheld?) records)]
+  (let [held? (group-by (comp boolean withheld?) (remove scrubbed? records))]
     (assoc db
            :epoch-history  (vec (get held? false))
            :epoch-withheld (into #{} (keep :dispatch-id) (get held? true)))))

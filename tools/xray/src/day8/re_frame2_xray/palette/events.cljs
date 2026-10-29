@@ -138,19 +138,16 @@
 ;; palette command surfaces NO opt-in arg, so the command default is
 ;; always the redacted/elided projection — never the raw db.
 ;;
-;; ## Why the egress runs inside `(rf/with-frame tf …)`
+;; ## Why the egress names `:frame tf`
 ;;
 ;; `egress-value` (→ `project-egress`) resolves the frame-owned
-;; sensitive / large app-db declarations from `rf.frame/current-frame` when no
-;; explicit `:frame` opt is passed. The snapshot reads the FOCUSED
-;; frame's db (`tf`), which is NOT necessarily the frame the fx fires
-;; in (the palette dispatches against `:rf/xray`). Pinning the current
-;; frame to `tf` for the egress makes the walker match `tf`'s OWN
-;; declarations — so a host frame's `[:auth :token]` redacts against
-;; the host frame's classification, not the (empty) Xray-frame declarations.
-;; Fail-closed: a frame with no declarations still emits the raw value
-;; only when that frame declared nothing sensitive, exactly as the
-;; per-frame contract intends.
+;; sensitive / large app-db declarations from the `:frame` it is handed,
+;; and redacts the whole value when that is nil. The snapshot reads the
+;; FOCUSED frame's db (`tf`), which is NOT the frame the fx fires in (the
+;; palette dispatches against `:rf/xray`), so naming `tf` makes the walker
+;; match `tf`'s OWN declarations — a host frame's `[:auth :token]` redacts
+;; against the host frame's classification, not the (empty) Xray-frame
+;; declarations.
 
 (defn- snapshot-app-db!
   "Side-effect: drop the focused frame's app-db onto the JS console and
@@ -173,11 +170,10 @@
           ;; off-box sinks; `egress-value`'s default polarity redacts
           ;; sensitive + size-elides large slots. No `:path` — the
           ;; whole-db snapshot IS the walked root, so root-keyed schema
-          ;; declarations match directly. `with-frame tf` pins the
-          ;; declaration lookup to the focused frame (see comment above).
+          ;; declarations match directly. `:frame tf` pins the declaration
+          ;; lookup to the focused frame (see comment above).
           payload (when (and (some? tf) (some? (rf.frame/frame tf)))
-                    (rf/with-frame tf
-                      (egress/egress-value (rf/app-db-value tf))))
+                    (egress/egress-value (rf/app-db-value tf) {:frame tf}))
           tag     (str "[rf2-xray] palette snapshot · frame "
                        (pr-str tf))]
       ;; Only emit when a target frame is selected — no unselected-state

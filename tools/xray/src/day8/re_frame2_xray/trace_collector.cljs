@@ -39,6 +39,7 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.epoch :as epoch]
             [day8.re-frame2-xray.self-noise :as self-noise]))
 
 ;; ---- frameless secondary ring -------------------------------------------
@@ -198,6 +199,12 @@
   wholesale; this gate covers the steady-state read while the profile
   redacts.
 
+  The grain is the CASCADE: every event sharing a `[frame dispatch-id]`
+  with a suppressed event goes too, because the flat snapshot is regrouped
+  into `:rf.xray/event-bundles` and a cascade's non-sensitive siblings can
+  structurally reveal what the sensitive event carried — the same answer
+  `bundles-for-frame` gives at bundle grain.
+
   Public so `mount.cljs` can drive the first-mount seed
   synchronously alongside the `:rf.xray/sync-trace-buffer` dispatch,
   bypassing the task coalescer (the seed must commit before the
@@ -209,14 +216,21 @@
                                        (rf/trace-buffer fid {:flat true})))
                           frame-ids)
         frameless   (frameless-events)
-        all         (into per-frame frameless)]
+        all         (into per-frame frameless)
+        suppressed  (into #{}
+                          (comp (filter config/suppress-sensitive?)
+                                (keep cascade-key))
+                          all)]
     (into []
           ;; Privacy gate: scrub retained-but-sensitive
-          ;; events on the read side so the snapshot never leaks an
-          ;; event the listener gate already suppressed. No-op when the
-          ;; local-render egress profile reveals sensitive values
-          ;; (`:rf.egress/local-raw` opt-in) or the event is non-sensitive.
-          (remove config/suppress-sensitive?)
+          ;; events — and the rest of their cascade — on the read side so
+          ;; the snapshot never leaks an event the listener gate already
+          ;; suppressed. No-op when the local-render egress profile reveals
+          ;; sensitive values (`:rf.egress/local-raw` opt-in) or the event
+          ;; is non-sensitive.
+          (remove (fn [ev]
+                    (or (config/suppress-sensitive? ev)
+                        (contains? suppressed (cascade-key ev)))))
           ;; Sort by :id so the resulting flat vector preserves the
           ;; cross-frame oldest-first invariant the projection code +
           ;; the L2 event list both assume. Frameless events carry no
@@ -225,6 +239,13 @@
           ;; sort to the tail.
           (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
                    all))))
+
+(defn- cascade-key
+  "The `[frame dispatch-id]` a trace event belongs to, or nil when it
+  carries no dispatch-id."
+  [ev]
+  (when-some [dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])]
+    [(get-in ev [:tags :frame]) dispatch-id]))
 
 (defn bundles-for-frame
   "The gated per-frame EVENT-BUNDLE read — one bundle per
@@ -408,8 +429,10 @@
 ;;      reach. Cleared via `:rf.xray/sync-epoch-history` with an empty
 ;;      history — the slot's own wholesale-overwrite event (registered in
 ;;      `epoch.cljs`), which also clears `[:focus :epoch-id]` so no panel
-;;      is left following a cleared record. No new event id:
-;;      the clear IS a sync to nothing.
+;;      is left following a cleared record. The framework epoch rings
+;;      themselves stay (they are restore material), so
+;;      `epoch/scrub-epoch-history!` marks what they hold and the ingest
+;;      gate keeps those records out from then on.
 ;;
 ;; All four are dropped together. The suppressed-counters reset moves
 ;; alongside so the `[● REDACTED N]` indicator disappears in lockstep
@@ -439,6 +462,7 @@
   (when rf.interop/debug-enabled?
     (rf/clear-trace-buffer!)
     (clear-frameless-ring!)
+    (epoch/scrub-epoch-history!)
     (doseq [own (filter rf.frame/frame (defaults/instance-frame-ids))]
       (rf/with-frame own
         (rf/dispatch [:rf.xray/clear-trace-buffer])
@@ -511,4 +535,5 @@
   (reset! frameless-ring [])
   (reset! mirror-sync-scheduled? false)
   (rf.trace.tooling/clear-trace-rings!)
+  (epoch/forget-scrubbed!)
   nil)
