@@ -19,6 +19,7 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | One-off explicit routing (`dispatch` / `subscribe`) | `{:frame …}` trailing opt — `(rf/dispatch [:foo] {:frame …})` / `(rf/subscribe query-v {:frame …})` (same shape both sides) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
 | Read a frame's runtime-db / whole frame-state (tools, SSR) | `(:rf.db/runtime (frame-state-value id))` / `frame-state-value` |
+| Restore a frame-state the app saved (localStorage, a server) | `(rf/dispatch-sync [:rf/install-frame-state saved] {:frame f})` at boot, before the app's own boot events — an ordinary event, so production builds have it ([below](#persisting-a-frame)) |
 | Install state from outside a cascade (tools, tests, SSR) | `replace-frame-state!` (the ONE partial-map write surface) |
 
 A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) fn reaches a frame **per adapter**; both recipes are in [§`frame-provider` and `frame-root` in views](#frame-provider-and-frame-root-in-views). An arbitrary async callback captures `(rf/capture-frame)` where a frame is in scope and calls its `:dispatch` / `:subscribe` ops later.
@@ -66,6 +67,10 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 ```
 
 Verified in `re-frame.frame` / `re-frame.live-frame`; the public facade is `re-frame.core`. A db-shaped key never silently overwrites the other partition, and a map with no recognized partition key — or an unrecognized key — is rejected.
+
+### Persisting a frame
+
+A read plus one event. Save `(rf/frame-state-value f)` — its `:rf.db/app` and the `:rf.runtime/*` subtrees you keep, such as `:rf.runtime/machines` — with `pr-str`; at boot, read it back and dispatch `[:rf/install-frame-state saved]`. A present `:rf.db/app` replaces app-db, each supplied runtime subtree replaces only that subtree, and restored machines come back as saved — no entry actions re-run, live `:after` timers re-arm. A payload carrying the resource runtime is refused (a resource cache refetches rather than persists), and guarding your own `read-string` of a stored value is yours. Recipe: [`docs/machines/persist-and-restore.md`](https://github.com/day8/re-frame2/blob/main/docs/machines/persist-and-restore.md); contract: [`spec/002-Frames.md` §Installing a persisted frame-state](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#installing-a-persisted-frame-state).
 
 ## Frame resolution chain
 

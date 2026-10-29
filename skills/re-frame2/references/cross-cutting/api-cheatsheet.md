@@ -11,6 +11,7 @@ One-line signatures for the public `re-frame.core` surface and the owned-namespa
 | `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — returns the value; consumed via `:rf.cofx/requires`, not `inject-cofx` ([cofx](../fundamentals/cofx.md)) |
 | `rf/reg-sub` | `(id meta? (fn [db query-v] value))` — inputs are DECLARED under `meta?`'s `:inputs` (a literal `[[:q…] …]` or a producer `(fn [query-v] [[:q…] …])` returning query vectors) and arrive as a vector: `(fn [[a b] query-v] value)` ([subs](../fundamentals/subs.md)) |
 | `rf/reg-view` / `rf/reg-view*` | `(sym [args] body)` — defn-shape, injects `dispatch` / `subscribe` · runtime form `(id metadata? render-fn)` ([views](../fundamentals/views.md)) |
+| `rf/reg-state` | `(concern)` / `(concern {:default v})` — a sub `[concern ikey]` and a setter event `[concern ikey v]` over `[:ui concern ikey]`; clear with `[:rf.state/clear concern ikey]` ([reusable-components](../../patterns/reusable-components.md#per-instance-view-state--rfreg-state)) |
 | `rf/reg-app-schema` / `rf/reg-app-schemas` | `(path schema)` / `(path {:doc "…"} schema)` · bulk `(path->schema)` / `(path->schema opts)` → the paths registered. Names no frame; a **dev-build assertion**, never checked in production ([schemas](../fundamentals/schemas.md)) |
 | `rf/reg-machine` | `(id metadata? machine-spec)` — the plain-fn form is `re-frame.machines/reg-machine*`, not on `rf/` ([reg-machine](../state-machines/reg-machine.md)) |
 | `rf/reg-flow` | `(flow-id metadata derive-fn)` — `:inputs` / `:output-path` required; a frame runs it when its `:flows` names it, e.g. `(rf/make-frame {:id :rf/default :flows [:cart/total]})` ([flows](../fundamentals/flows.md)) |
@@ -113,6 +114,8 @@ Aliased `:as th` — not `h`, which is Fresco.
 
 | Surface | Shape |
 |---|---|
+| `re-frame.ssr.ring/ssr-handler` / `ssr-middleware` | `({:frame … :root-view … :payload […]})` → a Ring handler · Ring middleware — not on `rf/` ([ssr-authoring](ssr-authoring.md#wiring-the-two-halves)) |
+| `ssr/hydrate!` | `({:frame f})` → the applied payload, or `nil` on a plain client load — call before the first render |
 | `ssr/render-to-string` | `(tree)` / `(tree opts)` — `:doctype?`; unknown opts are ignored |
 | `ssr/project-error` | `(frame-id trace-event)` → public-error map |
 | `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — a route names its head via `:head` |

@@ -6,7 +6,7 @@ The entity-id idiom for parameterised widgets — a `customer-card` that works a
 
 ## When to load
 
-The prompt mentions: a reusable / parameterised widget, a list rendering N of the same card, a "compare two entities side by side" view, a `customer-card` / `user-avatar` / `line-item` component, "make this work against any X", or a library-shipped widget that must drop into an arbitrary host app. Also load when a single-instance widget needs to become multi-instance (the singleton-sub bottleneck below).
+The prompt mentions: a reusable / parameterised widget, a list rendering N of the same card, a "compare two entities side by side" view, a `customer-card` / `user-avatar` / `line-item` component, "make this work against any X", or a library-shipped widget that must drop into an arbitrary host app. Also load when a single-instance widget needs to become multi-instance (the singleton-sub bottleneck below), or when a widget holds a scrap of its own state — an open flag, a selected tab, a row's draft text (`rf/reg-state`, below).
 
 ## The three rules
 
@@ -74,6 +74,30 @@ Views that need **more than one id** (a transfer screen with source + destinatio
 
 Each id is independently substitutable; the transfer handler reads both out of its payload and updates both slices in one `:db` step.
 
+## Per-instance view state — `rf/reg-state`
+
+A widget's own state — a disclosure's open flag, a tab strip's selection, a row's draft text — is app-db data at a per-instance address. `rf/reg-state` registers the sub and the setter for one concern, so the instance key is part of every read, write and clear:
+
+```clojure
+(rf/reg-state :customer-card/expanded? {:default false})   ;; a qualified concern; :default is the only opt
+
+(rf/reg-view customer-card [id]
+  (let [open? @(subscribe [:customer-card/expanded? id])]          ;; [concern instance-key]
+    [:div.customer-card
+     [:button {:on-click #(dispatch [:customer-card/expanded? id (not open?)])} "Details"]  ;; [concern key value]
+     (when open? [customer-details id])]))
+
+;; Back to :default. Nothing clears an entry implicitly (not an unmount, not a
+;; navigation), so whatever ends the instance's life dispatches the clear:
+{:fx [[:dispatch [:rf.state/clear :customer-card/expanded? id]]]}
+```
+
+- **The address is `[:ui concern instance-key]`** — the application's own data, so an ordinary handler may read or write it, and it behaves the same under every adapter and on both hosts.
+- **Derive the key from data** — the entity id, or `[:order/id 42]` when one widget serves several entity types; never render order, a counter or `random-uuid`, so a server render and its hydration agree. A `nil` key (a missing prop) is refused with `:rf.error/state-bad-argument`, because it would make every instance share one value.
+- **Write a named event instead** when the change means more than "this slot now holds that value" — when it must trigger something else or be recorded as what happened.
+
+Contract: [`spec/002-Frames.md` §Per-instance view state](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#per-instance-view-state).
+
 ## Placefulness — library-shipped widgets
 
 When a widget is distributed as a *library* across host apps, the slice path may vary (app A stores at `[:customers id]`, app B at `[:entities :crm :customers id]`). Frames change the shape but don't eliminate it:
@@ -91,7 +115,7 @@ The idiom ports across adapters with **zero changes to the view body**. The view
 - **Hardcoded slice path inside a "reusable" component.** `(subscribe [:current-customer])` is by definition single-instance — the moment two entities must render at once, the singleton sub shows the same data in both.
 - **Making an entity-addressed widget depend on parent-supplied data.** Prefer `[customer-card id]` when the widget owns the entity lookup and its scoped events. Passing `[customer-card customer-map]` is also valid for a presentational component; fresh persistent maps with equal contents still compare equal, so a new map alone does not force a Reagent re-render or invalidate a subscription cache.
 - **Asymmetric dispatches** — reading `[:customer id]` but dispatching `[:customer/edit]` without the id. Broken under multi-instance rendering.
-- **Storing per-instance UI state in the entity slice.** A card's `:expanded?` flag does not belong at `[:customers id :expanded?]` — that conflates the entity with transient view state. Use a separate `[:ui :customer-cards id]` slice (keyed by the same id), or, when the widget wraps a stateful JS thing, the stateful-component idiom (`patterns/stateful-components.md`).
+- **Storing per-instance UI state in the entity slice.** A card's `:expanded?` flag does not belong at `[:customers id :expanded?]` — that conflates the entity with transient view state. Register it with `rf/reg-state`, keyed by the same id ([above](#per-instance-view-state--rfreg-state)), or, when the widget wraps a stateful JS thing, use the stateful-component idiom (`patterns/stateful-components.md`).
 
 ## Worked example
 
@@ -105,4 +129,4 @@ No standalone example app — the idiom appears wherever a list renders the same
 
 ---
 
-*Derived from `spec/Pattern-ReusableComponents.md` (Convention, not Spec) @ main. Re-verify if `reg-view` positional-arg or `reg-sub` query-vector semantics change.*
+*Derived from `spec/Pattern-ReusableComponents.md` (Convention, not Spec) and `implementation/core/src/re_frame/core_state.cljc` (`reg-state`) @ main. Re-verify if `reg-view` positional-arg, `reg-sub` query-vector or `reg-state` semantics change.*
