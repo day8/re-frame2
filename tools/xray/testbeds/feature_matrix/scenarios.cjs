@@ -2050,18 +2050,24 @@ async function runLargeDispatcher(page, state) {
   const traceEvents = await readTrace(page);
   await clickSidebar(page, 'app-db', 'rf-xray-app-db-diff');
   await expectVisible(page.locator('[data-testid="rf-xray-app-db-diff"]'), 5000);
-  // Large markers render as first-class chip chrome inside the
-  // edn-inspector. The predicate is keyed off the spec/015 marker, so the
-  // chip appears under `[data-testid="rf-xray-edn-inspector-large"]`.
-  // Assert chip presence and absence of the raw payload — the two together
-  // cover "elision marker surfaced" and "raw value never leaks".
+  // What the App-DB tab renders, on-box. The 20 KiB unclassified string
+  // collapses to the `rf-xray-edn-inspector-large` chip through the tab's
+  // DISPLAY bound (`app-db-diff-format/display-value`, strings over 1024
+  // chars) — the only chip, since nothing else is that long. The three
+  // `:large`-classified 200-char values render IN FULL: the local operator
+  // is entitled to large values on-box (EP-0015 §10, `local-render-opts`
+  // `include-large? true`); their `:rf.size/large-elided` marker is the
+  // wire's (traces, MCP), not this tab's. Both halves are pinned, so a
+  // display bound that stopped firing, or an on-box render that started
+  // eliding declared-large values, goes red here.
   const largeChips = page.locator(
     '[data-testid="rf-xray-app-db-diff"] [data-testid="rf-xray-edn-inspector-large"]',
   );
   const largeChipCount = await largeChips.count();
   const appDbText = ((await page.locator('[data-testid="rf-xray-app-db-diff"]').textContent()) || '').trim();
-  if (largeChipCount === 0) {
-    failWithDetails('Large-value 20-dispatch load did not render elision chip chrome in App-DB Diff', {
+  if (largeChipCount !== 1) {
+    failWithDetails('App-DB Diff did not collapse exactly the one over-long string to its size chip', {
+      largeChipCount,
       traceCount: traceEvents.length,
       tail: traceEvents.slice(-20),
       appDbText: appDbText.slice(0, 1200),
@@ -2073,11 +2079,12 @@ async function runLargeDispatcher(page, state) {
       appDbText: appDbText.slice(0, 1200),
     });
   }
-  // The `:large`-classified slots hold a 200-char `Y` string; each must
-  // render as its chip, never as the string.
-  if (appDbText.includes('Y'.repeat(48))) {
-    failWithDetails('A :large-classified payload leaked into App-DB Diff text', {
-      largeChipCount,
+  const fullY = `"${'Y'.repeat(200)}"`;
+  const shownDeclared = [':declared-large-value', ':fx-declared-value', ':schema-large-value']
+    .filter((k) => appDbText.includes(`${k} ${fullY}`));
+  if (shownDeclared.length !== 3) {
+    failWithDetails('App-DB Diff did not render the three :large-classified values in full on-box', {
+      shownDeclared,
       appDbText: appDbText.slice(0, 1200),
     });
   }

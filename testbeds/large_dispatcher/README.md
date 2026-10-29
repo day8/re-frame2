@@ -91,6 +91,10 @@ needs:
 ## Test scenarios from rf2-fe84r this surface enables
 
 Xray (26):
+- the App-DB tab, on-box, renders the three `:large`-classified values in
+  full (the local operator is entitled to large values) and collapses the
+  20 KiB unclassified string to its display-bound size chip; the feature
+  gate's `runLargeDispatcher` pins both
 - a `:large`-classified value arrives as a `:rf.size/large-elided` marker —
   the load-bearing scenario this surface unblocks. Xray's trace
   panel must show the `[:declared-large-value]` slot replaced with
