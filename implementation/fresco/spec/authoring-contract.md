@@ -238,8 +238,10 @@ displayed value after every commit.
   under the same key wins, `nil` included. The rule is per map key, not per React
   prop: an `:onInput` beside an owned `:on-input` lands on the same React prop
   in map order. Fresco's own components hold their owned slots at the React
-  prop instead: `forms/buffered-field` and the overlays drop a forwarded
-  attribute written in any spelling of a slot they own.
+  prop instead: `forms/buffered-field`, the overlays and `h/route-link` drop a
+  forwarded attribute written in any spelling of a slot they own, and
+  route-link's render-time refusals read every spelling of the slots they
+  police.
 
 **`::h/revision` is the reset.** Written beside a controlled text `:value`, a
 changed revision, compared with `=`, re-baselines the field: the current draft is

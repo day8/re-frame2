@@ -164,6 +164,17 @@
   instead of as an uncaught page error beside a handle for a root that
   rendered nothing.
 
+  Delivery lasts the mount's whole life, because a root whose render fails
+  goes BLANK and every assertion about what is absent from a blank page
+  passes. Each root sends its uncaught render errors to its handle rather
+  than to the window, and the door that drove one delivers it:
+  [[rerender!]], [[settle!]], [[dispatch-and-settle!]] and
+  [[advance-clock!]] re-throw the first error the root reported while they
+  ran, and [[settle-until!]] rejects with it. An error no door drove — a
+  user-event sequence, a raw `.click`, a real timer — is HELD on the
+  handle: [[assert-clean!]] fails on it, and [[shadow!]]'s checkpoint
+  answers it as a red.
+
   And a residue finding is not a refusal at all: it is a TEST FAILURE, so
   [[assert-clean!]] reports it through `cljs.test/do-report` rather than
   throwing. That distinction is the useful one — the kit REFUSES misuse of
@@ -262,6 +273,7 @@
 (def ^:private baseline-key ::baseline)
 (def ^:private ordinal-key ::ordinal)
 (def ^:private clock-key ::clock)
+(def ^:private uncaught-key ::uncaught)
 
 ;; ---------------------------------------------------------------------------
 ;; The clock — virtual time, for the window of a mount that asked for one
@@ -730,15 +742,50 @@
   as a volatile the release flips: the hold is a fact about the mount and
   belongs with the mount's other two, so [[unmount!]] and [[residue]] can
   each let go without either of them having to know whether the other
-  already did."
-  [root ordinal baseline clock?]
+  already did.
+
+  `sink` is the volatile vector the root's `onUncaughtError` appends to,
+  the one construction already read. It goes on the handle so every door
+  after construction reads the same errors; see [[driving]]."
+  [root ordinal baseline clock? sink]
   (swap! !standing inc)
   (swap! !open inc)
   (cond-> (assoc root
                  baseline-key baseline
                  ordinal-key  ordinal
-                 state-key    (volatile! :mounted))
+                 state-key    (volatile! :mounted)
+                 uncaught-key sink)
     clock? (assoc clock-key (volatile! true))))
+
+(defn- reported
+  "How many uncaught render errors `handle`'s root has reported and nobody
+  has yet been handed."
+  [handle]
+  (if-some [sink (get handle uncaught-key)] (count @sink) 0))
+
+(defn- deliver-since!
+  "Throw the first uncaught render error `handle`'s root reported after the
+  sink held `n`, taking every such error off the sink; answer the handle
+  when none arrived. Errors already held before `n` stay held, because the
+  door that calls this did not drive them."
+  [handle n]
+  (let [sink (get handle uncaught-key)]
+    (when (and (some? sink) (< n (count @sink)))
+      (let [error (nth @sink n)]
+        (vswap! sink subvec 0 n)
+        (throw error))))
+  handle)
+
+(defn- driving
+  "Run `f`, which drives `handle`'s root, then re-throw on this stack the
+  first render error the root reported while `f` ran. React 19 never
+  re-throws a failed render out of `flushSync`: it reports it to the
+  root's `onUncaughtError` and unmounts the tree, so a door that did not
+  ask would answer a handle for a blank page."
+  [handle f]
+  (let [n (reported handle)]
+    (f)
+    (deliver-since! handle n)))
 
 ;; ---------------------------------------------------------------------------
 ;; Construction is TRANSACTIONAL
@@ -770,15 +817,17 @@
 
 (defn- catching-root!
   "`impl.mount/root!`, with THIS root's uncaught render errors handed to
-  `catch!` instead of to React's default. Answers the handle either way,
-  because a root whose first render failed still has to be taken down.
+  `catch!` instead of to React's default, for the root's whole life.
+  Answers the handle either way, because a root whose first render failed
+  still has to be taken down.
 
   Minted here rather than taken from `impl.mount` because the divergence
   is the INSTRUMENT's and not the runtime's. A shipped root wants React's
   default — the error reported at the window, where a host's own reporter
   and the browser console can see it — and a test facade wants it
   returned, so that [[mount!]] can put the page back and re-throw the
-  runtime's own refusal on the caller's stack. Installing any
+  runtime's own refusal on the caller's stack, and every later door can
+  re-throw an error it drove ([[driving]]). Installing any
   `onUncaughtError` takes React's default off, which is both halves of
   that: the refusal is captured, and the page never carries the uncaught
   error.
@@ -788,7 +837,7 @@
   codec refuses — `[]`, a head it will not classify — throws on this
   call's own stack, before React is handed an element, so the `try` is
   the other half. Joining them here is what lets a caller read one
-  volatile."
+  sink."
   [container frame-kw hiccup catch!]
   (let [handle {:root      (react-dom-client/createRoot
                              container
@@ -925,7 +974,8 @@
   React 19 is why this needs saying: a body that throws does not re-throw
   out of `flushSync`, so without [[catching-root!]] this door would answer
   a handle for a root that had rendered nothing and report the error at
-  the window instead."
+  the window instead. The same root keeps delivering after this call
+  answers: see the namespace docstring, *Refusals*."
   ([form] (mount! form {}))
   ([form {:keys [container clock] :as opts}]
    ;; The roster check comes before every allocation, so a refused call
@@ -946,15 +996,13 @@
      (let [[frame-kw ordinal] (mint-frame! opts)
            baseline           (census)
            node               (or container (rf.fresco.impl.mount/fresh-container!))
-           !refusal           (volatile! nil)
+           sink               (volatile! [])
            root               (catching-root! node frame-kw form
-                                              (fn [error]
-                                                (when (nil? @!refusal)
-                                                  (vreset! !refusal error))))]
-       (if-some [refusal @!refusal]
+                                              (fn [error] (vswap! sink conj error)))]
+       (if-some [refusal (first @sink)]
          (do (abandon! frame-kw node (some? container) root)
              (throw refusal))
-         (handle-for root ordinal baseline (boolean clock))))
+         (handle-for root ordinal baseline (boolean clock) sink)))
      (catch :default e
        (when clock (release-clock!))
        (throw e)))))
@@ -1008,7 +1056,9 @@
   whose handler fails, each leaving `mint-frame!` with core's own id
   (`:rf.error/initial-events-step-failed` for the step); a form the codec
   refuses while `hydrate-root!` is still building its element, which
-  raises on this call's own stack; and an adoption that never completes.
+  raises on this call's own stack; a body that throws while the tree is
+  adopted, rejected with that error as soon as the root reports it; and an
+  adoption that never completes.
   A promise-returning door that threw synchronously would throw past every
   `.catch` a caller had attached and hang the test rather than fail it,
   so the refusal is handed to the promise — the kit's own for the roster,
@@ -1045,19 +1095,32 @@
            node      (or container (rf.fresco.impl.mount/fresh-container!))
            supplied? (some? container)
            _         (when (some? html) (set! (.-innerHTML node) html))
-           !refusal  (volatile! nil)
-           root      (try (rf.fresco.impl.mount/hydrate-root! node frame-kw form)
-                          (catch :default e (vreset! !refusal e) nil))]
-       (if-some [refusal @!refusal]
-         (do (abandon! frame-kw node supplied? nil)
+           ;; [[mount!]]'s sink, for the same reason: this root's uncaught
+           ;; render errors go to its handle rather than to the window.
+           sink      (volatile! [])
+           root      (try (rf.fresco.impl.mount/hydrate-root!
+                            node frame-kw form
+                            {:on-uncaught-error (fn [error _info] (vswap! sink conj error))})
+                          (catch :default e (vswap! sink conj e) nil))]
+       (if-some [refusal (first @sink)]
+         (do (abandon! frame-kw node supplied? root)
              (js/Promise.reject refusal))
          (let [window   (:adoption root)
                started  (js/Date.now)
                deadline (+ started budget-ms)]
            (js/Promise.
              (fn [resolve reject]
-               (letfn [(tick []
+               (letfn [(refused! [error]
+                         (abandon! frame-kw node supplied? root)
+                         (reject error))
+                       (tick []
                          (cond
+                           ;; A body that throws during adoption: React
+                           ;; unmounts the tree, so the window this branch
+                           ;; would otherwise wait on never shuts.
+                           (seq @sink)
+                           (refused! (first @sink))
+
                            (not (rf.fresco.impl.roots/adopting? window))
                            ;; Past the closer AND past the reap horizon, so the
                            ;; handle a caller receives is one whose tables have
@@ -1076,23 +1139,24 @@
                            ;; after this line.
                            (js/setTimeout
                              (fn []
-                               (when clock (install-clock!))
-                               (resolve (handle-for root ordinal baseline
-                                                    (boolean clock))))
+                               (if-some [error (first @sink)]
+                                 (refused! error)
+                                 (do (when clock (install-clock!))
+                                     (resolve (handle-for root ordinal baseline
+                                                          (boolean clock) sink)))))
                              16)
 
                            (< deadline (js/Date.now))
-                           (do (abandon! frame-kw node supplied? root)
-                               (reject (rf.error/thrown-ex-info
-                                         :rf.error/poll-until-timeout
-                                         're-frame.fresco.test.mounted
-                                         (str "hydrate! waited " budget-ms
-                                              "ms and this root's adoption window "
-                                              "never shut — the tree was not adopted.")
-                                         {:extra {:frame      frame-kw
-                                                  :budget-ms  budget-ms
-                                                  :elapsed-ms (- (js/Date.now) started)
-                                                  :label      "hydrate! adoption"}})))
+                           (refused! (rf.error/thrown-ex-info
+                                       :rf.error/poll-until-timeout
+                                       're-frame.fresco.test.mounted
+                                       (str "hydrate! waited " budget-ms
+                                            "ms and this root's adoption window "
+                                            "never shut — the tree was not adopted.")
+                                       {:extra {:frame      frame-kw
+                                                :budget-ms  budget-ms
+                                                :elapsed-ms (- (js/Date.now) started)
+                                                :label      "hydrate! adoption"}}))
 
                            :else (js/setTimeout tick 4)))]
                  (tick)))))))
@@ -1108,10 +1172,10 @@
   nodes wherever React can keep them, so identity and effect claims are
   about a re-render rather than about a remount.
 
-  Takes a hydrated handle unchanged."
+  Takes a hydrated handle unchanged. A render error re-throws here, on the
+  caller's stack ([[driving]])."
   [handle form]
-  (rf.fresco.impl.mount/render! handle form)
-  handle)
+  (driving handle #(rf.fresco.impl.mount/render! handle form)))
 
 (defn settle!
   "Let everything React has already scheduled commit, and answer the
@@ -1153,10 +1217,12 @@
   and it is this flush with a bounded condition-poll in front of it.
 
   The flush is React's and is therefore page-wide; the handle is taken so
-  that every door in this facade reads the same way."
+  that every door in this facade reads the same way, and so that a render
+  error this flush commits re-throws here ([[driving]]). One the stimulus
+  already committed before this call is not this door's: it stays held
+  for [[assert-clean!]]."
   [handle]
-  (rf.fresco.impl.mount/settle!)
-  handle)
+  (driving handle rf.fresco.impl.mount/settle!))
 
 (defn settle-until!
   "**Wait for `pred` to hold, then [[settle!]] once, and answer a promise
@@ -1181,6 +1247,11 @@
   schedules or times anything; the core `poll-until` suite is the
   authority for all three, and this door COMPOSES it rather than
   copying it.
+
+  A render error the root reports while this door waits — the drained
+  work crashing the body — rejects the promise instead, with that error,
+  and it wins over the deadline: a crashed page usually never satisfies
+  `pred`, and the timeout would name the wait rather than the cause.
 
   ## Why the trailing flush is a correctness step and not sugar
 
@@ -1217,8 +1288,10 @@
   calls `done`; `re-frame.test-support/poll-until` says why."
   ([handle pred] (settle-until! handle pred nil))
   ([handle pred opts]
-   (.then (rf.test-support/poll-until pred opts)
-          (fn [_] (settle! handle)))))
+   (let [n (reported handle)]
+     (.then (rf.test-support/poll-until pred opts)
+            (fn [_] (deliver-since! (settle! handle) n))
+            (fn [timeout] (deliver-since! handle n) (throw timeout))))))
 
 (defn advance-clock!
   "Move the page-wide virtual clock forward by `ms`, run every timer on
@@ -1281,7 +1354,7 @@
   keeps. Nothing about the runtime's own settling is duplicated or
   bypassed: after stimulating the page from outside a door, [[settle!]]
   is still the call to make, and this one is [[settle!]] for the work
-  that had a delay on it."
+  that had a delay on it, render errors included ([[driving]])."
   [handle ms]
   (let [held (get handle clock-key)]
     (when-not (and (some? held) @held)
@@ -1294,8 +1367,7 @@
              " An advance with no clock under it would move nothing "
              "and assert nothing.")
         {:ms ms :frame (:frame handle)}))
-    (react-dom/flushSync (fn [] (fire-due! (+ (:now @!clock) ms))))
-    handle))
+    (driving handle #(react-dom/flushSync (fn [] (fire-due! (+ (:now @!clock) ms)))))))
 
 (defn dispatch-and-settle!
   "Dispatch `event` into this mount's frame, drain it, commit the echo,
@@ -1305,12 +1377,11 @@
   same one an intent written in a view reaches — so handlers really run,
   app-db really moves, and the commit React schedules for the store
   notification lands before this returns. Assert the DOM on the next
-  line.
+  line. A render error that commit raises re-throws here ([[driving]]).
 
   It is not `act`: see the namespace docstring."
   [handle event]
-  (rf.fresco.impl.mount/dispatch! handle event)
-  handle)
+  (driving handle #(rf.fresco.impl.mount/dispatch! handle event)))
 
 (defn unmount!
   "Tear the root down and answer the handle.
@@ -1336,7 +1407,11 @@
   handover.
 
   Idempotent: unmounting twice is not an error, and only the first call
-  counts against the standing-mount census."
+  counts against the standing-mount census.
+
+  An error the teardown itself raises is held rather than thrown, so the
+  teardown always completes and [[assert-clean!]], the step after it,
+  fails on it."
   [handle]
   (rf.fresco.impl.mount/unmount! handle)
   (when (= :mounted @(get handle state-key))
@@ -1373,6 +1448,12 @@
   INCREASES against the baseline (see [[census]] for what is counted and
   [[mount!]] for when the baseline was taken).
 
+  `:uncaught` is present when the root reported render errors that no
+  door delivered, as a vector of the errors themselves (see the namespace
+  docstring, *Refusals*). They make the mount not `:clean?`: a root that
+  crashed went blank, and a blank page leaves nothing for a counter to
+  find.
+
   `:still-mounted?` and `:standing` are the two facts that explain a
   reading rather than being read out of the tables: this mount's own root
   still being up, and how many OTHER facade mounts were up when the census
@@ -1396,16 +1477,18 @@
         mounted? (= :mounted @(get handle state-key))]
     (.then (rf.fresco.test.runtime/quiesced!)
            (fn [_]
-             (let [now (census)
-                   l   (leaked baseline now)]
-               (cond-> {:clean?         (nil? l)
+             (let [now      (census)
+                   l        (leaked baseline now)
+                   uncaught (some-> (get handle uncaught-key) deref not-empty)]
+               (cond-> {:clean?         (and (nil? l) (nil? uncaught))
                         :frame          (:frame handle)
                         :ordinal        (get handle ordinal-key)
                         :still-mounted? mounted?
                         :standing       (cond-> @!standing mounted? dec)
                         :baseline       baseline
                         :now            now}
-                 (some? l) (assoc :leaked l)))))))
+                 (some? l)        (assoc :leaked l)
+                 (some? uncaught) (assoc :uncaught uncaught)))))))
 
 (defn assert-clean!
   "**The cleanliness assertion.** Waits for quiescence, compares the
@@ -1422,10 +1505,13 @@
   the caller has to remember to assert. It never throws, so the promise
   never rejects and `(.then done)` is the whole of the plumbing.
 
-  Two things fail it:
+  Three things fail it:
 
   - **residue** — a counter above its baseline, or a frame that outlived
     the mount;
+  - **a held render error** — one the root reported and no door delivered
+    (`:uncaught`). Reported ahead of residue, because it is the cause: a
+    crashed root went blank, and what it leaked follows from that;
   - **a mount still standing** — calling this before [[unmount!]]. Reported
     on its own rather than allowed to present as residue, because a live
     root's cells ARE residue by every number here and the resulting red
@@ -1455,6 +1541,18 @@
                                "not been one.")
                 :expected '(unmounted? handle)
                 :actual   report}
+
+               (:uncaught report)
+               {:type     :fail
+                :message  (str "the mount's root reported "
+                               (count (:uncaught report))
+                               " render error(s) that no door delivered — a "
+                               "user-event sequence, a raw click or a timer "
+                               "crashed it, and a crashed root renders "
+                               "nothing. The first: "
+                               (ex-message (first (:uncaught report))))
+                :expected '(no-uncaught-render-error? handle)
+                :actual   (first (:uncaught report))}
 
                (:clean? report)
                {:type     :pass
@@ -1966,15 +2064,28 @@
   (close-log! log)
   nil)
 
+(defn- uncaught-difference
+  "Each side's first held render error, as data — or nil when neither root
+  reported one. A crashed root is blank, so two crashed sides compare equal
+  on every other reading."
+  [reference-mount candidate-mount]
+  (let [held      (fn [mount] (first @(get mount uncaught-key)))
+        reference (held reference-mount)
+        candidate (held candidate-mount)]
+    (when (or (some? reference) (some? candidate))
+      {:kind :uncaught :reference reference :candidate candidate})))
+
 (defn- checkpoint-difference
-  "One checkpoint's verdict: the intent difference if there is one, else
-  the DOM difference, else nil. `!reference-seen` and `!candidate-seen`
-  are each side's [[de-allocate]] map, held for the whole run."
+  "One checkpoint's verdict: a held render error if either side has one,
+  else the intent difference if there is one, else the DOM difference,
+  else nil. `!reference-seen` and `!candidate-seen` are each side's
+  [[de-allocate]] map, held for the whole run."
   [reference-mount candidate-mount !reference-seen !candidate-seen entries]
   (let [intents (fn [mount !seen]
                   (mapv #(de-allocate !seen (de-address (:frame mount) %))
                         (for-frame entries (:frame mount))))]
-    (or (intent-difference (intents reference-mount !reference-seen)
+    (or (uncaught-difference reference-mount candidate-mount)
+        (intent-difference (intents reference-mount !reference-seen)
                            (intents candidate-mount !candidate-seen))
         (dom-difference reference-mount candidate-mount))))
 
@@ -2121,6 +2232,13 @@
   is how many have been taken, `(inc :checkpoint)`. `:difference` names
   the exact node or intent:
 
+  - `:kind :uncaught` — a root reported a render error that no door
+    delivered, which the checkpoint's own flush can raise too; `:reference`
+    and `:candidate` carry each side's first such error, nil on a side that
+    held none. Reported before anything else, because a crashed root is
+    blank and two crashed sides agree on every other reading. A door the
+    caller drives a side with — [[dispatch-and-settle!]] and the rest —
+    throws instead, as it does on any mount.
   - `:kind :intent` — `:index` into the checkpoint's stream, with the
     `:reference` and `:candidate` vectors. Reported BEFORE any DOM
     difference at the same checkpoint, because it is the cause.
@@ -2183,8 +2301,11 @@
         {:reference   reference-mount
          :candidate   candidate-mount
          :checkpoint! (fn []
-                        (settle! reference-mount)
-                        (settle! candidate-mount)
+                        ;; The runtime's flush, not the [[settle!]] door: a
+                        ;; render error this commit raises is a fact about
+                        ;; the code, so it stays held and the verdict
+                        ;; reports it rather than a throw.
+                        (rf.fresco.impl.mount/settle!)
                         (let [checkpoint-index
                               (first (swap-vals! !checkpoint-index inc))
                               difference

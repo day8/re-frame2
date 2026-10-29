@@ -83,6 +83,9 @@
   cancelled it. See intent.cljs, `navigate-head` and `navigate-handler`,
   for the click-time half."
   (:require [re-frame.features :as rf.features]
+            ;; `canonical-slot` and `without-claimed-slots`: the slots this
+            ;; link owns are React props, whichever spelling wrote them.
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.error :refer [fail!]]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.late-bind :as rf.late-bind]))
@@ -150,10 +153,27 @@
            {:on-click on-click}))
   on-click)
 
+(def ^:private click-slot (rf.fresco.impl.codec/canonical-slot :on-click))
+
+(defn- on-click-of
+  "The value at the anchor's `onClick` slot in whichever spelling wrote it
+  — `:on-click`, `:onClick`, `\"onClick\"` — the kebab key first. The link
+  owns the React prop, not the key, so the roster and the veto read every
+  spelling of it (fresco/spec/invariants.md, I15)."
+  [props]
+  (if (contains? props :on-click)
+    (:on-click props)
+    (reduce-kv (fn [found k v]
+                 (if (= click-slot (rf.fresco.impl.codec/canonical-slot k)) (reduced v) found))
+               nil
+               props)))
+
 (defn- claimed-intent-positions!
   "Refuse, AT RENDER, a caller value at a position `:prefetch :intent` has
-  claimed. `prefetch-keys` is routing's own list of credible-intent
-  positions, taken off the link model rather than restated here.
+  claimed, in any spelling of its React prop (`:onMouseEnter` as well as
+  `:on-mouse-enter`). `prefetch-keys` is routing's own list of
+  credible-intent positions, taken off the link model rather than restated
+  here.
 
   The same law as `on-click-roster!`, one position along: the click already
   produces the one routing intent, and here the hover already produces the
@@ -178,7 +198,11 @@
   `:rf.error/route-link-bad-prefetch` from inside the seam — so this id
   means only \"the value is good and the position is taken\"."
   [props prefetch-keys]
-  (when-let [claimed (seq (filter #(contains? props %) prefetch-keys))]
+  (when-let [claimed (seq (for [position prefetch-keys
+                                :let     [slot (rf.fresco.impl.codec/canonical-slot position)]
+                                k        (keys props)
+                                :when    (= slot (rf.fresco.impl.codec/canonical-slot k))]
+                            k))]
     (fail! :rf.error/fresco-route-link-claimed-intent-position
            're-frame.fresco.impl.route-link/route-link
            (str "route-link was given :prefetch :intent, which claims "
@@ -240,23 +264,31 @@
   raised from inside the seam on BOTH hosts), and when a caller value sits
   at a position `:prefetch :intent` claims
   (`claimed-intent-positions!`, which necessarily runs after the model
-  because the positions are routing's to name)."
-  [{:keys [to on-click] :as props} & children]
+  because the positions are routing's to name).
+
+  Every slot the link writes on its anchor — the href, the click and each
+  prefetch position — it holds at the React prop, as `forms/buffered-field`
+  and the overlays hold theirs: a forwarded attribute in another spelling
+  of one (`:onClick`, `:onMouseEnter`) is read by the refusals above and
+  never reaches the anchor beside it (`codec/without-claimed-slots`)."
+  [{:keys [to] :as props} & children]
   (let [frame-kw (require-frame! to)
-        _        (on-click-roster! on-click)
+        on-click (on-click-roster! (on-click-of props))
         {:keys [href payload native? prefetch prefetch-keys]}
         ((rf.late-bind/require-fn! :routing/link-model
                                 'route-link
                                 routing-artefact
                                 {:to to})
-         (dissoc props :on-click) frame-kw)
+         (rf.fresco.impl.codec/without-claimed-slots props {:on-click nil}) frame-kw)
         _        (when prefetch (claimed-intent-positions! props prefetch-keys))
-        attrs    (-> (apply dissoc props control-keys)
-                     (merge (prefetch-attrs prefetch prefetch-keys))
-                     (assoc :href href
-                            :on-click [rf.fresco.impl.intent/navigate-head
-                                       {:frame    frame-kw
-                                        :payload  payload
-                                        :native?  native?
-                                        :veto     on-click}]))]
+        owned    (assoc (prefetch-attrs prefetch prefetch-keys)
+                        :href href
+                        :on-click [rf.fresco.impl.intent/navigate-head
+                                   {:frame    frame-kw
+                                    :payload  payload
+                                    :native?  native?
+                                    :veto     on-click}])
+        attrs    (merge (rf.fresco.impl.codec/without-claimed-slots
+                          (apply dissoc props control-keys) owned)
+                        owned)]
     (into [:a attrs] children)))
