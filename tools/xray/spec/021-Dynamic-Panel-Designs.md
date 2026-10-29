@@ -5068,6 +5068,11 @@ full+diff renderer — see the `:before` note below).
   zoomed subtree as if it were the root (depth counter restarts at
   `0` from the zoom point). Operator's mental model: "the zoom IS the
   new root."
+- **Expansion overrides** — keyed by the node's ABSOLUTE path (the zoom
+  path plus the path under the zoom root), so a node keeps the operator's
+  expand / collapse choice across zoom in and out, and a choice made on
+  one node never lands on another at the same relative position. Testids
+  stay relative to the zoom root.
 
 **Where to opt in** — per the bead's audit:
 
