@@ -1055,7 +1055,7 @@ Guide-impact assessment:
 1. **Schema spelling — RESOLVED** (see Resolved Decisions): `:data-schema` is
    retired; the machine data schema is `[:schemas :data]` (clean pre-alpha break,
    no shorthand).
-2. **Validator adapter shape — RESOLVED:** schema validation is **library-agnostic** and optional, routed through a late-bound validator adapter (`:schemas/validate-with-registered-fn`); Malli is the default adapter but is not mandatory, and an app with no adapter pays zero validation cost. See `spec/005-StateMachines.md` §Schema validation.
+2. **Validator adapter shape — RESOLVED:** schema validation is **library-agnostic** and optional, routed through the late-bound `:schemas/check!` validation seam; Malli is the default adapter but is not mandatory, and an app with no adapter pays zero validation cost. See `spec/005-StateMachines.md` §Schema validation.
 3. **Duration grammar — RESOLVED:** state and spawn `:timeout` accept an **integer of milliseconds or an ISO-8601 duration string** (`"PT5S"`, `"PT2M"`, …); the XState `"5s"` / `"10ms"` shorthand is rejected and fails loud (`:rf.error/machine-bad-timeout-duration`). See `spec/005-StateMachines.md` §Duration grammar.
 4. **State input — DEFERRED** (For Later Consideration, B1): does a concrete real
    machine justify adding state-entry input later? Default: not adopted.
