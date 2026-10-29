@@ -237,6 +237,30 @@
   [m]
   (without-slots m structural-slots))
 
+(defn- claims-slot?
+  "Does a key of `m`, in any spelling, write the React prop slot `slot`?"
+  [m slot]
+  (reduce-kv (fn [_ k _] (if (= slot (canonical-slot k)) (reduced true) false))
+             false
+             m))
+
+(defn without-claimed-slots
+  "`m` minus every entry whose canonical React slot a key of `owner`
+  already writes — `m` itself, by identity, when none does. Merge the
+  result under `owner` and `owner` holds each of its slots outright.
+
+  A plain `merge` cannot give that: it resolves a collision only between
+  keys that are `=`, while five spellings of one attribute land on one
+  React prop (`re-frame.fresco.impl.slot`). Both entries would survive,
+  and `convert-props` would write them into the one slot in the map's
+  iteration order — insertion order up to eight entries, hash order past
+  them — so which one won would depend on how many attributes the map
+  happened to carry (fresco/spec/invariants.md, I15)."
+  [m owner]
+  (reduce-kv (fn [acc k _] (if (claims-slot? owner (canonical-slot k)) (dissoc acc k) acc))
+             m
+             m))
+
 ;; ---------------------------------------------------------------------------
 ;; Classes and the shorthand merge
 ;; ---------------------------------------------------------------------------
@@ -498,8 +522,12 @@
   throwing `-equiv` or a foreign object answers `false` (re-render, with
   a dev warning) rather than escaping React's comparator as a render
   crash, because an extra render is always the safe branch. The frame is
-  not compared and need not be: it arrives through React context, which
-  React propagates ahead of the comparator and through a memo.
+  not compared: it arrives through React context, which React propagates
+  through a memo. That context carries the frame's keyword — its address,
+  not its incarnation — so recreating a frame under the same id changes
+  nothing here, and a boundary that reads no subscription keeps the
+  predecessor's intents until something re-renders it
+  (fresco/spec/authoring-contract.md, The incarnation rule).
 
   Stock Reagent's `functional-render-memo-fn` shape exactly; prior-art
   audit and the polarity argument: docs/design/fresco/decisions.md

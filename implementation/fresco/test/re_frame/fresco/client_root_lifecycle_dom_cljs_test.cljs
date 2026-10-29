@@ -12,17 +12,13 @@
 
   ## Why Fresco needs its own copy of those rows
 
-  Fresco does NOT ride `spine/make-client-root-fns`. Its roots carry
-  ownership the shared factory has no place for — a `flushSync` commit on
-  every update, a per-root adoption window, a per-root recoverable-error
-  reporter, and the stable wrapper tree `impl.mount/tree` puts over every
-  post-hydration render so the client and
-  `re-frame.fresco.server/render` agree about `useId` — and it may not
-  `:require` the spine at all, because that would put core's React-hook
-  machinery into every Fresco bundle (the optional-module invariant
-  `fresco/scripts/check_optional_module_reachability.py` guards). So the
-  semantics are pinned by TEST rather than by a shared call, and this file
-  is where.
+  The handle protocol is the spine's own (`spine/make-client-root-fns`),
+  but the root path that factory drives is Fresco's — a `flushSync`
+  commit on every update, a per-root adoption window, a per-root
+  recoverable-error reporter, and the stable wrapper tree
+  `impl.mount/tree` puts over every post-hydration render so the client
+  and `re-frame.fresco.server/render` agree about `useId`. The adapter
+  suites never run that path, so its semantics are pinned here.
 
   ## Which adapter, and why the teardown rows install more than one
 

@@ -472,22 +472,13 @@
 ;;
 ;; ONE handle with a first-call mode. The grammar is the one every React
 ;; view adapter publishes — `client-root` / `render!` / `unmount!` — and
-;; the semantics below are the spec's, proved here against Fresco's OWN
-;; root path rather than the spine's: `flushSync` on every update, a
-;; per-root adoption window, a per-root recoverable-error reporter, and
-;; the stable wrapper tree `tree` puts over every post-hydration render so
-;; the client agrees with `re-frame.fresco.server/render` about `useId`.
-;;
-;; The handle logic is written here rather than taken from
-;; `re-frame.substrate.spine/make-client-root-fns` DELIBERATELY: the spine
-;; is core's React-HOOK machinery, and one `:require` of it from this
-;; namespace would put the whole spine into the bundle of every Fresco
-;; application, including the ones that install Reagent or
-;; UIx instead. That is the exact cost `re-frame.fresco.substrate`'s row
-;; in `scripts/check_optional_module_reachability.py` exists to keep
-;; optional. Twenty lines of handle branch is the cheaper half of that
-;; trade, and the SEMANTICS are pinned to the shared ones by test rather
-;; than by a shared call.
+;; the handle protocol is the spine's own
+;; (`re-frame.substrate.spine/make-client-root-fns`), so the families
+;; cannot drift. What is Fresco's is the root path the factory drives,
+;; `mount-client-root!`: `flushSync` on every update, a per-root adoption
+;; window, a per-root recoverable-error reporter, and the stable wrapper
+;; tree `tree` puts over every post-hydration render so the client agrees
+;; with `re-frame.fresco.server/render` about `useId`.
 
 ;; React Roots this package currently keeps mounted, `root` -> its handle.
 ;; MEMBERSHIP IS THE SINGLE LIVENESS FACT: no flag in
@@ -554,12 +545,6 @@
 ;; bound before the first Root can exist.
 (rf.late-bind/set-fn! :fresco/drain-client-roots! drain-active-roots!)
 
-(defn client-root
-  "Allocate an inert client-root handle: `h/client-root`. No DOM work and
-  no React call, so it is safe at namespace load under a `defonce`."
-  []
-  (atom nil))
-
 (defn- mount-client-root!
   "The FIRST render through a handle: create or adopt this handle's one
   Root from `mount-point` and `opts`, track it, and answer the live-root
@@ -588,6 +573,15 @@
      ;; the same object rather than two facts that could disagree.
      :adoption (:adoption handle)}))
 
+(def ^:private client-root-fns
+  (rf.substrate.spine/make-client-root-fns mount-client-root!))
+
+(defn client-root
+  "Allocate an inert client-root handle: `h/client-root`. No DOM work and
+  no React call, so it is safe at namespace load under a `defonce`."
+  []
+  ((:client-root client-root-fns)))
+
 (defn render-client-root!
   "`h/render!`. The first call through `handle` creates (or, with
   `{:hydrate? true}`, adopts) one Root at `mount-point`; every later call
@@ -603,11 +597,7 @@
    (render-client-root! handle render-tree mount-point nil))
   ([handle render-tree mount-point opts]
    (require-root-options! opts 're-frame.fresco/render!)
-   (let [live @handle]
-     (if (and live ((:live? live)))
-       ((:update! live) render-tree)
-       (reset! handle (mount-client-root! render-tree mount-point opts))))
-   nil))
+   ((:render-client-root! client-root-fns) handle render-tree mount-point opts)))
 
 (defn unmount-client-root!
   "`h/unmount!`. Release the Root `handle` holds and return it to inert.
@@ -615,10 +605,7 @@
   already took — liveness is the active set's to say, never the handle's.
   Answers nil."
   [handle]
-  (when-let [live @handle]
-    (reset! handle nil)
-    ((:unmount! live)))
-  nil)
+  ((:unmount-client-root! client-root-fns) handle))
 
 (defn dispatch!
   "Dispatch through the package's synchronous door and commit the echo.

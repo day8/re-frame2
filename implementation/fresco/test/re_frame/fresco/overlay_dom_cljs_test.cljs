@@ -193,6 +193,36 @@
             other placement"
     (is (= "botom-start" (rf.fresco.impl.overlay/position-area :botom-start)))))
 
+(deftest the-modules-own-attributes-win-at-the-react-prop-in-any-spelling
+  ;; Headless, so it runs on both lanes. `:onKeyDown` and `:on-key-down`
+  ;; are two keys and one React prop, so a key-level merge keeps both and
+  ;; the codec writes them in map order — hash order once the map passes
+  ;; eight entries, as this one does — and the Tab wrap or the dismissal
+  ;; routing would be lost to a respelling.
+  (let [module-key-down (fn [_] :module)
+        module-cancel   (fn [_] :module)
+        attrs (#'rf.fresco.impl.overlay/element-attrs
+                {:open?            true
+                 :on-dismiss       [::dismissed :m]
+                 :onKeyDown        (fn [_] :author)
+                 :onCancel         (fn [_] :author)
+                 :id               "confirm"
+                 :class            "dialog"
+                 :title            "Confirm"
+                 :data-testid      "confirm"
+                 :aria-describedby "confirm-body"
+                 :lang             "en"
+                 :dir              "ltr"}
+                {:closedby    "closerequest"
+                 :on-cancel   module-cancel
+                 :on-key-down module-key-down})]
+    (is (< 8 (count attrs)) "premise: past the array map, where iteration order is the hash's")
+    (is (= [] (filterv (partial contains? attrs) [:onKeyDown :onCancel]))
+        "the author's respellings of the module's slots are dropped")
+    (is (identical? module-key-down (:on-key-down attrs)))
+    (is (identical? module-cancel (:on-cancel attrs)))
+    (is (= "dialog" (:class attrs)) "while an ordinary attribute still reaches the element")))
+
 (rf.fresco/defview menu-page [_]
   [:div
    [:button#trigger {:aria-haspopup "menu"} "Filter"]

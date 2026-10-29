@@ -333,6 +333,7 @@ closure: an SDK attached from a ref, a value-first callback, a host slot.
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
 | An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
 | A captured callback reaches a destroyed frame | `:rf.error/frame-destroyed` | Recreate the callback from a render attached to the current frame incarnation |
+| A button does nothing after its frame was recreated under the same id | `:rf.error/frame-destroyed`; the view reads no subscription, so nothing re-rendered it | Remount the tree after recreating the frame ([Captured handles](#captured-handles-lifetime-and-errors)) |
 
 ## Advanced
 
@@ -357,6 +358,14 @@ reaches the new frame. Capture
 during rendering rather than keeping a global stash. Do not render the frame id
 into markup: on the server it is process-local, and it would break the
 determinism check (`re-frame.fresco.test.server/render-twice`).
+
+The event vectors in a mounted view follow the same rule: they are bound to the
+frame when the view renders, and bound again only when it renders again. A view
+that reads a subscription re-renders onto the new frame when the destroy and the
+re-create happen in one task. A view that reads none, and whose props have not
+changed, is skipped by React, so its buttons go on dispatching to the destroyed
+frame. After recreating a frame under the same id beneath a mounted tree,
+remount the tree: `h/unmount!` its root, then `h/render!` it again.
 
 Outside any frame scope, `rf/current-frame-id` and `rf/capture-frame` raise
 `:rf.error/no-frame-context`. An enclosing `rf/with-frame` naming a frame other

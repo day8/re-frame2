@@ -237,7 +237,9 @@ displayed value after every commit.
 - **Owned slots win by presence.** In a merged attribute map the later entry
   under the same key wins, `nil` included. The rule is per map key, not per React
   prop: an `:onInput` beside an owned `:on-input` lands on the same React prop
-  in map order.
+  in map order. Fresco's own components hold their owned slots at the React
+  prop instead: `forms/buffered-field` and the overlays drop a forwarded
+  attribute written in any spelling of a slot they own.
 
 **`::h/revision` is the reset.** Written beside a controlled text `:value`, a
 changed revision, compared with `=`, re-baselines the field: the current draft is
@@ -415,8 +417,15 @@ render minted against the predecessor — a lowered intent, a carrier, a
 for the rest of its life. Fired after the successor seats, it writes nothing and
 raises `:rf.error/frame-destroyed`. **Where a delayed operation lands is fixed
 when it is minted, never when it fires.** The successor's next render mints
-operations that route to it, and a view mounted across the switch shows the
-successor's values before the next paint.
+operations that route to it. A mounted view that reads a subscription re-renders
+when the frame is recreated within one task, and shows the successor's values
+before the next paint. Nothing re-renders any other mounted view: the frame
+context carries the keyword, which has not changed, so React skips a view that
+reads no subscription while its props are unchanged, and a successor seated in
+a later task reaches a view only once something re-renders it. Until then the
+view keeps the predecessor's operations. **Recreating a frame under a mounted
+tree means remounting the tree**: `h/unmount!` its root, then `h/render!` it
+again.
 
 A hot reload is the same rule applied to views: re-evaluating a namespace
 re-mints every view it defines, so React remounts each one with everything below

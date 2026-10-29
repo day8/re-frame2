@@ -167,8 +167,11 @@
     ;; Release the reaction the cell holds, identity-guarded: one evicted
     ;; under the cell already lost its share with the eviction, so a release by
     ;; address would decrement a successor's. A nil reaction acquired nothing.
+    ;; The disposal callback goes with the share, because the reaction is
+    ;; shared and can outlive the cell by any number of mounts: left armed,
+    ;; it would hold the dead cell until the reaction itself disposed.
     (when-some [r (.-reaction cell)]
-      (rf.subs/unsubscribe-if-reaction (.-frameKw cell) (.-queryV cell) r))
+      (rf.subs/release-watched-reaction! (.-frameKw cell) (.-queryV cell) r (.-onDispose cell)))
     ;; A cell disposed while registrations STILL HOLD IT — the frame did not
     ;; come back, so `invalidate-cell!`'s deferred phase chose disposal over
     ;; a rewire — leaves every one of those memberships attached to a table
@@ -314,11 +317,14 @@
   an event rather than a term in the epoch sum because the substrate says
   exactly when a held reaction dies, and it covers every transition that
   disposes — `first-registration!` carries the one that does not
-  (docs/design/fresco/architecture.md, section The collector)."
+  (docs/design/fresco/architecture.md, section The collector). The
+  callback is kept on the cell, because `dispose-cell!` disarms that same
+  function when it releases the share."
   [^js cell]
-  (let [reaction (rf.subs/acquire-watched-reaction!
-                   (.-frameKw cell) (.-queryV cell)
-                   (fn [] (invalidate-cell! cell)))]
+  (let [on-dispose (fn [] (invalidate-cell! cell))
+        reaction   (rf.subs/acquire-watched-reaction!
+                     (.-frameKw cell) (.-queryV cell) on-dispose)]
+    (set! (.-onDispose cell) on-dispose)
     (set! (.-reaction cell) reaction)
     (when (some? reaction)
       ;; ONE baseline deref, before the watch — see `acquire-cell!`.
@@ -431,6 +437,9 @@
                                      "frameKw"  frame-kw
                                      "queryV"   query-v
                                      "reaction" nil
+                                     ;; The disposal callback armed on
+                                     ;; `reaction` (`wire-cell!`).
+                                     "onDispose" nil
                                      ;; NOT zero: a key with no cell
                                      ;; contributes the CURRENT basis to
                                      ;; `getSnapshot`, so a cell born at
@@ -953,41 +962,6 @@
                               view-id (rf.fresco.impl.error/source-of view-name))
      :data-rf-view          (rf.adapter.context/format-view-id view-id)}))
 
-(defn- author-owns-slot?
-  "Does `authored` already write the React prop slot `slot`, in ANY of the
-  spellings that land there? `codec/canonical-slot` is the resolver — the
-  same one every deny, dissoc and check in the codec asks, and the one the
-  emitter itself uses — so this cannot answer differently from what
-  `convert-props` will do with the map."
-  [authored slot]
-  (reduce-kv (fn [_ k _] (if (= slot (rf.fresco.impl.codec/canonical-slot k)) (reduced true) false))
-             false
-             authored))
-
-(defn- without-authored-slots
-  "`attrs` minus every entry whose canonical React slot `authored` already
-  claims — `attrs` itself, by identity, when it claims neither.
-
-  This is what makes the author's ownership a real one. A hiccup attribute
-  key is written in five spellings (`re-frame.fresco.impl.slot`), and
-  every one of them emits under a single React name, so `merge` — which
-  resolves a collision only between keys that are `=` — keeps BOTH a
-  body's `\"data-rf-view\"` and the framework's `:data-rf-view`, and
-  `convert-props` then writes them into one slot with the map's ITERATION
-  ORDER picking the winner. Removing the framework's entry at the slot
-  makes the collision a real key collision, and there is no second entry
-  left for an order to choose between.
-
-  Two entries against the root's attribute count, dev-mode only, on a map
-  the codec was about to walk anyway."
-  [attrs authored]
-  (reduce-kv (fn [acc k _]
-               (if (author-owns-slot? authored (rf.fresco.impl.codec/canonical-slot k))
-                 (dissoc acc k)
-                 acc))
-             attrs
-             attrs))
-
 (defn annotate-root
   "Merge a declared view's Spec 006 annotations into the root of the
   hiccup its body just returned, and answer the hiccup to encode.
@@ -1016,11 +990,12 @@
   (`re-frame.views.source-coord-annotation/inject-source-coord-attr`): a
   body that wrote either attribute itself keeps the value it wrote. That
   win is held AT THE CANONICAL SLOT and not at the key
-  (`without-authored-slots`), because this codec accepts five spellings of
-  one attribute and `merge` is keyed by `=` — so, held at the key, a body
-  writing the string `\"data-rf-view\"` beside the framework's keyword would
-  leave both in the map and let iteration order pick, which is the
-  guarantee failing nondeterministically rather than failing.
+  (`codec/without-claimed-slots`), because this codec accepts five
+  spellings of one attribute and `merge` is keyed by `=` — so, held at
+  the key, a body writing the string `\"data-rf-view\"` beside the
+  framework's keyword would leave both in the map and let iteration
+  order pick, which is the guarantee failing nondeterministically rather
+  than failing.
   Ownership is per slot: the annotation a body did NOT write is still
   stamped beside the one it did."
   [hiccup attrs]
@@ -1029,7 +1004,7 @@
            (= :tag (rf.fresco.impl.codec/head-kind (nth hiccup 0))))
     (let [maybe-attrs (nth hiccup 1 nil)]
       (if (map? maybe-attrs)
-        (assoc hiccup 1 (merge (without-authored-slots attrs maybe-attrs) maybe-attrs))
+        (assoc hiccup 1 (merge (rf.fresco.impl.codec/without-claimed-slots attrs maybe-attrs) maybe-attrs))
         (into [(nth hiccup 0) attrs] (rest hiccup))))
     hiccup))
 

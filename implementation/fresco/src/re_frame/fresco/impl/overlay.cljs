@@ -511,10 +511,15 @@
   "The author's props as element attributes: the module's own keys
   removed, `extra` merged over the rest, and the two `:style` maps merged
   with the AUTHOR's keys on top — so `:style {:position-area …}` beats the
-  `:placement` that produced one."
+  `:placement` that produced one. `extra` wins at the React prop, not
+  only at the key: an author's `:onKeyDown` or `:onCancel` beside the
+  module's `:on-key-down` or `:on-cancel` is dropped, so the Tab wrap and
+  the dismissal routing cannot be replaced by a respelling."
   [props extra]
-  (let [style (merge (:style extra) (:style props))]
-    (cond-> (merge (apply dissoc props own-keys) (dissoc extra :style))
+  (let [style (merge (:style extra) (:style props))
+        owned (dissoc extra :style)]
+    (cond-> (merge (rf.fresco.impl.codec/without-claimed-slots (apply dissoc props own-keys) owned)
+                   owned)
       (seq style) (assoc :style style))))
 
 (defn- body

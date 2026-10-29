@@ -546,6 +546,33 @@
     (is (= [rf.fresco.test.forms/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
     (is (= #{"Enter" "Escape"} (set (keys (:on-key-down attrs)))))))
 
+(deftest the-owned-slots-win-in-any-spelling
+  ;; I15 at the React prop rather than at the key. `:onBlur` and `:on-blur`
+  ;; are two keys and one prop, so a key-level merge keeps both and the
+  ;; codec writes them in map order — hash order once the map passes eight
+  ;; entries, as this one does.
+  (let [attrs (input-attrs (field-tree {::rf.fresco/revision 0
+                                        :onInput     [:app/typed]
+                                        :onBlur      [:app/blurred]
+                                        :onKeyDown   {"Enter" [:app/entered]}
+                                        "type"       "email"
+                                        :placeholder "What needs doing?"
+                                        :class       "title"
+                                        :name        "title"
+                                        :data-testid "todo-title"
+                                        :aria-label  "Title"}
+                                       nil))]
+    (is (< 8 (count attrs)) "premise: past the array map, where iteration order is the hash's")
+    (is (= [] (filterv (partial contains? attrs) [:onInput :onBlur :onKeyDown]))
+        "a forwarded respelling of an owned slot is dropped, so no second
+         entry is left for map order to choose")
+    (is (= [rf.fresco.test.forms/edit-id control 0 ::rf.fresco/value] (:on-input attrs)))
+    (is (= [rf.fresco.test.forms/commit-id control 0 [::title-committed 7]] (:on-blur attrs)))
+    (is (= #{"Enter" "Escape"} (set (keys (:on-key-down attrs)))))
+    (is (= ["email" false] [(get attrs "type") (contains? attrs :type)])
+        "and the `:type` default yields to a forwarded type in any spelling")
+    (is (= "title" (:class attrs)) "while an ordinary attribute still passes through")))
+
 ;; ---------------------------------------------------------------------------
 ;; 5. The price, counted at React's own dispatcher
 ;; ---------------------------------------------------------------------------
