@@ -103,6 +103,25 @@
              ((juxt :status :generation :resource-id :has-data? :owner-count :scoped-key) row))
           "redacting the payload must not flip the derived :has-data? fact"))))
 
+(deftest a-coarse-claim-redacts-the-error-slots-on-box
+  ;; A coarse `:sensitive? true` claims the whole entry, its error channels
+  ;; included: an error body routinely echoes the submitted value.
+  (rf/reg-resource :account/me
+                   {:scope :rf.scope/global :sensitive? true}
+                   (fn [_ _] {:request {:method :get :url "/me"}}))
+  (let [coarse-key-id "kid-account-me-1"
+        entry         {:resource/id   :account/me
+                       :resource/key  [[:rf.scope/global] :account/me nil]
+                       :status        :error
+                       :error         {:status 401 :body {:echo secret-token}}
+                       :refresh-error {:status 401 :body {:echo secret-token}}
+                       :generation    1}]
+    (rf.frame/swap-runtime-db! secure-frame
+      (fn [rt] (assoc-in rt [:rf.runtime/resources :entries coarse-key-id] entry)))
+    (let [row (h/instance-row [coarse-key-id entry] nil (local-egress-fn secure-frame))]
+      (is (= [true true]
+             (mapv #(no-raw-secret? (% row)) [:error :refresh-error]))))))
+
 (deftest resources-local-render-fails-closed-on-unreachable-frame
   (testing "under an unknown or nil observed frame every value-bearing summary is
             the whole-value [redacted], never a raw preview"
