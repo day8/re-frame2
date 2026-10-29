@@ -262,7 +262,7 @@ Worked example — login form:
 
 ### Multi-step forms / wizards
 
-For multi-step flows (signup wizard, checkout), pair the form slice with a state machine. The machine handles step transitions; the form slice persists across steps. See [examples/core/login/core.cljs](../examples/core/login/core.cljs) for a related machine pattern.
+For multi-step flows (signup wizard, checkout), pair the form slice with a state machine. The machine handles step transitions; the form slice persists across steps. See [examples/core/login/model.cljc](../examples/core/login/model.cljc) for a related machine pattern.
 
 ### Field-level async validation
 
@@ -289,7 +289,7 @@ Forms typically don't need SSR-rendered hydration; the form is interactive clien
 - [010-Schemas.md](010-Schemas.md) — schema validation runs at the boundaries this pattern leans on
 - [Pattern-RemoteData.md](Pattern-RemoteData.md) — the submit lifecycle reuses the request-lifecycle slice when the server is involved
 - [005-StateMachines.md](005-StateMachines.md) — multi-step wizards use machines on top of the form slice
-- [examples/core/login/core.cljs](../examples/core/login/core.cljs) — login form built on this convention plus a state machine
+- [examples/core/login/model.cljc](../examples/core/login/model.cljc) — login form built on this convention plus a state machine
 - [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that folds form validation and success into the `:form` region of a parallel state machine, surfacing `Incorrect` / `Correct` as tag-tagged states alongside the data and mode axes.
 - [examples/patterns/nine_states/](../examples/patterns/nine_states) — worked example whose `:form` region exercises this lifecycle (validation errors, touched-field display, recovery from `:incorrect` to `:neutral` via `:edit`).
 - [examples/real-apps/realworld_http/auth.cljs](../examples/real-apps/realworld_http/auth.cljs) — RealWorld's login and register forms exercise the full convention; [article_editor.cljs](../examples/real-apps/realworld_http/article_editor.cljs) and [comments.cljs](../examples/real-apps/realworld_http/comments.cljs) extend it across more shapes.

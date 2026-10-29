@@ -517,4 +517,4 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.
 - Boot-as-state-machine study — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary.
 - [examples/patterns/boot](../examples/patterns/boot/boot.cljs) — the runnable worked example of this pattern: `:spawn` then `:spawn-all`, completion-by-finality, and the `:boot/restart` re-entry both terminals accept.
-- [examples/core/login/core.cljs](../examples/core/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.
+- [examples/core/login/model.cljc](../examples/core/login/model.cljc) — single-purpose flow machine; same shape, narrower scope.

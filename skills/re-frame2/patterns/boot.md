@@ -166,7 +166,7 @@ No parallel `:loading?` flag — the machine's state IS the UI signal.
 
 ## Worked example
 
-`examples/patterns/boot/` — canonical Pattern-Boot. `:app/boot` cycles `:configuring → :loading-deps → :hydrating → :ready` (`:failed` terminal sibling). `:configuring` `:spawn`s one `:boot/loader` for `/config`; `:loading-deps` fans out three parallel loaders via `:spawn-all`; `:hydrating` applies staged payloads via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/patterns/boot/boot.cljs` + `schema.cljs`. A narrower single-purpose-flow instance lives at `examples/core/login/core.cljs`.
+`examples/patterns/boot/` — canonical Pattern-Boot. `:app/boot` cycles `:configuring → :loading-deps → :hydrating → :ready` (`:failed` terminal sibling). `:configuring` `:spawn`s one `:boot/loader` for `/config`; `:loading-deps` fans out three parallel loaders via `:spawn-all`; `:hydrating` applies staged payloads via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/patterns/boot/boot.cljs` + `schema.cljs`. A narrower single-purpose-flow instance lives at `examples/core/login/model.cljc`.
 
 ## Pointers
 

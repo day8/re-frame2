@@ -36,7 +36,7 @@ Mirrors `examples/real-apps/realworld_http/` (the `ns` form of its `core.cljs`, 
 
 Each feature owns one `.cljs` file at the top of the project namespace, registering everything it owns: events, subs, fxs, cofxs, views, machines. Don't split a feature across `events.cljs` / `subs.cljs` / `views.cljs` — that pre-fragments code that should be read together. The single-feature shape (machine + supporting events + subs + views in one ns) is what `realworld/auth.cljs`, `articles.cljs`, and `comments.cljs` show (`examples/real-apps/realworld_http/auth.cljs`).
 
-Tiny apps that don't carve into features (counter, login) collapse to a single `core.cljs` (`examples/core/counter/core.cljs`, `examples/core/login/core.cljs`). When the app grows past a single file, promote each section into its own feature file before any one grows past ~400 lines.
+Tiny apps that don't carve into features collapse to a single `core.cljs` (`examples/core/counter/core.cljs`). Login splits along a different seam: its substrate-free model (`examples/core/login/model.cljc`) is shared by three view layers, each adding only its own `core.cljs`. When the app grows past a single file, promote each section into its own feature file before any one grows past ~400 lines.
 
 ## Tests — sibling `test/` tree, mirroring source
 
