@@ -2922,7 +2922,9 @@ listener — even if `body` throws. It:
   re-fire of the same record (a back-filled render re-notify, §Run
   result) is de-duplicated on the `[invariant-id frame epoch-id]` key;
 - reports a `:pass` for every invariant that held across the run, so a
-  green sentinel is visible rather than silent;
+  green sentinel is visible rather than silent — and a `:fail` for each
+  when the run committed no epoch at all, since then nothing was checked
+  (a dispatch that settles after `body` returns is never observed);
 - **NEVER throws from the epoch listener**: a violated OR a broken
   (throwing) predicate is caught and reported, and the run continues.
   Isolation is twofold — the `:epoch` stream already isolates
