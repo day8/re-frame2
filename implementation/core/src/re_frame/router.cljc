@@ -76,7 +76,7 @@
   (let [received (rf.error/diag-value-summary opts)]
     (rf.error/throw-error!
       :rf.error/bad-dispatch-opts
-      're-frame.router/build-envelope
+      're-frame.router
       (str "dispatch takes an opts map as its second argument, e.g. {:frame "
            "target} to target a named frame, and got "
            (if (rf.frame/frame-value? opts)
