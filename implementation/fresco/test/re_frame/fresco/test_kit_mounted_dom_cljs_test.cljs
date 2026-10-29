@@ -119,6 +119,18 @@
   [_]
   [:li.row [plain-child {}]])
 
+(rf/reg-sub ::broken? (fn [db _] (boolean (:broken? db))))
+(rf/reg-event ::break (fn [{:keys [db]} _] {:db (assoc db :broken? true)}))
+
+(rf.fresco/defview breaks-on-demand
+  "Renders until app-db says otherwise, then renders a child the runtime
+  refuses: a render error that arrives AFTER the mount, from inside React's
+  render, on a root the facade has already handed back."
+  [_]
+  (if (rf.fresco/sub [::broken?])
+    [:div.broken [plain-child {}]]
+    [:div.fine "fine"]))
+
 (rf.fresco/defview row
   "One to-do, with a toggle button. Reads exactly ONE subscription, which
   is what makes the residue arithmetic below readable: one live row is one
@@ -896,6 +908,120 @@
                          (is (= "a condition that never holds" (:label data)))
                          (is (number? (:elapsed-ms data)))))))
             (.then (fn [_]
+                     (-> (rf.fresco.test.mounted/unmount! m)
+                         (rf.fresco.test.mounted/assert-clean!)
+                         (.then (fn [report]
+                                  (is (true? (:clean? report)))
+                                  (done)))))))))))
+
+;; ---------------------------------------------------------------------------
+;; W8 — a render error AFTER the mount is never swallowed
+;; ---------------------------------------------------------------------------
+;;
+;; A root whose render fails goes BLANK: React takes the whole tree down. A
+;; crash the facade swallowed would therefore pass every absence assertion and
+;; leave nothing for `assert-clean!` to count. Each row drives the crash a
+;; different way and requires it to reach the test: thrown by the door that
+;; drove it, or held on the handle and failing the verdict.
+
+(defn- refusal-id [e] (:rf.error/id (ex-data e)))
+
+(deftest l3-a-render-error-after-mount-throws-from-the-door-that-drove-it
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
+    (async done
+      (let [m (rf.fresco.test.mounted/mount! [breaks-on-demand {}])]
+        (is (= "fine" (text-at m ".fine")) "the mount itself rendered")
+        (testing "a dispatch whose echo crashes the body throws the runtime's
+                  refusal on the caller's stack, from dispatch-and-settle!"
+          (let [outcome (try (rf.fresco.test.mounted/dispatch-and-settle! m [::break])
+                             (catch :default e e))]
+            (is (= :rf.error/fresco-bad-head (refusal-id outcome))
+                (str "dispatch-and-settle! answered " (pr-str outcome)))))
+        (testing "a re-render that crashes throws from rerender!, the same way"
+          (let [outcome (try (rf.fresco.test.mounted/rerender! m [row-with-a-plain-function-child {}])
+                             (catch :default e e))]
+            (is (= :rf.error/fresco-bad-head (refusal-id outcome))
+                (str "rerender! answered " (pr-str outcome)))))
+        (testing "an error a door threw is DELIVERED, not also held, so the
+                  verdict is about residue alone and goes clean"
+          (-> (rf.fresco.test.mounted/unmount! m)
+              (rf.fresco.test.mounted/assert-clean!)
+              (.then (fn [report]
+                       (is (nil? (:uncaught report)))
+                       (is (true? (:clean? report)))
+                       (done)))))))))
+
+(deftest l3-a-render-error-no-door-drove-is-held-and-fails-the-verdict
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
+    (async done
+      (let [m (rf.fresco.test.mounted/mount! [breaks-on-demand {}])]
+        ;; THE SABOTAGE. The crash is driven from OUTSIDE every facade door, as
+        ;; a user-event sequence or a router drain drives one: the runtime's
+        ;; own dispatch-and-commit, straight at the mount's frame.
+        (rf.fresco.impl.mount/dispatch! (:frame m) [::break])
+        (testing "no door drove it, so no door throws it: a settle! after the
+                  fact commits nothing new and answers the handle"
+          (is (identical? m (rf.fresco.test.mounted/settle! m))))
+        (rf.fresco.test.mounted/unmount! m)
+        (-> (rf.fresco.test.mounted/residue m)
+            (.then (fn [report]
+                     (testing "the error is HELD on the handle and the mount is
+                               not clean: a blank root that passed its absence
+                               assertions still fails its verdict"
+                       (is (= [:rf.error/fresco-bad-head] (mapv refusal-id (:uncaught report))))
+                       (is (false? (:clean? report)))
+                       (is (nil? (:leaked report))
+                           "and it is reported as itself, not as residue"))
+                     ;; Restore: the held error is this row's sabotage, and the
+                     ;; verdict below is the control that the mount goes clean
+                     ;; once it is gone.
+                     (some-> (get m ::rf.fresco.test.mounted/uncaught) (vreset! []))
+                     (-> (rf.fresco.test.mounted/assert-clean! m)
+                         (.then (fn [after]
+                                  (is (true? (:clean? after)))
+                                  (done)))))))))))
+
+(deftest l3-a-shadow-checkpoint-reds-when-both-sides-crashed
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
+    (async done
+      (let [s (rf.fresco.test.mounted/shadow! {:reference [breaks-on-demand {}]
+                                               :candidate [breaks-on-demand {}]})]
+        (is (= :green (:status ((:checkpoint! s))))
+            "the control: two identical working pages compare green")
+        ;; THE SABOTAGE: both sides crash on the same step, from outside every
+        ;; door. Two blank containers and two equal intent streams are equal.
+        (rf.fresco.impl.mount/dispatch! (:frame (:reference s)) [::break])
+        (rf.fresco.impl.mount/dispatch! (:frame (:candidate s)) [::break])
+        (let [verdict ((:checkpoint! s))]
+          (is (= :red (:status verdict)) (pr-str verdict))
+          (is (= :uncaught (get-in verdict [:difference :kind])))
+          (is (= [:rf.error/fresco-bad-head :rf.error/fresco-bad-head]
+                 [(refusal-id (get-in verdict [:difference :reference]))
+                  (refusal-id (get-in verdict [:difference :candidate]))])))
+        ((:stop! s))
+        (done)))))
+
+(deftest l3-a-render-error-after-hydration-throws-from-the-door-that-drove-it
+  (if-not (rf.fresco.impl.mount/browser?)
+    (rf.fresco.roots-frames-support/skip! ":node-test has no React DOM")
+    (async done
+      (let [bytes-frame ::broken-server
+            _           (rf/make-frame {:id bytes-frame})
+            html        (rf.fresco.roots-frames-support/server-html! bytes-frame [breaks-on-demand {}])
+            _           (rf/destroy-frame! bytes-frame)
+            _           (rf.fresco.impl.collector/reset-runtime!)]
+        (-> (rf.fresco.test.mounted/hydrate! [breaks-on-demand {}] {:html html})
+            (.then (fn [m]
+                     (is (= "fine" (text-at m ".fine")) "the server's page was adopted")
+                     (testing "hydrate!'s root delivers a later render error
+                               exactly as mount!'s does"
+                       (let [outcome (try (rf.fresco.test.mounted/dispatch-and-settle! m [::break])
+                                          (catch :default e e))]
+                         (is (= :rf.error/fresco-bad-head (refusal-id outcome))
+                             (str "dispatch-and-settle! answered " (pr-str outcome)))))
                      (-> (rf.fresco.test.mounted/unmount! m)
                          (rf.fresco.test.mounted/assert-clean!)
                          (.then (fn [report]

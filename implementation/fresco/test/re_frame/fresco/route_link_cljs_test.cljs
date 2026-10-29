@@ -216,6 +216,44 @@
       (is (= [:conduit/track "jane"] (:on-mouse-enter attrs))
           "the author's own hover intent passes through untouched"))))
 
+(def ^:private eight-more-attrs
+  "Ordinary attributes enough to carry a link's map past eight entries, where
+  a map iterates in hash order rather than insertion order, so two spellings
+  of one React prop would race for the slot by hash."
+  {:id "a" :class "author" :title "Jane" :lang "en" :dir "ltr"
+   :data-x "x" :data-y "y" :data-z "z"})
+
+(defn- a-link [props]
+  (merge eight-more-attrs {:to :conduit.profile/show :params {:username "jane"}} props))
+
+(deftest route-link-holds-its-slots-at-the-react-prop-in-every-spelling
+  (testing "the click roster reads the onClick SLOT: a bare intent vector
+           spelled :onClick is the same taught mistake as at :on-click"
+    (is (thrown-with-msg?
+          js/Error #"fresco-route-link-bad-on-click"
+          (rendered (a-link {:onClick [:conduit/track "jane"]}) "jane"))))
+  (testing "a legal veto spelled :onClick IS the veto, and does not also reach
+           the anchor beside the navigate, where one of the two would win the
+           slot by hash order"
+    (let [veto      [rf.fresco.impl.intent/prevent-head [:conduit/track "jane"]]
+          [_ attrs] (rendered (a-link {:onClick veto}) "jane")]
+      (is (= veto (:veto (second (:on-click attrs))))
+          "the camelCase veto rides the navigate vector, as the kebab one does")
+      (is (not (contains? attrs :onClick))
+          "and no second writer of onClick reaches the anchor")
+      (is (= "author" (:class attrs))
+          "the ordinary attributes still pass through")))
+  (testing "`:prefetch :intent` claims the hover SLOT, so :onMouseEnter beside
+           it is refused exactly as :on-mouse-enter is"
+    (is (thrown-with-msg?
+          js/Error #"fresco-route-link-claimed-intent-position"
+          (rendered (a-link {:prefetch :intent :onMouseEnter [:conduit/track "jane"]})
+                    "jane"))))
+  (testing "and without :prefetch the camelCase hover is the author's, untouched:
+           the control that proves the refusal is the claim's"
+    (let [[_ attrs] (rendered (a-link {:onMouseEnter [:conduit/track "jane"]}) "jane")]
+      (is (= [:conduit/track "jane"] (:onMouseEnter attrs))))))
+
 (deftest prevent-does-not-wrap-a-navigate
   (is (thrown-with-msg?
         js/Error #"fresco-malformed-prevent"
