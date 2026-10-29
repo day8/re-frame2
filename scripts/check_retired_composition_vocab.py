@@ -998,7 +998,7 @@ _FIX_HINTS = {
     "retired-deleted-namespace-read": (
         "A DELETED namespace named as a live read seam: `re-frame.realm/...`, "
         "`re-frame.app-value/...`, or `re-frame.migration/migration-map`. These "
-        "namespaces were removed in full by EP-0024 — they no longer exist, so "
+        "namespaces do not exist (EP-0024), so "
         "naming one as a current read/import is drift. A tool reads the host "
         "registrations through the LIVE process registrar (`re-frame.registrar` "
         "/ `re-frame.frame` / `re-frame.image`), not a realm coordinate. If the "
