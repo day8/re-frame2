@@ -524,7 +524,7 @@
   (the SOURCE-STORE read, which never consults a bound image generation),
   NOT `{:frame …}`: this runs inside the `:rf.xray.static.schemas/registry` sub
   COMPUTATION, and Xray seats in its OWN image-loaded `:rf/xray` frame, so the
-  sub build binds the registrar to Xray's image generation — a bare read would
+  sub build binds the registrar to Xray's image generation — a generation-scoped read would
   resolve through Xray's OWN image and the schemas catalogue would lose the host
   app's event/sub specs. (`read-app-schemas-by-frame` names each frame it reads,
   so it answers from that frame's own resolution, not Xray's.) See

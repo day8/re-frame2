@@ -88,10 +88,11 @@
 (defonce ^{:doc "The L4 tab registry. Map of `[mode tab-id] → tab-entry`
                  — the key is composite because the same `:id` legitimately
                  registers against both modes via SEPARATE single-mode
-                 entries: `:routes` is the Dynamic Routing tab
-                 (`panels/routing.cljs`, focused-event lens) AND the Static
-                 Routes catalogue tab (`static/routes/panel.cljs`,
-                 browse-all) — same id, different panel, keyed apart by
+                 entries: `:machines` is the Dynamic Machine Inspector tab
+                 (`panels/machine_inspector.cljs`, focused-event lens) AND
+                 the Static Machines catalogue tab
+                 (`static/machines/panel.cljs`, browse-all) — same id,
+                 different panel, keyed apart by
                  mode. Atom (not a defonce on a literal map) so per-panel
                  `install!` mutations are visible to readers without
                  re-loading this ns; `defonce` preserves contents across

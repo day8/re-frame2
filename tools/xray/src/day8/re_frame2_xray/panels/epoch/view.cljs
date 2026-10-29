@@ -5293,7 +5293,7 @@
   names that registration in `:failing-id`, and `:where` supplies the kind
   the lookup needs. Read off the emit sites:
 
-    :event          :event  `validate-event!`, and the boundary interceptor
+    :event          :event  `validate-event!`, and the `:boundary? true` check
     :fx-args        :fx     `validate-fx!`
     :sub-return     :sub    `validate-sub!`
     :sub-override   :sub    a `:sub-overrides` pin, against the sub's OWN schema

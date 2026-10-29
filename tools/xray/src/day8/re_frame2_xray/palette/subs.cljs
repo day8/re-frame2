@@ -74,7 +74,7 @@
   consults a bound image generation), NOT `{:frame …}`: this runs inside the
   `:rf.xray/palette-index` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
-  image generation — a bare read would resolve through Xray's OWN image and list
+  image generation — a generation-scoped read would resolve through Xray's OWN image and list
   only Xray's `:rf.xray/*` handlers instead of the host app's. See
   spec/API.md §Public registrar query API."
   []

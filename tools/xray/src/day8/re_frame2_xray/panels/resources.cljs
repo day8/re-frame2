@@ -1345,7 +1345,7 @@
 ;; a query without `:frame` (the SOURCE-STORE read, which never consults a
 ;; bound image generation), NOT `{:frame …}`: these run inside the Resources subs' COMPUTATION, and
 ;; Xray seats in its OWN image-loaded `:rf/xray` frame, so the sub build binds
-;; the registrar to Xray's image generation — a bare read would resolve through
+;; the registrar to Xray's image generation — a generation-scoped read would resolve through
 ;; Xray's OWN image (no host `:resource*` ids) and lose the host registry. See
 ;; spec/API.md §Public registrar query API.
 (defn- registered-resources-value []
