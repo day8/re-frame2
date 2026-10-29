@@ -180,20 +180,33 @@ Before 1.3.0, `enrich` wrote `f`'s result through with no `nil` guard, so a `nil
 
 Read the body and propose; author confirms.
 
-**Path 2 contributes the side effect rather than performing it.** `after` called `(f db event)`, with the db picked as `enrich` picks it, ignored the result and returned the context unchanged. The chain is part of the pipeline that replay re-runs, so `f`'s I/O moves into a registered fx that the interceptor appends; the fx handler's context carries the event:
+**Path 2 contributes the side effect rather than performing it.** `after` called `(f db event)`, with the db picked as `enrich` picks it, ignored the result and returned the context unchanged. The chain is part of the pipeline that replay re-runs, so `f`'s I/O moves into a registered fx that the interceptor appends. The interceptor captures the event along with the db, because `f` reads the `:event` coeffect as the chain holds it at this stage, and the fx handler's context carries the event as dispatched:
 
 ```clojure
 ;; (rf/after f)
 (rf/reg-fx :app/audit
-  (fn [{:keys [event]} db] (f db event)))
+  (fn [_ [db event]] (f db event)))
 
 (rf/reg-interceptor :app/audit-after
   {:after (fn [ctx]
-            (let [db (if (contains? (:effects ctx) :db)
-                       (get-in ctx [:effects :db])
-                       (get-in ctx [:coeffects :db]))]
-              (update-in ctx [:effects :fx] (fnil conj []) [:app/audit db])))})
+            (let [db    (if (contains? (:effects ctx) :db)
+                          (get-in ctx [:effects :db])
+                          (get-in ctx [:coeffects :db]))
+                  event (get-in ctx [:coeffects :event])]
+              (update-in ctx [:effects :fx] (fnil conj []) [:app/audit [db event]])))})
 ```
+
+The two events differ under a stage that reshapes the event. A project `:app/unwrap` (M-59) replaces the `:event` coeffect with its payload in `:before` and restores it in `:after`, and the `:after`s run in reverse, so `:app/audit-after` sees the payload, as v1's `after` did:
+
+```clojure
+;; v1: (rf/reg-event-db :save [rf/unwrap (rf/after f)] …)
+(rf/reg-event :save {:interceptors [:app/unwrap :app/audit-after]}
+  (fn [{:keys [db]} {:keys [id]}] {:db (assoc db :saved id)}))
+
+(rf/dispatch [:save {:id 7}])   ; f gets the db holding :saved 7, and {:id 7}
+```
+
+Read from the fx handler's context, `f` would get `[:save {:id 7}]`, and an `(:id event)` in its body would be `nil`. On a chain with no reshaping stage, both are the event vector.
 
 `f` now runs in the effect walk after the commit, not inside the chain. A body that only logs to the console can call `f` in place and return `ctx`, because repeating it on replay is harmless.
 
