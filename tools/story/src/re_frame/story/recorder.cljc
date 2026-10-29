@@ -891,11 +891,15 @@
 
 (defn stop-recording!
   "Stop the in-flight recording, preserving the captured events for
-  the UI's save-as-variant dialog. Returns the new state. Under
-  elision returns `initial-state` without touching the atom."
+  the UI's save-as-variant dialog. Drains the DOM type-debounce buffer
+  first (the `:recorder/flush-dom-buffer` seam), so a value typed inside
+  the debounce window lands as the final `:dom/type`. Returns the new
+  state. Under elision returns `initial-state` without touching the atom."
   []
   (if rf.story.config/enabled?
-    (swap! state stop)
+    (do (when-let [f (rf.story.late-bind/get-fn :recorder/flush-dom-buffer)]
+          (f))
+        (swap! state stop))
     initial-state))
 
 (defn clear!

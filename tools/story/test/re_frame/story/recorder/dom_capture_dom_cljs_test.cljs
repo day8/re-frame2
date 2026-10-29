@@ -186,6 +186,24 @@
                (:script (rf.story.recorder.play-export/recording->script-body
                           (rf.story.recorder/recorded-entries)))))))))
 
+(deftest a-click-inside-a-hooked-element-records-the-hook
+  (if-not (dom-available?)
+    (skip!)
+    (do
+      (rf.story.recorder/start-recording! :story.x/y)
+      (let [btn  (.createElement js/document "button")
+            span (.createElement js/document "span")
+            bare (.createElement js/document "span")]
+        (.setAttribute btn "data-test" "save")
+        (.appendChild btn span)
+        (.appendChild @test-root btn)
+        (.appendChild @test-root bare)
+        (.dispatchEvent span (js/MouseEvent. "click" #js {:bubbles true}))
+        (.dispatchEvent bare (js/MouseEvent. "click" #js {:bubbles true}))
+        (is (= ["[data-test=\"save\"]" "span:nth-of-type(1)"]
+               (mapv :selector (rf.story.recorder/recorded-entries)))
+            "the hooked button, and never the canvas root's own hook")))))
+
 (deftest click-flushes-pending-type
   ;; a click after typing flushes the type buffer first, preserving order
   (if-not (dom-available?)

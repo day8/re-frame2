@@ -97,6 +97,16 @@
                                      JVM), where there is no buffer to drain.
                                      Signature: `(f) → nil`.
 
+  - `:recorder/flush-dom-buffer`   — dom-capture → recorder. Called by
+                                     `recorder/stop-recording!` to append
+                                     the pending typed values before the
+                                     recording closes, so every stop —
+                                     the toolbar's, a programmatic or a
+                                     Pair caller's — keeps the final
+                                     `:dom/type`. Absent without DOM
+                                     capture (bare JVM), where there is no
+                                     buffer. Signature: `(f) → nil`.
+
   - `:recorder/inside-dom-step?`   — dom-capture → recorder. True while
                                      the DOM rail is handling an interaction
                                      it records as a step, so the recorder's
