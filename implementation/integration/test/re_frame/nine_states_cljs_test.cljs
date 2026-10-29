@@ -132,6 +132,18 @@
     (is (= ["Buy milk" "Buy eggs"] (mapv :title (rf/compute-sub [:todos/items] (rf/frame-state-value f))))
         "the invalid submit added nothing")))
 
+;; An error is the verdict of the submit that found it. Typing again returns
+;; the form region to :neutral, and the shown error goes with it rather than
+;; contradicting what the field now holds.
+(deftest editing-a-field-clears-its-submit-error
+  (with-new-frame [f (new-frame)]
+    (let [field-error #(rf/compute-sub [:new-todo/field-error :title] (rf/frame-state-value f))]
+      (rf/dispatch-sync [:new-todo/edit-field :title "no"] {:frame f})
+      (rf/dispatch-sync [:new-todo/submit] {:frame f})
+      (is (= "Title must be at least 3 characters." (field-error)))
+      (rf/dispatch-sync [:new-todo/edit-field :title "nope"] {:frame f})
+      (is (nil? (field-error)) "the now-valid field shows no error"))))
+
 ;; The loading variants in examples/patterns/nine_states/stories.cljs answer
 ;; the live example's load events from `demo-network`, their `:network`
 ;; fixture. Each request a variant issues must find its route.

@@ -29,7 +29,8 @@
 
    The child loader is its own machine, `:boot/loader` — one spec, four
    instances, told apart only by the `:data` each was spawned with: one
-   URL apiece, and nothing else. The parent plants it through a per-child
+   URL apiece and the schema its reply must satisfy, and nothing else. The
+   parent plants them through a per-child
    `:data` fn, and since a `:data` fn gets handed the parent's snapshot,
    a child's URL can depend on something the parent already loaded.
 
@@ -81,7 +82,8 @@
 ;;
 ;; The reusable child: GET a URL, branch on the reply, finish. One spec,
 ;; four instances — config, routes, flags, user — distinguished only by the
-;; `:data` the parent plants at spawn, and that is exactly one key: `:url`.
+;; `:data` the parent plants at spawn, and that is exactly two keys: `:url`
+;; and the `:decode` schema the reply must satisfy.
 ;; Note what is NOT there. No parent address, because this child never
 ;; dispatches anything home. No label naming which asset it is, because
 ;; nothing here reads one: the spawn `:id` is what the parent tells its
@@ -100,9 +102,11 @@
    ;; `:boot/loader#0` — so its snapshot lands at a per-instance path no fixed
    ;; app-schema could ever name. The machine's own `[:schemas :data]` slot is
    ;; the right surface: it checks `:data` directly. (The per-child `:data` fn
-   ;; in :app/boot below swaps this base map for the planted `:url`.)
+   ;; in :app/boot below swaps this base map for the planted `:url` and
+   ;; `:decode`.)
    :schemas {:data schema/LoaderData}
    :data    {:url     nil
+             :decode  nil
              :payload nil
              :error   nil}
 
@@ -112,10 +116,18 @@
     ;; `:self-id` on the action's context, landing as the
     ;; `:asset/replied` event — so the loader sorts success from failure
     ;; itself before it ever bothers the parent.
+    ;;
+    ;; It decodes against the schema the parent planted beside the URL, so a
+    ;; payload of the wrong shape fails right here, as
+    ;; `:rf.http/decode-failure`, and the loader lands in `:failed` — in every
+    ;; build. Checked any later, against the boot machine's own `:data`
+    ;; schema, a bad payload would only refuse the fold that records it: a
+    ;; dev build would sit on the progress screen with no way out, and a
+    ;; release build, whose schemas are elided, would accept it.
     (fn [{:keys [data self-id]}]
       {:fx [[:rf.http/managed
              {:request    {:method :get :url (:url data)}
-              :decode     :json
+              :decode     (:decode data)
               :on-success [self-id [:asset/replied :success]]
               :on-failure [self-id [:asset/replied :failure]]}]]})}
 
@@ -248,13 +260,13 @@
     {:spawn {:machine-id :boot/loader
               ;; `:data` accepts a function — `(fn [{:keys [snapshot event]}]
               ;; data)` — so a child's starting :data can lean on the
-              ;; parent's snapshot at entry. All we plant is the URL, which
-              ;; is the only thing the loader acts on. This first URL is the
-              ;; fixed config endpoint that the rest of the boot threads
-              ;; from, so it's a literal — there's nothing to derive it from
-              ;; yet.
+              ;; parent's snapshot at entry. We plant the two things the
+              ;; loader acts on: the URL, and the schema its reply decodes
+              ;; against. This first URL is the fixed config endpoint that
+              ;; the rest of the boot threads from, so it's a literal —
+              ;; there's nothing to derive it from yet.
               :data       (fn boot-config-data [_]
-                            {:url "/api/config.json"})
+                            {:url "/api/config.json" :decode schema/Config})
               ;; The `:data` fold. It runs at THIS parent's handler
               ;; boundary when the child's completion arrives, so by the
               ;; next macrostep the config is in :data — which is what
@@ -286,7 +298,8 @@
                       ;; snapshot is the parent's value (not app-db), and
                       ;; since :configuring's `:on-done` fold already ran,
                       ;; the loaded `:api-base` is right there for the taking.
-                      {:url (str (-> snap :data :config :api-base) "/routes.json")})
+                      {:url    (str (-> snap :data :config :api-base) "/routes.json")
+                       :decode schema/Routes})
         ;; Each child folds its own payload straight into the parent's
         ;; :data as it reaches finality, BEFORE the join fold. Same
         ;; `:on-done` contract the single `:spawn` above uses — which is
@@ -298,13 +311,15 @@
        {:id         :flags
         :machine-id :boot/loader
         :data       (fn boot-flags-data [{snap :snapshot}]
-                      {:url (str (-> snap :data :config :api-base) "/flags.json")})
+                      {:url    (str (-> snap :data :config :api-base) "/flags.json")
+                       :decode schema/Flags})
         :on-done    (fn boot-flags-done [{:keys [data result]}]
                       (assoc data :flags result))}
        {:id         :user
         :machine-id :boot/loader
         :data       (fn boot-user-data [{snap :snapshot}]
-                      {:url (str (-> snap :data :config :api-base) "/user.json")})
+                      {:url    (str (-> snap :data :config :api-base) "/user.json")
+                       :decode schema/User})
         :on-done    (fn boot-user-done [{:keys [data result]}]
                       (assoc data :user result))}]
       :join             :all

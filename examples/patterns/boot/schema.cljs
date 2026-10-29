@@ -108,8 +108,8 @@
 ;; parent's `:on-done` folds it. It attaches through the child's
 ;; `[:schemas :data]` slot on `(reg-machine :boot/loader ...)` in `boot.cljs`,
 ;; describing `:data` only and checking each spawned instance at spawn time.
-;; At spawn the parent plants the URL and nothing else, so the result fields
-;; below are optional — they show up later, as the loader works through
+;; At spawn the parent plants the URL and the decode schema and nothing else,
+;; so the result fields below are optional — they show up later, as the loader works through
 ;; `:loading` into `:done` / `:failed`.
 
 (def LoaderData
@@ -119,6 +119,9 @@
    ;; know: the spawn `:id` tells the parent apart, and the `:self-id` its
    ;; callbacks receive is how the reply finds its way home.
    [:url         :string]
+   ;; Planted beside the URL: the Malli schema the reply decodes against, so
+   ;; a payload of the wrong shape fails the fetch rather than the boot.
+   [:decode      :any]
    ;; Written only once the fetch replies — the `:asset/replied` action sets
    ;; one of :payload / :error. Nothing at spawn, hence optional.
    [:payload     {:optional true} :any]
