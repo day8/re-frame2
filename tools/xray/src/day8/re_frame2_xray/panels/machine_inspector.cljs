@@ -412,10 +412,10 @@
      [:div {:data-testid "rf-xray-machine-event-handler-mini-pipeline"
             :data-machine-id (str machine-id)
             :style {:padding "10px 14px"}}
-      ;; `machine-id` IS the `:event` handler id `handler-meta` resolves
-      ;; (a machine is registered as an `:event` handler carrying its spec
-      ;; under `:rf/machine`), so the cascade rows' guard / action
-      ;; source-coords resolve identically to the Epoch panel.
+      ;; Each cascade row's guard / action source resolves through the
+      ;; row's own `:machine-type`, so a spawned actor's rows reach its
+      ;; type's registration exactly as on the Epoch panel. `machine-id`
+      ;; is the fallback for a row naming no type.
       (epoch-view/machine-cascade-mini-pipeline cascade machine-id instance)]
      ;; ── ELEMENT 3 — the topology chart ─────────────────────────────
      ;; The chart carries its OWN toolbar (zoom / pan / fit controls —
@@ -1163,7 +1163,9 @@
          ;; renders — the SAME `machine-cascade-rows` projection the
          ;; Epoch panel's HANDLER row uses (`projection/handler-row`),
          ;; so the two surfaces are byte-for-byte identical.
-         :cascade (epoch-proj/machine-cascade-rows (or events []))})))
+         :cascade (epoch-proj/machine-cascade-rows
+                    (or events [])
+                    (epoch-proj/machine-actor-types record))})))
 
   ;; Test-only seeding events for the focused-event composite
   ;; (`:rf.xray/set-epoch-history-for-test`, `:rf.xray/set-focus-epoch-
