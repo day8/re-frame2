@@ -972,8 +972,8 @@
 ;; Restore must not revive host work. It installs the captured
 ;; durable frame-state WHOLESALE, but the ASYNC HOST WORK the unwound epochs
 ;; spawned — machine `:after` host-clock timers (re-frame.machines.timer's
-;; frame-scoped handle table) and non-resource managed-HTTP AbortControllers /
-;; in-flight handles (re-frame.http.registry) — is NOT frame-state, so the
+;; frame-scoped handle table) and managed-HTTP AbortControllers / in-flight
+;; handles (re-frame.http.registry) — is NOT frame-state, so the
 ;; wholesale install does not touch it. It stays attached to the pre-restore
 ;; timeline. Restore must QUIESCE it for the restored frame: cancel/clear the
 ;; orphaned host handles so a late pre-restore completion is stale-suppressed and
@@ -992,9 +992,10 @@
 ;;                                          stale-drops a fired timer; this
 ;;                                          eagerly releases the orphaned host
 ;;                                          handle so it never fires at all).
-;;   :http/abort-in-flight-for-frame!    — abort every non-resource managed HTTP
-;;                                          request in flight for the frame,
-;;                                          suppressing the app reply (no
+;;   :http/abort-in-flight-for-frame!    — abort every managed HTTP request the
+;;                                          frame has in flight, resource-owned
+;;                                          ones included, suppressing the app
+;;                                          reply (no
 ;;                                          delivery to the original
 ;;                                          `:rf/reply-to`) and emitting the
 ;;                                          EP-0011 stale-suppression facts.
