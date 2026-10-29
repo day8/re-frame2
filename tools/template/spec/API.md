@@ -139,7 +139,7 @@ Next steps:
   cd my-app
   npm install
   npx shadow-cljs watch app
-Then open http://localhost:8280, and http://localhost:8280/#/stories for Story
+Then open http://localhost:8280, and http://localhost:8280/#/stories for Story (reload a tab you add #/stories to)
 Until day8/re-frame2 is published, point its coordinates in deps.edn at a checkout with :local/root before the first watch.
 ```
 

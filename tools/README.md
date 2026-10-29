@@ -105,13 +105,14 @@ would notice.
   tooling-projection coverage at
   `xray/test/.../panels/reply_envelope_cljs_test.cljc` — runs on the JVM
   (rf2-f2tkbt).
-- **CLJS builds.** Every tool with a CLJS surface owns a
-  `shadow-cljs.edn` beside its `deps.edn`, and those are the configs the
-  npm scripts and CI jobs invoke: `re-frame2-pair-mcp/` (`server`,
+- **CLJS builds.** A tool whose CLJS lane runs on its own classpath owns
+  a `shadow-cljs.edn` beside its `deps.edn`, and those are the configs
+  the npm scripts and CI jobs invoke: `re-frame2-pair-mcp/` (`server`,
   `server-test`, `descriptor-gen`), `mcp-base/` (`cljs-test`) and
-  `machines-viz/` (`machines-viz-node-test`). `xray` has no shadow build
-  of its own — its CLJS tests run via `implementation/shadow-cljs.edn` —
-  and `template`'s `resources/` tree is placeholder-bearing and not valid
+  `machines-viz/` (`machines-viz-node-test`). `xray`, `story` and
+  `testbed-support` have no shadow build of their own — their CLJS
+  compiles and tests under `implementation/shadow-cljs.edn` — and
+  `template`'s `resources/` tree is placeholder-bearing and not valid
   ClojureScript, so it is kept off every CLJS classpath (see
   `tools/deps.edn` → "Why template is NOT in the base `:deps` map").
 

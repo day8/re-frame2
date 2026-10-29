@@ -384,7 +384,8 @@ Open <http://localhost:8280>. Edit `src/acme/my_app/views.cljs` and
 save: the page re-renders in place, keeping its state.
 
 Open <http://localhost:8280/#/stories> for Story, the component
-playground.
+playground. The page reads its hash once, at load, so reload after
+adding `#/stories` to an open tab.
 
 ## Test
 
