@@ -240,7 +240,11 @@ React commits. The shell therefore drives each variant's run through
 - **RESUME** (`runtime/resume-run!`) — run the auto-plays' play script +
   terminal assertions (phase 4) **exactly once per prepared
   generation**, then publish the unified result. The canvas post-commit
-  lifecycle is the primary resume caller; the selection-watcher and the
+  lifecycle is the primary resume caller, and it resumes one macrotask
+  after the commit: a lifecycle hook runs inside React's commit, where
+  the synchronous flush a DOM step settles through cannot commit, so a
+  script resumed there would read the DOM as it stood before its own
+  dispatches. The selection-watcher and the
   mount-time block also call it for the same generation. The generation
   guard collapses every such call to **one** execution.
 
