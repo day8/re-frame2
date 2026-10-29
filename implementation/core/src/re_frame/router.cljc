@@ -302,9 +302,9 @@
 
 (defn- validate-event!
   "Validate the dispatched event against the handler's `:schema` before its
-  chain runs (Spec 010 §Validation order on event processing). Returns truthy
-  to run the handler; falsy to skip it, after emitting
-  `:rf.error/schema-validation-failure` with `:where :event`.
+  declared cofx are delivered and its chain runs (Spec 010 §Validation order
+  on event processing). Returns truthy to run the handler; falsy to skip it,
+  after emitting `:rf.error/schema-validation-failure` with `:where :event`.
 
   Two arms at one site. Dev runs the late-bound `:schemas/validate-event!`,
   where a throwing validator passes. Production runs
@@ -329,13 +329,15 @@
   threads both partitions). Coeffects: `:db` (app-db only, not the whole
   frame), `:rf.db/runtime` by reference, `:rf.frame/id`, `:rf.cofx`, the
   resolved `:rf.cofx/mint-policy`, `:source` and `:trace-id` when present,
-  then the handler's declared cofx.
+  then the handler's declared cofx. A refused event (`event-ok?` false)
+  receives none, so no supplier or generator runs for a payload the event
+  schema has already refused (Spec 010 §Validation order on event processing).
 
   `:rf/framework-authority?` is a context flag, not a coeffect. The commit
   site reads it to decide whether a `:rf.db/runtime` effect earns the
   `:rf.warning/app-handler-runtime-effect` dev warning; it is not a
   capability gate (Spec 002 §Write authority is by convention)."
-  [envelope frame frame-record handler-meta fx-overrides]
+  [envelope frame frame-record handler-meta fx-overrides event-ok?]
   (let [event       (:event envelope)
         ;; One coherent state value for both partitions.
         frame-state (rf.frame/frame-record-state-value frame-record)
@@ -361,7 +363,7 @@
         ;; delivery — `:rf.cofx/requires`). A throwing supplier or generator
         ;; sets `:rf/skip-handler?` rather than throw out of assembly.
         {:keys [coeffects rf/skip-handler?] :as delivered}
-        (if (seq requires)
+        (if (and event-ok? (seq requires))
           (rf.cofx/deliver-declared-cofx
             base-cofx requires (:rf.cofx envelope) (first event) frame
             mint-policy)
@@ -823,8 +825,9 @@
   prepended to the handler's chain, `:interceptor-overrides` applied to the
   authored references, the survivors resolved once, and the flows
   interceptor at the head. Hot path: the override-free case reuses the
-  handler's own chain."
-  [envelope frame frame-record handler-meta]
+  handler's own chain. `event-ok?` is the event-schema verdict, which
+  decides whether context assembly delivers the declared cofx."
+  [envelope frame frame-record handler-meta event-ok?]
   (let [{:keys [extra-interceptors fx-overrides icpt-overrides]}
         (apply-overrides envelope frame-record)
         prepended-chain (if (seq extra-interceptors)
@@ -845,7 +848,8 @@
         ;; §Drain integration).
         full-chain      (into [flows-after-interceptor] base-chain)
         initial-ctx     (assemble-initial-ctx
-                          envelope frame frame-record handler-meta fx-overrides)]
+                          envelope frame frame-record handler-meta fx-overrides
+                          event-ok?)]
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
      :fx-overrides fx-overrides
@@ -857,7 +861,8 @@
   "Run `full-chain` inside a performance bracket (Spec 009 §Performance
   instrumentation). A failed event validation sets `:rf/skip-handler?` rather
   than skipping the chain, so entered interceptors still run their `:after`
-  (Spec 002 §Interceptor chain execution). A refused boundary-guarded handler
+  (Spec 002 §Interceptor chain execution); `commit-and-flow!` installs none of
+  what that unwind stages. A refused boundary-guarded handler
   is also marked `:rf/boundary-rejected?`, as production would mark it; an
   unguarded dev-only `:schema` refusal is not, since production has no such
   signal (Spec 010 §Production builds)."
@@ -913,7 +918,9 @@
   settle the flows over whatever the walk wrote (Spec 002 §Drain-loop
   pseudocode). Returns the outcome for the always-on event-emit record:
 
-    :ok          committed, `:fx` walked
+    :ok          committed, `:fx` walked; or an unguarded handler's dev-only
+                 `:schema` refusal, which production has no signal for
+                 (Spec 010 §Production builds)
     :error       the chain threw, a coeffect supplier or generator threw, or
                  the effect map was malformed
     :flow-error  a flow threw (Spec 013 §Failure semantics)
@@ -922,11 +929,14 @@
     :rejected    a `:boundary? true` handler refused the payload; production
                  too
 
-  Every non-`:ok` outcome installs nothing, publishes nothing and skips `:fx`,
-  at no cost because the install is one deferred write. An `:fx` throw does
-  not wind back app-db. `:rejected` has the lowest priority, so a chain throw,
-  flow throw or rollback during the unwind still wins."
-  [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
+  Only a committed `:ok` installs anything, publishes the flow memo or walks
+  `:fx`, at no cost because the install is one deferred write. A refused event
+  (`event-ok?` false) installs nothing its interceptors staged while the chain
+  unwound, because the payload never reaches app-db (Spec 010 §Per-step
+  recovery). An `:fx` throw does not wind back app-db. A chain throw, flow
+  throw or malformed effect map during a refusal's unwind still reports, ahead
+  of `:rejected`."
+  [final-ctx event-ok? event-id event frame frame-record fx-overrides envelope start-ms]
   (let [error        (:rf/interceptor-error final-ctx)
         flow-error   (:rf/flow-error final-ctx)
         ;; Verbatim: `commit-fx-effects` does not clean it, so a foreign key or
@@ -958,6 +968,9 @@
       (:rf/cofx-failed? final-ctx)
       :error
 
+      (not event-ok?)
+      (if (:rf/boundary-rejected? final-ctx) :rejected :ok)
+
       (not (commit-frame-effects!
              effects event-id event frame final-ctx))
       :rolled-back
@@ -969,7 +982,7 @@
           (run-fx-effects! effects frame frame-record fx-overrides envelope)
           (settle-flows-after-walk!
             state-before-walk event-id event frame start-ms))
-        (if (:rf/boundary-rejected? final-ctx) :rejected :ok)))))
+        :ok))))
 
 ;; ---- the boundary-rejection always-on record ------------------------------
 ;;
@@ -1055,15 +1068,22 @@
   scope, so every trace inside the cascade names the triggering handler
   (Spec 009 §Handler-scope: the in-scope reading at emit time). The dequeued
   envelope rides the event-owner binding, so framework code in a handler body
-  can queue children that inherit run propagation."
+  can queue children that inherit run propagation.
+
+  The event-vector check runs first, before context assembly delivers the
+  declared cofx (Spec 010 §Validation order on event processing): a refused
+  payload runs no supplier or generator, and no cofx error masks its refusal."
   [envelope event-id event frame frame-record handler-meta]
   (rf.frame/call-with-event-owner-token
     frame
     (:drain-lock frame-record)
     envelope
     (fn []
-      (let [{:keys [full-chain initial-ctx fx-overrides override-summary]}
-            (prepare-handler-ctx envelope frame frame-record handler-meta)
+      (let [scope     (rf.trace/handler-scope-from-meta :event event-id handler-meta)
+            event-ok? (rf.trace/with-handler-scope scope
+                        (validate-event! event-id event handler-meta frame))
+            {:keys [full-chain initial-ctx fx-overrides override-summary]}
+            (prepare-handler-ctx envelope frame frame-record handler-meta event-ok?)
             ;; Marks a machine handler's children `:source :machine-action`
             ;; (Spec 009 §Dispatch source as the functional-origin axis). Trace
             ;; provenance only: never copied to a child and never read by
@@ -1071,8 +1091,7 @@
             envelope (cond-> envelope
                        (:rf/machine? handler-meta)
                        (assoc ::rf.fx/machine-emitter? true))]
-        (rf.trace/with-handler-scope
-          (rf.trace/handler-scope-from-meta :event event-id handler-meta)
+        (rf.trace/with-handler-scope scope
           (let [start-ms           (rf.interop/now-ms)
                 ;; The post-delivery `:rf.cofx`, generated facts included. The
                 ;; epoch record pins it so a strict replay re-presents exactly
@@ -1105,13 +1124,12 @@
                                                      (assoc :rf.event/fx-overrides override-fx)
                                                      (some? override-icpt)
                                                      (assoc :rf.event/interceptor-overrides override-icpt)))
-                event-ok?          (validate-event! event-id event handler-meta frame)
                 final-ctx          (run-chain event-id full-chain initial-ctx event-ok?
                                               handler-meta)
                 ;; The chain alone, before commit and the `:fx` walk. Dev-only.
                 handler-elapsed-ms (when rf.interop/debug-enabled?
                                      (- (rf.interop/now-ms) start-ms))
-                outcome            (commit-and-flow! final-ctx event-id event frame
+                outcome            (commit-and-flow! final-ctx event-ok? event-id event frame
                                                      frame-record fx-overrides envelope start-ms)]
             ;; The cause leads the trailers, which carry only its consequence.
             ;; Keyed on the rejection fact rather than the outcome, so a refusal
