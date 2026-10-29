@@ -9,8 +9,8 @@
 
   ## What it does (per `API.md` §Read-only viewer)
 
-  1. On load, read `location.hash`, strip `#machine=`, base64url-decode,
-     transit-read, and validate the envelope
+  1. On load, and on every `hashchange`, read `location.hash`, strip
+     `#machine=`, base64url-decode, transit-read, and validate the envelope
      (`share/decode-share-url-safe`).
   2. Validation failure → a banner: 'This share-URL is malformed or was
      produced by a newer Machines-Viz.' No chart renders.
@@ -168,11 +168,15 @@
 
 (defn ^:export run
   "Viewer entry. Decodes the current location and mounts the viewer into
-  `#app` through a `reagent.dom.client` root. No framework boot — see the
-  ns docstring §Build."
+  `#app` through a `reagent.dom.client` root, then re-renders it on every
+  `hashchange`: pasting another share-URL into an open viewer tab is a
+  same-document fragment navigation, which reloads nothing. No framework
+  boot — see the ns docstring §Build."
   []
   (let [el (.getElementById js/document "app")]
     (when el
       (when (nil? @app-root)
-        (reset! app-root (rdc/create-root el)))
+        (reset! app-root (rdc/create-root el))
+        ;; Through a fn, so a hot-reloaded `run` is the one that fires.
+        (.addEventListener js/window "hashchange" (fn [_] (run))))
       (rdc/render @app-root [viewer-view (decode-location (current-href))]))))

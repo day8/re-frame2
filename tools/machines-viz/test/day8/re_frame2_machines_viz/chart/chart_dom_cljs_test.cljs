@@ -290,6 +290,23 @@
     (fn [node]
       (is (some? (.querySelector node "[data-testid=\"rf-mv-chart-no-definition\"]"))))))
 
+(deftest chart-placeholders-paint-the-theme-palette
+  (testing "the no-definition and invalid-definition placeholders each paint
+            the `:theme` palette, not the dark alias"
+    (doseq [[definition suffix] [[nil "no-definition"]
+                                 [{:initial "idle" :states {:idle {}}} "invalid-definition"]]
+            theme [:light :dark]
+            :let [palette (tokens/theme-palette theme)]]
+      (with-mounted-element
+        (react-chart/chart-element {:machine-id :test/flow :definition definition :theme theme})
+        (fn [node]
+          (let [el (.querySelector node (str "[data-testid=\"rf-mv-chart-" suffix "\"]"))]
+            (is (some? el) suffix)
+            (when el
+              (is (= (mapv normalize-color [(:bg-2 palette) (:text-tertiary palette)])
+                     (mapv normalize-color [(.. el -style -backgroundColor) (.. el -style -color)]))
+                  (str suffix " " theme)))))))))
+
 ;; ---- state nodes ----------------------------------------------------------
 
 (deftest chart-error-final-rings-distinct-from-success
@@ -520,7 +537,7 @@
       (with-mounted-chart
         {:machine-id     :test/compound
          :definition     compound-machine
-         :on-state-click (fn [path] (swap! clicks conj (js->clj path)))}
+         :on-state-click (fn [path] (swap! clicks conj path))}
         (fn [_root node]
           (let [by-testid #(.querySelector node (str "[data-testid=\"rf-mv-chart-" % "\"]"))
                 authed    (layout/node-id [:authenticated])
@@ -535,4 +552,29 @@
                     (.. unauth-el -style -cursor)]))
             (doseq [el [title-el unauth-el nested-el]]
               (dispatch-click! el))
-            (is (= [["authenticated"] ["unauth"] ["authenticated" "browsing"]] @clicks))))))))
+            (is (= [[:authenticated] [:unauth] [:authenticated :browsing]] @clicks))))))))
+
+;; ---- :on-edge-click -------------------------------------------------------
+
+(deftest chart-event-node-click-hands-the-host-keywords
+  (testing "a real click on an event-node reaches a handler that, like Xray's
+            simulator, acts only on a keyword `eventId`, and carries the
+            namespaced event and keyword-vector paths"
+    (let [sent  (atom [])
+          ev-id (projection/event-node-id
+                  (some #(when (= :door/open (:event %)) %)
+                        (:edges (layout/project-definition guarded-door-machine))))]
+      (with-mounted-chart
+        {:machine-id    :test/door
+         :definition    guarded-door-machine
+         :on-edge-click (fn [payload]
+                          (let [event-id (unchecked-get payload "eventId")]
+                            (when (keyword? event-id)
+                              (swap! sent conj [event-id
+                                                (unchecked-get payload "fromPath")
+                                                (unchecked-get payload "toPath")]))))}
+        (fn [_root node]
+          (let [el (.querySelector node (str "[data-testid=\"rf-mv-chart-event-" ev-id "\"]"))]
+            (is (some? el) "the event-node rendered")
+            (when el (dispatch-click! el))
+            (is (= [[:door/open [:closed] [:open]]] @sent))))))))

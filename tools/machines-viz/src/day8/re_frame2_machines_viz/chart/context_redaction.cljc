@@ -93,9 +93,12 @@
      :large     (band-keys (:large definition))}))
 
 (defn- classifies?
-  "Does the classification key set `ks` cover band key `k`?"
+  "Does the classification `ks` cover band key `k`? `ks` is any collection of
+  keys (a set, vector or list), coerced to a set: `contains?` on a vector tests
+  its INDICES and throws on a list, so a host's `[:token]` would redact nothing."
   [ks k]
-  (or (contains? ks k) (contains? ks whole-data)))
+  (let [ks (set ks)]
+    (or (contains? ks k) (contains? ks whole-data))))
 
 ;; ---------------------------------------------------------------------------
 ;; Large-value heuristic

@@ -149,6 +149,13 @@
 (defn- event-node-for [graph parsed-edge-id]
   (node-by-id graph (projection/event-node-id {:id parsed-edge-id})))
 
+(defn- payload-field
+  "Field `k` of an `:on-edge-click` payload: a JS object in CLJS, a map on
+  the JVM."
+  [payload k]
+  #?(:cljs (unchecked-get payload (name k))
+     :clj  (get payload k)))
+
 (defn- inbound-edge-for [graph parsed-edge-id]
   (edge-by-id graph (str parsed-edge-id "__in")))
 
@@ -187,8 +194,9 @@
 
 (deftest xyflow-graph-threads-on-click-to-leaf-and-compound-only
   ;; Synthetic chips, region containers and history markers are not states a
-  ;; click can select.
-  (let [cb (fn [_path] :clicked)]
+  ;; click can select. A clickable node's `:onClick` is a thunk handing the
+  ;; host the node's own keyword path.
+  (let [cb (fn [path] [:clicked path])]
     (doseq [[machine pick clickable?]
             [[compound-machine         #(= [:unauth] (:path %))        true]
              [compound-machine         #(= [:authenticated] (:path %)) true]
@@ -198,7 +206,7 @@
              [shallow-history-machine  :history?                       false]]
             :let [data (:data (projected-node machine pick {:on-state-click cb}))]]
       (if clickable?
-        (is (= cb (:onClick data)))
+        (is (= [:clicked (:path data)] ((:onClick data))))
         (is (not (contains? data :onClick)))))))
 
 (deftest xyflow-graph-history-marker-carries-deep-flag
@@ -449,11 +457,15 @@
     (is (= expected (select-keys data (keys expected))))))
 
 (deftest xyflow-graph-threads-on-edge-click-onto-every-event-node
-  (let [cb       (fn [_])
-        graph    (projection/xyflow-graph (layout/project-definition idle-loading) {} {:on-edge-click cb})
-        ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
+  (let [graph    (projection/xyflow-graph (layout/project-definition idle-loading)
+                                          {} {:on-edge-click identity})
+        ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
+        start    (some #(when (= :start (:eventId (:data %))) %) ev-nodes)]
     (is (seq ev-nodes))
-    (is (every? #(= cb (:onClick (:data %))) ev-nodes))))
+    (is (every? #(fn? (:onClick (:data %))) ev-nodes))
+    (is (= [:start [:idle] [:loading]]
+           (mapv #(payload-field ((:onClick (:data start))) %) [:eventId :fromPath :toPath]))
+        "the thunk hands the host the event keyword and keyword-vector paths")))
 
 (deftest xyflow-graph-reenter-event-node-carries-reenter-data
   ;; `:reenter? true` restarts the state; the renderer marks it ↻.

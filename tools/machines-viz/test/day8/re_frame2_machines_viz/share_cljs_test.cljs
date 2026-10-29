@@ -414,8 +414,8 @@
    true                                            12})
 
 (def ^:private forged-payloads
-  "One payload per `value-free-summary` leg a forged `#machine=` fragment can
-  reach through transit."
+  "One payload per `re-frame.error/diag-value-summary` leg a forged
+  `#machine=` fragment can reach through transit."
   [["a map keyed by sentinels of every key type" hostile-keys]
    ["a keyword with no length bound"             (keyword (apply str (repeat 20 sentinel)))]
    ["a symbol"                                   (symbol sentinel)]

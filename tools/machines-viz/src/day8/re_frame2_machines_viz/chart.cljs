@@ -791,6 +791,23 @@
 
 ;; ---- MachineChart Reagent component -------------------------------------
 
+(defn- placeholder
+  "What the chart renders when it has nothing to draw (no definition, a
+  rejected definition, no states): `text` in a dashed box painted from the
+  `:theme` palette. `attrs` carries the testid, machine id and aria label."
+  [theme attrs text]
+  (let [palette (tokens/theme-palette theme)]
+    [:div (assoc attrs
+                 :role  "img"
+                 :style {:padding       "16px"
+                         :font-family   tokens/sans-stack
+                         :font-size     "12px"
+                         :color         (:text-tertiary palette)
+                         :background    (:bg-2 palette)
+                         :border        (str "1px dashed " (:border-default palette))
+                         :border-radius "6px"})
+     text]))
+
 (defn MachineChart
   "Render a state-machine definition as an interactive xyflow chart.
 
@@ -1426,20 +1443,13 @@
         (maybe-fit-on-signal!)
         (cond
           (nil? definition)
-          [:div {:data-testid (str testid "-no-definition")
-                 :data-machine-id (str machine-id)
-                 :role "img"
-                 :aria-label (str "State machine"
-                                  (when machine-id (str ": " (name machine-id)))
-                                  " has no definition.")
-                 :style {:padding     "16px"
-                         :font-family tokens/sans-stack
-                         :font-size   "12px"
-                         :color       (:text-tertiary tokens/tokens)
-                         :background  (:bg-2 tokens/tokens)
-                         :border      (str "1px dashed " (:border-default tokens/tokens))
-                         :border-radius "6px"}}
-           "Machine definition is not introspectable — no topology to render."]
+          (placeholder theme
+                       {:data-testid     (str testid "-no-definition")
+                        :data-machine-id (str machine-id)
+                        :aria-label      (str "State machine"
+                                              (when machine-id (str ": " (name machine-id)))
+                                              " has no definition.")}
+                       "Machine definition is not introspectable — no topology to render.")
 
           ;; A structurally-invalid definition is REJECTED by
           ;; the recursive grammar gate (`chart.layout/project-definition`)
@@ -1458,42 +1468,31 @@
           ;; is the part a reader acts on.
           (:definition-error parsed)
           (let [{:keys [defect]} (:definition-error parsed)]
-            [:div {:data-testid         (str testid "-invalid-definition")
-                   :data-machine-id     (str machine-id)
-                   :data-invalid-definition (str (:category defect))
-                   :role                "img"
-                   :aria-label          (str "State machine"
-                                             (when machine-id (str ": " (name machine-id)))
-                                             " has an invalid definition"
-                                             (when (:category defect)
-                                               (str " (" (name (:category defect)) ")"))
-                                             ".")
-                   :style {:padding       "16px"
-                           :font-family   tokens/sans-stack
-                           :font-size     "12px"
-                           :color         (:text-tertiary tokens/tokens)
-                           :background    (:bg-2 tokens/tokens)
-                           :border        (str "1px dashed " (:border-default tokens/tokens))
-                           :border-radius "6px"}}
-             (str "Machine definition is structurally invalid"
-                  (when (:category defect)
-                    (str " — " (name (:category defect))))
-                  (when (pos? (or (:depth defect) 0))
-                    (str " at depth " (:depth defect)))
-                  " — nothing to render.")])
+            (placeholder theme
+                         {:data-testid             (str testid "-invalid-definition")
+                          :data-machine-id         (str machine-id)
+                          :data-invalid-definition (str (:category defect))
+                          :aria-label              (str "State machine"
+                                                        (when machine-id (str ": " (name machine-id)))
+                                                        " has an invalid definition"
+                                                        (when (:category defect)
+                                                          (str " (" (name (:category defect)) ")"))
+                                                        ".")}
+                         (str "Machine definition is structurally invalid"
+                              (when (:category defect)
+                                (str " — " (name (:category defect))))
+                              (when (pos? (or (:depth defect) 0))
+                                (str " at depth " (:depth defect)))
+                              " — nothing to render.")))
 
           (empty? (:nodes parsed))
-          [:div {:data-testid (str testid "-empty")
-                 :data-machine-id (str machine-id)
-                 :role "img"
-                 :aria-label (str "State machine"
-                                  (when machine-id (str ": " (name machine-id)))
-                                  " has no states.")
-                 :style {:padding     "16px"
-                         :font-family tokens/sans-stack
-                         :font-size   "12px"
-                         :color       (:text-tertiary tokens/tokens)}}
-           "Machine has no states to render."]
+          (placeholder theme
+                       {:data-testid     (str testid "-empty")
+                        :data-machine-id (str machine-id)
+                        :aria-label      (str "State machine"
+                                              (when machine-id (str ": " (name machine-id)))
+                                              " has no states.")}
+                       "Machine has no states to render.")
 
           :else
           ;; Resolve the `:density` prop ONCE per render to its visual-

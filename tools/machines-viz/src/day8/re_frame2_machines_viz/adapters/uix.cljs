@@ -6,8 +6,8 @@
   `MachineChart` is a Reagent component. Through this shell a UIx host
   renders the
   SAME xyflow chart through the shared React bridge
-  (`adapters.react-chart`), which reactifies the Reagent component to a
-  plain React class. There is no fork of the chart — only this thin,
+  (`adapters.react-chart`), which turns the Reagent component into a
+  plain React element. There is no fork of the chart — only this thin,
   UIx-idiomatic surface.
 
   ## Surface
@@ -37,7 +37,7 @@
   "UIx component wrapping the xyflow `MachineChart` via the shared
   React bridge. `props` is a CLJS map matching the Reagent
   `MachineChart` contract; forwarded to `react-chart/chart-element`
-  which builds the reactified-Reagent React element. Renders the
+  which builds the React element. Renders the
   identical chart a Reagent host renders."
   [props]
   ;; `defui` already hands us a CLJS map; `:children` (if any) is

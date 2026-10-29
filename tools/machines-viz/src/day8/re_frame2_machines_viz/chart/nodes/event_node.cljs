@@ -158,10 +158,12 @@
                      border + an EMPHASISED pink `IF <guard>` chip so the
                      node reads as the guard that rejected it. Wins over
                      fired/focused on this node.
-    :clickable     — host wired an on-click for this event (the
-                     on-chart sim path).
-    :eventId       — raw fireable event keyword the host receives on
-                     click; nil for `:after` / `:always` (inert).
+    :onClick       — the projector's thunk firing the host's
+                     `:on-edge-click` with the keyword payload (the
+                     on-chart sim path); nil when no host wired one.
+    :eventId       — the fireable event's name, painted as
+                     `data-event-id`; nil for `:after` / `:always`, which
+                     stay inert.
     :machineLevel  — top-level :on fallback transition every state
                      inherits.
     :internal      — internal self-transition (no :target). Visual
@@ -276,10 +278,10 @@
              :on-click (when clickable?
                          (fn [ev]
                            (.stopPropagation ev)
-                           (on-click
-                             #js {:eventId  event-id
-                                  :fromPath from-path
-                                  :toPath   to-path})))
+                           ;; The projector's thunk hands the host the
+                           ;; keyword payload; `event-id` here is the
+                           ;; `clj->js`-ed name, fit only for attributes.
+                           (on-click)))
              :style {:position       "relative"
                      :display        "inline-flex"
                      :flex-direction "column"

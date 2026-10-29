@@ -4,7 +4,7 @@
   machines-viz hand-mirrors the engine's machine-definition grammar — target
   normalisation and resolution, the `:timeout` / `:choice` desugars, and the
   recursive definition validator — because its source is bundle-isolated from
-  the runtime `machines` artefact and `grammar.cljc` requires nothing. Each
+  the runtime `machines` artefact and `grammar.cljc` requires nothing from it. Each
   test feeds representative definitions through BOTH the viz copy and the
   engine and asserts the same output. A failure means the viz drifted from the
   engine: re-sync the copy, do not delete the test.

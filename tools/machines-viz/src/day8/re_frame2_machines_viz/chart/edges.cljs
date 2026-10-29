@@ -360,15 +360,14 @@
         ;; and-rejected edge stands out.
         blocked?   (boolean (.-guardBlocked d))
         after-ms   (.-afterMs d)
-        ;; On-chart click wiring. `:onClick` is the host callback (e.g.
-        ;; Xray's on-chart sim → sim-step); `:eventId`
-        ;; is the raw fireable event keyword (nil for `:after` / `:always`
-        ;; auto edges). A label is clickable only when BOTH a callback +
-        ;; a fireable event-id are present, so auto edges stay inert.
+        ;; On-chart click wiring. `:onClick` is the projector's thunk
+        ;; around the host callback (e.g. Xray's on-chart sim → sim-step);
+        ;; `:eventId` is the fireable event's name (nil for `:after` /
+        ;; `:always` auto edges). A label is clickable only when BOTH a
+        ;; thunk + a fireable event-id are present, so auto edges stay
+        ;; inert.
         on-click   (.-onClick d)
         event-id   (.-eventId d)
-        from-path  (.-fromPath d)
-        to-path    (.-toPath d)
         clickable? (and (fn? on-click) (some? event-id))
         ;; Cross-hierarchy edge flag. When true + routed, `edge-path`
         ;; anchors the label near the source-side first bend point
@@ -521,10 +520,7 @@
                              ;; Stop the click bubbling to the xyflow
                              ;; pane (which would pan / clear selection).
                              (.stopPropagation ev)
-                             (on-click
-                               #js {:eventId  event-id
-                                    :fromPath from-path
-                                    :toPath   to-path})))
+                             (on-click)))
                :style {:position       "absolute"
                        :transform      (str "translate(-50%, -50%) translate("
                                             label-x "px," label-y "px)")

@@ -421,8 +421,7 @@
              :data-tag-count (count (or tags []))
              :title (or tags-attr (when on-click "Click for details"))
              :on-click (when on-click
-                         (fn [_ev]
-                           (on-click (js->clj path))))
+                         (fn [_ev] (on-click)))
              :style {:position         "relative"
                      :display          "flex"
                      :flex-direction   "column"
@@ -606,13 +605,13 @@
        ;; The title strip is the compound state's clickable
        ;; `:on-state-click` target. It re-enables pointer-events (the body
        ;; sets them to "none" for leaf pass-through), carries the cursor +
-       ;; title affordance, and fires `(on-click (js->clj path))` with the
-       ;; COMPOUND's own path — exactly mirroring the leaf state-node.
+       ;; title affordance, and fires the projector's `:onClick` thunk,
+       ;; which hands the host the COMPOUND's own path — exactly mirroring
+       ;; the leaf state-node.
        [:div {:data-testid (str "rf-mv-chart-compound-title-" (.-id props))
               :title (when on-click "Click for details")
               :on-click (when on-click
-                          (fn [_ev]
-                            (on-click (js->clj path))))
+                          (fn [_ev] (on-click)))
               :style {:position    "absolute"
                       :top         0
                       :left        0
