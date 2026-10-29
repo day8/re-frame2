@@ -81,19 +81,15 @@
                 :data-testid (str "shard-counter-" (name shard-id))}
          (str processed " / " total)]])]))
 
-(rf/reg-view ^{:doc "The status line — the parent machine's current :state,
-                  plus its recorded :outcome once it lands in a terminal
-                  state (the little badge at the end)."}
+(rf/reg-view ^{:doc "The status line — the parent machine's current :state.
+                  The terminal states name the ending themselves
+                  (:complete, :cancelled, :error), so there is nothing
+                  else to record."}
           status-line []
-  (let [state   @(subscribe [:work/flow-state])
-        outcome @(subscribe [:work/outcome])]
+  (let [state @(subscribe [:work/flow-state])]
     [:p {:data-testid "status-line"}
      [:strong "State: "]
-     [:span {:data-testid "state-value"} (when state (name state))]
-     (when outcome
-       [:span {:style {:margin-left "1em"}}
-        [:strong "Outcome: "]
-        [:span {:data-testid "outcome-value"} (name outcome)]])]))
+     [:span {:data-testid "state-value"} (when state (name state))]]))
 
 (rf/reg-view ^{:doc "The control panel. Three buttons, three events into
                   the parent machine:
@@ -110,8 +106,7 @@
                              :progress wiped clean."}
           controls []
   (let [running? @(subscribe [:work/running?])
-        state    @(subscribe [:work/flow-state])
-        idle?    (= state :idle)]
+        idle?    @(subscribe [:work/idle?])]
     [:div.controls
      {:style {:display "flex" :gap "8px" :margin "1em 0"}}
      [:button {:data-testid "start"

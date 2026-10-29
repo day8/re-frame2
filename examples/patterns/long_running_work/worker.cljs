@@ -45,12 +45,13 @@
    the headless test doesn't drag."
   100)
 
-(def default-tick-ms
-  "How long a child pauses between chunks in the live UI. The child's
-   `:yielding` state declares `:after {tick-ms :processing}`, handing
-   the browser a render tick before it grabs the next item. It's a
-   named const so headless tests can dial it down (or to zero) via the
-   child's `:data :tick-ms`, which the parent sets per child on spawn."
+(def tick-ms
+  "How long a child pauses between chunks. The child's `:yielding` state
+   declares `:after {tick-ms :processing}`, handing the browser a render
+   tick before it grabs the next item. A machine refuses a zero delay
+   (`:rf.error/machine-bad-after-delay`), so a pause it must take is a
+   positive one; the headless tests synthesise the children's completions
+   rather than wait it out."
   50)
 
 (def parent-id
@@ -113,12 +114,11 @@
 
    ;; The parent fills this in per child on spawn, from its invoke-spec
    ;; :data (see :work/flow below). :shard is the id the parent handed
-   ;; out (`:s1`/`:s2`/`:s3`); :total is the shard size; :tick-ms is the
-   ;; pause between chunks. The values here are just placeholders.
+   ;; out (`:s1`/`:s2`/`:s3`); :total is the shard size. The values here
+   ;; are just placeholders.
    :data    {:shard     nil
              :total     0
-             :processed 0
-             :tick-ms   default-tick-ms}
+             :processed 0}
 
    :guards
    {:done?
@@ -178,14 +178,8 @@
     ;; destroyed mid-wait, the cascade cancels that pending timer too:
     ;; a worker killed here will NOT wake up and carry on once the delay
     ;; runs out.
-    ;;
-    ;; :after is a (fn [ctx] ms) so it can read the child's own :tick-ms
-    ;; out of :data — handy for tests that want to stagger the delays or
-    ;; zero them out entirely.
     {:tags  #{:work/running :work/cancellable :work/yielding}
-     :after {(fn after-tick-ms [{snap :snapshot}]
-               (or (-> snap :data :tick-ms) default-tick-ms))
-             :processing}}
+     :after {tick-ms :processing}}
 
     :done
     ;; Journey's end, and the whole completion protocol: `:final? true`
@@ -243,8 +237,7 @@
 
    :data    {:total    items-per-shard
              :shards   shards
-             :progress (zipmap shards (repeat 0))
-             :outcome  nil}
+             :progress (zipmap shards (repeat 0))}
 
    ;; Guards the snapshot's :data. The snapshot lives in runtime-db, so
    ;; [:schemas :data] — not an app-schema — is what does the checking.
@@ -253,9 +246,7 @@
    :actions
    {:reset-progress
     (fn action-reset-progress [{:keys [data]}]
-      {:data (assoc data
-                    :progress (zipmap (:shards data) (repeat 0))
-                    :outcome  nil)})
+      {:data (assoc data :progress (zipmap (:shards data) (repeat 0)))})
 
     :record-progress
     ;; Filing a child's progress report. A child dispatched, say,
@@ -263,22 +254,7 @@
     ;; and we drop that count into the right slot, which nudges the
     ;; view's aggregate-progress sub to recompute.
     (fn action-record-progress [{data :data [_ shard-id processed _total] :event}]
-      {:data (assoc-in data [:progress shard-id] processed)})
-
-    :stamp-outcome
-    ;; Pin down how it all ended, on the way into a terminal state, so
-    ;; the UI can say "Complete" / "Cancelled" / "Failed" without a sub
-    ;; of its own. The event that brought us here names the ending
-    ;; (`:work/all-done` / `:cancel` / `:work/any-failed`) — we just
-    ;; translate it and record it.
-    (fn action-stamp-outcome [{data :data [event-kw & _] :event}]
-      {:data (assoc data :outcome
-                    (case event-kw
-                      :work/all-done    :complete
-                      :cancel           :cancelled
-                      :work/any-failed  :error
-                      ;; anything else: leave the outcome as it was
-                      (:outcome data)))})}
+      {:data (assoc-in data [:progress shard-id] processed)})}
 
    :states
    {:idle
@@ -305,11 +281,11 @@
     {:tags #{:flow/working}
      :spawn-all
      {:children [{:id :s1 :machine-id :work/processor
-                  :data {:shard :s1 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}
+                  :data {:shard :s1 :total items-per-shard :processed 0}}
                  {:id :s2 :machine-id :work/processor
-                  :data {:shard :s2 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}
+                  :data {:shard :s2 :total items-per-shard :processed 0}}
                  {:id :s3 :machine-id :work/processor
-                  :data {:shard :s3 :total items-per-shard :processed 0 :tick-ms default-tick-ms}}]
+                  :data {:shard :s3 :total items-per-shard :processed 0}}]
       ;; No child-vocabulary keys here: the parent never names an event
       ;; for a child to phone home with, because a child completes by
       ;; reaching a :final? state and the runtime counts those directly.
@@ -328,12 +304,12 @@
              ;; The join landing here. The runtime dispatches these the
              ;; moment :on-all-complete / :on-any-failed resolve, and
              ;; the parent treats them as plain old transitions.
-             :work/all-done   {:target :complete  :action :stamp-outcome}
-             :work/any-failed {:target :error     :action :stamp-outcome}
+             :work/all-done   {:target :complete}
+             :work/any-failed {:target :error}
              ;; The user pulling the plug. Leaving :working is the part
              ;; that matters: that exit fires a :rf.machine/destroy per
              ;; surviving child, taking every one of them with it.
-             :cancel          {:target :cancelled :action :stamp-outcome}}}
+             :cancel          {:target :cancelled}}}
 
     :complete
     {:tags #{:flow/complete :flow/terminal}
@@ -396,13 +372,13 @@
       (/ done total)
       0)))
 
-(rf/reg-sub :work/outcome
-  {:inputs [[:work/flow-data]]}
-  (fn [[data] _] (:outcome data)))
+(rf/reg-sub :work/idle?
+  {:inputs [[:rf.machine/has-tag? :work/flow :flow/idle]]}
+  (fn [[idle?] _] idle?))
 
 (rf/reg-sub :work/running?
-  {:inputs [[:work/flow-state]]}
-  (fn [[state] _] (= state :working)))
+  {:inputs [[:rf.machine/has-tag? :work/flow :flow/working]]}
+  (fn [[working?] _] working?))
 
 ;; ============================================================================
 ;; INITIALISATION
