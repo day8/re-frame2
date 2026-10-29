@@ -347,6 +347,39 @@
             (guard :authenticating :ws/auth-ok)
             (guard :authenticating :ws/auth-failed)]))))
 
+(deftest websocket-socket-actor-reports-opened-only-from-the-socket
+  ;; A real WebSocket throws on a write while it is still connecting, and the
+  ;; parent writes the auth frame the moment it hears :ws/opened. So opening
+  ;; the socket tells the parent nothing; the socket's own :opened does.
+  (let [m                     messages/socket-actor-machine
+        data                  {:url "ws://mock" :cred-ref :ws.demo/cred-a}
+        open-socket           (get-in m [:actions :open-socket])
+        {:keys [snapshot fx]} (rf.machines/machine-transition
+                                m {:state [:live :opening] :data data} [:opened {}])]
+    (is (= [:ws.socket/open]
+           (mapv first (:fx (open-socket {:data data :self-id "sock-1" :parent-id :ws/connection})))))
+    (is (= [[:live :open] [[:dispatch [nil [:ws/opened {:source-socket-id nil}]]]]]
+           [(:state snapshot) fx]))))
+
+(deftest websocket-handshake-steps-have-a-deadline
+  ;; A server can accept the socket and never finish opening it, or never
+  ;; answer the auth frame. Each handshake step's own deadline counts a retry
+  ;; and backs off, as a drop does.
+  (let [m       ws.connection/connection-machine
+        step    #(:snapshot (rf.machines/machine-transition m %1 %2))
+        elapse  #(step % [:rf.machine.timer/after-elapsed
+                          ws.connection/handshake-timeout-ms
+                          (get-in % [:rf/runtime :after-epoch (:state %)])
+                          (:state %)])
+        lands   (juxt :state #(get-in % [:data :retries]))
+        connect (-> (step {:state (:initial m) :data (:data m)}
+                          [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}])
+                    ;; The pure transition only describes the spawn; the runtime binds the id.
+                    (assoc-in [:rf/runtime :spawned [:active]] "sock-1"))
+        auth    (step connect [:ws/opened {:source-socket-id "sock-1"}])]
+    (is (= [[:active :connecting] [:active :authenticating]] (map :state [connect auth])))
+    (is (= [[[:reconnecting] 1] [[:reconnecting] 1]] (map (comp lands elapse) [connect auth])))))
+
 ;; ============================================================================
 ;; REQUEST / REPLY
 ;; ============================================================================

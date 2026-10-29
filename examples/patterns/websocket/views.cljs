@@ -35,11 +35,10 @@
                   failed > reconnecting > connected > connecting >
                   disconnected — decides which word wins.
 
-                  Next to it sits a plain `:ws-reconnect-attempts` counter
-                  showing `:retries` directly. That's there for the tests:
-                  the RECONNECTING window can flash by too fast for a test
-                  to catch in the pill, but the counter just sits there
-                  showing it happened."}
+                  Next to it sits a plain `ws-reconnect-attempts` counter
+                  showing `:retries` directly: the RECONNECTING window can
+                  flash by too fast to see in the pill, but the counter
+                  just sits there showing it happened."}
           status-pill []
   (let [connected?      @(subscribe [:ws/connected?])
         authenticating? @(subscribe [:ws/authenticating?])
@@ -59,9 +58,8 @@
      (when err
        [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])
      ;; This counter is always on screen, no matter what the pill is doing.
-     ;; A test leans on it: it advances after a Drop, proving the reconnect
-     ;; machinery ran even when the pipeline run resolves too fast for the pill
-     ;; to ever show RECONNECTING.
+     ;; It advances after a Drop, showing the reconnect machinery ran even
+     ;; when the pill never had time to show RECONNECTING.
      [:span.reconnect-attempts {:data-testid "ws-reconnect-attempts"}
       (str retries)]]))
 
@@ -76,10 +74,10 @@
                   itself home: RECONNECTING → CONNECTING → AUTHENTICATING →
                   CONNECTED, all on its own."}
           lifecycle-buttons []
-  (let [connected?    @(subscribe [:ws/connected?])
+  (let [active?       @(subscribe [:ws/active?])
+        connected?    @(subscribe [:ws/connected?])
         reconnecting? @(subscribe [:ws/reconnecting?])
         failed?       @(subscribe [:ws/failed?])
-        any-active?   (or connected? reconnecting?)
         ;; Drop calls a mock-server seam that ends up dispatching from
         ;; outside any render scope. So we grab this view's frame api now,
         ;; while we're rendering and a frame is in scope, and pass it along —
@@ -97,15 +95,17 @@
                                         [:ws/connect
                                          {:url      "ws://mock"
                                           :cred-ref :ws.demo/cred-a}]])
-               :disabled    any-active?}
+               :disabled    (or active? reconnecting?)}
       "Connect"]
      [:button {:data-testid "ws-drop"
                :on-click    #(websocket.messages/simulate-disconnect! handle)
                :disabled    (not connected?)}
       "Drop connection (transport error)"]
+     ;; Live in every state but :disconnected — the handshake included, so a
+     ;; server that never finishes it can always be walked away from.
      [:button {:data-testid "ws-disconnect"
                :on-click    #(dispatch [:ws/connection [:ws/disconnect]])
-               :disabled    (and (not connected?) (not reconnecting?) (not failed?))}
+               :disabled    (not (or active? reconnecting? failed?))}
       "Disconnect (clean)"]]))
 
 ;; ============================================================================

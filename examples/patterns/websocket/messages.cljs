@@ -25,9 +25,11 @@
       without ever yielding to the JS event loop.
 
    The two halves are kept apart on purpose. Swap the pretend server for a
-   real `(js/WebSocket. url)` and the actor machine doesn't even notice.
-   The shape stays put no matter the transport: the machine owns the actor,
-   the actor owns the host-side handle.
+   real `(js/WebSocket. url)` — its `onopen`, `onmessage` and `onclose`
+   delivering the actor's `:opened`, `:received` and `:closed` — and the
+   actor machine doesn't even notice. The shape stays put no matter the
+   transport: the machine owns the actor, the actor owns the host-side
+   handle.
 
    Two trust boundaries also live here, because this is the host seam:
    `resolve-credential` exchanges the machine's opaque `:cred-ref` for the
@@ -142,8 +144,15 @@
   (str "mock-socket-" (random-uuid)))
 
 (defn- deliver-to-actor!
-  "Hand an inbound transport event to the spawned actor, which will turn it
-   into a parent-bound `[:ws/connection [:ws/<kind> ...]]` dispatch.
+  "Hand an inbound transport event — `:opened`, `:received` or `:closed`,
+   the three a real socket's `onopen`, `onmessage` and `onclose` deliver —
+   to the spawned actor, which turns it into a parent-bound
+   `[:ws/connection [:ws/<kind> ...]]` dispatch.
+
+   Only while the socket is open. Closing a real socket starts by
+   detaching its handlers, so nothing it had in flight reaches an actor
+   that is being torn down; the `open?` check is the mock's version of
+   that, and it drops a reply `later` scheduled before the close.
 
    There's a subtlety in async mode: this runs from a detached
    `setTimeout` callback, which has no ambient frame, so a bare
@@ -151,8 +160,8 @@
    capture the frame's `dispatch` back where a frame *was* in scope and
    thread it in here — a captured `dispatch` carries its frame across the
    async gap. See docs/core/glossary.md#capture-frame."
-  [dispatch actor-id kind payload]
-  (when actor-id
+  [dispatch actor-id open? kind payload]
+  (when (and actor-id @open?)
     (dispatch [actor-id [kind payload]])))
 
 (defn- mock-encode-auth-reply [token]
@@ -165,9 +174,11 @@
 
 (defn mock-socket-for-actor
   "Open a fresh mock socket bound to this actor's id, and return its handle.
-   The handle's `:send` fn fields every outbound message the actor makes;
-   the mock knows how to answer two of them — `:auth` (→ `:auth-ok`) and
-   `:request` (→ a correlated `:type :reply` echo).
+   Like a real `WebSocket`, it is not open the moment it exists: it reports
+   `:opened` a tick later (`later`), and the actor tells the parent only
+   then. The handle's `:send` fn fields every outbound message the actor
+   makes; the mock knows how to answer two of them — `:auth` (→ `:auth-ok`)
+   and `:request` (→ a correlated `:type :reply` echo).
 
    This is also where the opaque `:cred-ref` becomes a real credential —
    inside the `:auth` branch of `:send` below, not out here. The handle
@@ -183,10 +194,13 @@
         ;; fire from a bare `setTimeout` callback, long after it's gone.
         ;; So grab the frame's `dispatch` here, while we still can, and
         ;; carry it into each delivery. See docs/core/glossary.md#capture-frame.
-        dispatch (:dispatch (rf/capture-frame))]
+        dispatch (:dispatch (rf/capture-frame))
+        deliver! (partial deliver-to-actor! dispatch actor-id open?)]
     (swap! mock-server-state assoc-in [:sockets id]
            {:actor-id actor-id
             :open?    open?})
+    ;; The handshake completes a tick later — a real socket's `onopen`.
+    (later #(deliver! :opened {}))
     {:id    id
      :open? open?
      :send  (fn mock-send [msg]
@@ -220,7 +234,7 @@
                   (let [wire-frame (assoc msg :token (resolve-credential cred-ref))
                         reply      (mock-encode-auth-reply (:token wire-frame))]
                     (later
-                      #(deliver-to-actor! dispatch actor-id :received reply)))
+                      #(deliver! :received reply)))
 
                   :request
                   ;; Every :request gets the same treatment: "here's your
@@ -234,37 +248,36 @@
                   ;; it). Both are protocol envelope, not payload, so
                   ;; neither appears in the :echo of what was sent.
                   (later
-                    #(deliver-to-actor! dispatch actor-id :received
-                                        {:type          :reply
-                                         :request-id    (:request-id msg)
-                                         :request-token (:request-token msg)
-                                         :ok            true
-                                         :echo          (dissoc msg :request-id :request-token)}))
+                    #(deliver! :received
+                               {:type          :reply
+                                :request-id    (:request-id msg)
+                                :request-token (:request-token msg)
+                                :ok            true
+                                :echo          (dissoc msg :request-id :request-token)}))
 
                   :subscribe
                   ;; Ack a subscribe with one synthetic push, so you can
                   ;; watch a server-pushed event show up right after the
                   ;; subscribe round-trip — the shape a real feed would use.
                   (later
-                    #(deliver-to-actor! dispatch actor-id :received
-                                        {:type :push
-                                         :topic (:topic msg)
-                                         :note  "subscribed"}))
+                    #(deliver! :received
+                               {:type  :push
+                                :topic (:topic msg)
+                                :note  "subscribed"}))
 
                   ;; Anything else: shrug. The example doesn't bother with
                   ;; fire-and-forget sends beyond the cases above.
                   nil)))
-     ;; Close the host-side socket, the way a real `WebSocket`'s `.close()`
-     ;; would: mark it shut and drop its `mock-server-state` entry so nothing
-     ;; keeps trying to reach it. This is the seam the `:ws.socket/close`
-     ;; effect reaches for when the actor's `:exit` asks for it on teardown.
-     ;; It deliberately does NOT re-echo a `:closed` back to the actor — the
-     ;; actor is on its way out when this runs, so
-     ;; dispatching an event into a dying machine would fire mid-teardown
-     ;; (in sync mode, `later` runs it right now). The one place that WANTS a
+     ;; Close the host-side socket — the seam the `:ws.socket/close` effect
+     ;; reaches for when the actor's `:exit` asks for it on teardown. A real
+     ;; socket's close is two steps: detach its handlers, then `.close()`.
+     ;; The order matters because `.close()` fires `onclose`, and a `:closed`
+     ;; delivered now would land on an actor that is already being torn down.
+     ;; Here, marking the socket shut is the detach (`deliver-to-actor!`
+     ;; drops anything it would deliver after this), and dropping its
+     ;; `mock-server-state` entry is the close. The one place that WANTS a
      ;; `:closed` delivered — an unexpected drop — is `simulate-disconnect!`,
-     ;; which dispatches it itself. Swap in a real socket and this line
-     ;; becomes `(.close socket)`.
+     ;; which dispatches it itself.
      :close (fn mock-close []
               (reset! open? false)
               (swap! mock-server-state update :sockets dissoc id))}))
@@ -315,10 +328,12 @@
 ;; THE SOCKET ACTOR — :websocket/socket
 ;; ============================================================================
 ;;
-;; A small machine with a simple life. `:opening` asks for the host-side
-;; socket on entry, then immediately steps to `:open`, where it spends the
-;; rest of its days. The one thing it MUST do on the way out is close that
-;; host socket — an `:exit :close-socket` on `:open` returns the
+;; A small machine with a simple life. `:live` asks for the host-side socket
+;; on entry and waits in `:opening` until the socket says it is open — a
+;; real `WebSocket` is CONNECTING when constructed, and a write then throws
+;; `InvalidStateError` — so only the socket's own `:opened` moves it to
+;; `:open` and tells the parent. The one thing it MUST do on the way out is
+;; close that host socket — an `:exit :close-socket` on `:live` returns the
 ;; `:ws.socket/close` effect that does exactly that. The runtime clears the
 ;; spawned id the parent tracks all on its own, but the JS `WebSocket`
 ;; (or our mock stand-in) is a live handle the runtime knows nothing about,
@@ -340,7 +355,7 @@
 (rf/defmachine socket-actor-machine
   "The `:websocket/socket` actor spec, in its own `defmachine` so `reg-machine`
    below can point at it with per-element source captured."
-    {:initial :opening
+    {:initial :live
      ;; Like the parent, the actor's `:data` carries only the URL and the
      ;; OPAQUE `:cred-ref` — the real bearer exists solely inside the
      ;; socket closure `mock-socket-for-actor` builds. Validated on every
@@ -351,24 +366,31 @@
 
      :actions
      {:open-socket
-      ;; On entry: ask for the host-side socket, and tell the parent we're
-      ;; `:opened`. Both are effects the action RETURNS. `:ws.socket/open`
-      ;; builds and stores the socket; it carries the opaque `:cred-ref`,
-      ;; never a bearer. Effects run in order, so the socket is stored
-      ;; before anything the `:opened` report sets in motion reaches it.
-      (fn action-open-socket [{:keys [data self-id parent-id]}]
-        ;; Notice we report `:opened` as a `:dispatch` *fx*, not a bare
+      ;; On entry to `:live`: ask for the host-side socket. `:ws.socket/open`
+      ;; builds and stores it; it carries the opaque `:cred-ref`, never a
+      ;; bearer. Nothing goes to the parent yet: a socket is not open until it
+      ;; says so, which a real one does through `onopen` and this actor
+      ;; receives as `:opened`.
+      (fn action-open-socket [{:keys [data self-id]}]
+        {:fx [[:ws.socket/open {:id       self-id
+                                :url      (:url data)
+                                :cred-ref (:cred-ref data)}]]})
+
+      :forward-opened
+      ;; The socket opened. Tell the parent, stamped with our socket id so
+      ;; `:current-socket?` can vet it. This is the earliest the parent may
+      ;; write, and it writes straight away: `:ws/opened` moves it to
+      ;; `:authenticating`, whose entry sends the auth frame.
+      (fn action-forward-opened [{:keys [self-id parent-id]}]
+        ;; Notice we report as a `:dispatch` *fx*, not a bare
         ;; `(rf/dispatch ...)` in the action body. The fx inherits the
         ;; pipeline run's frame; a raw dispatch from in here would run with no
         ;; frame at all and raise `:rf.error/no-frame-context`. Effects,
         ;; not side effects.
-        {:fx [[:ws.socket/open {:id       self-id
-                                :url      (:url data)
-                                :cred-ref (:cred-ref data)}]
-              [:dispatch [parent-id [:ws/opened {:source-socket-id self-id}]]]]})
+        {:fx [[:dispatch [parent-id [:ws/opened {:source-socket-id self-id}]]]]})
 
       :close-socket
-      ;; On exit from `:open`: close the host-side socket the actor opened.
+      ;; On exit from `:live`: close the host-side socket the actor opened.
       ;; Letting go of the spawned id (which the runtime does for us on
       ;; teardown) frees the ACTOR, not the socket — so without this the JS
       ;; `WebSocket` leaks. The action returns the `:ws.socket/close`
@@ -409,7 +431,7 @@
       ;; `simulate-disconnect!` delivered, or (with a real socket) its
       ;; `onclose`. Forward it up to the parent, stamped with our socket id so
       ;; `:current-socket?` can vet it. Host-socket cleanup is NOT asked for
-      ;; here: walking to `:closed` exits `:open`, and `:open`'s
+      ;; here: walking to `:closed` exits `:live`, and `:live`'s
       ;; `:exit :close-socket` returns the close effect. This action is pure
       ;; messaging.
       (fn action-forward-closed [{:keys [self-id parent-id]
@@ -420,39 +442,32 @@
                                        :reason           reason}]]]]})}
 
      :states
-     {:opening
-      ;; The first moment of the actor's life. `:entry` runs once: open the
-      ;; host-side socket, store it, and then `:always` carries us straight
-      ;; on to `:open`.
-      ;;
-      ;; There's a small race to cover. The parent's `:send-auth` can fire a
-      ;; `:send` at us before we've even settled into `:open`, so `:opening`
-      ;; handles `:send` too — by then the socket is stored, so it just works.
-      {:entry :open-socket
-       :always [{:target :open}]
-       :on    {:send       {:target :open
-                            :action :send-via-socket}
-               :received   {:target :open
-                            :action :forward-received}
-               :closed     {:target :closed
-                            :action :forward-closed}}}
+     {:live
+      ;; The actor's whole working life, from asking for the socket to
+      ;; closing it. `:entry` opens and `:exit` closes, on the same state, so
+      ;; every way out — a `:closed` from the socket, the parent destroying
+      ;; the actor, the frame going away — closes what the entry opened. The
+      ;; two children differ only in what they accept.
+      {:entry   :open-socket
+       :exit    :close-socket
+       :initial :opening
+       :on      {:closed {:target :closed
+                          :action :forward-closed}}
+       :states
+       {:opening
+        ;; Waiting for the socket's `onopen`. No `:send` arrives here — the
+        ;; parent writes only after `:ws/opened` — and a `:closed` here is a
+        ;; socket that never opened (refused, unreachable), which the parent
+        ;; turns into a reconnect like any other drop.
+        {:on {:opened {:target :open
+                       :action :forward-opened}}}
 
-      :open
-      ;; Where the actor spends its life — and where `:exit :close-socket`
-      ;; lives, NOT on `:opening`: `:opening` `:always`-steps straight to
-      ;; `:open`, so an exit there would slam shut the socket we just opened.
-      ;; `:open` is the only state the actor rests in, so its exit is the
-      ;; reliable teardown seam. It fires on BOTH doors out: destroy (the
-      ;; parent leaving `:active` tears the actor down) and the `:open` ->
-      ;; `:closed` walk a `:closed` event triggers.
-      {:exit :close-socket
-       :on   {:send     {:action :send-via-socket}
-              :received {:action :forward-received}
-              :closed   {:target :closed
-                         :action :forward-closed}}}
+        :open
+        {:on {:send     {:action :send-via-socket}
+              :received {:action :forward-received}}}}}
 
       :closed
-      ;; The end of the line. Reaching here means we exited `:open`, so
+      ;; The end of the line. Reaching here means we exited `:live`, so
       ;; `:close-socket`'s effect has already shut the host socket down; the
       ;; parent's exit-from-`:active` will destroy this actor shortly. Until
       ;; it does, this state just quietly soaks up any stragglers.
@@ -504,15 +519,17 @@
      :platforms #{:client}}
     (fn fx-ws-socket-close [_ id]
       ;; `(:close socket)` marks the mock shut and prunes its
-      ;; `mock-server-state` entry; a real socket takes a `.close()` here.
+      ;; `mock-server-state` entry. A real socket detaches its four `on*`
+      ;; handlers here and then calls `.close()`, so the `onclose` that
+      ;; `.close()` fires never reaches the actor being torn down.
       (when-let [socket (get-socket id)]
         ((:close socket)))
       (clear-socket! id)
       nil))
 
-  ;; Register the actor the connection machine spawns. As before,
-  ;; `reg-machine` is what flips on `:rf/machine? true` — the flag the spawn
-  ;; needs to find its target.
+  ;; Register the actor the connection machine spawns. `reg-machine` is
+  ;; what flips on `:rf/machine? true` — the flag the spawn needs to find
+  ;; its target.
   (rf/reg-machine :websocket/socket socket-actor-machine)
 
   ;; For every message that comes in — a correlated reply or a server push —
