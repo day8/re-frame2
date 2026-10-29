@@ -2,12 +2,14 @@
   "The dispatch-dry-run tool's wire boundary: the caller's options reach
   the runtime call as quoted data, `:fx-overrides` and a malformed `cofx`
   are refused before the eval, fx args fail closed even under
-  `--allow-sensitive-reads`, and the runtime envelope is unwrapped from
+  `--allow-sensitive-reads`, every envelope carrying a simulation is
+  redacted whatever its `:ok?`, and the runtime envelope is unwrapped from
   the elision form with a failed rollback always reading as an error.
   The runtime semantics are exercised by the live preload tests under
   skills/re-frame2-pair/tests/runtime/."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
+            [cljs.tools.reader :as tools-reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -101,6 +103,102 @@
           (.then (fn [_]
                    (is (str/includes? (dispatch-form forms) ":args :rf/redacted"))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; The emitted form, run as the app runs it: both redaction stages see every
+;; envelope whose simulation ran. A refused rollback carries the simulation
+;; beside `:ok? false` and ships whole as an error, so a stage keyed on
+;; `:ok?` would send it raw. The runtime and `project-egress` are stood in
+;; for app-side; what the door does with its opts is pinned in
+;; implementation/core.
+;; ---------------------------------------------------------------------------
+
+(def ^:private secret "tok-hunter2-do-not-ship")
+
+(def ^:private simulation
+  "The slots a landed simulation carries: a sensitive fx argument, and a
+  sensitive app-db leaf beside an ordinary one."
+  {:dry-run?                  true
+   :event                     [:auth/login]
+   :frame                     :app/main
+   :before-epoch-id           3
+   :cascade-summary           {:event-id :auth/login :fx-fired [:http]}
+   :would-fire-effects        [{:fx-id :http :args {:headers {"Authorization" secret}}}]
+   :db-state-after-simulation {:user {:name "ada" :token secret}}})
+
+(defn- door
+  "`re-frame.core/project-egress` for a frame classifying `[:user :token]`
+  sensitive: redacted under every boundary but `:rf.egress/local-raw`."
+  [db opts]
+  (if (= :rf.egress/local-raw (:rf.egress/profile opts))
+    db
+    (assoc-in db [:user :token] :rf/redacted)))
+
+(defn- app-side
+  "The symbols the emitted form resolves in the app: the runtime answering
+  `env`, the door, and the core fns the stages call."
+  [env]
+  {'re-frame2-pair.runtime/dispatch-dry-run (fn [_event _opts] env)
+   're-frame.core/project-egress            door
+   'map? map? 'contains? contains? 'update update 'mapv mapv 'assoc assoc
+   'merge merge 'count count 'filter filter 'tree-seq tree-seq 'coll? coll?
+   'seq seq})
+
+(defn- dry-run-answering
+  "Promise of the tool's result when the runtime returns `env` and the form
+  the tool sends is run through `tu/run-form`."
+  [env]
+  (let [orig nrepl/cljs-eval-value
+        run  (fn [form-str]
+               (js/Promise.resolve
+                 (when-not (str/includes? form-str "configure-raw-state!")
+                   (tu/run-form (tools-reader/read-string form-str) {} (app-side env)))))
+        stub (fn
+               ([_conn _build-id form-str] (run form-str))
+               ([_conn _build-id form-str _opts] (run form-str)))]
+    (set! nrepl/cljs-eval-value stub)
+    (raw-state/reset-runtime-signal-cache!)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_]
+                 (dry-run/dispatch-dry-run-tool (fresh-conn)
+                                                #js {:event "[:auth/login]" :frame ":app/main"})))
+        (.finally (fn [] (tu/restore-eval! stub orig))))))
+
+(defn- check-redacted
+  "The shipped envelope names which effect would fire and keeps the
+  ordinary leaf, while the fx argument and the sensitive leaf arrive
+  `:rf/redacted` and the secret appears nowhere on the wire."
+  [r]
+  (let [env (read-result-text r)]
+    (is (= [:http :rf/redacted :rf/redacted "ada"]
+           [(get-in env [:would-fire-effects 0 :fx-id])
+            (get-in env [:would-fire-effects 0 :args])
+            (get-in env [:db-state-after-simulation :user :token])
+            (get-in env [:db-state-after-simulation :user :name])])
+        (tu/extract-text r))
+    (is (not (str/includes? (str (tu/extract-text r)) secret)))
+    env))
+
+(deftest a-refused-rollback-ships-its-simulation-redacted
+  (async done
+    (-> (dry-run-answering (assoc simulation
+                                  :ok? false :rolled-back? false
+                                  :reason :rollback-failed
+                                  :rollback-reason :rf.epoch/replace-schema-mismatch))
+        (.then (fn [r]
+                 (is (err? r) "a refused rollback is still an error")
+                 (is (= :rollback-failed (:reason (check-redacted r))))))
+        (.catch (fn [e] (is false (str "dry-run failed: " e))))
+        (.then (fn [_] (done))))))
+
+(deftest a-rolled-back-simulation-is-redacted-the-same-way
+  (async done
+    (-> (dry-run-answering (assoc simulation :ok? true :rolled-back? true))
+        (.then (fn [r]
+                 (is (not (err? r)))
+                 (check-redacted r)))
+        (.catch (fn [e] (is false (str "dry-run failed: " e))))
+        (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The opts map rides quoted: printed, a scripted fact containing a list

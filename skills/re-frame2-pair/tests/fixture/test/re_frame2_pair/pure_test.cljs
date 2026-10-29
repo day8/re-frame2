@@ -1,5 +1,6 @@
 (ns re-frame2-pair.pure-test
   (:require [cljs.test :refer [deftest is testing]]
+            [re-frame.registrar :as rf.registrar]
             [re-frame2-pair.pure :as pure]))
 
 (deftest app-frame-ids-excludes-tool-frames-retains-default
@@ -91,6 +92,16 @@
     (is (not (pure/epoch-matches? {:timing-ms ">100"}
                                   {:event-id :x :trace-events []}))
         "an epoch with no timing bracket does not clear a numeric threshold")))
+
+(deftest touches-path-matches-only-epochs-that-changed-the-path
+  (let [touches? (fn [before after]
+                   (pure/epoch-matches? {:touches-path [:cart]}
+                                        {:db-before before :db-after after}))]
+    (is (touches? {:cart {:n 1}} {:cart {:n 2}}) "a changed value")
+    (is (touches? {} {:cart {:n 1}}) "a value the epoch wrote")
+    (is (touches? {:cart {:n 1}} {}) "a value the epoch removed")
+    (is (not (touches? {:cart {:n 1}} {:cart {:n 1}})) "a value the path merely holds")
+    (is (not (touches? {:user 1} {:user 2})) "a change elsewhere")))
 
 (defn- dispatched-epoch
   "An assembled epoch record carrying the `:rf.event/dispatched` origin trace
@@ -287,8 +298,10 @@
       "an explicit vector is honoured verbatim (a tool frame named explicitly opts in)")
   (is (= [:app-db :sub-cache :machines :epochs :traces] pure/all-snapshot-slices)))
 
-(deftest orient-counts-app-schemas
-  (is (some #{:app-schema} pure/orient-registrar-kinds)))
+(deftest orient-counts-every-registrar-kind
+  ;; The preload keeps to the public facade, so it restates the closed set;
+  ;; this pin is what keeps the copy whole.
+  (is (= rf.registrar/kinds (set pure/orient-registrar-kinds))))
 
 (deftest top-keys-sorted-or-nil
   (is (= [:cart :route :user] (pure/top-keys {:user 2 :cart 1 :route 3})))

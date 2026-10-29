@@ -13,10 +13,11 @@
 ;;;;     `re-frame.epoch`'s `epoch-history` / `restore-epoch!` /
 ;;;;     `replay-epoch!` / `replace-frame-state!`). No reaching into
 ;;;;     private namespaces.
-;;;;   - Exactly one trace listener (`:re-frame2-pair`) and one epoch
-;;;;     listener (`:re-frame2-pair-epoch`) are registered. Multi-tool
-;;;;     coexistence is the expected default; per Spec 009 §Listener
-;;;;     ordering, listener ordering is not contract.
+;;;;   - Exactly one epoch listener (`:re-frame2-pair-epoch`) is
+;;;;     registered, and no trace listener: trace reads go to the
+;;;;     framework's per-frame rings, which retain whether or not one is
+;;;;     registered. Multi-tool coexistence is the expected default; per
+;;;;     Spec 009 §Listener ordering, listener ordering is not contract.
 ;;;;   - The `session-id` sentinel below is read by the MCP server's
 ;;;;     preload probe. A mirror is also set on
 ;;;;     `js/globalThis.__re_frame2_pair_runtime` at load time so the
@@ -580,7 +581,9 @@
 
 (defn app-db-reset!
   "Replace the operating frame's app-db with v. Logged explicitly via
-   `tap>` so the human sees what the agent changed.
+   `tap>` so the human sees what the agent changed. The tap follows the
+   write and carries its `:ok?` (and a refusal's `:reason`), so a refused
+   write is never shown as a change.
 
    Delegates to the canonical Tool-Pair write surface
    `(re-frame.epoch/replace-frame-state! frame-id {:rf.db/app v})` (Tool-Pair
@@ -615,31 +618,37 @@
    `:reason :reset-rejected`."
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
-   (tap> {:re-frame2-pair/op :app-db/reset
-          :frame              frame-id
-          :previous           (maybe-elide-for-tap (rf/app-db-value frame-id) frame-id)
-          :next               (maybe-elide-for-tap v frame-id)
-          :t                  (js/Date.now)})
-   (try
-     (let [r (framework-replace! frame-id {:rf.db/app v})]
-       (if (:ok? r)
-         ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the write
-         ;; published (Tool-Pair §Pair-tool writes); the envelope names it.
-         (attach-cascade {:ok? true :frame frame-id :epoch-id (:epoch-id r)}
-                         frame-id (:epoch-id r))
-         ;; The framework's refusal carries its own `:reason` (the failure
-         ;; trace's op) and that trace's tags; pass it through. A bare
-         ;; `false` is an elided epoch surface, which has no reason to pass.
-         (if (map? r)
-           r
-           {:ok? false :frame frame-id :reason :reset-rejected})))
-     (catch :default e
-       (let [{:keys [reason] :as data} (ex-data e)]
-         {:ok?     false
-          :frame   frame-id
-          :reason  (or reason :reset-throw)
-          :message (.-message e)
-          :data    data})))))
+   (let [previous (rf/app-db-value frame-id)
+         result   (try
+                    (let [r (framework-replace! frame-id {:rf.db/app v})]
+                      (if (:ok? r)
+                        ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the
+                        ;; write published (Tool-Pair §Pair-tool writes); the
+                        ;; envelope names it.
+                        (attach-cascade {:ok? true :frame frame-id :epoch-id (:epoch-id r)}
+                                        frame-id (:epoch-id r))
+                        ;; The framework's refusal carries its own `:reason` (the
+                        ;; failure trace's op) and that trace's tags; pass it
+                        ;; through. A bare `false` is an elided epoch surface,
+                        ;; which has no reason to pass.
+                        (if (map? r)
+                          r
+                          {:ok? false :frame frame-id :reason :reset-rejected})))
+                    (catch :default e
+                      (let [{:keys [reason] :as data} (ex-data e)]
+                        {:ok?     false
+                         :frame   frame-id
+                         :reason  (or reason :reset-throw)
+                         :message (.-message e)
+                         :data    data})))]
+     (tap> (cond-> {:re-frame2-pair/op :app-db/reset
+                    :frame              frame-id
+                    :ok?                (true? (:ok? result))
+                    :previous           (maybe-elide-for-tap previous frame-id)
+                    :next               (maybe-elide-for-tap v frame-id)
+                    :t                  (js/Date.now)}
+             (not (:ok? result)) (assoc :reason (:reason result))))
+     result)))
 
 (defn schemas
   "All app-schemas the operating frame resolves.
@@ -1549,39 +1558,13 @@
     {:only-in-a a :only-in-b b :common c}))
 
 ;; ---------------------------------------------------------------------------
-;; Trace stream listener (raw-trace, retain-N buffer is in framework)
+;; Pair-epoch attribution
 ;; ---------------------------------------------------------------------------
 ;;
-;; The framework already maintains a retain-N ring buffer accessible via
-;; `(rf/trace-buffer frame-id)` (`re-frame.trace.tooling` is the home; the
-;; `rf/` re-export exists on both platforms; frame-id is the first positional
-;; arg). We register one listener here for callers
-;; that want a programmatic side-channel (e.g. a watch loop's idle
-;; detector); the buffer remains the canonical query surface.
-
-(defonce ^:private last-trace-id (atom 0))
-
-(defn- on-trace-event
-  "Raw-trace listener — advances the `last-trace-id` cursor so
-   `last-trace-event-id` stays a monotonic `:since` anchor for
-   ring-buffer reads."
-  [ev]
-  (when-let [id (:id ev)]
-    (when (number? id) (reset! last-trace-id id))))
-
-(defn- ensure-trace-listener!
-  "Register the raw-trace listener if it isn't already. Idempotent —
-   re-registration replaces the same listener id, and
-   `last-trace-event-id` keeps working through it."
-  []
-  (rf/register-listener! :trace :re-frame2-pair on-trace-event))
-
-(defn last-trace-event-id
-  "Last trace event id observed by the skill's listener. Useful as a
-   `:since` cursor for `(re-frame.trace.tooling/trace-buffer frame-id {:flat true :since N})`
-   (`:since` is a `:flat-only` filter; frame-id is the first positional arg)."
-  []
-  @last-trace-id)
+;; The preload registers no trace listener: trace reads go to the framework's
+;; per-frame rings (`rf/trace-buffer`), which retain whether or not a listener
+;; is registered. Its one listener is the assembled-epoch listener, whose hook
+;; is below.
 
 (defn- attribute-pair-epoch!
   "Assembled-epoch listener hook — the SINGLE pair-attribution point. Runs when
@@ -1798,23 +1781,27 @@
    the caller can poll `watch-epochs` for the eventual settlement.
 
    `:queued? true` rides on the response, but the cascade slot is the
-   canonical 'what happened?' surface."
+   canonical 'what happened?' surface. When no frame resolves it throws
+   the `:ambiguous-frame` refusal, as `pair-dispatch-sync!` does."
   ([event-v] (pair-dispatch! event-v {}))
   ([event-v opts]
    ;; The assembled-epoch listener is the attribution point; make sure it is
    ;; installed before the (possibly queued) epoch settles.
    (ensure-epoch-listener!)
    (let [frame-id  (or (:frame opts) (current-frame))
+         _         (when-not frame-id
+                     (throw (ex-info "ambiguous frame"
+                                     (ambiguous-frame-error :dispatch {:event event-v}))))
          ;; The nREPL eval thread carries no ambient `with-frame` scope, so
          ;; `rf/dispatch` would `require-current-frame!` and throw
          ;; `:rf.error/no-frame-context`. Thread the resolved operating frame
          ;; in as the explicit `:frame` override (the carried-invariant escape
          ;; the router honours first) so the dispatch lands on the frame
          ;; `current-frame` chose.
-         opts      (cond-> opts frame-id (assoc :frame frame-id))
-         before-id (when frame-id (some-> (retained-epochs frame-id) peek :epoch-id))]
+         opts      (assoc opts :frame frame-id)
+         before-id (some-> (retained-epochs frame-id) peek :epoch-id)]
      (rf/dispatch event-v (merge {:origin :pair} opts))
-     (let [after-id (when frame-id (some-> (retained-epochs frame-id) peek :epoch-id))
+     (let [after-id (some-> (retained-epochs frame-id) peek :epoch-id)
            base     {:ok? true :queued? true :event event-v :opts opts}]
        (cond
          (and after-id (not= before-id after-id))
@@ -1998,7 +1985,9 @@
    If replacement rejects, returns `:ok? false :reason :rollback-failed`
    with the refused rollback's own `:reason` as `:rollback-reason`: the
    simulated state can still be live. The caller must inspect the failure
-   before issuing more writes."
+   before issuing more writes. That envelope carries the same simulated
+   slots, raw like every value this ns returns; the MCP tool redacts them
+   at its boundary on every envelope, success or failure."
   ([event-v] (dispatch-dry-run event-v {}))
   ([event-v opts]
    (let [frame-id (or (:frame opts) (current-frame))
@@ -2994,7 +2983,7 @@
   2000)
 
 (def ^:private default-recording-stop-ms
-  ;; Default wall-clock stop when the caller names no stop condition.
+  ;; Default wall-clock stop when the caller names no `:ms`.
   ;; 30 s is a generous "let me interact while you watch" window.
   30000)
 
@@ -3266,8 +3255,9 @@
                one observable — see `sample-one-signal` for the shapes
                (:app-db / :sub / :dom / :focus).
      :stop     stop condition map. Recognised keys (first to trip wins):
-                 :ms       wall-clock milliseconds (default 30000 when no
-                           stop key is supplied at all).
+                 :ms       wall-clock milliseconds (default 30000, so
+                           every recording ends even when its other keys
+                           never trip).
                  :changes  total recorded change-entry count.
                  :pred-fn  a 1-arg fn over the positional sample map
                            `{<signal-index> <value>}`; truthy ⇒ stop. The
@@ -3313,12 +3303,12 @@
 
       :else
       (let [rid (str "rec-" (random-uuid))
-            ;; Default the stop to a wall-clock window when the caller
-            ;; named nothing — a recording with no stop is the forgotten-
-            ;; observer footgun this op exists to kill.
-            stop' (if (and (nil? (:ms stop)) (nil? (:changes stop)) (nil? (:pred-fn stop)))
-                    (assoc stop :ms default-recording-stop-ms)
-                    stop)
+            ;; Every recording keeps a wall-clock ceiling: a change count
+            ;; or predicate that never trips would otherwise sample every
+            ;; frame for the life of the tab — the forgotten-observer
+            ;; footgun this op exists to kill.
+            stop' (cond-> stop
+                    (nil? (:ms stop)) (assoc :ms default-recording-stop-ms))
             rec  {:id          rid
                   :signals     signals
                   :frame-id    frame-id
@@ -3431,8 +3421,8 @@
    the `watch-epochs` MCP tool's predicate args.
 
    Recognised keys: :event-id, :event-id-prefix, :effects (matches
-   :fx-id in the projection), :touches-path (anywhere in db-before /
-   db-after), :sub-ran (matches :sub-id or first of :query-v),
+   :fx-id in the projection), :touches-path (the path's value differs
+   between db-before and db-after), :sub-ran (matches :sub-id or first of :query-v),
    :render (matches :render-key as a string), :origin (matches
    :rf.event/origin in :rf.event/dispatched trace events), :frame, :timing-ms.
 
@@ -3704,7 +3694,6 @@
      :or   {frames  :app
             include all-snapshot-slices}}]
    (install-last-click-capture!)
-   (ensure-trace-listener!)
    (ensure-epoch-listener!)
    (let [fids       (pure/resolve-snapshot-frames frames (rf/frame-ids) (app-frame-ids))
          slices     (vec include)]
@@ -3728,10 +3717,9 @@
    the `discover-app` MCP tool to confirm the environment is healthy.
 
    Side effects: installs the last-click capture listener; registers
-   the trace and epoch listeners. All idempotent."
+   the epoch listener. All idempotent."
   []
   (install-last-click-capture!)
-  (ensure-trace-listener!)
   (ensure-epoch-listener!)
   (let [fids     (rf/frame-ids)
         app-fids (app-frame-ids)]
@@ -3786,22 +3774,12 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private orient-registrar-kinds
-  "The registrar kinds whose COUNTS the orientation summary reports — the
-   closed registrar set (mirrors `handler-meta`'s `registrar-kinds`),
-   including `:interceptor` (the registered-interceptor kind — `reg-interceptor`
-   stores a `{:before}` / `{:after}` / `{:factory}` descriptor under it; event/
-   frame `:interceptors` chains carry REFERENCES into this kind) so an
-   app using `reg-interceptor` surfaces its registered-interceptor count on
-   first contact, and the three resources-artefact kinds (`:resource` /
-   `:mutation` / `:resource-scope`) so a resources-heavy
-   app's orientation summary names its cached-read / write / scope-resolver
-   counts (zero on an app that uses none — `registrar-count` is defensively
-   zero on an empty registrar), and `:app-schema` so it names how many app-db
-   schemas the app registers. `:event` / `:sub` / `:fx` additionally
-   surface their full sorted id vectors (the most navigable surfaces for
-   'what can I drive / read'); the rest contribute counts only so the
-   summary stays compact and under the wire cap. Drill via `list-handlers
-   {kind ...}` for the full ids of any kind."
+  "The registrar kinds whose COUNTS the orientation summary reports: the
+   closed registrar set (Spec 001 §Registry model), so an app's managed-HTTP
+   interceptors and classification declarations are counted beside its
+   events. `:event` / `:sub` / `:fx` additionally surface their full sorted
+   id vectors; `list-handlers {kind ...}` lists the ids of the other kinds
+   it accepts."
   pure/orient-registrar-kinds)
 
 (defn- registrar-count

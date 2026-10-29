@@ -3,9 +3,9 @@
 
   `epoch-egress/project-trace-bundles-src` is built by string
   concatenation and evaluated app-side, so these tests READ the rendered
-  source back as CLJS data and interpret it. The interpreter covers
-  exactly the forms the arm renders and throws on an unresolved symbol,
-  so a rewritten arm fails loudly rather than passing unexercised. The
+  source back as CLJS data and interpret it with `tu/run-form`, which
+  throws on an unresolved symbol, so a rewritten arm fails loudly rather
+  than passing unexercised. The
   trace-ring fold is the framework's own (`re-frame.trace.projection`).
   A build that elides epoch is modelled by the debug gate read false, with
   a door that fails the test if called. With epoch, a stub stands in for
@@ -33,47 +33,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Interpreting the rendered arm
 ;; ---------------------------------------------------------------------------
-
-(defn- run-form
-  "Evaluate `form`, read from rendered source, with `locals` bound and
-  `env` resolving every other symbol. Handles `let`, single-arity `fn`,
-  `if`, keyword lookup and calls."
-  [form locals env]
-  (let [run #(run-form % locals env)]
-    (cond
-      (symbol? form)
-      (cond
-        (contains? locals form) (get locals form)
-        (contains? env form)    (get env form)
-        :else (throw (ex-info "unresolved symbol in the rendered :traces arm"
-                              {:symbol form})))
-
-      (map? form)    (into {} (map (fn [[k v]] [(run k) (run v)])) form)
-      (vector? form) (mapv run form)
-
-      (seq? form)
-      (let [[op & args] form]
-        (cond
-          (= 'let op)
-          (let [[bindings & body] args
-                scope (reduce (fn [l [s e]] (assoc l s (run-form e l env)))
-                              locals
-                              (partition 2 bindings))]
-            (last (map #(run-form % scope env) body)))
-
-          (= 'fn op)
-          (let [[params & body] args]
-            (fn [& xs]
-              (let [scope (merge locals (zipmap params xs))]
-                (last (map #(run-form % scope env) body)))))
-
-          (= 'if op)
-          (let [[c t e] args]
-            (if (run c) (run t) (run e)))
-
-          :else (apply (run op) (map run args))))
-
-      :else form)))
 
 (def ^:private core-fns
   {'mapv        mapv
@@ -109,7 +68,7 @@
   is reported as a failure and yields nil."
   [env bundles]
   (try
-    (run-form (reader/read-string (egress/project-trace-bundles-src "ts" false))
+    (tu/run-form (reader/read-string (egress/project-trace-bundles-src "ts" false))
               {'ts bundles}
               env)
     (catch :default e

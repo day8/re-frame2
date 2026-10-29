@@ -60,9 +60,9 @@ Before any op, `discover-app` runs. This locates the nREPL port, connects, verif
 
 re-frame2 apps may run multiple named frames (Spec 002). The session caches an operating frame; ops refuse with `:ambiguous-frame` if more than one app frame is registered and none selected. Read ops refuse too — the read helpers return `:reason :ambiguous-frame` rather than silently reading `:rf/default`. This matches Spec 002 §Frame-presets / lifecycle convention.
 
-### L7 — One trace listener and one epoch listener per skill
+### L7 — One epoch listener per skill
 
-The skill registers exactly one trace listener under `:re-frame2-pair` and one epoch listener under `:re-frame2-pair-epoch`. Multi-tool coexistence is the expected default — Xray, user-installed listeners, and legacy 10x sessions don't interfere because per Spec 009 §Listener ordering, ordering is not contract.
+The skill registers exactly one epoch listener, under `:re-frame2-pair-epoch`, and no trace listener: trace reads go to the framework's per-frame rings, which retain whether or not a listener is registered. Multi-tool coexistence is the expected default — Xray, user-installed listeners, and legacy 10x sessions don't interfere because per Spec 009 §Listener ordering, ordering is not contract.
 
 ### L8 — Use the assembled epoch stream by default; reach for the raw trace stream when the projection drops detail
 

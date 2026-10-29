@@ -275,9 +275,9 @@
         (if p-eid    (= p-eid event-id) true)
         (if p-prefix (some-> event-id str (str/starts-with? (str p-prefix))) true)
         (if p-fx     (some #(= p-fx (:fx-id %)) effects) true)
-        (if p-path   (or (some? (get-in db-before p-path))
-                         (some? (get-in db-after p-path)))
-                     true)
+        ;; Changed, not merely present: a path an app always holds would
+        ;; otherwise match every epoch.
+        (if p-path   (not= (get-in db-before p-path) (get-in db-after p-path)) true)
         (if p-sub    (some #(or (= p-sub (:sub-id %))
                                 (= p-sub (first (:query-v %))))
                            sub-runs) true)
@@ -557,11 +557,14 @@
 ;; ===========================================================================
 
 (def orient-registrar-kinds
-  "The registrar kinds whose COUNTS the orientation summary reports (`:event`
-   / `:sub` / `:fx` additionally surface their full sorted id vectors). Drill
-   any other kind via `list-handlers {kind ...}`."
+  "The registrar kinds whose COUNTS the orientation summary reports: the
+   closed registrar set of Spec 001 §Registry model, which the fixture's
+   pure test pins against `re-frame.registrar/kinds` (the preload itself
+   keeps to the public facade). `:event` / `:sub` / `:fx` additionally
+   surface their full sorted id vectors."
   [:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
-   :error-projector :resource :mutation :resource-scope :app-schema])
+   :error-projector :resource :mutation :resource-scope :app-schema
+   :http-interceptor :classification])
 
 (defn top-keys
   "The sorted top-level keys of an app-db value (nil when it is not a map).
