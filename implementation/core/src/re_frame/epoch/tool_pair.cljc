@@ -880,31 +880,6 @@
     (refuse! during-drain-op during-drain-tags)
     (rf.frame/call-serialized-with-drain! frame-id op)))
 
-;; ---- flows dirty-check reset after a tool write ----------------------------
-;;
-;; A flow recomputes only when its inputs differ from the ones its last
-;; evaluation cached (Spec 013 §Dirty-check semantics). Inside a drain the memo
-;; stays in step with app-db because the flow pass runs over the db the drain
-;; installs. A tool write installs frame-state OUTSIDE any drain, flow outputs
-;; included, so the memo would still describe the timeline the write replaced:
-;; an event that sets an input back to its pre-write value would skip the flow
-;; and keep the output the write installed. Distrusting the memo strips every
-;; row's inputs and output, so the next drain re-claims and recomputes every
-;; flow against the installed state, while each row keeps its definition, and
-;; so the output path a later departure or moved `:output-path` vacates.
-;; Late-bound so epoch never statically depends on the optional flows
-;; artefact — absent the artefact the hook is nil and there is no memo to reset.
-
-(defn reset-flows-dirty-check!
-  "Distrust `frame-id`'s flow evaluation memo after a successful tool write:
-  every row keeps its definition and loses its inputs and output. The caller
-  holds the frame's drain serialization and has just installed on the exact
-  incarnation, so the reset lands on that incarnation. Returns nil."
-  [frame-id]
-  (when-let [distrust-memo! (rf.late-bind/get-fn :flows/distrust-memo!)]
-    (distrust-memo! frame-id))
-  nil)
-
 ;; ---- runtime-db subsystem reconcile on restore ----------------------------
 ;;
 ;; Epoch restore installs the captured frame-state WHOLESALE — it does not run
@@ -1165,10 +1140,7 @@
                                            reconciled-frame-state)]
            (if (nil? changed-keys)
              (refuse! :rf.error/no-such-handler {:kind :frame :frame frame-id})
-             (do ;; Before the first callback boundary, so no callback sees the
-                 ;; installed state beside a stale cache.
-                 (reset-flows-dirty-check! frame-id)
-                 (rf.trace/emit! :rf.epoch :rf.epoch/restored
+             (do (rf.trace/emit! :rf.epoch :rf.epoch/restored
                               {:frame       frame-id
                                :rf.epoch/id (:epoch-id epoch)})
                  ;; The exact-incarnation install committed, so the public result

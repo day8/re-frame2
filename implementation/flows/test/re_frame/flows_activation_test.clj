@@ -4,6 +4,8 @@
   re-registration reaches each frame running the id on its next event."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -228,3 +230,27 @@
   (is (= :rf.error/ambiguous-registration
          (error-id #(rf/make-frame {:id :t/live :flows [:img/total]})))
       "a live frame naming an id two namespaces register is ambiguous"))
+
+(deftest an-id-a-second-namespace-registers-aborts-the-next-event
+  ;; A live frame resolves its flows on each event, so an id a second namespace
+  ;; registers after construction is ambiguous there. The event aborts as any
+  ;; pre-install throw does, reporting on the always-on channel (Spec 013
+  ;; §Failure semantics), and the frame's egress keeps every namespace's
+  ;; classification of the id.
+  (let [records (atom [])]
+    (rf.error-emit/register-error-listener! ::records #(swap! records conj %))
+    (eval-in-ns 'aflows.first '(rf/reg-flow :amb/out {:inputs [[:n]] :output-path [:out]
+                                                      :sensitive [[]]}
+                                 inc))
+    (rf/reg-event :amb/seed (fn [_ _] {:db {:n 1}}))
+    (rf/reg-event :amb/set (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
+    (rf/make-frame {:id :t/live :flows [:amb/out]})
+    (rf/dispatch-sync [:amb/seed] {:frame :t/live})
+    (eval-in-ns 'aflows.second '(rf/reg-flow :amb/out {:inputs [[:n]] :output-path [:out]} dec))
+    (is (nil? (error-id #(rf/dispatch-sync [:amb/set] {:frame :t/live})))
+        "the dispatch returns rather than raising the ambiguity to its caller")
+    (is (= {:n 1 :out 2} (rf/app-db-value :t/live)) "the event commits nothing")
+    (is (= [[:rf.error/flow-eval-exception :rf.error/ambiguous-registration]]
+           (mapv (juxt :rf.error/id (comp :rf.error/id ex-data :exception)) @records)))
+    (is (= :rf/redacted (rf.elision/elide-wire-value 2 {:frame :t/live :path [:out]}))
+        "the first namespace's classification still governs the output")))

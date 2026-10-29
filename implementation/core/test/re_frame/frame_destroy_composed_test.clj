@@ -31,7 +31,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.flows/reset-last-inputs!)
   (rf.trace.tooling/clear-listeners!)
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)

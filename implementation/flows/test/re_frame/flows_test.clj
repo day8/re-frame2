@@ -6,7 +6,8 @@
   Activation, re-registration and frame isolation are in
   `re-frame.flows-activation-test`; the canonical flow shapes (dirty-check,
   topological order, hot-reload, frame scoping, teardown) run as data in
-  spec/conformance/fixtures/flow-*.edn via `re-frame.flows-conformance-test`."
+  spec/conformance/fixtures/flow-*.edn through core's corpus runner,
+  `re-frame.conformance-test`."
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]

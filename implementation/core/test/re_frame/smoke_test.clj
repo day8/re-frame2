@@ -27,10 +27,9 @@
 (defn reset-runtime [test-fn]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
-  (rf.flows/reset-flows!)
   ;; a stale last-inputs entry would make a same-keyed flow's first
   ;; evaluation no-op (Spec 013 §Dirty-check semantics)
-  (rf.flows/reset-last-inputs!)
+  (rf.flows/reset-flows!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; clear-all! wiped the framework registrations these namespaces make at load
   (require 're-frame.routing :reload)
