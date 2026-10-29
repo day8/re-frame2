@@ -9,7 +9,7 @@
 
     - Optional-artefact wrappers live in `re-frame.core-<feature>`
       sibling namespaces (`flows`, `routing`, `schemas`, `machines`,
-      `ssr`, `http`); each looks up its target fn through
+      `ssr`, `http`, `resources`); each looks up its target fn through
       the late-bind hook table so requiring this ns does NOT pull
       the feature artefacts.
     - Macro-helper code is factored into three siblings —
@@ -68,66 +68,20 @@
             [re-frame.error :as rf.error]
             [re-frame.elision :as rf.elision]
             [re-frame.projection :as rf.projection]
-            ;; `re-frame.classification`
-            ;; is a side-effect-only require — it publishes the
-            ;; `:classification/*` late-bind hooks (the trace bus's
-            ;; `:classification/project-trace-event` emit chokepoint and
-            ;; `:classification/registration-classification` — which DERIVES
-            ;; per-(kind,id) classification from the registrar metadata at read
-            ;; time, no imperative side-table) that must be bound at
-            ;; boot. The reg-* boundary fail-loud check is not a hook:
-            ;; events / fx / cofx / subs call
-            ;; `re-frame.classification/validate-classification!` by DIRECT
-            ;; REQUIRE (always-on, same-artefact, cycle-free, already bundled).
-            ;; It also owns `reg-classification*`, the fn behind the
-            ;; `reg-classification` registration below.
+            ;; Its load publishes the `:classification/*` late-bind hooks the
+            ;; trace bus projects every emit through, so they are bound at
+            ;; boot; it also owns `reg-classification*`, behind
+            ;; `reg-classification`.
             [re-frame.classification :as rf.classification]
-            ;; EP-0015 §9: frame-owned observability sink
-            ;; routing. Required
-            ;; for BOTH its public façade exports (`register-observability-sink!`
-            ;; et al., re-exported below) AND its ns-load side-effect: it
-            ;; publishes the `:observability/route-handled-event` /
-            ;; `:observability/route-error` late-bind hooks the router +
-            ;; error-emit substrate fire, and `:observability/validate-policy!`,
-            ;; which the frame preflight checks a frame's `:observability`
-            ;; through (a static require would close a load cycle). Pulls only `re-frame.projection` +
-            ;; `re-frame.frame` + `re-frame.late-bind` (core spine), so it is
-            ;; bundle-isolation neutral and production-surviving (the
-            ;; always-on observability stream is NOT DCE'd, by design).
+            ;; Re-exported below, and its load publishes the `:observability/*`
+            ;; late-bind hooks the router, error-emit and the frame preflight
+            ;; call through (a static require from them would close a load
+            ;; cycle). It survives production by design: the frame
+            ;; `:observability` stream is the production observation stream.
             [re-frame.observability :as rf.observability]
-            ;; EP-0023: the public `rf/image` constructor —
-            ;; an IMAGE value, the selected registration-set value a frame
-            ;; resolves against (EP-0023 §Image, §Public API). PURE inert data
-            ;; (no realm, no registrar, no side effect). The runtime CONSTRUCTOR
-            ;; `re-frame.image/image` is re-exported below through the `rf/image`
-            ;; MACRO, which gates literal inline `:registrations`
-            ;; `:doc` bytes at the authoring seam before delegating to the fn
-            ;; (required with NO alias so the facade `image` macro name does not
-            ;; collide with a require-alias). `re-frame.image` lives in the core
-            ;; artefact and pulls only `clojure.string` + `re-frame.error` (the
-            ;; core spine), so it is bundle-isolation neutral; an app that never
-            ;; constructs an image leaves the constructor as Closure-DCE dead
-            ;; code.
+            ;; Required with no alias, so the facade's `image` macro name does
+            ;; not collide with one.
             [re-frame.image]
-            ;; EP-0023: the runnable-object
-            ;; live-frame ns. Required for the ONE public frame constructor
-            ;; `make-frame` (re-exported below as `rf/make-frame`, backed by the
-            ;; OBJECT-returning `rf.live-frame/make-frame`) plus its
-            ;; generation reads `frame-generation` /
-            ;; `generation-diff` (EP-0023 §Hot Reload / §Public API — hot reload
-            ;; is re-`make-frame`-ing
-            ;; an `:id`-bearing frame with a new `:images` vector; a caller that
-            ;; wants the reload DIFF reads `frame-generation` before/after and
-            ;; diffs with `generation-diff`, a pure read, not a bespoke verb). The
-            ;; ns is ALREADY in the core spine transitively (router / subs / frame /
-            ;; registrar require it for the `{:frame object}` resolution seam), so
-            ;; this adds no new load edge; it pulls only `re-frame.image-assembly`
-            ;; + `re-frame.registrar` + `re-frame.frame` + `re-frame.late-bind` +
-            ;; `re-frame.error` (the core spine), so it is bundle-isolation
-            ;; neutral. An app that never hot-reloads leaves the live-frame
-            ;; reload fns as Closure-DCE dead code — the elision probe
-            ;; deliberately does NOT root the image-loading path (see
-            ;; elision_probe.cljs).
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.core-flows    :as rf.core-flows]
@@ -151,14 +105,9 @@
              #?@(:cljs [:include-macros true])]
             [re-frame.core-call-site-macros  :as rf.core-call-site-macros]
             [re-frame.core-reg-view-macro    :as rf.core-reg-view-macro]
-            ;; NOTE: re-frame.substrate.plain-atom is deliberately NOT
-            ;; required here. It has no ns-load side-effect — its
-            ;; capabilities are published only when a consumer installs
-            ;; its map. `rf/init!` takes the adapter
-            ;; map directly (no default-adapter registry), so consumers
-            ;; that want the plain-atom path require the ns themselves and
-            ;; pass `plain-atom/adapter` — eagerly pulling it into the
-            ;; facade would ship JVM/SSR adapter code into every consumer.
+            ;; `re-frame.substrate.plain-atom` is deliberately not required: an
+            ;; app passes its `adapter` to `rf/init!`, and requiring it here
+            ;; would ship the JVM/SSR adapter into every consumer.
             #?@(:cljs [[re-frame.views :as rf.views]]))
   ;; The macros are defined in this ns's `#?(:clj ...)` blocks below.
   ;; CLJS users see them under `rf/<name>` via this self-`:require-
@@ -179,34 +128,21 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; `dispatch-impl` / `dispatch-sync-impl` are `^:no-doc` `def` ALIASES (not
-;; direct `defn`s) to the owning router fns — platform-neutral so both the JVM
-;; macro-expansion target and the CLJS Convention-A value-alias below resolve
-;; the SAME var. `^:no-doc` strips them from the API manifest / generated docs
-;; (the same mechanism `reg-event-db` etc. use) — they are NOT a public facade
-;; surface, just the shared internal seam the `dispatch` / `dispatch-sync`
-;; macro's expansion AND a frame api's ops
-;; (`re-frame.capture-frame/make-capture-frame`, published to it below) both
-;; call through, so a SINGLE `with-redefs` on one of these intercepts every
-;; macro-driven or reg-view-injected call. The CLJS value-alias is not part of
-;; that seam: it COPIES the var's value at load time, so a redef of the
-;; value-alias reaches only its value-position callers, and a redef of one of
-;; these misses them. The JVM has no value-alias: there `dispatch` is the
-;; macro alone. There is no PUBLIC `dispatch*` / `dispatch-sync*` facade twin;
-;; these aliases are the non-public seam. `subscribe` needs no such seam: it is
-;; a plain fn, so the public var is itself what a frame api's `:subscribe` op
-;; calls through.
+;; `dispatch-impl` / `dispatch-sync-impl` are the internal seam the `dispatch`
+;; / `dispatch-sync` macro expansions and a frame api's ops
+;; (`re-frame.capture-frame/make-capture-frame`) all call through, so ONE
+;; `with-redefs` on either intercepts every macro-driven or reg-view-injected
+;; call. The CLJS value aliases below COPY the var's value at load, so a redef
+;; of one reaches only its own callers. `^:no-doc` keeps them off the API
+;; manifest; `subscribe` needs no seam, being a plain fn.
 ;;
-;; The alias-`def` is DELIBERATE: a
-;; direct `defn` here would let the CLJS compiler attach inline fixed-arity
-;; metadata to the var, so callers would emit a STATIC
-;; `.cljs$core$IFn$_invoke$arity$N` dispatch that a `with-redefs`'d fn whose
-;; arity set differs cannot satisfy ("arity$N is not a function") — this is
-;; NOT `:advanced`-only; shadow-cljs's `:node-test` build does it too.
-;; Call-site stamping is the MACRO's job (debug-gated, DCE'd in prod) and
-;; reaches these via the 2-arity opts map, so NO `:rf.trace/call-site`
-;; literal lives in these production-reachable bodies (the elision probe
-;; asserts the keyword is ABSENT from the prod bundle).
+;; They are `def` aliases, not `defn`s, because a `defn` lets the CLJS compiler
+;; attach fixed-arity metadata, and callers then emit a static
+;; `.cljs$core$IFn$_invoke$arity$N` call that a `with-redefs`'d fn with another
+;; arity set cannot satisfy — under shadow-cljs's `:node-test` build too, not
+;; only `:advanced`. Call-site stamping is the debug-gated macros' job, so no
+;; `:rf.trace/call-site` literal lives in these production-reachable bodies
+;; (the elision probe asserts it is absent).
 (def ^:no-doc dispatch-impl      rf.router/dispatch!)
 (def ^:no-doc dispatch-sync-impl rf.router/dispatch-sync!)
 
@@ -358,8 +294,10 @@
   request-fn)` — the `:request` write fn (a Spec 014 managed-HTTP args map)
   is the THIRD value slot, `metadata` carries the REQUIRED
   `:params-schema` plus optional `:invalidates` / `:patches` / `:populates` /
-  `:scope` / `:invalidate-timing` / `:retry`. Implementation ships in
-  `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
+  `:scope` / `:invalidate-timing`. Write retries are opt-in and are not a
+  metadata key: the request fn returns `:retry` in its managed-HTTP args.
+  Implementation ships in `day8/re-frame2-resources`; require
+  `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-mutation` and spec/API.md §Resources."}
        reg-mutation    rf.core-resources/reg-mutation)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
@@ -458,26 +396,13 @@
   `re-frame.router/dispatch-sync!` and spec/API.md §Dispatch and subscribe."
        :arglists '([event-vec] [event-vec opts])}
        dispatch-sync   dispatch-sync-impl)))
-;; `reg-machine*` (the plain-fn machine-registration surface) is not a
-;; `re-frame.core` façade export; reach it
-;; through `re-frame.machines/reg-machine*`. The `reg-machine` / `defmachine`
-;; MACROS are on the façade (per-element source-coord stamping).
 
-;; ---- EP-0018 retired public names — facade-exported throwing stubs --------
+;; ---- retired event-registration names — throwing stubs ------------------
 ;;
-;; `reg-event-db` / `reg-event-fx` are REMOVED and public `reg-event-ctx` is
-;; demoted to a framework-internal primitive (EP-0018 §2/§3 + EP-0007 rule 2).
-;; They exist on the façade ONLY as `^:no-doc` aliases to the
-;; `re-frame.events` throwing stubs, so a stale `(rf/reg-event-db …)` call site
-;; resolves to a real var and fails LOUDLY with an actionable hard error naming
-;; the replacement (`:rf.error/reg-event-db-removed` / `-fx-removed` names
-;; `reg-event`; `-ctx-removed` names `reg-interceptor`) — NOT an opaque "no such
-;; var", NOT a working alias. They are plain `def` aliases (no macro / no
-;; source-coord capture — they register nothing), platform-neutral so the stub
-;; throws identically on JVM and CLJS. `^:no-doc` drops them from the API
-;; manifest generator + the CLJS publics probe: they carry no manifest row and
-;; are not part of the documented public surface. See spec/001-Registration.md
-;; §The retired event-registration names + migration/from-re-frame-v1/README.md.
+;; Each resolves to its `re-frame.events` stub, so a stale `(rf/reg-event-db …)`
+;; fails loud naming its replacement rather than as "no such var". `^:no-doc`
+;; keeps them off the API manifest. Spec 001 §The retired event-registration
+;; names.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0018 (no alias). Calling `reg-event-db` raises
   `:rf.error/reg-event-db-removed`, naming `reg-event` as the replacement.
@@ -617,8 +542,10 @@
        request-fn)`: the `:request` write fn (a Spec 014 managed-HTTP args map)
        is the third VALUE slot, and `metadata` carries the REQUIRED
        `:params-schema` plus optional `:invalidates` / `:patches` /
-       `:populates` / `:scope` / `:invalidate-timing` / `:retry`. Captures
-       source-coords (Spec 001) at this call site. Implementation ships in
+       `:populates` / `:scope` / `:invalidate-timing`. Write retries are
+       opt-in and are not a metadata key: the request fn returns `:retry` in
+       its managed-HTTP args. Captures source-coords (Spec 001) at this call
+       site. Implementation ships in
        `day8/re-frame2-resources`; apps must add the artefact and
        require `re-frame.resources` at boot. See
        `re-frame.core-resources/reg-mutation` for the full signature."
@@ -737,7 +664,7 @@
      stamping; the `:source-*` slots are dev-only — DCE'd under
      `goog.DEBUG=false`). Implementation ships in `day8/re-frame2-machines`.
      For runtime registration use
-     `reg-machine*`.
+     `re-frame.machines/reg-machine*`.
 
      An optional `opts` registration-metadata map may precede
      the spec — `(reg-machine machine-id opts machine)`. Its `:schema` key
@@ -763,15 +690,9 @@
 
 ;; ---- defmachine (value-registered per-element source capture) ------------
 ;;
-;; The common app shape is `(def door-machine {…}) … (reg-machine :door/main
-;; door-machine)` — `reg-machine` sees only the `door-machine` symbol, so its
-;; compile-time literal-walk captures nothing (the spec form is not a map
-;; literal). `defmachine` is the `def`-replacement that walks the inline
-;; literal AT THE DEFINITION SITE and co-locates per-element source onto each
-;; `:guards` / `:actions` entry (plus a reference-site
-;; `:source-coords` on each `:states`-tree map node), so the per-element
-;; source travels WITH the value into `reg-machine`. Per Spec 005
-;; §Source-coord stamping (value-registered machines).
+;; `reg-machine` sees only a symbol in `(reg-machine :door/main door-machine)`,
+;; so it captures nothing; `defmachine` walks the literal at the definition
+;; site instead. Spec 005 §Source-coord stamping.
 
 #?(:clj
    (defmacro defmachine
@@ -825,18 +746,12 @@
    #?(:cljs
       (rf.views/reg-view* id (rf.source-coords/merge-coords metadata) render-fn)
       :clj
-      ;; The JVM registration boundary is the single home of
-      ;; the two dev-mode view annotations (`data-rf2-source-coord` /
-      ;; `data-rf-view`), mirroring the CLJS `rf.views/reg-view*` path above
-      ;; which annotates through the substrate wrappers. The stored
-      ;; `:handler-fn` is wrapped with a debug-gated hiccup walk so a
-      ;; server render emits the same evidence the dev client render
-      ;; stamps, and a dev SSR page hydrates as a clean ADOPTION. In a
-      ;; production SSR build (`rf.interop/debug-enabled?` false) the wrap is
-      ;; a no-op — the raw handler-fn is stored and markup stays
-      ;; annotation-free. The coords the walk stamps are the SAME merged
-      ;; coords stored in the slot, so the attribute value matches
-      ;; whatever pair tools read back off the registry.
+      ;; The JVM registration boundary is the one home of the dev-mode view
+      ;; annotations (`data-rf2-source-coord` / `data-rf-view`), as the CLJS
+      ;; path annotates through the substrate wrappers: a server render emits
+      ;; what the dev client render stamps, so a dev SSR page hydrates as a
+      ;; clean adoption. The coords stamped are the ones stored, and the wrap
+      ;; is a no-op in a production build.
       (let [coords (rf.source-coords/merge-coords metadata)]
         (rf.registrar/register!
           :view id
@@ -910,17 +825,11 @@
      Nothing reports this — the zero-match guard fires per PATTERN, not per
      descriptor, so a glob that matches some other namespace stays silent
      while the programmatic registration is quietly absent from the image.
-     There are TWO categories, and the remedy reaches one of them.
-     REGISTRAR-BACKED kinds — `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`,
-     `reg-interceptor`, `reg-head`, `reg-error-projector`, `reg-resource`,
-     `reg-mutation`, `reg-resource-scope`, `reg-route`, `reg-app-schema` /
-     `reg-app-schemas`, `reg-http-interceptor`, `reg-flow` — record a source-store
-     descriptor, so stamping `:ns` (or the qualified `:rf.provenance/ns`) in
-     the registration metadata restores selectability on every one of them. The
-     store reads the explicit key before falling back to the macro's captured
-     coords, so a stamp also OVERRIDES those coords. The MACRO form is the
-     other spelling of the same remedy: its source-coord capture supplies the
-     provenance with no stamp needed.
+     Stamping `:ns` (or the qualified `:rf.provenance/ns`) in the registration
+     metadata restores selectability on every registration kind, and
+     OVERRIDES the macro's captured coords, because the store reads the
+     explicit key first; the macro form supplies the same provenance with no
+     stamp. Spec 001 §Source-coordinate capture.
 
      A MACRO (not a plain fn) purely to elide production bytes at the authoring
      seam: `rf/image` is value-oriented, but a LITERAL inline
@@ -941,10 +850,6 @@
      `(re-frame.image/image ~(rf.core-reg-macros/gate-image-spec spec))))
 
 ;; ---- frame management ----------------------------------------------------
-
-;; `rf/make-frame` is the one public constructor. It accepts image-selection
-;; options and record configuration in the same map, registers id-bearing
-;; frames in the shared frame registry, and returns the live frame value.
 
 (defn make-frame
   "Create a live frame and return the frame VALUE — the ONE public constructor
@@ -968,18 +873,14 @@
                    under this id; re-`make-frame`-ing the same id is IDEMPOTENT
                    REPLACEMENT (config + generation refresh, durable state
                    preserved — hot-reload / Story-friendly, EP-0024 §Duplicate id
-                   policy). This IS re-construction — the Clojure re-def model
-                   (there is no `redef!` / `reset-def!` / `reload-def!`): image
-                   hot-reload is re-`make-frame`-ing the SAME `:id` with a NEW
-                   `:images` vector. Diff the swap by reading
+                   policy): image hot-reload is re-`make-frame`-ing the SAME
+                   `:id` with a NEW `:images` vector, and a full replace is
+                   `destroy-frame!` then `make-frame`. Diff the swap by reading
                    `frame-generation` before/after and comparing with
                    `generation-diff`). When ABSENT, the frame is LOCAL-ONLY —
                    keep the returned value and pass it (or its id) to
                    dispatch / subscribe / test helpers.
     :adapter       the active-substrate adapter binding/configuration (optional).
-
-  (There are no image-declared host capabilities: a `:capabilities` key flows
-  through as ordinary record-config.)
 
   EVERY OTHER key is RECORD-CONFIG, honoured in the same call: `:initial-events`
   (a vector of event vectors dispatch-sync'd into the new frame at construction,
@@ -1034,11 +935,6 @@
   ([opts]             (rf.live-frame/make-frame opts))
   ([opts descriptors] (rf.live-frame/make-frame opts descriptors)))
 
-;; There is no `reload-images!` or `reset-frame!` verb. Image hot-reload is
-;; re-calling `make-frame` against the SAME `:id` with a NEW `:images` vector
-;; (diff the swap by reading `frame-generation` before and after, then
-;; `generation-diff`); a full replace is `(destroy-frame! id) (make-frame
-;; config)`, re-supplying the config the caller already holds.
 (def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Claims
   the exact incarnation and atomically cuts ordinary queued work, runs the
   user `:on-destroy` cascade on a private cleanup queue, tears down machines
@@ -1054,43 +950,9 @@
   currently live. Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! rf.frame/destroy-frame!)
 
-;; There is no facade `frame-value->id`.
-;; The API commits to ONE frame-target grammar accepted everywhere: the routing
-;; operations (`dispatch` / `subscribe` / `app-db-value` / `frame-provider` / …)
-;; take a frame VALUE or its id interchangeably (they normalize a value to its
-;; id), and `destroy-frame!` accepts either too but reads the value's
-;; exact-incarnation lifecycle authority (a stale value no-ops
-;; against a same-id successor; a keyword is address-directed). Either way there
-;; is no public need to unwrap a value to its id — pass the
-;; value straight through. The internal normalization primitive
-;; (`re-frame.frame/frame-value->id`) serves the framework's own
-;; call sites. Per Spec 002 §Frame value and EP-0024 Operation target grammar.
-
-;; ---- flows / schemas — façade boundary ------------------------------------
-;;
-;; The flows + schemas QUERY / LIFECYCLE / VALIDATOR-INSTALL helpers are not
-;; re-exported from `re-frame.core`.
-;; They are optional-feature surfaces whose owned namespace is the better
-;; public home: reach them through `re-frame.schemas` (`app-schemas`,
-;; `app-schema-meta`, `app-schemas-digest`,
-;; `set-schema-fns!`, `schema-fns`, `default-schema-fns`) — the owned
-;; namespaces
-;; publish them. The `reg-flow` / `reg-app-schema` / `reg-app-schemas`
-;; REGISTRATION MACROS are on the façade (above): they capture call-site
-;; source-coords and have no owned-namespace macro form, so registration
-;; stays central.
-
-;; ---- data classification (Spec 015 / EP-0025) ---------------------------
-;;
-;; Data classification is a lightweight hygiene helper. The public
-;; classification surface is (a) `reg-classification` for app-db paths, plus
-;; registration-owned transient and subsystem projection-relative
-;; declarations; and (b) `project-egress` and the `:rf.egress/*` profiles at
-;; trust boundaries.
-;; There is no imperative `add-marks` / `set-marks` API, no durable
-;; app-db frame annotation, no durable-state schema-prop classification, and
-;; NO sensitivity propagation (no derived-output inheritance, no value-match).
-;; The egress-projection substrate lives in `re-frame.classification`.
+;; Flow and schema queries, lifecycle and validator installation live at home
+;; in `re-frame.flows` / `re-frame.schemas`; only their registration macros are
+;; here, for call-site source-coord capture (spec/API.md §Conventions).
 
 ;; ---- clearing ------------------------------------------------------------
 
@@ -1196,25 +1058,12 @@
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
-;; `dispatch` and `dispatch-sync` each have a JVM macro that captures
-;; call-site coordinates and a CLJS value alias for higher-order/programmatic
-;; calls. Macro expansions target the stable `^:no-doc` `dispatch-impl` or
-;; `dispatch-sync-impl` alias. Those aliases point at the owning rf.router fn
-;; but prevent CLJS fixed-arity metadata from making differently shaped
-;; `with-redefs` test seams unsafe. `subscribe` is a plain fn on both hosts —
-;; a `def`-alias of `re-frame.subs/subscribe`, for the same reason — so it is
-;; a value everywhere. There is no public `*`-suffixed twin.
-
-;; Frame targeting is exactly THREE intents —
-;; ambient SCOPE (no `:frame` opt; reads the carried `with-frame` /
-;; frame-provider / captured `*current-frame*` stamp), explicit OVERRIDE
-;; (`{:frame target}`, `target` a frame-id keyword OR a live frame value), and
-;; HOLD (`capture-frame`, below). There is no frame-FIRST positional
-;; 2-arity — `(dispatch frame event-vec)`: every sig is
-;; `[payload]` / `[payload opts]`, no `vector?` shape-discrimination on the
-;; first arg. `re-frame.router/build-envelope` normalizes an object
-;; `:frame` opt to its runnable-id via `rf.frame/frame-value->id`, so a value or
-;; a keyword target both route correctly.
+;; `dispatch` / `dispatch-sync` are JVM macros that capture call-site coords
+;; and expand to the seam above, with a CLJS value alias each for
+;; higher-order use; `subscribe` is a plain fn on both hosts. Every op takes
+;; `[payload]` / `[payload opts]`, and the frame is the ambient scope, an
+;; explicit `{:frame target}` (a frame id or a live frame value), or a
+;; `capture-frame` hold (Spec 002 §Routing).
 
 (def ^{:doc "Return a reaction whose value is the registered sub's current
   output for `query-v` (`[sub-id & args]`); deref to read. A plain fn on both
@@ -1299,15 +1148,8 @@
   `subscribe`."}
   compute-sub     rf.subs/compute-sub)
 
-;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017).
-;; Coeffect delivery is
-;; declared with `:rf.cofx/requires`. The migration alarm is the
-;; hard-error thrower `re-frame.cofx/inject-cofx` (a stale call to
-;; that var raises `:rf.error/inject-cofx-removed`,
-;; an always-on catalogue error naming `:rf.cofx/requires`); a removed
-;; surface occupies no place in the canonical public API — no facade var, no
-;; api-manifest row. See spec/001-Registration.md §`inject-cofx` is removed
-;; and migration/from-re-frame-v1/README.md.
+;; `inject-cofx` is not on the facade: a handler declares its coeffects with
+;; `:rf.cofx/requires` (Spec 001 §`inject-cofx` is removed).
 
 #?(:clj
    (defmacro dispatch
@@ -1374,18 +1216,6 @@
                                     arg1 arg2))))
 
 ;; ---- capture-frame (the keystone) + frame-aware closures ------------------
-;;
-;; `current-frame-id` reads the carried-invariant scope/hold stamp via
-;; `rf.frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
-;; var or the closest React-context frame boundary — a `frame-provider`
-;; (SCOPE) or a `frame-root` (ENSURE), both of which emit scope — with NO `:rf/default`
-;; floor — absence raises `:rf.error/no-frame-context`. `capture-frame` is
-;; the keystone: a frame api — a per-frame bundle (`{:frame :dispatch
-;; :dispatch-sync :subscribe}`) captured at CREATION time, so its ops
-;; survive async boundaries that unwind the dynamic-var / React-context
-;; scope. The no-arg `capture-frame` capture form captures ONLY when a real
-;; scope exists at capture time — `capture-frame` is the ONE public HOLD
-;; primitive (there is no facade `frame-bound-fn` / `frame-bound-fn*`).
 
 (defn current-frame-id
   "Return the active frame id the in-effect scope carries — a keyword.
@@ -1501,34 +1331,11 @@
      [bindings & body]
      (rf.core-reg-view-macro/expand-with-new-frame bindings body)))
 
-;; There is no facade `frame-bound-fn` / `frame-bound-fn*` — `capture-frame`
-;; is the ONE public HOLD
-;; primitive for carrying a frame into closures and across async
-;; boundaries. Re-establishing `*current-frame*` around an
-;; ARBITRARY already-held fn (as opposed to `capture-frame`'s pre-bound
-;; `{:dispatch :dispatch-sync :subscribe}` op bundle) is the internal
-;; `re-frame.frame/bind-fn`, for implementation / test / tooling reach.
-
 ;; ---- view ergonomics (CLJS only) -----------------------------------------
 ;;
-;; The frame-boundary components — the SCOPE-only
-;; `frame-provider` and the ENSURE `frame-root`, per-adapter React-context
-;; components re-exported here as the canonical user-facing surface (per
-;; Spec 002 §`frame-provider` / §`frame-root`); the impls live in re-frame.views
-;; to keep React/Reagent off the JVM load path. Two components, one verb each:
-;;
-;;   * frame-provider {:frame existing-id} — SCOPE-only: provides an
-;;                            ALREADY-CREATED frame id through React context;
-;;                            creates / refreshes / destroys nothing; FAILS LOUD
-;;                            if the frame is absent. Given an `:id`, FAILS LOUD
-;;                            naming frame-root.
-;;   * frame-root {:id the-id …}           — ENSURE (commit-owned two-pass):
-;;                            creates the frame if absent (via make-frame) in a
-;;                            client useLayoutEffect, REUSES it if present without
-;;                            re-seeding, provides its id to descendants; NO
-;;                            destroy-on-unmount. Takes
-;;                            {:id :images :initial-events :url-bound? …}. Given a
-;;                            `:frame`, FAILS LOUD naming frame-provider.
+;; The two frame-boundary components, one verb each: `frame-provider` SCOPES
+;; an existing frame and `frame-root` ENSURES one (Spec 002 §`frame-provider` /
+;; §`frame-root`). Their impls live in `re-frame.views`, off the JVM load path.
 
 #?(:cljs (def ^{:doc "SCOPE-only Reagent component.
 
@@ -1586,27 +1393,12 @@
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
   route-link  rf.core-routing/route-link)
 
-;; ---- machine helpers ------------------------------------------------------
-;;
-;; Machine registration macros are on the facade for source-coordinate
-;; capture. Plain registration, engine, query, and implementation helpers live
-;; in `re-frame.machines`. Machine state reads use subscription vectors; a
-;; machine sends to a spawned actor by dispatching to the id it holds —
-;; `[:dispatch [<actor-id> <event>]]`.
-
 ;; ---- resource helpers (Spec 016) ------------------------------------------
 ;;
-;; The optional resources artefact (`day8/re-frame2-resources`). The
-;; registration macros `reg-resource` / `reg-mutation` / `reg-resource-scope`
-;; are above, for source-coord capture. The facade carries what app code
-;; authors — the registrations and `resolve-resource-scope`, which a logout
-;; handler calls. Introspection (`resource-state`, `mutation-state`) lives at
-;; home in `re-frame.resources` (spec/API.md §Conventions, the role rule).
-;; The re-export below delegates through the late-bind table and throws
-;; `:rf.error/resources-artefact-missing` when the artefact is absent.
-;;
-;; A resource's / mutation's registered spec has no per-kind accessor: it is
-;; the generic registrar read plus the documented inner-key projection —
+;; The registration macros are above; the facade adds `resolve-resource-scope`,
+;; which a logout handler calls. Introspection (`resource-state`,
+;; `mutation-state`) stays at home in `re-frame.resources`, and a registered
+;; spec is the generic registrar read:
 ;;   (:rf/resource (rf/handler-meta {:kind :resource :id id}))
 ;;   (:rf/mutation (rf/handler-meta {:kind :mutation :id id}))
 
@@ -1660,72 +1452,15 @@
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;
-;; The registrar query workhorses. Each of `registrations` / `handler-meta` /
-;; `ambiguous-registrations` takes exactly ONE argument, a QUERY MAP:
-;;
-;;   (registrations {:kind :event})                ; the registration store
-;;   (registrations {:kind :event :frame f})       ; frame f's resolved program
-;;   (handler-meta  {:kind :event :id i})
-;;   (handler-meta  {:kind :event :id i :frame f})
-;;
-;; Its keys are `:kind`, the optional `:frame` and, for `handler-meta`, `:id`.
-;; Any other key, and a non-map argument, throw
-;; `:rf.error/registrar-query-invalid` (`assert-registrar-query!`): a
-;; misspelled `:frame` would otherwise read the store without a word.
-;;
-;; THE STORE READ CONSULTS NO BOUND FRAME VIEW. `rf.registrar/registrations` /
-;; `lookup` consult the frame's own view FIRST — `rf.registrar/*generation*` for
-;; a frame made with `:images`, `rf.registrar/*live-view*` for one made without
-;; — and `re-frame.live-frame/call-with-frame-resolution` binds it around every
-;; subscribe build, dispatch, fx and view resolution against a frame, so a
-;; store read routed through them from inside a sub computation or an event
-;; handler would silently read THAT FRAME'S view instead. A query without
-;; `:frame` reads the registration table through a fresh
-;; `re-frame.live-frame/live-view` and consults no binding, so the answer does
-;; not depend on the caller's context — the public door for a tool that needs
-;; the host process's registrations. It answers exactly as a frame made without
-;; `:images` does: an id more than one namespace registers throws
-;; `:rf.error/ambiguous-registration` from `handler-meta`, is omitted by
-;; `registrations`, and is listed by `ambiguous-registrations`.
-;;
-;; NOT-QUERYABLE KIND. `:frame` is a RESERVED-BUT-EMPTY registrar slot
-;; (`rf.registrar/kinds`) — nothing writes rows there. Returning `{}` for it
-;; would hand the caller an apparently authoritative empty catalogue while the
-;; real store lives elsewhere, so it throws
-;; `:rf.error/registrar-kind-not-queryable`, whose message NAMES THE REAL DOOR
-;; (`rf/frame-ids` / `rf/frame-meta`). A kind outside the queryable set throws
-;; the registrar's own `:rf.error/unknown-registry-kind`.
-;;
-;; THE DISTINCTION IS IMPLEMENTED HERE, AT THE PUBLIC INSPECTION BOUNDARY, and
-;; NOT by changing `rf.registrar/registrations` / `lookup` / `ids` /
-;; `handler-meta`: those are the runtime's own resolution path (dispatch, sub
-;; build, fx, view) and MUST stay generation-routed. There is no realm
-;; coordinate in the public read grammar.
-;;
-;; EP-0023 — the FRAME-TARGETED map form reads the registrations resolved
-;; through a live frame's OWN view (EP-0023 §Frame-derived live registration
-;; resolution): its sealed image generation when it was made with `:images`, or
-;; the registration store resolved live when it was made without — where an id
-;; more than one namespace registers throws `:rf.error/ambiguous-registration`
-;; (Spec 002 §Image resolution and composition). The descriptors surface the
-;; `:rf.provenance/ns` + inline/image + replacement/standard facts they already
-;; carry. This is the public tooling surface over a frame's view, for tools
-;; (Pair MCP, Xray) that EP-0023 forbids from consuming `re-frame.live-frame` /
-;; `re-frame.image-assembly` internals. The thin, no-duplication path: resolve
-;; the frame target ONCE, then run the EXISTING registrar reads inside
-;; `re-frame.live-frame/call-with-frame-resolution`, which binds
-;; `rf.registrar/*generation*` or `rf.registrar/*live-view*` so the registrar's
-;; own `lookup` / `registrations` / `ids` do the resolution — byte-identical
-;; descriptor shape, no resolver-walk duplicated here. The store read stays
-;; byte-identical: only a query carrying `:frame` reaches a frame's view.
-;;
-;; FAIL-LOUD (EP-0023 §Id Spaces): a `:frame` that names neither a frame made
-;; without `:images` nor a live frame carrying a generation throws
-;; `:rf.error/frame-no-generation` (NO fallback to the default registrar — the
-;; read needs a frame that resolves registrations itself). `:frame` accepts a
-;; REGISTERED FRAME ID (keyword, looked up in the process-local live-frame
-;; registry — the same path `frame-generation` uses) OR a direct live frame
-;; OBJECT (`make-frame`'s return value).
+;; A query without `:frame` reads the registration table through a fresh
+;; `re-frame.live-frame/live-view`, never through `rf.registrar`'s own reads:
+;; those consult the frame view `call-with-frame-resolution` binds around every
+;; sub build, dispatch, fx and view resolution, so from inside a handler they
+;; would silently answer for THAT frame. The distinction lives here, at the
+;; public boundary, because the `rf.registrar` reads are the runtime's
+;; resolution path and must stay generation-routed. A query WITH `:frame` runs
+;; those same reads inside `call-with-frame-resolution` for the target frame,
+;; so no resolver walk is duplicated here.
 
 (defn- frame-target-ids
   "The public ids of the frames a frame-targeted read resolves, for the
@@ -2123,10 +1858,6 @@
   §`:rf/frame-meta`."}
   frame-meta   rf.frame/frame-meta)
 
-;; The public model is `image -> frame -> event stream`: a frame is addressed by
-;; its process-local frame id. There is no realm coordinate and no frame-side
-;; realm read on the facade.
-
 (defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,
   or `nil` if not registered. Value-form accessor (no deref, no
@@ -2154,50 +1885,15 @@
   [frame-id]
   (rf.frame/frame-state-value (rf.frame/frame-value->id frame-id)))
 
-;; The public construction model is `rf/image` — the selected registration-set
-;; value a frame loads — supplied to `make-frame` via `:images`. A feature
-;; namespace registers ordinary `reg-*` forms and an image selects them by
-;; `:select-ns {:include [...] :exclude [...]}` provenance globs, so there is
-;; no separate module/app composition noun. The frame's image generation
-;; determines registration resolution; refresh an id-bearing frame by calling
-;; `make-frame` again with the same `:id` and a new `:images` vector.
-
 ;; ---- interceptors --------------------------------------------------------
 ;;
-;; `reg-interceptor*` (the programmatic/REPL fn-twin) is not on the
-;; facade. The `reg-interceptor` macro (above)
-;; delegates straight to `rf.interceptor-registry/reg-interceptor*`, and the CLJS
-;; same-name `def`-alias in the Convention-A block near the top of this ns
-;; covers the HoF / programmatic case — reach the owning ns directly
-;; (`re-frame.interceptor-registry/reg-interceptor*`) from JVM code.
-;;
-;; The lowering constructor is NOT on this facade either:
-;; `re-frame.interceptor/->interceptor*` is the one constructor, reached by
-;; the registry resolver, the std interceptors and tests. `reg-interceptor` is
-;; the authoring form.
+;; Interceptors are authored with `reg-interceptor` and referenced by id; the
+;; `:before` / `:after` fns work on the context map directly. The fn twin
+;; `reg-interceptor*`, the `->interceptor*` constructor and the context
+;; accessors stay in their owning namespaces (EP-0022).
 
-;; Interceptor CONTEXT ACCESSORS — `get-coeffect` / `assoc-coeffect` /
-;; `get-effect` / `assoc-effect` — are not re-exported from the
-;; `re-frame.core` façade. The intended interceptor model is to author with `reg-interceptor` and
-;; let the `:before` / `:after` fns receive and return the context map directly
-;; (ordinary `(get-in ctx [:coeffects k])` / `assoc-in` map work) — there is no
-;; façade-blessed accessor layer. The underlying `re-frame.interceptor/get-
-;; coeffect` / `assoc-coeffect` / `get-effect` / `assoc-effect` fns live in
-;; their owning namespace as the framework-internal context helpers (used by
-;; `events` / `privacy` / `router` / `spec` and the interceptor tests); they are
-;; not a public surface.
-
-;; There is no public `rf/path` VALUE constructor
-;; (EP-0022:552 "There is no public rf/path value constructor."). The one public
-;; path surface is the framework-registered factory ref
-;; `[:rf.interceptor/path <path-vector>]`. This facade name exists ONLY as a `^:no-doc`
-;; throwing stub (the project's actionable-removed-API pattern, like the
-;; EP-0018 `reg-event-db` / EP-0017 `inject-cofx` stubs) — a stale `(rf/path …)`
-;; resolves to a real var and fails LOUDLY with `:rf.error/path-removed`, naming
-;; the `[:rf.interceptor/path …]` ref as the replacement. `^:no-doc` drops it
-;; from the API manifest generator + the CLJS publics probe: it carries no
-;; manifest row and is not part of the documented public surface. See
-;; spec/API.md §Standard interceptors and migration/from-re-frame-v1/README.md.
+;; `rf/path` resolves to a throwing stub, so a stale call fails loud naming the
+;; `[:rf.interceptor/path …]` factory ref (spec/API.md §Standard interceptors).
 (def ^{:no-doc true
        :doc "REMOVED in EP-0022 (no alias). Calling `path` raises the hard
   error `:rf.error/path-removed`, naming the framework-registered ref
@@ -2206,12 +1902,8 @@
   spec/API.md §Standard interceptors."}
   path            rf.std-interceptors/path-removed!)
 
-;; EP-0015 §7: there is no `redact-interceptor`.
-;; A positional "redact for the trace but not the handler"
-;; interceptor would make privacy depend on interceptor placement rather than on
-;; the owner of the payload shape; registration-owned `:sensitive` payload
-;; classification + centralized `project-egress` at egress boundaries
-;; do that job.
+;; There is no `redact-interceptor`: classification is registration-owned and
+;; applied at egress, never by interceptor placement (EP-0015 §7).
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
@@ -2230,49 +1922,14 @@
 
 ;; ---- stream-parameterized observation listener verb ----------------------
 ;;
-;; One listener verb across the two raw DEV observation streams — the
-;; differentiator is DATA (which stream), so it rides in a leading
-;; required `stream` keyword rather than spawning one register/unregister
-;; pair per channel. The closed stream vocabulary:
-;;
-;;   :trace   — dev-only trace-event listener (re-frame.trace; production
-;;              CLJS bundles DCE the registration site under a `goog.DEBUG`
-;;              gate). The `:event` vector and all slots ride in dev only.
-;;   :epoch   — epoch-record listener (re-frame.epoch); the arm is gated on
-;;              `interop/debug-enabled?`, so production registers nothing
-;;              and returns nil.
-;;
-;; BOTH members are raw and DCE'd, so the vocabulary carries its own
-;; tier: `register-listener!` means "raw dev stream", full stop.
-;;
-;; PRODUCTION observation is a DIFFERENT verb, not a stream here
-;; (ONE production observation door).
-;; It is `register-observability-sink!` against a frame's `:observability`
-;; policy, or the `(rf/configure! {:observability …})` PROCESS DEFAULT for
-;; declare-once-per-process and for records with no resolvable frame. Sinks
-;; consume ALREADY-PROJECTED records under the frame's classification and the
-;; entry's egress profile; the raw substrate record is reachable through an
-;; explicit `{:sink … :rf.egress/profile :rf.egress/local-raw}` entry rather
-;; than through an ambient corpus-wide fan-out. There is no `:events` /
-;; `:errors` stream: one would be a SECOND, fail-open production door —
-;; unprojected, raw `:exception`, no frame policy, fanned across every frame
-;; — beside the door the spec calls normal; independent corpus observation
-;; regardless of a frame's policy is not a public primitive.
-;; `re-frame.event-emit` / `re-frame.error-emit` are `^:no-doc`
-;; IMPLEMENTATION registries (the substrate's own fan-out) for the
-;; framework's synchronous-window capture sites and for tests.
-;;
-;; Unknown stream throws `:rf.error/unknown-listener-stream` (closed
-;; vocabulary — no bare 2-arity `:trace` default, no compat
-;; aliases). Per Spec 009 §Observation listeners + Spec 015 §Frame-owned
-;; observability sink policy. The heavier trace-buffer machinery lives in
-;; `re-frame.trace.tooling`; the reader + clear pair is re-exported below on
-;; BOTH platforms so `rf/trace-buffer` is the one documented
-;; ring reader for tools / story / xray / re-frame-10x. Production CLJS
-;; bundles DCE the machinery — the alias is unused there, and the
-;; `bundle-isolation` gate is the proof of that, not the require graph
-;; (the listener arms below name the owning sibling,
-;; `re-frame.trace.tooling`, directly).
+;; One verb over the two raw DEV streams, `:trace` and `:epoch`: the stream is
+;; data, so it rides as a leading keyword rather than one verb pair per
+;; channel, and both arms DCE in production. Production observation is a
+;; different verb, `register-observability-sink!`, the one production door.
+;; There is no `:events` / `:errors` stream because it would be a second,
+;; unprojected, fail-open production door; `re-frame.event-emit` /
+;; `re-frame.error-emit` stay implementation registries. Spec 009 §Observation
+;; listeners, Spec 015 §Frame-owned observability sink policy.
 
 (def ^:private listener-streams
   "Closed vocabulary for `register-listener!` / `unregister-listener!`."
@@ -2346,16 +2003,6 @@
               (rf.epoch/unregister-epoch-listener! id))
     (unknown-listener-stream! 'rf/unregister-listener! stream)))
 
-;; There is deliberately NO façade `clear-listeners!` verb.
-;; Dropping every listener on a stream is a
-;; test-isolation concern that belongs in the fixture layer, not the public
-;; facade: `re-frame.test-support`'s reset clears the registries
-;; through the lower-level sinks directly
-;; (`re-frame.trace.tooling/clear-listeners!`,
-;; `re-frame.event-emit/clear-event-listeners!`,
-;; `re-frame.error-emit/clear-error-listeners!`, and epoch's lifecycle
-;; `:test-reset`).
-
 (def ^{:doc "Return the named frame's event-keyed trace ring,
   oldest-first. Two arities:
 
@@ -2381,33 +2028,9 @@
   no-op in production. Per Spec 009 §`trace-buffer` API."}
   clear-trace-buffer!    rf.trace.tooling/clear-trace-buffer!)
 
-;; The always-on event-emit / error-emit listener registries are not
-;; facade exports: the stream-parameterized `register-listener!` /
-;; `unregister-listener!` pair above has the vocabulary
-;; `#{:trace :epoch}`, two raw dev streams. So NO facade
-;; spelling reaches these registries at all: they are IMPLEMENTATION-tier,
-;; and production observation is a different verb —
-;; `register-observability-sink!` against a frame's `:observability` policy,
-;; or the `(rf/configure! {:observability …})` process default.
-;; Between-scenario test isolation clears the registries via the lower-level
-;; `re-frame.event-emit/clear-event-listeners!` /
-;; `re-frame.error-emit/clear-error-listeners!` sinks directly. The registries
-;; themselves are reachable via the
-;; `re-frame.event-emit` / `re-frame.error-emit` namespaces + the
-;; `:error-emit/register-error-listener!` late-bind hooks for the internal
-;; consumers that address them that way (router fan-out, the SSR
-;; error projector). Routing registers no error listener: under the
-;; EP-0037 R1 fire-and-forget `:on-match` model, route readiness is the
-;; resource projection.
-
-;; There is no `elide-wire-value` façade
-;; export. The path walker is a framework-internal mechanism, not a
-;; door — it reads no `:rf.egress/profile`, so a caller reaching it
-;; from outside the framework would have to hand-assemble the `:rf.egress/*` floor a
-;; named boundary carries. `project-egress` below is the ONLY
-;; projection door on the façade; it resolves the profile and delegates the
-;; per-slot walk to `re-frame.elision/elide-wire-value`, which is public at
-;; its home namespace for the framework's own emit-time chokepoints.
+;; `project-egress` is the facade's one projection door. The path walker
+;; `re-frame.elision/elide-wire-value` reads no `:rf.egress/profile`, so it
+;; stays at home for the framework's own emit-time chokepoints.
 
 (def ^{:doc "Project a record or value for egress across a trust boundary
   (EP-0015 §10/§11). The public, record-level boundary primitive — the
@@ -2435,19 +2058,10 @@
 
 ;; ---- frame-owned observability sink routing (EP-0015 §9) -----------------
 ;;
-;; The NORMAL production observability story (Spec 015 §Frame-owned
-;; observability sink policy): an app declares a sink under a frame's
-;; `:observability` config and registers the concrete sink fn against that
-;; sink id here. The runtime routes one handled-event record per processed
-;; event and one error record per `:rf.error/*` site through `project-egress`
-;; (under the frame's classification + the sink's egress profile) to the
-;; declared sinks. Sinks consume ALREADY-PROJECTED records — no sink-local
-;; redaction. This sink is the ONLY production observation door:
-;; per-frame through the frame's `:observability` policy, or once per process
-;; through `(rf/configure! {:observability …})`, which is also where records
-;; with no resolvable frame land. A cross-frame integration declares the
-;; process default; a raw record is an explicit
-;; `:rf.egress/local-raw` profile on that entry, not an ambient fan-out.
+;; The production observation door (Spec 015 §Frame-owned observability sink
+;; policy): a frame's `:observability` config, or the `configure!` process
+;; default, names sink ids, and the fns registered here receive
+;; ALREADY-PROJECTED records.
 
 (def ^{:doc "Register an observability sink FN `f` under the keyword
   `sink-id` — the user/library-owned id a frame's `:observability`
@@ -2466,74 +2080,16 @@
   Returns nil. Per Spec 015 §Frame-owned observability sink policy."}
   unregister-observability-sink!   rf.observability/unregister-observability-sink!)
 
-;; EP-0015 §8: no facade export walks `reg-app-schema` `{:large? true}` /
-;; `{:sensitive? true}` slot props into the app-db classification — that
-;; would be a second route to classify a durable app-db path. Schemas describe
-;; shape, not durable app-db egress policy; durable app-db classification is
-;; declared by `reg-classification`.
-
-;; EP-0025: there is no derived-tree VALUE-match egress helper, on the
-;; façade or in `re-frame.elision` — value-match is "propagation/taint by
-;; another name" the EP disclaims. The ONLY derived-tree egress boundary is
-;; `project-egress` with a `:rf.observe/derived-tree` record, which PATH-walks
-;; the tree against the frame's classification (a re-keyed value ships raw —
-;; intended fail-open).
-
-;; `group-by-event` / `domino-bucket` are not facade exports.
-;; `re-frame.trace.projection` is the rostered home of both — the
-;; namespace tools require directly (Xray's `self_noise.cljc`
-;; composes `re-frame.trace.projection/group-by-event` over the buffer it just
-;; read) — so a facade re-export would teach a second spelling for the
-;; same surface. Per Spec 009 §Event-bundle projection.
-
-;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
+;; ---- surfaces that live at home ------------------------------------------
 ;;
-;; The epoch surface is inspection, history and tooling, so it lives at home
-;; in `re-frame.epoch` (spec/API.md §Conventions, the role rule):
-;; `epoch-history`, `restore-epoch!`, `replay-epoch!`, `replace-frame-state!`.
-;; None is re-exported here; a facade re-export would teach a second spelling.
-
-;; There are deliberately NO façade `register-epoch-listener!` /
-;; `unregister-epoch-listener!` exports.
-;; The epoch stream is one of the TWO raw dev observation streams —
-;; `register-listener!`'s vocabulary is `#{:trace :epoch}` — so it is
-;; registered through
-;; the single stream-parameterized verb —
-;; `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch
-;; id)` — exactly like `:trace`, the other member. Those verbs call
-;; `re-frame.epoch/register-epoch-listener!` and its sibling, which are the
-;; implementation. A dedicated per-channel pair here would duplicate the
-;; stream-parameterized verb.
-
-;; ---- frame-state write surface -------------------------------------------
-;;
-;; The Tool-Pair frame-state write, `replace-frame-state!`, is a tool's
-;; out-of-band injection rather than something app code authors, so it lives
-;; at home in `re-frame.epoch` beside the restore that undoes it. App code
-;; writes state through events (`:rf/set-db`, `:rf/install-frame-state`).
-
-;; Per Security.md §Epoch privacy posture — off-box epoch
-;; egress. There is deliberately NO `projected-record` façade export:
-;; `rf/project-egress` is
-;; the ONE record-level egress door, and an `:rf/epoch-record` reaches its
-;; per-kind projector by its stamped `:kind`, not by a second name.
-;;
-;;     (rf/project-egress record {:rf.egress/profile :rf.egress/off-box-tool})
-;;
-;; The whole ring is ordinary composition:
-;;
-;;     (mapv #(rf/project-egress % opts) (rf.epoch/epoch-history frame-id))
-
-;; ---- Spec 014 — :rf.http/managed -----------------------------------------
-;;
-;; The stub transports are NOT `re-frame.core` façade exports (test and demo
-;; infrastructure, not app-facing core surface). Reach them through their home
-;; namespace `re-frame.http.stub-transport`.
-
-;; reg-http-interceptor is a macro (per the defreg-macro form above) so
-;; source-coords are captured at the call site like every other reg-*.
-;; CLJS apps reach the fn-form via `re-frame.core-http/reg-http-interceptor`
-;; for programmatic registration that bypasses the macro path.
+;; Not re-exported, because each has an owning namespace (spec/API.md
+;; §Conventions, the role rule): the epoch history and time-travel surface —
+;; `epoch-history`, `restore-epoch!`, `replay-epoch!`, `replace-frame-state!` —
+;; in `re-frame.epoch`, whose listener pair is reached here as
+;; `(register-listener! :epoch …)`; `group-by-event` / `domino-bucket` in
+;; `re-frame.trace.projection`; the stub HTTP transports in
+;; `re-frame.http.stub-transport`. An epoch record goes off-box through
+;; `project-egress`, which dispatches on its `:kind`.
 
 ;; ---- configure / substrate adapter / boot --------------------------------
 
@@ -2573,17 +2129,15 @@
         (keys config-map)))
 
 (defn configure!
-  "Configure process-level runtime knobs from a single nested map. v1 keys:
+  "Configure process-level runtime knobs from one nested map:
     :epoch-history {:depth N}                       ring depth (default 50; 0 disables)
     :trace-buffer  {:events-retained N}             per-frame trace-ring retained-event
-                                                    count — one slot per EVENT (one dequeued
-                                                    event / pipeline run), regardless of how
-                                                    many TRACE EVENTS that run emitted
-                                                    (default 50; 0 disables retention).
-                                                    Applied to `:rf/default` and to every
-                                                    frame that did not set its own
-                                                    `:rf.trace/events-retained` metadata.
-                                                    Per Spec 009 §Per-frame trace rings.
+                                                    count — one slot per dequeued event,
+                                                    however many trace events it emitted
+                                                    (default 50; 0 disables retention),
+                                                    for every frame without its own
+                                                    `:rf.trace/events-retained`. Per
+                                                    Spec 009 §Per-frame trace rings.
     :elision       {:rf.egress/threshold-bytes N}     wire-elision size threshold
                                                     (default 16384; 0 disables runtime
                                                     auto-detect — only declared / schema
@@ -2593,106 +2147,43 @@
                                                     same closed entry grammar
                                                     `make-frame` takes. `nil` clears.
 
-  One composable configuration value rather than several near-equivalent
-  spellings:
-
       (configure! {:epoch-history {:depth 100}
                    :trace-buffer  {:events-retained 25}
                    :elision       {:rf.egress/threshold-bytes 8192}
                    :observability {:errors [{:sink :app/sentry}]}})
 
-  `:observability` DECLARES PRODUCTION OBSERVATION ONCE PER PROCESS.
-  Policy is a deployment property, so a multi-frame app need not
-  restate its Sentry policy on every `make-frame` call:
+  A missing key leaves its subsystem untouched; a present one delegates to
+  that subsystem's configurator, in the order above. `:epoch-history`
+  applies nothing in a production build, and `:trace-buffer` nothing in a
+  build without the trace tooling; the other keys still apply.
 
-      (rf/configure! {:observability {:errors [{:sink :app/sentry}]}})
-      (rf/register-observability-sink! :app/sentry (fn [record] …))
-
-  Precedence is PER STREAM, never whole-map. A frame that DECLARES a stream
-  uses its own entries for it; a frame that OMITS the stream inherits the
-  default's. So a frame declaring only `{:handled-events […]}` still inherits
-  the default's `:errors`. `{:errors []}` on a FRAME is that frame's opt-out
-  — it declares the stream and names no sink — and exactly one source is
-  consulted per record per stream, so a sink id named by both is invoked
-  ONCE. `{:observability nil}` here CLEARS the default.
-
-  It is also the ONLY door for records with no resolvable frame owner:
-  `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse arm of
-  `:rf.error/malformed-hydration-payload`, fresco's compute-sub
-  `:rf.error/sub-exception`, and any record whose `:frame` no longer resolves
-  (a destroyed frame, a dissociated incarnation's teardown report). These
-  reach the process default projected under an EXPLICITLY NIL governing frame
-  — fail-closed, so tree slots are `:rf/redacted` and summary ids stay
-  intact — and a stale `:frame` id is kept as a diagnostic but NEVER
-  re-resolved, so it can never reach a same-id successor's sink. Per Spec 015
+  `:observability` declares production observation once per process, so a
+  multi-frame app need not restate it on every `make-frame`. Precedence is
+  PER STREAM: a frame that declares a stream uses its own entries for it, one
+  that omits the stream inherits the default's, and `{:errors []}` on a frame
+  is that frame's opt-out. One source is consulted per record per stream, so
+  a sink named by both is invoked once. It is also the only door for records
+  with no resolvable frame (`:rf.error/no-frame-context`, a destroyed frame's
+  teardown report, …), projected fail-closed under an explicitly nil frame;
+  a stale `:frame` id is never re-resolved, so it cannot reach a same-id
+  successor's sink. Unlike the other keys it validates at call time, failing
+  loud with `:rf.error/bad-frame-classification`, because a policy that
+  installed silently would surface only as a dropped record. Per Spec 015
   §Frame-owned observability sink policy.
 
-  Unlike the other keys this one VALIDATES at call time, fail-loud with
-  `:rf.error/bad-frame-classification` and `:where 'rf/configure!` — the same
-  validator and the same closed entry grammar `make-frame` applies, because a
-  policy that installs silently only surfaces as a dropped record at the first
-  sink fire.
-
-  The argument MUST be a map. A non-map argument — a vector, `nil` —
-  throws `:rf.error/configure-bad-arg`. The keyed form
-  `(configure! :trace-buffer {…})` throws it on CLJS, and is an
-  `ArityException` on the JVM. That check is ALWAYS-ON: it is a plain
-  runtime guard, not an `assert`, so it survives a host build compiled
-  with assertions elided (CLJS `:elide-asserts true`, JVM `*assert*`
-  false) rather than degrading to a silent no-op there. A missing
-  top-level key leaves that subsystem untouched; a present key delegates
-  to that subsystem's configurator in API-table order
-  (`:epoch-history`, `:trace-buffer`, `:elision`, `:observability`),
-  each with its own slot-merge semantics.
-
-  An unrecognised top-level key applies nothing and the call
-  returns `nil` — but a BARE key (`:epoch-histroy`) or a FRAMEWORK-
-  namespaced one (`:rf.foo/bar`) emits the dev-gated warning
-  `:rf.warning/unknown-configure-key` naming the bad keys and the known
-  set. `configure!`'s vocabulary is closed and its keys are
-  bare, so an unknown bare key reads as a typo of a real key — the shape
-  [Conventions §No silent swallow] says MUST signal. A USER-NAMESPACED
-  key (`:myapp/thing`) passes in SILENCE: that is the extension-key
-  carve-out that lets a wrapper hand `configure!` a composed config value
-  without first filtering it. The warning is observational, never refusal
-  (`:recovery :ignored`), and DCEs wholesale under `:advanced` +
-  `goog.DEBUG=false`. Per-frame settings live on frame metadata. Per
-  Tool-Pair §How AI tools attach.
-
-  `:epoch-history` applies nothing in a production build, silently, and
-  the other keys still apply.
-
-  There is no `:sub-cache` knob: sub disposal is **synchronous on
-  derefer-count → 0** —
-  there is no deferred-grace timer to configure.
-
-  `:trace-buffer` routes through the `re-frame.trace.tooling` sibling
-  ns. Production builds that never load the tooling
-  sibling silently no-op on this key — the ring + listener machinery
-  is DCE'd anyway."
+  A non-map argument throws `:rf.error/configure-bad-arg`, in every build.
+  An unrecognised top-level key applies nothing: a bare or `rf`-namespaced
+  one emits the dev warning `:rf.warning/unknown-configure-key`, because the
+  vocabulary is closed and it reads as a typo, while a user-namespaced key
+  (`:myapp/thing`) passes in silence, so a wrapper can thread a composed
+  config through (Conventions §No silent swallow). Per-frame settings live
+  on frame metadata. Per Tool-Pair §How AI tools attach."
   [config-map]
-  ;; ALWAYS-ON, not `assert`. A language
-  ;; `(assert (map? config-map) …)` is one the host compiler is entitled to
-  ;; ELIDE: Clojure's `assert` macro emits nothing when `*assert*` is false, and
-  ;; the ClojureScript compiler binds `*assert*` false for `:elide-asserts true`
-  ;; — a legitimate, common consumer release setting. In such a build every
-  ;; non-map call — the RETIRED keyed form `(rf/configure! :trace-buffer)`, a
-  ;; vector, `nil` — would return `nil`, apply nothing, and emit no diagnostic,
-  ;; so the programmer would believe trace / epoch / elision configuration was
-  ;; installed when it had been silently dropped. The retired keyed arity is
-  ;; exactly the call migration produces, which is what makes the silence
-  ;; expensive rather than merely untidy.
-  ;;
-  ;; A `when-not` + `throw-error!` pair carries no assertion machinery on either
-  ;; host, so the contract holds in EVERY build posture from ONE `.cljc` source.
-  ;; Mirrors `re-frame.live-frame/validate-opts!` (`:rf.error/make-frame-bad-opts`),
-  ;; the sibling public-boundary map guard in this artefact — same condition,
-  ;; same fail-loud-before-any-work posture, same canonical chokepoint.
-  ;;
-  ;; The guard is the TOP-LEVEL SHAPE ONLY. Unknown top-level keys are
-  ;; APPLIED-NOTHING no-ops (never a refusal) and nested subsystem opts stay
-  ;; each subsystem's business — this is one boundary check plus one dev-gated
-  ;; diagnostic, not a validator framework.
+  ;; A plain guard, not `assert`: `:elide-asserts true` (or JVM `*assert*`
+  ;; false) compiles an assert away, and the keyed `(rf/configure!
+  ;; :trace-buffer …)` call migration produces would then apply nothing in
+  ;; silence. Mirrors `re-frame.live-frame/validate-opts!`. It checks the
+  ;; top-level shape only; nested opts are each subsystem's.
   (when-not (map? config-map)
     (rf.error/throw-error!
       :rf.error/configure-bad-arg
@@ -2717,24 +2208,13 @@
       (f opts)))
   (when-let [opts (:elision config-map)]
     (rf.elision/configure! opts))
-  ;; The process-default observation policy. Read by KEY
-  ;; PRESENCE, not truthiness, so `{:observability nil}` CLEARS the default
-  ;; while OMITTING the key leaves it untouched. A `when-let` here would
-  ;; collapse those two into one silent no-op and leave the clear
-  ;; unspellable — the same key-presence discipline `project-egress` applies
-  ;; to an explicit `{:frame nil}`. Validation is the
-  ;; subsystem's, and it THROWS: unlike the other three keys this one is a
-  ;; policy the runtime must be able to refuse at the call the author typed.
+  ;; By key presence, so `{:observability nil}` clears the default while
+  ;; omitting the key leaves it alone. Its validation throws, unlike the
+  ;; other keys': a policy is refused at the call the author typed.
   (when (contains? config-map :observability)
     (rf.observability/configure! (:observability config-map)))
-  ;; No silent swallow of a BARE / framework-namespaced unknown
-  ;; key. Reuses the `:rf.warning/unknown-dispatch-opt` convention verbatim
-  ;; (re-frame.router.diagnostics/emit-unknown-dispatch-opts-warning!): the
-  ;; whole surface — the keyword's interned slot, the reason-string
-  ;; allocation, the key walk — sits inside the `rf.interop/debug-enabled?`
-  ;; gate so Closure DCEs it under `:advanced` + `goog.DEBUG=false`.
-  ;; Observational, never refusal: the call returns nil and
-  ;; applies nothing.
+  ;; Dev-only and observational: the key walk and the message sit inside the
+  ;; gate, so they DCE in production, and the call still returns nil.
   (when rf.interop/debug-enabled?
     (when-let [unknown (seq (unknown-configure-keys config-map))]
       (let [unknown (vec unknown)
@@ -2799,14 +2279,9 @@
   Per Conventions §`configure!` (mutation) vs `current-config` (read)."
   []
   (let [trace-read (rf.late-bind/get-fn :trace.tooling/current-trace-buffer-config)
-        ;; Present only when a process default is DECLARED: an
-        ;; undeclared policy is absent rather than `nil`, which is this fn's
-        ;; standing rule (`:epoch-history` / `:trace-buffer` read the same
-        ;; way) and reads correctly against the routing model — no default
-        ;; means frames route on their own policy alone. It is NOT the
-        ;; availability branch those two take: `re-frame.observability`
-        ;; is always loaded, so the key's absence is a statement about
-        ;; CONFIGURATION, never about the build.
+        ;; Absent, not nil, when no process default is declared. Unlike the
+        ;; dev-only keys this is about configuration, never the build:
+        ;; `re-frame.observability` is always loaded.
         observability (rf.observability/current-observability-config)]
     (cond-> {:elision (rf.elision/current-config)}
       rf.interop/debug-enabled? (assoc :epoch-history (rf.epoch.state/current-config))
@@ -2894,25 +2369,11 @@
     (not (map? adapter-map))  (bad-init-arg! adapter-map)
     :else
     (do
-      ;; The guard asks "is the adapter I was handed the seated one?", not
-      ;; merely "is ANYTHING seated?" — the latter would let
-      ;; `(rf/init! reagent/adapter)` followed by `(rf/init! uix/adapter)`
-      ;; return nil, leave Reagent seated and say nothing, the shape
-      ;; Conventions §No silent swallow forbids: a recognised input the
-      ;; runtime cannot honour MUST signal. It asks with `same-adapter?`, the
-      ;; stable-token predicate. Nothing seated → install. Seated and DIFFERENT
-      ;; → `install-adapter!` throws `:rf.error/adapter-already-installed`,
-      ;; and the throw stays in the owning ns rather than being duplicated
-      ;; here. Seated and the same → no reinstall.
-      ;;
-      ;; `same-adapter?` rather than `=` / `identical?` is what keeps hot
-      ;; reload working: every adapter Var is a plain `def`, so a reload
-      ;; re-evaluates the map with fresh fn identities, and `init!` call
-      ;; sites commonly fire from a `^:dev/after-load` fn. A
-      ;; canonical `:rf.adapter/*` kind survives that re-evaluation as a
-      ;; stable token, so the re-call does not reinstall — and
-      ;; `refresh-capabilities!` publishes the re-evaluated map's
-      ;; capabilities, so the reloaded code is what answers next.
+      ;; Is the adapter handed in the seated one? `same-adapter?` (canonical
+      ;; `:kind`, else identity) rather than `=`, which is what keeps hot
+      ;; reload working. A different seated adapter makes `install-adapter!`
+      ;; throw `:rf.error/adapter-already-installed`, so a second adapter is
+      ;; never ignored in silence.
       (if (rf.substrate.adapter/same-adapter?
             adapter-map
             (rf.substrate.adapter/current-adapter))
@@ -2933,16 +2394,9 @@
 
 ;; ---- feature inspection --------------------------------------------------
 ;;
-;; Front-porch for the optional-feature inventory: which `day8/re-frame2-
-;; <feature>` artefacts are on the classpath, and the exact copy-pasteable
-;; coordinate to add when one is missing. ONE fn — `features` — is the
-;; whole door; the boolean is a lookup into its map. It SHIPS to
-;; production (a runtime query, not instrumentation — NOT elided). The
-;; feature→coordinate mapping is STATIC DATA in the always-loaded
-;; `re-frame.features` facade ns, never a live require into the optional
-;; impls (which would pull every optional namespace into every production
-;; bundle and break bundle-isolation). Per spec/API.md §Feature inspection
-;; and Conventions §Facade re-export, artefact require.
+;; Ships to production. The feature→coordinate table is static data in
+;; `re-frame.features`, never a require into the optional artefacts, which
+;; would pull every one into every bundle (spec/API.md §Feature inspection).
 
 (def ^{:doc "Return a map of every optional feature keyword to its
   inspection entry — static coordinate data (`:maven` / `:require` /
