@@ -78,7 +78,12 @@
 
   The public entry point is `intercept-spawn-done-event`; the handler-factory
   in `re-frame.machines.lifecycle-fx.registration` routes a reserved
-  completion carrier through it instead of the machine's normal `:on` lookup."
+  completion carrier through it instead of the machine's normal `:on` lookup.
+
+  An explicitly destroyed child mints no carrier, so its keyword destroy folds
+  it here directly: `cancel-child` tombstones it and decides the resolution in
+  the same durable write, and `resolve-cancelled-child!` acts on that decision
+  once the child is gone (Spec 005 §Join semantics)."
   (:require [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.machines.transition :as rf.machines.transition]
@@ -279,9 +284,8 @@
   nothing surfaces the dead join.
 
   An explicitly destroyed child (`:cancelled`, the tombstone
-  `lifecycle-fx.destroy` writes) never completes either: its carrier is
-  suppressed as a duplicate, so it counts against the join exactly as a
-  failure does.
+  `cancel-child` writes) never completes either, so it counts against the
+  join exactly as a failure does.
 
   `max-possible-done` is the largest `:done` count still achievable — the
   current `:done` plus every child not yet decided (every pending child
@@ -325,41 +329,40 @@
                    :reason    (str "A :spawn-all join can no longer be "
                                    "satisfied — too many children have failed "
                                    "or been destroyed — so it will hang forever. "
-                                   "Declare :on-any-failed to handle child "
-                                   "failures; a destroyed child never completes, "
-                                   "so leave the :spawn-all state to end the join.")}))
+                                   "Declare :on-any-failed to resolve the join on "
+                                   "a failed or destroyed child, or leave the "
+                                   ":spawn-all state to end it.")}))
 
-(defn warn-if-cancel-strands-join!
-  "Emit the unsatisfiable-join advisory when an explicit teardown of one join
-  child — the `:cancelled` tombstone taking `before` to `after` — FIRST makes
-  the unresolved join at `[parent-id invoke-id]` unsatisfiable. A
-  cancellation never reaches the completion fold, so the fold's own check
-  cannot see it. `parent-snapshot` names the parent's machine when it is a
-  spawned actor; the join's configuration comes from the parent's CURRENT
-  definition, as the fold reads it."
-  [frame-id parent-id invoke-id parent-snapshot before after]
-  (let [spec (rf.machines.lifecycle-fx.resolver/spawn-all-spec-at
-               (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot parent-id parent-snapshot)
-               invoke-id)]
-    (when (and (not (:resolved? after))
-               (join-unsatisfiable? spec after)
-               (not (join-unsatisfiable? spec before)))
-      (emit-join-unsatisfiable! frame-id parent-id invoke-id spec after))
-    nil))
+(defn- current-spawn-all-spec
+  "The `:spawn-all` declaration at `invoke-id` in the parent's CURRENT
+  definition, as the fold reads it; `parent-snapshot` names the parent's
+  machine when it is a spawned actor."
+  [parent-id parent-snapshot invoke-id]
+  (rf.machines.lifecycle-fx.resolver/spawn-all-spec-at
+    (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot parent-id parent-snapshot)
+    invoke-id))
+
+(def ^:private cancellation-result
+  "The `<result>` of a resolution whose decisive child was explicitly
+  destroyed, in place of an `:output-key` error value: Managed-Effects
+  §Cancellation's `:status :cancelled`, with the cancel reason the child's own
+  `:rf.machine/destroyed` row carries."
+  {:status :cancelled :rf.reply/cancel-reason :explicit})
 
 (defn- compute-resolution
   "Pure. Given the post-bump `join-state'`, the join spec, and the
-  arriving child's `kind` (:done | :failed), decide whether the join
-  resolves and which kind of resolution. Returns a map:
+  arriving child's `kind` (:done | :failed | :cancelled), decide whether the
+  join resolves and which kind of resolution. Returns a map:
 
-      {:resolved?        boolean
+      {:kind             kind
+       :resolved?        boolean
        :fail-fired?      boolean
        :success-fired?   boolean
        :resolution-event <event-vec or nil>
        :join-event-kw    <:on-all-complete | :on-some-complete | :on-any-failed | nil>}
 
-  - `:fail-fired?` iff the arriving child errored AND the spec declares
-    `:on-any-failed`.
+  - `:fail-fired?` iff the arriving child errored or was explicitly
+    destroyed AND the spec declares `:on-any-failed`.
   - `:success-fired?` iff failure didn't fire AND the join condition is
     met by `join-state'`.
   - `:resolution-event` is the spec's event vector to dispatch into the
@@ -367,7 +370,7 @@
   - `:join-event-kw` is the resolution kind (used by the
     cancelled-on-join-resolution trace)."
   [spec join-state' kind]
-  (let [fail-fired?    (and (= kind :failed)
+  (let [fail-fired?    (and (contains? #{:failed :cancelled} kind)
                             (vector? (:on-any-failed spec)))
         success-fired? (and (not fail-fired?)
                             (join-condition-met? spec join-state'))
@@ -382,7 +385,8 @@
         (cond
           fail-fired?    :on-any-failed
           success-fired? (if all-join? :on-all-complete :on-some-complete))]
-    {:resolved?        (boolean (or fail-fired? success-fired?))
+    {:kind             kind
+     :resolved?        (boolean (or fail-fired? success-fired?))
      :fail-fired?      fail-fired?
      :success-fired?   success-fired?
      :resolution-event resolution-event
@@ -470,21 +474,26 @@
   `:rf.reply/completed-at`) rides ADDITIVELY on the resolution trace, so the
   join-resolving child completion classifies the same way the
   single-`:spawn` path does, beside the public resolution-trace slots
-  (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`)."
+  (`:actor-id` / `:invoke-id` / `:done` / `:failed` / `:reason`). An
+  explicitly destroyed decisive child adds none: its `:rf.machine/destroyed`
+  row already closed its attempt as `:cancelled`, and one attempt has one
+  terminal."
   [frame-id parent-id invoke-id spec join-state'' child-id work-generation
-   result completed-at {:keys [fail-fired? success-fired?]}]
+   result completed-at {:keys [kind fail-fired? success-fired?]}]
   (when fail-fired?
     (rf.trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
-                 (merge {:actor-id parent-id
-                         :invoke-id invoke-id
-                         :failed-id  child-id
-                         :reason     result
-                         :failed     (:failed join-state'')
-                         :done       (:done   join-state'')
-                         :frame      frame-id}
-                        (child-completion-tags
-                          parent-id invoke-id join-state''
-                          child-id work-generation :failed completed-at))))
+                 (cond-> {:actor-id parent-id
+                          :invoke-id invoke-id
+                          :failed-id  child-id
+                          :reason     result
+                          :failed     (:failed    join-state'')
+                          :cancelled  (:cancelled join-state'')
+                          :done       (:done      join-state'')
+                          :frame      frame-id}
+                   (not= :cancelled kind)
+                   (merge (child-completion-tags
+                            parent-id invoke-id join-state''
+                            child-id work-generation :failed completed-at)))))
   (when success-fired?
     (let [work-tags (child-completion-tags
                       parent-id invoke-id join-state''
@@ -538,7 +547,8 @@
 
   where `<result>` is the decisive child's `:output-key` value (its error
   payload on `:on-any-failed`) — ONE value, sourced from the child's finality
-  rather than from whatever the child chose to forward.
+  rather than from whatever the child chose to forward — or
+  `cancellation-result` when the decisive child was explicitly destroyed.
 
   COMPLETED children are NOT torn down here. Completion IS finality (Spec 005
   §Final states, D4): a child that folded into this join reached a `:final?`
@@ -612,6 +622,66 @@
           (let [inner (conj (vec resolution-event) child-id result)]
             [[:dispatch [parent-id inner]]]))]
     (vec (concat (or destroy-fx []) (or dispatch-fx [])))))
+
+(defn cancel-child
+  "Pure. `runtime-db` with logical child `child-id`'s attempt closed in the
+  join at `[parent-id invoke-id]`: the id joins the `:cancelled` tombstone
+  set, so a queued completion for it folds nothing.
+
+  `counts-as-failure?` is true for a keyword destroy — the app's own explicit
+  destroy of the child — which counts as that child FAILING (Spec 005 §Join
+  semantics). When it also resolves the join, through `:on-any-failed` on a
+  join not yet resolved, `:resolved?` latches in this same write, so nothing
+  folds between the cancellation and the resolution `resolve-cancelled-child!`
+  then carries out. The runtime's own cancellations never count: the exit
+  cascade passes false, and the cancel-on-decision cascade's destroys meet a
+  join already resolved."
+  [runtime-db parent-id invoke-id child-id counts-as-failure?]
+  (let [path        (rf.machines.paths/spawned-path parent-id invoke-id)
+        join-state  (get-in runtime-db path)
+        join-state' (update join-state :cancelled (fnil conj #{}) child-id)
+        resolves?   (and counts-as-failure?
+                         (not (:resolved? join-state))
+                         (:fail-fired?
+                           (compute-resolution
+                             (current-spawn-all-spec
+                               parent-id
+                               (get-in runtime-db (rf.machines.paths/snapshot-path parent-id))
+                               invoke-id)
+                             join-state' :cancelled)))]
+    (assoc-in runtime-db path
+              (cond-> join-state' resolves? (assoc :resolved? true)))))
+
+(defn resolve-cancelled-child!
+  "Carry out what `cancel-child` decided for the destroyed `child-id`, once
+  the child is gone: `before` is the join state its write replaced and
+  `after` the one it wrote; `runtime-db` is read after the child's teardown.
+
+  If the write latched `:resolved?`, the destroy resolved the join exactly as
+  a child error does: the `:rf.machine.spawn-all/any-failed` trace fires and
+  the returned fx destroy every survivor and dispatch `:on-any-failed`, its
+  `<result>` the `cancellation-result`. Otherwise, with no `:on-any-failed` to
+  answer it, the one-shot unsatisfiable-join advisory fires when this
+  cancellation FIRST strands the join. Returns the fx vector for the caller to
+  run, or nil."
+  [runtime-db frame-id parent-id invoke-id child-id before after]
+  (let [spec (current-spawn-all-spec
+               parent-id
+               (get-in runtime-db (rf.machines.paths/snapshot-path parent-id))
+               invoke-id)]
+    (cond
+      (and (:resolved? after) (not (:resolved? before)))
+      (let [resolution (compute-resolution spec after :cancelled)]
+        (emit-resolution-traces! frame-id parent-id invoke-id spec after child-id
+                                 nil cancellation-result nil resolution)
+        (build-resolution-fx runtime-db frame-id parent-id invoke-id after child-id
+                             cancellation-result resolution))
+
+      (and (not (:resolved? after))
+           (join-unsatisfiable? spec after)
+           (not (join-unsatisfiable? spec before)))
+      (do (emit-join-unsatisfiable! frame-id parent-id invoke-id spec after)
+          nil))))
 
 (defn- child-spec-at
   "The child entry for `child-id` in `spawn-all-spec` — the parent's CURRENT
