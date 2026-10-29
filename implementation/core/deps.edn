@@ -33,6 +33,13 @@
 ;; `re-frame.http.decode` and refuses the request when it is absent, so
 ;; apps that use schemas add the schemas artefact (which carries Malli).
 ;;
+;; org.clojure/clojurescript is intentionally NOT a dep of this artefact: no
+;; JVM-loadable core namespace requires `cljs.*`, so a JVM consumer (an SSR
+;; server) is not handed the CLJS compiler and its Closure tree, and a CLJS
+;; build keeps the compiler its own tool brings (shadow-cljs pins one). No
+;; core test needs it either; the test classpaths carry it only through
+;; `day8/re-frame2-test-quiet`.
+;;
 ;; `resources` is on :paths, and on `:clein/build`'s `:src-dirs`, for ONE
 ;; reason: the clj-kondo export (`resources/clj-kondo.exports/day8/re-frame2/`)
 ;; reaches a consumer over the CLASSPATH. `clj-kondo --lint "$(clojure -Spath)"
@@ -43,8 +50,7 @@
 ;; Nothing under `resources/` is a loadable namespace: the hook file is data
 ;; that clj-kondo's own SCI reads from the config directory.
 {:paths ["src" "resources"]
- :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
-         org.clojure/clojurescript {:mvn/version "1.12.145"}}
+ :deps  {org.clojure/clojure {:mvn/version "1.12.0"}}
 
  :aliases
  {;; The core artefact's tests exercise schema-aware, machine-aware,
