@@ -46,8 +46,8 @@ If you arrived here from a source-only / spec-only question, you're in the wrong
   lower to (`spec/Derivations.md`: inputs / output / storage class / evaluation
   policy / lifecycle; superkinds `:derivation` / `:process`). A "read the derivation graph"
   request hits an **internal, structured accessor** the framework produces for tools +
-  conformance fixtures — **no public accessor name**, **no `re-frame.core` facade export**
-  in this slice (the public name is deferred until a third consumer needs it). So do
+  conformance fixtures, with **no public accessor name** and **no `re-frame.core` facade
+  export**. So do
   **not** assume a public graph API over the wire; drive a running app through the existing
   structured ops (`list-subscriptions`, `list-handlers`, `read-sub`, `sub-cache` introspection)
   and raw `eval-cljs` against the bundle-isolated tooling-sibling fns (e.g. `re-frame.subs.tooling/…`,

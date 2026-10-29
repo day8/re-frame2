@@ -2,6 +2,20 @@
 
 > A Story variant *is* a re-frame2 frame, and in a pair session it is a frame **in the browser heap on the other end of your nREPL connection**. So there is nothing new to learn about addressing one: enumerate and run through `eval-cljs` over `re-frame.story/*`, then read, dispatch, trace and diff it with the ordinary Pair tools. Assumes you have read `SKILL.md` (the trace + epoch primitives and the multi-frame model) and have a Story-enabled build running.
 
+## Contents
+
+- [When to load this leaf](#when-to-load-this-leaf)
+- [Which host to use](#which-host-to-use)
+- [The identity — variant-id IS the frame-id](#the-identity--variant-id-is-the-frame-id)
+- [Drive a Story variant — enumerate, run, operate](#drive-a-story-variant--enumerate-run-operate)
+- [The rest of the Story surface, from the same session](#the-rest-of-the-story-surface-from-the-same-session)
+- [Refine a variant interactively](#refine-a-variant-interactively)
+- [Three recipes, in the browser](#three-recipes-in-the-browser)
+- [What is per-variant, and what is not](#what-is-per-variant-and-what-is-not)
+- [Diff two variants of the same component](#diff-two-variants-of-the-same-component)
+- [Common gotchas](#common-gotchas)
+- [Headless Story is a different task](#headless-story-is-a-different-task)
+
 ## When to load this leaf
 
 - The user mentions a Story variant, a workspace, or "the canvas" while you are attached to their app.
@@ -106,7 +120,7 @@ The entry-point names and the Promise-return + result shape are confirmed agains
 
 ## The rest of the Story surface, from the same session
 
-Every Story read worth having in a live session is a public `re-frame.story/*` fn, reachable through the same `eval-cljs` channel. There is deliberately no dedicated Pair tool for any of them — `eval-cljs` is the first-class long-tail surface (SKILL.md §Style guidance), and promoting one of these to a named tool is a later option behind a demand bar, not something to build pre-emptively.
+Every Story read worth having in a live session is a public `re-frame.story/*` fn, reachable through the same `eval-cljs` channel. There is deliberately no dedicated Pair tool for any of them — `eval-cljs` is the first-class long-tail surface (SKILL.md §Style guidance).
 
 | You want | Form |
 |---|---|

@@ -2,6 +2,15 @@
 
 Every MCP tool returns structured edn (`{:ok? false :reason ...}`) rather than raising. Translate to plain English and suggest the fix named in `:reason`.
 
+## Contents
+
+- [Common cases](#common-cases) — the [`discover-app` preload-failure ladder](#discover-app-preload-failure-ladder) and [`:liveness :unknown`](#liveness-unknown-from-discover-app)
+- [`eval-cljs` failures](#eval-cljs-failures)
+- [Tool-envelope refusals](#tool-envelope-refusals)
+- [A structured read came back blank](#a-structured-read-came-back-blank)
+- [Pointing the user at the offending handler](#pointing-the-user-at-the-offending-handler)
+- [Error observability](#error-observability)
+
 ## Common cases
 
 - `:rf.error/pair-mcp-nrepl-port-not-found` (bare `:nrepl-port-not-found` when the connect step fails without an id) → no shadow-cljs nREPL is reachable at all — this is the **pre-connection degraded-mode** envelope every tool short-circuits to before any runtime check. Tell the user to start their dev build with `shadow-cljs watch <build>`. A `:stale-port-files` slot names port files discovery skipped because their port refused a connect — left by a shadow-cljs JVM that was force-killed or crashed. Name each to the user; [mcp-transport.md §When the MCP server is degraded](mcp-transport.md#when-the-mcp-server-is-degraded) has the recovery.
