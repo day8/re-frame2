@@ -5,6 +5,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.integration-adapter :as rf.integration-adapter]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
             [re-frame.views]
@@ -115,30 +116,9 @@
 (defn- full-profile [username following?]
   {:username username :bio (str "Bio of " username) :image nil :following following?})
 
-(defn- with-local-storage
-  [descriptor f]
-  (let [g     js/globalThis
-        prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
-    (js/Object.defineProperty g "localStorage" descriptor)
-    (try
-      (f)
-      (finally
-        (if prior
-          (js/Object.defineProperty g "localStorage" prior)
-          (js-delete g "localStorage"))))))
-
-(defn- with-saved-jwt
-  [token f]
-  (with-local-storage
-    #js {:configurable true
-         :value        #js {:getItem    (fn [k] (when (= k "jwtToken") token))
-                            :setItem    (fn [_ _] nil)
-                            :removeItem (fn [_] nil)}}
-    f))
-
 (defn- init-auth!
   [f token]
-  (with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
+  (rf.integration-support/with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
 
 (defn- submit-login!
   [f]
@@ -170,7 +150,7 @@
       (is (= :idle (sub f [:auth/state])))))
 
   (testing "an unreadable store reads as no saved token, and a stale storage read is dropped"
-    (is (nil? (with-local-storage
+    (is (nil? (rf.integration-support/with-local-storage
                 #js {:configurable true :get (fn [] (throw (js/Error. "storage is blocked")))}
                 auth/read-saved-token)))
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
@@ -214,7 +194,7 @@
 (defn- booting-frame!
   [url token sink]
   (reg-capturing-managed! :realworld.test/held-managed sink)
-  (with-saved-jwt token
+  (rf.integration-support/with-saved-jwt token
     #(rf.frame/make-anon-frame-record!
        {:url-bound?     true
         :url-strategy   (decode-to-url-strategy url)
@@ -1165,6 +1145,6 @@
                               [[(mapv :id cs) (:body (second cs)) (-> cs second :author :username)]
                                cs])))))
             (.catch (fn [e]
-                      (is false)
+                      (is false (str (ex-message e) " " (pr-str (ex-data e))))
                       nil))
             (.then (fn [_] (done))))))))

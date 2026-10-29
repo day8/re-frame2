@@ -12,8 +12,8 @@
    `:page->items` flatten, its causal load-more wiring, the nil terminal, and
    the `:page-error` third channel as the view reads them.
 
-   The fixture fns + the deterministic transport stub live HERE (the adapter
-   test tree), not under examples/capabilities/resources/infinite_feed/ — the example source
+   The fixture and the deterministic transport stub live in the integration
+   test tree, not under examples/capabilities/resources/infinite_feed/ — the example source
    stays test-free per the test-free-examples policy. The ns requires the example's
    production source (`infinite-feed.core`) so its resource, routes, and views
    register at ns-load, then exercises them against a per-test `:rf/default`
@@ -27,16 +27,12 @@
    managed-HTTP transport produces (Spec 014 §Reply addressing). Routing's URL
    push is stubbed so navigation is deterministic without a browser.
 
-   Mirrors `re-frame.resources-example-cljs-test` (its sibling for the
-   single-page resource example) for the ns-load snapshot/restore + trace-bus
-   isolation discipline."
+   The ns-load snapshot and per-test reinstall of the example's registrations,
+   the trace-bus isolation and the frame-made-last order are
+   `re-frame.integration-support/resource-example-harness`."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.source-store :as rf.source-store]
-            [re-frame.integration-adapter :as rf.integration-adapter]
-            [re-frame.test-support :as rf.test-support]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.views]
             ;; production HTTP + resources surfaces (so the resource runtime,
             ;; managed-HTTP lowering, the infinite sub family, and the
@@ -44,15 +40,8 @@
             ;; overridden by the capturing stub.
             [re-frame.http.managed]
             [re-frame.resources]
-            [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as rf.routing]
-            ;; the framework trace-ring buffer (Spec 009) — cleared around each
-            ;; test so this resource-registering suite leaves no trace residue
-            ;; for later cross-cutting tooling tests (same leak the resources-
-            ;; example suite closes).
-            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; the example's production source — registers its :feed/timeline
             ;; infinite resource, routes, and views at ns-load.
             [infinite-feed.core]))
@@ -61,102 +50,15 @@
 ;; FIXTURE
 ;; ============================================================================
 
-(def ^:private last-managed-args (atom nil))
+(def ^:private harness
+  (rf.integration-support/resource-example-harness
+    {:kinds     [:resource]
+     :app-ns    "infinite-feed."
+     :frame-doc "infinite-feed-example default app frame."}))
 
-;; The shared `make-reset-runtime-fixture`'s post-dispose
-;; resources `:test-reset` CLEARS the `:resource` registrar kind
-;; between tests. CLJS has no `(require … :reload)`, so snapshot the example's
-;; ns-load `:resource` registration ONCE here (right after the
-;; `infinite-feed.core` require above ran it) and re-install it in `init!`
-;; (which runs AFTER the post-dispose hooks). This re-installs the EXACT example
-;; registration — not a test-local copy. See the resources-example sibling for
-;; the full rationale.
-(def ^:private resource-kind-snapshot
-  (rf.registrar/registrations :resource))
+(def ^:private last-managed-args (:managed-args harness))
 
-;; AT NS LOAD, remove THIS example's `:resource` registration (by id) from the
-;; SHARED live registrar — after snapshotting it above. Reinstated per-test by
-;; `init!`. Why: cljs.test loads every test ns into ONE bundle before running
-;; ANY test, so without this our ns-load `reg-resource` sits in the global
-;; registrar until some OTHER suite's reset clears it, mirroring a frameless
-;; `:rf.registry/handler-cleared` burst into a cross-cutting tooling test's
-;; cascade seed. We remove only OUR ids (not the whole kind).
-(swap! rf.source-store/kind->id->ns->descriptor update :resource
-       (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
-
-(defn- init!
-  "Per-test setup (after adapter install, registrar live). The infinite-feed
-   example owns the URL through `:rf/default` (`:url-bound? true`), so
-   re-register it that way, re-install the example's `:resource` registration
-   the reset hook wiped, reset routing counters, re-publish the late-bound
-   routing integration, and stub the managed-HTTP + url-push fx so route entry's
-   page-0 ensure + navigation are deterministic without a fetch / browser.
-
-   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (prophylactic —
-   the same shape as the LinearLite suite). A `:url-bound?` frame
-   performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
-   `frame/upsert-frame!`'s post-create hook -> routing's
-   routing's `:on-frame-registered` -> `reconcile-url-listener!` — and under
-   Node that URL is `\"/\"`. So a route registered at `\"/\"` has its route-entry
-   resource plan run INSIDE `make-frame`. Construct the frame before the
-   `registrar/register!` loop below and that plan sees the `:resource` kind
-   still EMPTY (the shared reset hook cleared it), records `:transition :error`
-   / `:rf.error/resource-route-plan` on the routing slice, and — because the
-   suite's own navigation never re-plans — the error is STICKY.
-
-   With the frame made first this suite would still pass, but only because its
-   `\"/\"` route declares no BLOCKING resource; add one and the error sticks,
-   silently.
-   Registering everything first and making the frame last removes the
-   dependence entirely, and matches the committed pilot baseline
-   (`docs/design/fresco/product/pilots/baseline/linearlite/baseline_test.cljs`,
-   which documents \"the frame is made last\")."
-  []
-  (reset! last-managed-args nil)
-  ;; Reinstate through `registrar/register!` — NOT a raw
-  ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
-  ;; STORE (the default image is assembled from it), and the reset hook's
-  ;; clear-kind! forgot the store rows too; register! writes registrar +
-  ;; store in lockstep and marks the live-frame projection dirty, so the
-  ;; frame's next resolution sees the reinstated registrations.
-  (doseq [[id meta] resource-kind-snapshot]
-    (rf.registrar/register! :resource id meta))
-  (rf.routing/reset-counters!)
-  (rf.resources.route/install-routing-integration!)
-  ;; Capturing no-op: the reply is replayed explicitly by the test so the
-  ;; 3-element internal reply event matches what the live transport produces.
-  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  ;; LAST — see the ordering note in the docstring. Everything the frame's
-  ;; construction-time URL sync needs (the reinstated `:resource` rows, the
-  ;; routing integration, the stubbed fx) is registered above.
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "infinite-feed-example default app frame."}))
-
-(defn- isolate-trace-bus-fixture
-  "OUTER fixture: keep this resource-registering suite from leaking trace
-   residue into later cross-cutting tooling tests (see the resources-example
-   sibling for the full rationale of the frameless-handler-cleared burst)."
-  [f]
-  (rf.trace.tooling/clear-listeners!)
-  (rf.trace.tooling/clear-trace-rings!)
-  (f)
-  (rf.trace.tooling/clear-listeners!)
-  (rf.trace.tooling/clear-trace-rings!))
-
-(use-fixtures :each
-  isolate-trace-bus-fixture
-  (rf.test-support/make-reset-runtime-fixture
-    ;; BUNDLE CO-LOAD HYGIENE: this app registers the reserved per-app
-    ;; `:rf.route/not-found` route at ns load, and every co-loaded example app
-    ;; does the same — two provenance rows for one id fail default-image
-    ;; assembly loud for any suite whose baseline is captured after the second
-    ;; app loads. `:app-ns` names OUR OWN app (never a sibling's): the fixture
-    ;; keeps its rows out of every suite's baseline and reinstates them for
-    ;; this suite's own tests.
-    {:adapter rf.integration-adapter/adapter
-     :app-ns  "infinite-feed."
-     :init-fn init!}))
+(use-fixtures :each (:trace-bus-fixture harness) (:reset-fixture harness))
 
 ;; ============================================================================
 ;; HELPERS

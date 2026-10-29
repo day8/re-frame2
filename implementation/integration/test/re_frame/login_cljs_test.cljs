@@ -34,6 +34,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
             [re-frame.integration-adapter :as rf.integration-adapter]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.test-support :as rf.test-support]
             ;; The schemas Malli adapter publishes the registered validator
             ;; the `:where :machine-data` boundary routes through; login.model
@@ -58,18 +59,6 @@
 (defn- machine-state [f]
   (get-in (rf/frame-state-value f)
           [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow :state]))
-
-(defn- collect-machine-data-traces!
-  "Run `thunk` while collecting `:rf.error/schema-validation-failure` traces with
-   `:where :machine-data`. Returns the captured (filtered) trace vector."
-  [thunk]
-  (let [traces (atom [])]
-    (rf/register-listener! :trace ::collect (fn [ev] (swap! traces conj ev)))
-    (try (thunk)
-         (finally (rf/unregister-listener! :trace ::collect)))
-    (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
-                   (= :machine-data (-> % :tags :where)))
-             @traces)))
 
 (defn- failure-reply
   "The framework-shaped managed-HTTP failure envelope the machine's
@@ -98,7 +87,7 @@
       ;; A bare :submit signal drives :idle → :submitting; then a :failure whose
       ;; message is a non-string map makes :record-error write that map into
       ;; :error — which AuthLoginData's [:maybe :string] rejects.
-      (let [traces   (collect-machine-data-traces!
+      (let [traces   (rf.integration-support/collect-machine-data-traces!
                        (fn []
                          (submit! f)
                          (fail! f {:not "a string"})))
@@ -117,7 +106,7 @@
 (deftest well-formed-data-passes
   (testing "a normal failing login (string message) settles with no :machine-data trace"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
-      (let [traces (collect-machine-data-traces!
+      (let [traces (rf.integration-support/collect-machine-data-traces!
                      (fn []
                        (submit! f)
                        (fail! f "Invalid credentials.")))]

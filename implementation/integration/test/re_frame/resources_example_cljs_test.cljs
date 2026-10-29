@@ -2,58 +2,25 @@
   "The resources example preserves route, app-event and machine ownership while refresh remains a cause."
   (:require [cljs.test :refer-macros [deftest use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.source-store :as rf.source-store]
-            [re-frame.integration-adapter :as rf.integration-adapter]
-            [re-frame.test-support :as rf.test-support]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.views]
             [re-frame.http.managed]
             [re-frame.resources]
-            [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as rf.routing]
-            [re-frame.trace.tooling :as rf.trace.tooling]
             [resources.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
-(def ^:private last-managed-args (atom nil))
+(def ^:private harness
+  (rf.integration-support/resource-example-harness
+    {:kinds     [:resource]
+     :app-ns    "resources."
+     :frame-doc "resources-example default app frame."}))
 
-(def ^:private resource-kind-snapshot
-  (rf.registrar/registrations :resource))
+(def ^:private last-managed-args (:managed-args harness))
 
-(swap! rf.source-store/kind->id->ns->descriptor update :resource
-       (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
-
-;; Reset clears resource rows; reinstall the example before constructing its URL-bound frame.
-(defn- init!
-  []
-  (reset! last-managed-args nil)
-  (doseq [[id meta] resource-kind-snapshot]
-    (rf.registrar/register! :resource id meta))
-  (rf.routing/reset-counters!)
-  (rf.resources.route/install-routing-integration!)
-  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "resources-example default app frame."}))
-
-(defn- isolate-trace-bus-fixture
-  [f]
-  (rf.trace.tooling/clear-listeners!)
-  (rf.trace.tooling/clear-trace-rings!)
-  (f)
-  (rf.trace.tooling/clear-listeners!)
-  (rf.trace.tooling/clear-trace-rings!))
-
-(use-fixtures :each
-  isolate-trace-bus-fixture
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.integration-adapter/adapter
-     :app-ns  "resources."
-     :init-fn init!}))
+(use-fixtures :each (:trace-bus-fixture harness) (:reset-fixture harness))
 
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))

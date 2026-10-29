@@ -7,8 +7,7 @@
             [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.source-store :as rf.source-store]
-            [re-frame.integration-adapter :as rf.integration-adapter]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas.malli]
             [malli.core :as m]
@@ -16,11 +15,8 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.resources]
-            [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as rf.routing]
-            [re-frame.trace.tooling :as rf.trace.tooling]
             [realworld-resources.core :as core]
             [realworld-resources.auth :as auth]
             [realworld-resources.scope]
@@ -32,60 +28,18 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]
                    [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(def ^:private last-managed-args (atom nil))
+(def ^:private harness
+  (rf.integration-support/resource-example-harness
+    {:kinds     [:resource :mutation :resource-scope]
+     :app-ns    "realworld-resources."
+     :frame-doc "realworld-resources default app frame."
+     :async?    true}))
 
-(def ^:private managed-args-log (atom []))
+(def ^:private last-managed-args (:managed-args harness))
 
-(def ^:private resource-kind-snapshots
-  (into {} (for [kind [:resource :mutation :resource-scope]
-                :let [id->desc (rf.registrar/registrations kind)]
-                :when (seq id->desc)]
-            [kind id->desc])))
+(def ^:private managed-args-log (:managed-args-log harness))
 
-(swap! rf.source-store/kind->id->ns->descriptor
-       (fn [reg]
-         (reduce (fn [r [kind id->meta]]
-                   (update r kind (fn [m] (apply dissoc m (keys id->meta)))))
-                 reg
-                 resource-kind-snapshots)))
-
-(defn- init!
-  []
-  (reset! last-managed-args nil)
-  (reset! managed-args-log [])
-  (doseq [[kind id->meta] resource-kind-snapshots
-          [id meta] id->meta]
-    (rf.registrar/register! kind id meta))
-  (rf.routing/reset-counters!)
-  (rf.resources.route/install-routing-integration!)
-  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args]
-                                (reset! last-managed-args args)
-                                (swap! managed-args-log conj args)
-                                nil))
-  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "realworld-resources default app frame."}))
-
-(def ^:private isolate-trace-bus-fixture
-  "OUTER fixture (listed first): clear trace listeners and rings around each
-   test, so the reset fixture's per-test burst of frameless
-   `:rf.registry/handler-cleared` traces never reaches a collector a tooling test
-   left registered. Map-form, like the reset fixture, because cljs.test runs an
-   `(async done …)` row only when every :each fixture is a map."
-  {:before (fn []
-             (rf.trace.tooling/clear-listeners!)
-             (rf.trace.tooling/clear-trace-rings!))
-   :after  (fn []
-             (rf.trace.tooling/clear-listeners!)
-             (rf.trace.tooling/clear-trace-rings!))})
-
-(use-fixtures :each
-  isolate-trace-bus-fixture
-  (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.integration-adapter/adapter
-     :init-fn init!
-     :async?  true
-     :app-ns  "realworld-resources."}))
+(use-fixtures :each (:trace-bus-fixture harness) (:reset-fixture harness))
 
 (defn- runtime-db [frame-id] (:rf.db/runtime (rf/frame-state-value frame-id)))
 
@@ -182,30 +136,9 @@
   (rf.frame/make-anon-frame-record!
     {:fx-overrides {:realworld-resources.session/persist :rf/no-op}}))
 
-(defn- with-local-storage
-  [descriptor f]
-  (let [g     js/globalThis
-        prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
-    (js/Object.defineProperty g "localStorage" descriptor)
-    (try
-      (f)
-      (finally
-        (if prior
-          (js/Object.defineProperty g "localStorage" prior)
-          (js-delete g "localStorage"))))))
-
-(defn- with-saved-jwt
-  [token f]
-  (with-local-storage
-    #js {:configurable true
-         :value        #js {:getItem    (fn [k] (when (= k "jwtToken") token))
-                            :setItem    (fn [_ _] nil)
-                            :removeItem (fn [_] nil)}}
-    f))
-
 (defn- init-auth!
   [f token]
-  (with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
+  (rf.integration-support/with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
 
 (defn- submit-login!
   [f email]
@@ -669,7 +602,7 @@
 
 (deftest session-load-seam-reads-storage-through-an-effect
   (is (= [[:token]] (:sensitive (rf.registrar/handler-meta :event :auth/session-read))))
-  (is (nil? (with-local-storage #js {:configurable true
+  (is (nil? (rf.integration-support/with-local-storage #js {:configurable true
                                      :get          (fn [] (throw (js/Error. "storage is blocked")))}
               auth/read-saved-token)))
   (with-new-frame [f (auth-frame!)]
@@ -915,6 +848,6 @@
                              (-> e :data :comments second :body)
                              (:invalidated-at e)])))))
           (.catch (fn [e]
-                    (is false)
+                    (is false (str (ex-message e) " " (pr-str (ex-data e))))
                     nil))
           (.then (fn [_] (done)))))))

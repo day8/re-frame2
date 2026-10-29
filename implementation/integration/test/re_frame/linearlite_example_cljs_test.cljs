@@ -13,82 +13,25 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.fx :as rf.fx]
-            [re-frame.registrar :as rf.registrar]
-            [re-frame.source-store :as rf.source-store]
-            [re-frame.integration-adapter :as rf.integration-adapter]
-            [re-frame.test-support :as rf.test-support]
+            [re-frame.integration-support :as rf.integration-support]
             [re-frame.views]
             [re-frame.http.managed]
             [re-frame.resources]
-            [re-frame.resources.route :as rf.resources.route]
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.test-support]
-            [re-frame.routing :as rf.routing]
-            [re-frame.trace.tooling :as rf.trace.tooling]
             [linearlite.core]))
 
-(def ^:private last-managed-args (atom nil))
+(def ^:private harness
+  (rf.integration-support/resource-example-harness
+    {:kinds     [:resource :mutation]
+     :app-ns    "linearlite."
+     :frame-doc "linearlite-example default app frame."}))
 
-;; The reset fixture's resources `:test-reset` clears the
-;; `:resource` and `:mutation` kinds between tests, and CLJS cannot re-require
-;; the example, so its ns-load registrations are snapshotted here and
-;; reinstalled by `init!`.
-(def ^:private resource-kind-snapshots
-  (into {} (for [kind [:resource :mutation]
-                :let [id->desc (rf.registrar/registrations kind)]
-                :when (seq id->desc)]
-            [kind id->desc])))
+(def ^:private last-managed-args (:managed-args harness))
 
-;; Remove our ids from the shared registrar at load, so another suite's reset
-;; never clears them and mirrors the resulting frameless
-;; `:rf.registry/handler-cleared` burst into a tooling test's trace collector.
-(swap! rf.source-store/kind->id->ns->descriptor
-       (fn [reg]
-         (reduce (fn [r [kind id->meta]]
-                   (update r kind (fn [m] (apply dissoc m (keys id->meta)))))
-                 reg
-                 resource-kind-snapshots)))
+(def ^:private init! (:init! harness))
 
-(defn- init!
-  "Reinstall the example's resources and mutations, routing integration and fx
-   stubs, then make the url-bound frame LAST: it syncs the URL at construction,
-   and \"/\" is this example's board route with a blocking board resource, so
-   a frame made first would plan against an empty `:resource` kind and record a
-   sticky route-plan error."
-  []
-  (reset! last-managed-args nil)
-  ;; `register!` writes registrar and source store together, so image-loaded
-  ;; frames see the reinstated rows.
-  (doseq [[kind id->meta] resource-kind-snapshots
-          [id meta] id->meta]
-    (rf.registrar/register! kind id meta))
-  (rf.routing/reset-counters!)
-  (rf.resources.route/install-routing-integration!)
-  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "linearlite-example default app frame."}))
-
-(defn- isolate-trace-bus-fixture
-  "Outermost fixture: clear trace listeners and rings around each test, so the
-   reset fixture's frameless `:rf.registry/handler-cleared` burst never reaches
-   a tooling test's collector."
-  [f]
-  (rf.trace.tooling/clear-listeners!)
-  (rf.trace.tooling/clear-trace-rings!)
-  (f)
-  (rf.trace.tooling/clear-listeners!)
-  (rf.trace.tooling/clear-trace-rings!))
-
-(use-fixtures :each
-  isolate-trace-bus-fixture
-  (rf.test-support/make-reset-runtime-fixture
-    ;; Every co-loaded example registers `:rf.route/not-found`; `:app-ns`
-    ;; keeps this app's rows out of other suites' baselines.
-    {:adapter rf.integration-adapter/adapter
-     :app-ns  "linearlite."
-     :init-fn init!}))
+(use-fixtures :each (:trace-bus-fixture harness) (:reset-fixture harness))
 
 (def ^:private board-query
   {:resource :linearlite/board :scope :rf.scope/global :params {}})
