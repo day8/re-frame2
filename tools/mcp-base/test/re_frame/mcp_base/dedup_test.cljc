@@ -39,6 +39,12 @@
   (let [v {:user {:name "ada"} :session {:state :idle} :items [1 2 3]}]
     (is (identical? v (rf.mcp-base.dedup/dedup-value v true)))))
 
+(deftest dedup-value-never-pools-empty-collections
+  ;; A two-character `[]` is shorter than any `de-dupe.cache/cache-N`
+  ;; reference to it, so repeated empties ship inline.
+  (let [v {:a [] :b [] :c {} :d {} :e #{} :f #{}}]
+    (is (identical? v (rf.mcp-base.dedup/dedup-value v true)))))
+
 (deftest dedup-value-uses-equality-not-identity
   ;; Payloads rebuilt from EDN or synthesised per call share subtrees by
   ;; equality, not identity; two equal but distinct subtrees still pool.

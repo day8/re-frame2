@@ -1,5 +1,5 @@
 {
-  "_doc": "Canonical tool-name list per spec/002-Tool-Registry.md. Shared by the Node stdio roundtrip (stdio-roundtrip.js) and the cross-server conformance harness (tools/mcp-conformance) so the expected `tools/list` response cannot drift between hand-maintained lists. Sorted alphabetically; both consumers compare against the sorted form.",
+  "_doc": "Canonical tool-name list per spec/002-Tool-Registry.md. Shared by the Node stdio roundtrip (stdio-roundtrip.js) and the cross-server conformance harness (tools/mcp-conformance) so the expected `tools/list` response cannot drift between hand-maintained lists. Sorted alphabetically; both consumers compare against the sorted form. The two browser-only reads, list-substrates and read-a11y-violations, are absent: they are listed only on a host whose provider is reachable, which the JVM stdio host never is (spec/002-Tool-Registry.md).",
   "names": [
     "explain-variant",
     "get-docs-markdown",
@@ -10,10 +10,8 @@
     "list-decorators",
     "list-modes",
     "list-stories",
-    "list-substrates",
     "list-tags",
     "preview-variant",
-    "read-a11y-violations",
     "read-failures",
     "register-variant",
     "run-variant",

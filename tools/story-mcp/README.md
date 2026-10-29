@@ -21,7 +21,9 @@ machine-readable capability-unavailable error (`isError true`,
 `:rf.error/story-mcp-capability-unavailable`), never a false-empty
 success. The distinction is operationally material: an empty collection
 means a REACHED provider genuinely observed nothing, while capability
-absence means this host could not look at all.
+absence means this host could not look at all. For the same reason a JVM
+launch's `tools/list` leaves out `list-substrates`, `read-a11y-violations`
+and the `:substrate` run option.
 
 ## What it isn't
 

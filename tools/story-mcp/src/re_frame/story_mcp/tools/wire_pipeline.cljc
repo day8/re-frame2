@@ -63,17 +63,18 @@
   Sized via `rf.mcp-base.overflow/token-estimate` (the `(quot (count s) 4)` rule
   aligned with Anthropic's character→token rule-of-thumb). The cap is
   cumulative across every `:text` slot in the response's `:content`
-  vector (multi-part responses share one budget, mirroring re-frame2-pair-mcp).
+  vector and the rendered `:structuredContent` (multi-part responses
+  share one budget, mirroring re-frame2-pair-mcp).
 
   `:max-tokens` per-call override is read from `arguments`: integer
   cap, `0` disables (escape hatch when the caller has already
   paginated), absent ⇒ default. Lives on every tool's input schema
   via `registry/with-max-tokens`.
 
-  `:dedup` per-call override is read from `arguments`: boolean, default
-  `true`. Pass `false` to skip dedup — useful for ad-hoc reads when the
-  agent host hasn't been taught to call `re-frame.mcp-base.dedup/expand`. Lives
-  on dedup-eligible tools' input schema via `schemas/with-dedup`."
+  `:dedup` per-call opt-in is read from `arguments`: boolean, default
+  `false`, so the headline `:status` reads without a decoder (see
+  `schemas/dedup-schema`). Lives on dedup-eligible tools' input schema
+  via `schemas/with-dedup`."
   (:require [clojure.string :as str]
             [re-frame.mcp-base.args :as rf.mcp-base.args]
             [re-frame.mcp-base.cap :as rf.mcp-base.cap]
@@ -417,14 +418,14 @@
 
         :else
         (let [;; Dedup runs only on tools that opt in via `:dedup-eligible?`
-              ;; on the descriptor — and only when the caller leaves the
-              ;; `:dedup` arg at its default `true`. Ineligible tools never
+              ;; on the descriptor — and only when the caller passes
+              ;; `:dedup true` (default `false`). Ineligible tools never
               ;; carry the `:dedup` slot in their input schema (per
               ;; `with-dedup` on the descriptor), so any caller-supplied
               ;; value is silently ignored.
               eligible? (true? (:dedup-eligible? t))
               dedup?    (and eligible?
-                             (rf.mcp-base.args/parse-boolean (get args :dedup) true))
+                             (rf.mcp-base.args/parse-boolean (get args :dedup) false))
               result    (try
                           ((:handler t) args)
                           (catch Throwable e

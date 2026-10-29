@@ -424,15 +424,17 @@
   (walk (partial prewalk f) (f form)))
 
 (defn ^:private cacheable?
-  "True for the forms worth pooling. Scalars are cheaper inline than as a
-  reference, and a 2-element vector is excluded because that is how a map
-  entry rebuilds — pooling those would rewrite map structure."
+  "True for the forms worth pooling. Scalars and empty collections are
+  cheaper inline than as a reference, and a 2-element vector is excluded
+  because that is how a map entry rebuilds — pooling those would rewrite
+  map structure."
   [element]
   (and (not (or (and (vector? element)
                      (= 2 (count element)))
                 (number? element)
                 (keyword? element)
-                (string? element)))
+                (string? element)
+                (and (coll? element) (empty? element))))
        (or (list? element)
            (seq? element)
            (coll? element))))

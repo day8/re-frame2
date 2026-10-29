@@ -221,7 +221,7 @@ The discipline applies across three axes:
   under the cross-MCP `{:rf.mcp/dedup-table …}` marker) BEFORE the
   token-cap measures the payload. The per-call `:max-tokens` override
   (integer cap; `0` disables; absent ⇒ the `mcp-base.overflow`
-  default) and the per-call `:dedup` boolean (default `true`) let a
+  default) and the per-call `:dedup` boolean (default `false`) let a
   caller tune the budget. When the post-dedup payload still exceeds
   the cap, the wire pipeline replaces it with the structured
   `{:rf.mcp/overflow …}` marker carrying a per-tool next-step hint —
@@ -300,12 +300,14 @@ re-frame2-pair-mcp's wire-pipeline.
 
 ### Opt-out
 
-The `:dedup` MCP arg (boolean, default `true`) skips dedup when
-`false`. Useful for ad-hoc reads when the agent host hasn't been
-taught to call `expand`. Lives on dedup-eligible tools' `:inputSchema`
-via `schemas/with-dedup`. Cross-MCP shape with re-frame2-pair-mcp's
-arg — same name, same default, same semantics; an agent that learned
-the arg on either server uses it uniformly here.
+The `:dedup` MCP arg (boolean) defaults to `false` here. A deduped
+reply's `:structuredContent` is the one `:rf.mcp/dedup-table` key, with
+the headline `:status` inside the cache, so an AI client reading JSON
+cannot see the verdict without a decoder; and on an ordinary run the
+wrapped reply is larger than the raw one. `true` is for a large run whose
+re-keyed subtrees would otherwise overflow the cap. Lives on
+dedup-eligible tools' `:inputSchema` via `schemas/with-dedup`, with the
+same name and wire shape as re-frame2-pair-mcp's arg.
 
 ### Why `de-dupe-eq` not `de-dupe`
 

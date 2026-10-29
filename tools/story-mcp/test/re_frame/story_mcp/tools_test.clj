@@ -130,7 +130,7 @@
   ;; the lifecycle-run tools run the author's events/fx, which can reach
   ;; external systems, so they alone are open-world; an absent openWorldHint
   ;; reads as open-world, so every other tool carries an explicit false.
-  (let [ds         (rf.story-mcp.tools.registry/tool-descriptors)
+  (let [ds         rf.story-mcp.tools.registry/tool-registry
         names-with (fn [hint] (set (keep #(when (true? (get-in % [:annotations hint])) (:name %)) ds)))]
     (is (= #{"get-story-instructions" "list-substrates" "list-stories" "get-story" "get-variant"
              "list-tags" "list-modes" "list-decorators" "list-assertions" "get-docs-markdown"
@@ -1326,9 +1326,28 @@
     (map #(get-in (props %) [:include-sensitive :type]) include-sensitive-tools)))
 
 (deftest tools-list-advertises-include-sensitive-only-through-the-open-gate
-  (is (= [nil nil nil nil] (advertised-include-sensitive)))
-  (rf.story-mcp.config/set-allow-sensitive-reads! true)
-  (is (= ["boolean" "boolean" "boolean" "boolean"] (advertised-include-sensitive))))
+  ;; `read-a11y-violations` is listed only with its provider bound.
+  (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {})]
+    (is (= [nil nil nil nil] (advertised-include-sensitive)))
+    (rf.story-mcp.config/set-allow-sensitive-reads! true)
+    (is (= ["boolean" "boolean" "boolean" "boolean"] (advertised-include-sensitive)))))
+
+(deftest tools-list-advertises-browser-only-reads-only-with-their-provider
+  ;; With no provider every call to these answers capability-unavailable, so
+  ;; tools/list leaves them out; they stay registered for that refusal.
+  (let [listed    (fn [] (into {} (map (juxt :name identity)) (rf.story-mcp.tools.registry/tool-descriptors)))
+        substrate (fn [ds] (map #(contains? (get-in ds [% :inputSchema :properties]) :substrate)
+                                ["run-variant" "preview-variant" "snapshot-identity"]))
+        ds        (listed)]
+    (is (= (- (count rf.story-mcp.tools.registry/tool-registry) 2) (count ds)))
+    (is (not-any? ds ["list-substrates" "read-a11y-violations"]))
+    (is (= [false false false] (substrate ds)) "no reachable substrate registry, no :substrate option")
+    (is (error? (invoke "list-substrates" {})) "still registered: a call is refused, not unknown")
+    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent])
+              rf.story-mcp.tools.cljs-resolve/*a11y-provider*      (fn [] {})]
+      (let [ds (listed)]
+        (is (every? ds ["list-substrates" "read-a11y-violations"]))
+        (is (= [true true true] (substrate ds)))))))
 
 (deftest app-db-slot-honours-the-include-sensitive-flag-only-through-the-open-gate
   ;; Every call sends :include-sensitive true; only the operator gate varies.
