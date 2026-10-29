@@ -166,17 +166,21 @@
 (defn- current-href []
   (try (.. js/window -location -href) (catch :default _ "")))
 
+(defn- render! []
+  (rdc/render @app-root [viewer-view (decode-location (current-href))]))
+
 (defn ^:export run
   "Viewer entry. Decodes the current location and mounts the viewer into
-  `#app` through a `reagent.dom.client` root, then re-renders it on every
-  `hashchange`: pasting another share-URL into an open viewer tab is a
-  same-document fragment navigation, which reloads nothing. No framework
-  boot — see the ns docstring §Build."
-  []
-  (let [el (.getElementById js/document "app")]
-    (when el
-      (when (nil? @app-root)
-        (reset! app-root (rdc/create-root el))
-        ;; Through a fn, so a hot-reloaded `run` is the one that fires.
-        (.addEventListener js/window "hashchange" (fn [_] (run))))
-      (rdc/render @app-root [viewer-view (decode-location (current-href))]))))
+  `el` (default `#app`) through a `reagent.dom.client` root, then renders
+  it again on every `hashchange`: pasting another share-URL into an open
+  viewer tab is a same-document fragment navigation, which reloads
+  nothing. The root is created once; a later call only renders. No
+  framework boot — see the ns docstring §Build."
+  ([] (run (.getElementById js/document "app")))
+  ([el]
+   (when (and el (nil? @app-root))
+     (reset! app-root (rdc/create-root el))
+     ;; Through a fn, so a hot-reloaded `render!` is the one that fires.
+     (.addEventListener js/window "hashchange" (fn [_] (render!))))
+   (when @app-root
+     (render!))))
