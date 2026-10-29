@@ -195,6 +195,22 @@
   (or (some-> e .-currentTarget .-ownerDocument)
       (when (exists? js/document) js/document)))
 
+(defn primary-press?
+  "True unless `e` presses a button other than the primary one, so a
+  right- or middle-button press starts no drag. An event with no
+  `button` (the test seams' stubs) counts as primary."
+  [^js e]
+  (let [b (.-button e)]
+    (or (not (number? b)) (zero? b))))
+
+(defn released?
+  "True when move event `e` reports no button held: the release landed
+  where no `pointerup` reached the listener (outside the window, or the
+  event was lost), so the drag ends instead of following plain hover."
+  [^js e]
+  (let [b (.-buttons e)]
+    (and (number? b) (zero? b))))
+
 (defn- set-body-cursor!
   "Set `doc`'s body cursor to `cursor`. No-op without a document or a
   body."
@@ -255,16 +271,18 @@
     (reset! drag-state nil)))
 
 (defn- on-document-move [^js e]
-  (when-let [{:keys [start-x start-width dispatch-fn]} @drag-state]
-    ;; Page-relative X so a drag that moves through a parent with
-    ;; CSS transforms still tracks the pointer.
-    (let [dx        (- start-x (.-pageX e))
-          new-width (+ start-width dx)]
-      ;; The document-level pointer-move listener fires
-      ;; OUTSIDE the React render scope; dispatch through the frame-aware
-      ;; `dispatch-fn` captured at `start-drag!` so the resize lands on
-      ;; the surrounding instance frame, not a `{:frame :rf/xray}` literal.
-      ((or dispatch-fn rf/dispatch) [:rf.xray/set-panel-width-px new-width]))))
+  (if (released? e)
+    (detach-document-listeners!)
+    (when-let [{:keys [start-x start-width dispatch-fn]} @drag-state]
+      ;; Page-relative X so a drag that moves through a parent with
+      ;; CSS transforms still tracks the pointer.
+      (let [dx        (- start-x (.-pageX e))
+            new-width (+ start-width dx)]
+        ;; The document-level pointer-move listener fires
+        ;; OUTSIDE the React render scope; dispatch through the frame-aware
+        ;; `dispatch-fn` captured at `start-drag!` so the resize lands on
+        ;; the surrounding instance frame, not a `{:frame :rf/xray}` literal.
+        ((or dispatch-fn rf/dispatch) [:rf.xray/set-panel-width-px new-width])))))
 
 (defn- on-document-up [^js _e]
   (detach-document-listeners!))
@@ -524,7 +542,8 @@
                                 "Home / End for ends · Enter to reset")
          :tab-index        0
          :on-pointer-down  (fn [^js e]
-                             (start-drag! e current-width dispatch))
+                             (when (primary-press? e)
+                               (start-drag! e current-width dispatch)))
          :on-key-down      (fn [^js e]
                              (when (handle-keydown! e current-width dispatch)
                                (try (.preventDefault e)
@@ -656,16 +675,18 @@
     (reset! seam-drag-state nil)))
 
 (defn- seam-on-document-move [^js e]
-  (when-let [{:keys [start-y start-height dispatch-fn]} @seam-drag-state]
-    ;; The seam sits BELOW the event-list and ABOVE the tab-bar. Drag
-    ;; DOWN (now-y > start-y) grows the list; drag UP shrinks it.
-    ;; dy = (now-y - start-y).
-    (let [dy         (- (.-pageY e) start-y)
-          new-height (+ start-height dy)]
-      ;; Dispatch through the frame-aware `dispatch-fn`
-      ;; captured at `start-seam-drag!` (the document-level listener fires
-      ;; outside the React render scope), not a `{:frame :rf/xray}` literal.
-      ((or dispatch-fn rf/dispatch) [:rf.xray/set-events-list-height-px new-height]))))
+  (if (released? e)
+    (seam-detach-document-listeners!)
+    (when-let [{:keys [start-y start-height dispatch-fn]} @seam-drag-state]
+      ;; The seam sits BELOW the event-list and ABOVE the tab-bar. Drag
+      ;; DOWN (now-y > start-y) grows the list; drag UP shrinks it.
+      ;; dy = (now-y - start-y).
+      (let [dy         (- (.-pageY e) start-y)
+            new-height (+ start-height dy)]
+        ;; Dispatch through the frame-aware `dispatch-fn`
+        ;; captured at `start-seam-drag!` (the document-level listener fires
+        ;; outside the React render scope), not a `{:frame :rf/xray}` literal.
+        ((or dispatch-fn rf/dispatch) [:rf.xray/set-events-list-height-px new-height])))))
 
 (defn- seam-on-document-up [^js _e]
   (seam-detach-document-listeners!))
@@ -857,7 +878,8 @@
                                 "Enter to reset")
          :tab-index        0
          :on-pointer-down  (fn [^js e]
-                             (start-seam-drag! e current-height dispatch))
+                             (when (primary-press? e)
+                               (start-seam-drag! e current-height dispatch)))
          :on-key-down      (fn [^js e]
                              (when (handle-seam-keydown! e current-height dispatch)
                                (try (.preventDefault e)

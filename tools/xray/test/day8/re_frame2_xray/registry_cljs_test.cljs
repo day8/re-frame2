@@ -91,6 +91,7 @@
    :rf.xray/editor-host-default
    :rf.xray/epoch-history
    :rf.xray/epoch-pipeline
+   :rf.xray/epoch-withheld
    :rf.xray/focused-epoch-record
    :rf.xray.epoch/parent-epoch-index
    :rf.xray.epoch/subs-filter-mode
@@ -218,6 +219,7 @@
    :rf.xray/clear-reset-flash
    :rf.xray/clear-trace-buffer
    :rf.xray/close-edit-popup
+   :rf.xray/close-popout
    :rf.xray/close-shell
    :rf.xray.edn-inspector/reset-expansion
    :rf.xray.edn-inspector/set-node
@@ -348,6 +350,7 @@
    :rf.xray.fx/restore-epoch
    :rf.xray.fx/hide-shell
    :rf.xray.fx/popout-shell
+   :rf.xray.fx/close-popout
    :rf.xray.column-widths/persist
    :rf.xray.frame-switcher/persist
    :rf.xray.spine-filters/persist
@@ -559,7 +562,8 @@
   ;; The live upgrade: `:after-load` re-runs register-xray-handlers!.
   (registry/register-xray-handlers!)
   (is (= [:rf.xray/focus :rf.xray/epoch-history
-          :rf.xray/reactive-show-unchanged? :rf.xray/setting]
+          :rf.xray/reactive-show-unchanged? :rf.xray/setting
+          :rf.xray/epoch-withheld]
          (reactive-data-input-ids)))
   (is (true? (rf/with-frame :rf/xray
                (:show-unchanged? @(rf/subscribe [:rf.xray/reactive-data]))))
@@ -704,12 +708,25 @@
   (is (= #{} (registered-ids :sub schema-4-sub-ids)))
   (is (= registry/schema-version (registry/installed-schema-version))))
 
+(deftest schema-9-installs-the-withheld-sub-and-the-popout-close
+  (setup-xray-frame!)
+  (rf/clear :sub :rf.xray/epoch-withheld)
+  (rf/clear :event :rf.xray/close-popout)
+  (rf/clear :fx :rf.xray.fx/close-popout)
+  (registry/simulate-registration-at-schema! 8)
+  (registry/register-xray-handlers!)
+  (is (= [#{:rf.xray/epoch-withheld} #{:rf.xray/close-popout} #{:rf.xray.fx/close-popout}]
+         [(registered-ids :sub [:rf.xray/epoch-withheld])
+          (registered-ids :event [:rf.xray/close-popout])
+          (registered-ids :fx [:rf.xray.fx/close-popout])]))
+  (is (= registry/schema-version (registry/installed-schema-version))))
+
 ;; ---- schema-delta governance pin ----------------------------------------
 ;;
 ;; Any gated registration edit, add OR replace, must bump `schema-version`
 ;; and pair a `migrate-schema!` clause (or record why none is needed).
 
-(def ^:private expected-schema-version 8)
+(def ^:private expected-schema-version 9)
 
 (deftest schema-version-is-pinned-so-changed-registrations-name-a-migration
   (is (= expected-schema-version registry/schema-version)

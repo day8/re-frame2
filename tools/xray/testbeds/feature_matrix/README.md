@@ -76,7 +76,8 @@ the 20-event/load re-check:
 - large payload load: the large dispatcher scenario drives 20 meaningful
   host dispatches, asserting large-elision markers and app-db/trace panel
   stability under repeated size events.
-- trace row budget: the load gate saturates Xray's 1000-event trace ring,
-  asserts the Trace panel keeps the DOM to the 200-row rendering budget
-  with an overflow indicator, then drives 20 more host dispatches without
-  growing the rendered row count.
+- trace ring cap: the load gate pushes 1100 events into Xray's frameless
+  trace ring set to a 1000-event depth, asserts it evicted down to 1000,
+  then drives 20 host dispatches and asserts the ring still holds 1000
+  while the host's events reach the trace. The Trace panel renders every
+  row of the focused epoch; it has no row budget.

@@ -1,10 +1,9 @@
 (ns day8.re-frame2-xray.theme.modal-chrome
   "Shared modal-chrome scaffold.
 
-  ALL SEVEN of Xray's modal surfaces — Settings, Filter edit-popup,
-  Share, Mute manager, EDN-inspector popup,
-  the Cancellation-cascade popover and the Command palette — render
-  the SAME two-`:div` scaffold:
+  ALL SIX of Xray's modal surfaces — Settings, Filter edit-popup,
+  Mute manager, EDN-inspector popup, the Cancellation-cascade popover
+  and the Command palette — render the SAME two-`:div` scaffold:
 
       [:div BACKDROP            ;; full-inset overlay, click-outside dismiss
        [:div DIALOG …content…]] ;; the WAI-ARIA dialog box

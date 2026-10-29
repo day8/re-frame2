@@ -395,13 +395,14 @@
   "The embedded widget as a FRESCO BOUNDARY head —
   `[ei/edn-inspector-view {:mount-id … :value … :opts …}]`.
 
-  `edn-inspector-view` REFUSES a missing or non-string `:mount-id`, and
+  `edn-inspector-view` REFUSES a missing, blank or non-string `:mount-id`, and
   deliberately: a React function component has no form-2 outer body to
   allocate one in, so an id minted in its body would be fresh on every
   render and the widget would lose its expansion state each pass. The
-  popup's own `mount-id` is exactly the stable name it asks for — it is a
-  UUID minted once per popup and it already keys this popup's entry in
-  app-db — so it is qualified with the surface's name and handed down."
+  popup's own `mount-id` is exactly the stable name it asks for — the
+  opener derives it from its own mount (`\"ddp-\" <mount-id>`) and it
+  already keys this popup's entry in app-db — so it is qualified with the
+  surface's name and handed down."
   [mount-id value opts]
   [ei/edn-inspector-view
    {:mount-id (str "rf-xray-edn-inspector-popup-" mount-id)

@@ -117,8 +117,8 @@
     (xray-setup!)
     (seed-machines! [:m/a])
     (seed-definitions! {:m/a definition})
-    ;; The sim-state sub reads the raw selected-id slot.
-    (frame-dispatch [:rf.xray.static.machines/select :m/a])
+    ;; No explicit select: the rail follows the EFFECTIVE selection, the
+    ;; first row, exactly as the chart does.
     (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
     (frame-dispatch [:rf.xray.static.machines/sim-start
                      {:machine-id :m/a :definition definition}])

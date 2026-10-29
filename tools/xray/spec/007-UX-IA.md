@@ -424,7 +424,7 @@ contract:
 
 | Surface | Id | Role |
 |---|---|---|
-| Sub | `:rf.xray/current-frame` | Returns the frame id the user has focused (or nil pre-selection). |
+| Sub | `:rf.xray/current-frame` | Returns the view-scope frame the picker shows: the user's pick, else the target frame, else the head event-bundle's frame (nil when there is none of the three). |
 | Sub | `:rf.xray/available-frames` | First-seen-order vec of selectable frames; tool frames (`frame-switcher/internal-frames`) filtered out UNCONDITIONALLY per §I1 below — there is no toggle behind it. |
 | Event-fx | `:rf.xray/select-frame <frame-id>` | Canonical write. Dispatches the spine's `:rf.xray/set-frame` (which re-seeds `:target-frame` + `:epoch-history` — see [`018-Event-Spine.md`](./018-Event-Spine.md) §6) AND fires `:rf.xray.frame-switcher/persist` for localStorage. |
 | Fx | `:rf.xray.frame-switcher/persist` | localStorage write under `re-frame2.xray.frame-switcher.v1` (per-instance overridable via the direct setter `day8.re-frame2-xray.frame-switcher/set-storage-key!`; a future `configure! :rf.xray/frame-switcher-storage-key` plumb is straightforward but not wired today). **Per rf2-swclw the frame pin is a TRANSIENT view scope: it is NOT hydrated on load — `mount.cljs/::reset-transient-filters` clears the stored value so each session starts at the head-frame default.** The write still happens within a session; only the load resets. |
@@ -1679,9 +1679,11 @@ opens it. Closes on `Esc`, click-outside, or invocation of any item.
 Seven producers feed the index (`palette/sources.cljc` §`build-index`),
 riding six `:source` kinds — static-tab rows share the `:panel` kind:
 
-- Recent events (the most recent 30; the row label is the bare
-  event-id and the hint is recency only — no source coord)
-- Registered handlers (id + `:doc`; capped at 200)
+- Recent events (the most recent 30; the row label is the dispatched
+  event vector and the hint is recency only — no source coord)
+- Registered handlers (id + `:doc`; Xray's own `:rf.xray*` ids
+  excluded; capped at 200, taken a row of each kind at a time so every
+  kind is listed)
 - Frames
 - L4 tab jumps — Dynamic: every registered `:dynamic` tab (today
   Epoch / app-db / Views / Trace / Machine / Routes / Resources /

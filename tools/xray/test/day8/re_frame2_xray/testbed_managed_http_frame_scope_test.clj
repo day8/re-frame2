@@ -130,6 +130,20 @@
 ;; inherit the guard instead of escaping it.
 (defn- records-handle? [form] (str/includes? form "record-in-flight!"))
 
+(defn- recorded-handle
+  "The text of `form`'s `record-in-flight!` call with its `:abort-fn` body
+  cut out — the handle map's own keys and nothing nested in a callback, so
+  an `{:frame frame}` dispatch opt inside the abort-fn cannot stand in for
+  the handle's `:frame` stamp. nil when `form` records nothing."
+  [form]
+  (when-let [idx (str/index-of form "(rf.http.registry/record-in-flight!")]
+    (when-let [call (balanced-form form idx)]
+      (if-let [fn-idx (some-> (str/index-of call ":abort-fn")
+                              (as-> i (str/index-of call "(fn" i)))]
+        (let [abort-fn (balanced-form call fn-idx)]
+          (str (subs call 0 fn-idx) (subs call (+ fn-idx (count abort-fn)))))
+        call))))
+
 ;; ---- vacuity control ------------------------------------------------------
 
 (deftest testbed-source-is-readable
@@ -148,7 +162,7 @@
                "issuing frame is available on it and MUST be stamped on the "
                "handle. Offending form:\n" form)))
     (testing "and stamps :frame on the handle it records"
-      (is (re-find #":frame\s+frame" form)
+      (is (re-find #":frame\s+frame" (or (recorded-handle form) ""))
           (str "handle recorded without a `:frame` stamp keys under nil — a "
                "scope no frame-scoped abort can reach. Offending form:\n"
                form)))))

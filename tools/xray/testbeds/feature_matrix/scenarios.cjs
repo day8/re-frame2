@@ -148,8 +148,8 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'routes_epochs', 'index.html'],
     servedPath: 'testbeds/routes-epochs',
   },
-  // The machine-epochs deck (the STATE-MACHINE tester), built on the
-  // shared queued-step runner (`runner.core`). A single-frame step matrix
+  // The machine-epochs deck (the STATE-MACHINE tester), with its own
+  // multi-track runner (not the shared `runner.core`). A step matrix
   // over the real `reg-machine` + machine-event-routing surface, driving
   // the Xray Machine Inspector (`rf-xray-machine-inspector`). Served from
   // the deck's own hand-written index.html (source dir first, like the
@@ -345,7 +345,6 @@ async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
       // There is no `issues` panel selector; source-coord bridge coverage
       // rides the Trace panel's chips (the same exception traces carry
       // the coords).
-      hydration: '[data-testid="rf-xray-hydration-source-coord"] button',
     };
     if (!root) return { clicked: false, reason: 'Xray root missing', candidates: [] };
     const selector = selectors[targetPanel] || 'button[data-testid*="source"]';
@@ -1139,27 +1138,24 @@ async function focusCascadeByFrameEvent(page, { frame, eventId }) {
   return result;
 }
 
-// The trace header's 'X / Y in view' denominator is cascade-scoped
-// (Y = in-scope, pre-user-filter count), so it is not a proxy for the
-// whole ring's depth. The buffer-cap invariant ('still capped at 1000')
-// is read straight from the trace bus — the canonical source of truth
-// for ring depth, independent of which cascade the spine has in focus.
-async function readTraceBufferDepth(page) {
+// The frameless secondary ring's own count — the ring the synthetic load
+// lands in, read straight off the trace bus. Not `buffer_for_test`, which
+// merges every frame ring with it and so grows with each host dispatch.
+async function readFramelessRingDepth(page) {
   return page.evaluate(() => {
     const cljs = window.cljs && window.cljs.core;
     const bus = window.day8 &&
       window.day8.re_frame2_xray &&
       window.day8.re_frame2_xray.trace_collector;
-    if (!cljs || !bus || typeof bus.buffer_for_test !== 'function') return null;
-    // `bus.buffer_for_test()` is the live ring; its count is the actual number of
-    // retained events (vs `current_depth`, which is only the configured
-    // capacity). The 1000-cap saturation invariant needs the live count.
-    return cljs.count(bus.buffer_for_test());
+    if (!cljs || !bus || typeof bus.frameless_events !== 'function') return null;
+    return cljs.count(bus.frameless_events());
   });
 }
 
-async function pushSyntheticTraceEvents(page, count) {
-  const result = await page.evaluate((eventCount) => {
+// Push `count` synthetic events into the frameless ring, first setting
+// the ring's depth to `ringDepth` (default `count`).
+async function pushSyntheticTraceEvents(page, count, ringDepth = count) {
+  const result = await page.evaluate(({ eventCount, depth }) => {
     const cljs = window.cljs && window.cljs.core;
     const bus = window.day8 &&
       window.day8.re_frame2_xray &&
@@ -1176,7 +1172,7 @@ async function pushSyntheticTraceEvents(page, count) {
     // perf-test invariant. The default `default-frameless-ring-depth`
     // (100) is what production hosts see.
     if (typeof bus.set_frameless_ring_depth_BANG_ === 'function') {
-      bus.set_frameless_ring_depth_BANG_(eventCount);
+      bus.set_frameless_ring_depth_BANG_(depth);
     }
     function keyword(s) {
       const trimmed = String(s).replace(/^:/, '');
@@ -1190,17 +1186,8 @@ async function pushSyntheticTraceEvents(page, count) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
-    // The Trace tab is cascade-scoped — it only renders rows belonging to
-    // the spine's focused cascade. To stress the per-cascade 200-row DOM
-    // budget we push every synthetic event under a SINGLE shared
-    // :dispatch-id so the buffer holds one focusable cascade containing
-    // all `eventCount` rows; LIVE mode auto-snaps focus to that head
-    // cascade and the trace ribbon ends up trying to render all 1000 —
-    // which the DOM budget then caps at 200 with the overflow indicator.
-    // (Allocating a distinct :dispatch-id per event would instead produce
-    // 1000 single-row cascades, and under cascade-scoping only the head
-    // cascade — a single row — would render, missing the budget assertion
-    // entirely.)
+    // Every synthetic event shares one :dispatch-id, so the load is ONE
+    // synthetic cascade rather than `eventCount` single-row ones.
     const sharedDispatchId = 500000;
     const now = Date.now();
     for (let i = 0; i < eventCount; i += 1) {
@@ -1229,7 +1216,7 @@ async function pushSyntheticTraceEvents(page, count) {
       depth: typeof bus.default_frameless_ring_depth !== 'undefined' ? bus.default_frameless_ring_depth : null,
       buffered: typeof bus.buffer_for_test === 'function' ? cljs.count(bus.buffer_for_test()) : null,
     };
-  }, count);
+  }, { eventCount: count, depth: ringDepth });
   if (!result.ok) {
     failWithDetails('Could not push synthetic Xray trace events', result);
   }
@@ -1288,9 +1275,8 @@ async function readLaunchModeProjection(page) {
         // The Epoch panel doesn't stamp a top-level `:data-dispatch-id` /
         // `:data-frame` (the dispatch info lives inside the rendered
         // DISPATCH step's text). The pop-out vs overlay agreement
-        // therefore rides on `cascadeRows` + `cascadeText` matching;
-        // we leave these slots null for diagnostic stability across
-        // the two surfaces.
+        // therefore rides on `cascadeText` matching; we leave these
+        // slots null for diagnostic stability across the two surfaces.
         selectedDispatchId: null,
         selectedFrame: null,
         cascadeText: text(root, '[data-testid="rf-xray-epoch-panel"]'),
@@ -1365,6 +1351,22 @@ async function expectHostCounterEquals(page, expected, timeoutMs = 10000) {
 async function runShellFeatureSweep(page) {
   await expectHostCounterEquals(page, 5, 10000);
   await openXray(page);
+
+  // PANEL_HANDOFFS is hand-written, and the panel-gallery exclusions rely
+  // on it naming every tab: pin it to the live tab bar's `role="tab"`
+  // buttons (their `data-testid` is `rf-xray-tab-<id>`; a bare prefix
+  // match would also take the bar's own `rf-xray-tab-bar-*` chrome).
+  const liveTabIds = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-testid="rf-xray-tab-bar"] [role="tab"]'))
+      .map((el) => (el.getAttribute('data-testid') || '').replace(/^rf-xray-tab-/, '')));
+  const handoffIds = PANEL_HANDOFFS.map(([id]) => id);
+  if (liveTabIds.length === 0 ||
+      JSON.stringify([...liveTabIds].sort()) !== JSON.stringify([...handoffIds].sort())) {
+    failWithDetails('PANEL_HANDOFFS does not match the live L3 tab bar', {
+      liveTabIds,
+      handoffIds,
+    });
+  }
 
   // Sweep every L3 tab. Each tab click must surface its panel canvas
   // (per spec/018 §5). Only the panels with a tab take part in this
@@ -2071,6 +2073,14 @@ async function runLargeDispatcher(page, state) {
       appDbText: appDbText.slice(0, 1200),
     });
   }
+  // The `:large`-classified slots hold a 200-char `Y` string; each must
+  // render as its chip, never as the string.
+  if (appDbText.includes('Y'.repeat(48))) {
+    failWithDetails('A :large-classified payload leaked into App-DB Diff text', {
+      largeChipCount,
+      appDbText: appDbText.slice(0, 1200),
+    });
+  }
   // The edn-inspector's internal `::missing` absence sentinel
   // (`:day8.re-frame2-xray.views.edn-inspector/missing`) must NEVER reach
   // the rendered App-DB Diff. A removed slot renders as a
@@ -2095,6 +2105,7 @@ async function runLargeDispatcher(page, state) {
     renderDurationMs: Date.now() - start,
     largeDispatchCount: 20,
     elisionMarkerVisible: true,
+    largeChipCount,
   };
 }
 
@@ -2162,22 +2173,21 @@ async function runTraceBudgetSaturation(page, state) {
   await clickSidebar(page, 'trace', 'rf-xray-trace');
   await clearTrace(page);
   const start = Date.now();
-  const pushed = await pushSyntheticTraceEvents(page, 1000);
   // The saturation invariant is a RING property. Xray's secondary
   // frameless ring caps at `default-frameless-ring-depth` (100 events) by
-  // default; the synthetic-events helper bumps the depth to the pushed
-  // count via `set-frameless-ring-depth!` so this perf test can assert
-  // against a 1000-event budget independent of the production default.
-  // Frame-bound events ride the framework's per-frame rings (cascade-
-  // keyed, capped at `:events-retained` per frame). The Trace PANEL is
-  // epoch-scoped — it renders the focused epoch record's `:trace-events`,
-  // NOT the global bus.
+  // default; the synthetic-events helper sets the depth via
+  // `set-frameless-ring-depth!` so this test is independent of the
+  // production default. It pushes 100 PAST the depth, so a ring that
+  // never evicted would read 1100, not 1000. Frame-bound events ride the
+  // framework's per-frame rings (capped at `:events-retained` per frame),
+  // never this one.
   const expectedDepth = 1000;
+  const pushed = await pushSyntheticTraceEvents(page, expectedDepth + 100, expectedDepth);
   const saturatedDepth = await waitForValue(
-    () => readTraceBufferDepth(page),
+    () => readFramelessRingDepth(page),
     (depth) => depth === expectedDepth,
     { timeoutMs: 10000,
-      description: `trace buffer saturation at ${expectedDepth} rows` },
+      description: `frameless ring evicted down to its ${expectedDepth}-event depth` },
   );
 
   for (let i = 0; i < 20; i += 1) {
@@ -2189,20 +2199,22 @@ async function runTraceBudgetSaturation(page, state) {
   // `:rf.xray/trace-buffer` snapshot mirror).
   const after = await waitForValue(
     async () => ({
-      depth: await readTraceBufferDepth(page),
+      depth: await readFramelessRingDepth(page),
       events: await readTrace(page),
     }),
     (snapshot) =>
+      snapshot.depth === expectedDepth &&
       snapshot.events.some((event) => event.includes(':counter/inc')) &&
       snapshot.events.some((event) => event.includes(':counter/dec')),
-    { timeoutMs: 10000, description: 'host counter events visible after 20 dispatches' },
+    { timeoutMs: 10000,
+      description: `host counter events visible after 20 dispatches, frameless ring still at ${expectedDepth}` },
   );
   state.loadStats = {
     eventCountBefore: saturatedDepth,
     eventCountAfter: after.depth,
     traceBufferDepth: after.depth,
     renderDurationMs: Date.now() - start,
-    bufferEvictionCount: Math.max(0, saturatedDepth + 20 - after.depth),
+    bufferEvictionCount: pushed.pushed - saturatedDepth,
     syntheticEventsPushed: pushed.pushed,
   };
 }
@@ -2253,17 +2265,21 @@ async function runLaunchModesTwentyEventLoad(page, state) {
   for (let i = 0; i < 20; i += 1) {
     await clickHostButtonByLabel(page, i % 2 === 0 ? '+' : '-');
   }
+  // The two surfaces agree when their Epoch panels render the same text: a
+  // pop-out stuck on a stale epoch shows a different cascade, whereas a
+  // rendered-or-not row count reads 1 on both.
   const after = await waitForValue(
     () => readLaunchModeProjection(page),
     (projection) =>
       projection.hostDispatchCount === 20 &&
       projection.overlay.cascadeRows > 0 &&
-      projection.popout.cascadeRows > 0,
-    { timeoutMs: 10000, description: 'launch-mode shared Epoch-panel state after 20 host dispatches' },
+      projection.popout.cascadeRows > 0 &&
+      projection.overlay.cascadeText != null &&
+      projection.overlay.cascadeText === projection.popout.cascadeText,
+    { timeoutMs: 10000,
+      description: 'overlay and pop-out Epoch panels render the same cascade after 20 host dispatches' },
   );
   const elapsedMs = Date.now() - start;
-  const cascadeRowCounts = [after.overlay.cascadeRows, after.popout.cascadeRows];
-  const uniqueCascadeRowCounts = [...new Set(cascadeRowCounts)];
   state.loadStats = {
     eventCountBefore: before.traceCount,
     eventCountAfter: after.traceCount,
@@ -2285,13 +2301,6 @@ async function runLaunchModesTwentyEventLoad(page, state) {
     failWithDetails('20-event load produced an unexpected host dispatch trace count', {
       expected: 20,
       observed: after.hostDispatchCount,
-      before,
-      after,
-    });
-  }
-  if (uniqueCascadeRowCounts.length !== 1) {
-    failWithDetails('Overlay and pop-out Epoch panel disagree on rendered cascade rows', {
-      cascadeRowCounts,
       before,
       after,
     });
@@ -3086,9 +3095,9 @@ async function runRoutesEpochs(page, state) {
   };
 }
 
-// The machine-epochs state-machine deck, built on the shared queued-step
-// runner (`runner.core`). Walks the deck's step matrix top-to-bottom (via
-// the runner's per-step RUN-THIS-STEP buttons) and asserts each step's
+// The machine-epochs state-machine deck, with its own multi-track runner
+// (not the shared `runner.core`). Walks the deck's step matrix top-to-bottom
+// (via its per-step RUN-THIS-STEP buttons) and asserts each step's
 // machine feature landed, then opens the Xray Machine Inspector
 // (`rf-xray-machine-inspector`) and confirms the panel mounts on the focused
 // machine event. The final handoff re-drives a few steps OUT OF ORDER (the
@@ -3215,6 +3224,33 @@ async function readTrackSnapshots(page, trackId, machineIds) {
     const stripText = lines.join(' ').replace(/\s+/g, ' ').trim();
     return { mounted: true, stripText };
   }, { trackId, machineIds });
+}
+
+// The pr-str of the value at `keyPath` in a track frame's app-db, or null.
+async function readTrackDbValue(page, trackId, keyPath) {
+  return page.evaluate(({ trackId, keyPath }) => {
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !rf || typeof rf.app_db_value !== 'function') return null;
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    let v = rf.app_db_value(keyword(`:machine/${trackId}`));
+    for (const k of keyPath) {
+      if (v == null) return null;
+      v = cljs.get(v, keyword(k));
+    }
+    return v == null ? null : cljs.pr_str(v);
+  }, { trackId, keyPath });
 }
 
 // Convenience: wait until a track's reconstructed snapshot text matches a
@@ -3488,20 +3524,23 @@ async function runMachineEpochs(page, state) {
   );
 
   // step 3 INTERNAL self-transition (:hvac/tweak) — action-only; fan STAYS :on.
+  //   `:fan :on` holds from step 0, so the step's own evidence is its
+  //   action: `:tweak-fan` bumps `:tweaks` to 1.
   await clickMachineStep(page, 3);
   const afterHvacTweak = await waitForTrackSnapshot(
     page, 'hvac', [':hvac/controller'],
-    (t) => /:fan :on/.test(t),
-    'hvac#3 tweak -> internal self-transition (action-only), fan STAYS :on',
+    (t) => /:fan :on/.test(t) && /:tweaks 1[^0-9]/.test(t),
+    'hvac#3 tweak -> internal self-transition ran its action (:tweaks 1), fan STAYS :on',
   );
 
   // ===== Media (HISTORY) — the placement reject + live restore steps =====
   // The media track boots BOTH machine-ids (:media/deep + :media/shallow)
   // into the one media frame. Step 0 drives the placement-rejection probe
-  // (advances no snapshot); steps 1/2 drive the shallow/deep restore — their
-  // full restore-cascade render assertions live in the CLJS harness. Here we
-  // confirm the steps resolve + do not crash the deck, and the two media
-  // machines both booted into the one frame.
+  // (advances no snapshot, so its evidence is the deck's
+  // `:machine-epochs/history-rejected?` flag); steps 1/2 drive the
+  // shallow/deep restore — their full restore-cascade render assertions live
+  // in the CLJS harness. Here we confirm each restore lands its machine on
+  // the configuration its history kind promises.
   await selectMachineTrack(page, 'media');
   await waitForTrackSnapshot(
     page, 'media', [':media/deep', ':media/shallow'],
@@ -3509,8 +3548,23 @@ async function runMachineEpochs(page, state) {
     'media track booted BOTH machine-ids into the one media frame',
   );
   await clickMachineStep(page, 0); // placement rejection probe
+  await waitForValue(
+    () => readTrackDbValue(page, 'media', [':machine-epochs/history-rejected?']),
+    (v) => v === 'true',
+    { timeoutMs: 10000, description: 'media#0 a ROOT :history machine is rejected (placement)' },
+  );
   await clickMachineStep(page, 1); // shallow restore
+  await waitForTrackSnapshot(
+    page, 'media', [':media/shallow'],
+    (t) => /:media\/shallow state: \[:player :playing :at-start\]/.test(t),
+    'media#1 shallow restore -> the recorded child :playing, then its :initial :at-start',
+  );
   await clickMachineStep(page, 2); // deep restore
+  await waitForTrackSnapshot(
+    page, 'media', [':media/deep'],
+    (t) => /:media\/deep state: \[:player :playing :mid-track\]/.test(t),
+    'media#2 deep restore -> the exact recorded leaf :mid-track',
+  );
 
   // ===== Modal (MULTI-EVENT transition — events-as-nodes) ===============
   // ONE edge (:open ──► :closed) reached on THREE distinct events
@@ -3823,20 +3877,22 @@ async function runTwoFrameIsolation(page, state) {
   // [:map [:token :string]]`, registered once globally, resolved per-frame)
   // REJECTS the candidate BEFORE install — so `:above`'s
   // `[:auth :token]` must still read the seed STRING "seed-token", NOT 42.
-  // The still-a-string read is the observable proof the schema fired AND
-  // the rejection engaged in `:above`'s frame. `:below` MUST be wholly
-  // untouched (still the seed string) — the schema violation + rejection
-  // are scoped to the driven frame.
+  // The token reads the seed string from boot, so the wait first needs the
+  // frame's runner cursor on the schema rung (the step ran); the
+  // still-a-string read after that is the proof the schema fired AND the
+  // rejection engaged in `:above`'s frame. `:below` MUST be wholly
+  // untouched (its cursor still on the flow rung, the seed string) — the
+  // schema violation + rejection are scoped to the driven frame.
   await runTwoFrameStep(page, 'above', TWO_FRAME_SCHEMA_STEP);
   const aAfterSchema = await waitForTwoFrameDb(
     page, 'above',
-    (s) => s.token === '"seed-token"',
-    'above app-schema rung: int write to [:auth :token] rejected pre-install — token still "seed-token" (frame-local schema fired + candidate rejection engaged)',
+    (s) => s.step === TWO_FRAME_SCHEMA_STEP && s.token === '"seed-token"',
+    'above app-schema rung ran: int write to [:auth :token] rejected pre-install — token still "seed-token" (frame-local schema fired + candidate rejection engaged)',
   );
   await waitForTwoFrameDb(
     page, 'below',
-    (s) => s.token === '"seed-token"',
-    'app-schema isolation: below frame [:auth :token] untouched (still "seed-token") by above\'s schema-violating write',
+    (s) => s.step === TWO_FRAME_FLOW_STEP && s.token === '"seed-token"',
+    'app-schema isolation: below frame [:auth :token] untouched (still "seed-token", cursor on the flow rung) by above\'s schema-violating write',
   );
 
   // Drive the APP-SCHEMA step in `:below` too and assert its candidate is
@@ -3845,8 +3901,8 @@ async function runTwoFrameIsolation(page, state) {
   await runTwoFrameStep(page, 'below', TWO_FRAME_SCHEMA_STEP);
   await waitForTwoFrameDb(
     page, 'below',
-    (s) => s.token === '"seed-token"',
-    'below app-schema rung: int write rejected pre-install — token still "seed-token" (frame-local schema + candidate rejection)',
+    (s) => s.step === TWO_FRAME_SCHEMA_STEP && s.token === '"seed-token"',
+    'below app-schema rung ran: int write rejected pre-install — token still "seed-token" (frame-local schema + candidate rejection)',
   );
 
   // The runner `:step` cursors are also per-frame isolated — each frame's

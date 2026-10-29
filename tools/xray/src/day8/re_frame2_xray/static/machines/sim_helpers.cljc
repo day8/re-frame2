@@ -566,6 +566,25 @@
         (catch #?(:clj Throwable :cljs :default) e
           {:error (str "EDN parse error: " (ex-message e))})))))
 
+(defn step-event
+  "The event the Step button fires: `pending-event` parsed through
+  `parse-event-vector`, with `pending-data` (an EDN payload, optional)
+  folded in when the event names only its id. Returns the event vector,
+  or `{:error <str>}` when either text does not parse — the rail shows the
+  reason rather than firing an event that is missing its payload."
+  [pending-event pending-data]
+  (let [parsed (parse-event-vector pending-event)]
+    (if (map? parsed)
+      parsed
+      (let [payload (when-not (str/blank? (or pending-data ""))
+                      (try {:value (edn/read-string pending-data)}
+                           (catch #?(:clj Throwable :cljs :default) e
+                             {:error (str "payload EDN parse error: " (ex-message e))})))]
+        (cond
+          (:error payload)                      payload
+          (and payload (= 1 (count parsed)))    (conj parsed (:value payload))
+          :else                                 parsed)))))
+
 ;; ---- step orchestrator (pure shape, runtime-callable) -------------------
 ;;
 ;; `re-frame.machines/machine-transition` returns the Spec 005 §Level 1 map —

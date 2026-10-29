@@ -1,7 +1,7 @@
 (ns machine-epochs.core
   "MACHINE-EPOCHS testbed — the MULTI-MACHINE, FRAME-ISOLATED state-machine
-  stepper. It is the STATE-MACHINE consumer of the shared
-  queued-step RUNNER (`runner.core`) re-expressed as a multi-track picker:
+  stepper — the shared queued-step RUNNER's (`runner.core`) step idiom
+  re-expressed as a multi-track picker with its own local runner:
   each machine domain lives in its OWN frame and owns its OWN Xray epoch
   ring, and the picker re-points Xray (`:rf.xray/select-frame`) at the
   selected machine's frame so EVERY observation panel (the Epoch panel
@@ -69,8 +69,8 @@
 
   ## Localized runner
 
-  The shared `runner.core` is consumed by six decks and carries none of this
-  deck's machinery. The multi-track + frame-per-machine machinery is
+  The shared `runner.core` is consumed by the other numbered-button decks
+  and carries none of this deck's machinery. The multi-track + frame-per-machine machinery is
   machine-epochs-LOCAL (this ns). We REUSE the shared runner's host-frame + cross-frame-dispatch idiom
   (`{:frame host-frame}`) as a building block — the multi-machine-observation
   UX is specific to this deck (the only multi-machine one), so localizing

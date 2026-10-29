@@ -945,7 +945,8 @@
 (defn- switch-surface!
   "Re-parent + re-render the singleton shell so its realized physical
   surface matches `mode` (`:inline` or `:overlay`). Precondition: a
-  mount already exists whose realized `:mode` differs from `mode`.
+  mount already exists whose realized `:mode` differs from `mode`, or
+  whose inline node the host dropped (`open!`).
 
   Unmounts the current React root (frame/app-db survive — they live
   outside the component tree), creates a fresh mount node in the target
@@ -1011,7 +1012,11 @@
   `console.error` without blocking startup."
   []
   (if-let [state @mount-state]
-    (if (= :inline (:mode state))
+    (if (and (= :inline (:mode state))
+             ;; A host that re-rendered its `[data-rf-xray-host]` element
+             ;; dropped the node with it; showing that node would show
+             ;; nothing, so the shell mounts afresh into the live host.
+             (not (false? (some-> ^js (:node state) .-isConnected))))
       (do (set-visible! (:node state) true)
           (swap! mount-state assoc :visible? true)
           @mount-state)

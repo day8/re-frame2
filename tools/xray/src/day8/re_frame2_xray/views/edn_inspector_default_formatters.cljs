@@ -16,16 +16,19 @@
   ## Coverage
 
   - **`cljs.core/UUID`** — header compacts to `#uuid \"…last8\"`
-    with a `title` carrying the full canonical 36-char form on hover;
-    body expands to the full canonical form. Built-in scalar repr
-    `#uuid \"<full>\"` is correct but visually noisy in long lists of
-    uuids — the compact-with-hover form scans an inspector at a
-    glance, the full form drops in on expand.
+    with a `title` carrying the full canonical 36-char form on hover.
+    Built-in scalar repr `#uuid \"<full>\"` is correct but visually
+    noisy in long lists of uuids — the compact-with-hover form scans an
+    inspector at a glance.
 
   - **`js/Date`** (i.e. `inst?` instances in CLJS) — header renders
     a friendly relative-time string (`just now`, `3m ago`, `2h ago`,
     `5d ago`, `in 3m`, ISO date for older than 30 days) with the
-    full ISO carried on `title`; body expands to the ISO string.
+    full ISO carried on `title`.
+
+  Neither renders a body: a protocol node paints no toggle and renders
+  any body open, so a full-form body would undo the compact header on
+  every row. The hover `title` carries the full form.
     The relative-time formatter is a ~30-line pure function with no
     library dependency — see `format-relative` below.
 
@@ -97,17 +100,10 @@
             :style               (token-style :info)}
      (str "#uuid \"…" tail "\"")]))
 
-(defn render-uuid-body
-  "Build the expanded-body hiccup for a uuid. Public for tests."
-  [v]
-  [:span {:data-rf-default-fmt-body "uuid"
-          :style                    (token-style :info)}
-   (str "#uuid \"" v "\"")])
-
 (extend-type cljs.core/UUID
   IXrayEdnInspector
   (-xray-render-header [v _opts] (render-uuid-header v))
-  (-xray-render-body   [v _opts] (render-uuid-body v)))
+  (-xray-render-body   [_v _opts] nil))
 
 ;; =========================================================================
 ;; inst (js/Date) — relative-time header, ISO body
@@ -200,14 +196,7 @@
              :style               (token-style :info)}
       (str "#inst \"" rel "\"")])))
 
-(defn render-inst-body
-  "Build the expanded-body hiccup for an inst. Public for tests."
-  [v]
-  [:span {:data-rf-default-fmt-body "inst"
-          :style                    (token-style :info)}
-   (str "#inst \"" (iso-string v) "\"")])
-
 (extend-type js/Date
   IXrayEdnInspector
   (-xray-render-header [v _opts] (render-inst-header v))
-  (-xray-render-body   [v _opts] (render-inst-body v)))
+  (-xray-render-body   [_v _opts] nil))

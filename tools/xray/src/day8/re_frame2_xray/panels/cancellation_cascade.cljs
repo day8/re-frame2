@@ -130,12 +130,8 @@
 ;; values are CSS-var strings — the active theme class picks the hex
 ;; at paint time, so resolution-once is correct across light/dark).
 (def ^:private decision-colour (:info tokens))
-(def ^:private teardown-colour (or (:accent-orange tokens)
-                                   (:warning-amber tokens)
-                                   (:yellow tokens)))
-(def ^:private abort-colour    (or (:red tokens)
-                                   (:error-red tokens)
-                                   (:danger tokens)))
+(def ^:private teardown-colour (:orange tokens))
+(def ^:private abort-colour    (:red tokens))
 
 ;; Outer flex container — shared chrome, padding diverges per row type.
 (def ^:private row-container-chrome

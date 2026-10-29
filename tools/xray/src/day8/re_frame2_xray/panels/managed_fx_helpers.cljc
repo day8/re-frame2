@@ -513,6 +513,12 @@
 
 ;; ---- correlation-id resolution -----------------------------------------
 
+(def correlation-arg-keys
+  "Every args key `args-correlation-id` reads a correlation id from, over
+  all surfaces. The correlation filter pill matches back on this set
+  (`filters.typed-predicates`), so a key added below belongs here too."
+  [:request-id :socket-id :fixed-actor-id :machine-id :id])
+
 (defn- args-correlation-id
   "Surface-specific correlation id reader. HTTP carries `:request-id`;
   machine `:spawn` carries the registered TYPE under `:machine-id` and an

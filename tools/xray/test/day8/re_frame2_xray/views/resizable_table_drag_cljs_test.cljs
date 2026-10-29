@@ -63,6 +63,19 @@
                (mapv first @d)))
         (is (false? (rt/dragging?)))))))
 
+(deftest a-move-with-no-button-held-commits-and-tears-down
+  ;; The pointerup never arrived (released outside the window): the next
+  ;; move reports no button held and finishes the drag.
+  (let [d (atom [])]
+    (rt/on-pointer-down #(swap! d conj %) :tbl :a :b
+                        (stub-pointer-event 100 :a 120 :b 80))
+    (rt/simulate-move! 130)
+    ((:on-move @(deref #'rt/drag-state)) #js {:clientX 160 :buttons 0})
+    (is (= [:rf.xray.column-widths/resize-pair-tick
+            :rf.xray.column-widths/resize-pair-commit]
+           (mapv first @d)))
+    (is (false? (rt/dragging?)))))
+
 (deftest missed-pointerup-then-new-drag-never-orphans
   (testing "a missed pointerup leaves the first drag's listeners bound;
             the next pointerdown defensively detaches them before

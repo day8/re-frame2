@@ -52,3 +52,19 @@
     (is (every? #{"true" "false"} (map :aria-selected rows)))
     (is (every? string? (map :id rows)))
     (is (apply distinct? (map :id rows)) "row ids are unique")))
+
+(deftest a-query-counts-its-matches-against-every-candidate
+  ;; "N / total", where total is the whole index the query ranks, so a
+  ;; query that narrows the list reads as narrowing it.
+  (registry/register-xray-handlers!)
+  (rf/make-frame {:id :rf/xray})
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/palette-open])
+    (rf/dispatch-sync [:rf.xray/palette-set-query "settings"])
+    (let [tree    (palette-tree/palette-tree rf/dispatch)
+          shown   (count @(rf/subscribe [:rf.xray/palette-results]))
+          total   (count @(rf/subscribe [:rf.xray/palette-index]))]
+      (is (< shown total) "precondition: the query narrows the list")
+      (is (= (str shown " / " total)
+             (rf.test-helpers/text-content
+               (rf.test-helpers/find-by-testid tree "rf-xray-palette-result-count")))))))

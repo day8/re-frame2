@@ -106,8 +106,12 @@
   ;; Apply the persisted CSS-var + theme-class effects. The shell
   ;; root may not exist yet (auto-open is async) — apply-all! no-ops
   ;; on a missing root; the events handler re-applies on every
-  ;; subsequent update.
-  (settings-effects/apply-all!)
+  ;; subsequent update. A throw (a malformed persisted setting) is
+  ;; tapped, as `configure!`'s applier does, so it cannot stop the
+  ;; boot below.
+  (try (settings-effects/apply-all!)
+       (catch :default e
+         (tap> {:tag ::settings-apply-failed :error e})))
   ;; Auto-open-on-error watcher — NOT installed here.
   ;; The watcher subscribes to `:rf.xray/issues-ribbon`, a sub that
   ;; reads from `:rf/xray`'s app-db; but `:rf/xray` is seated only once

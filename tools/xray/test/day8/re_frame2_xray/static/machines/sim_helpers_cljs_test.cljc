@@ -351,3 +351,12 @@
     {:action :bump}         "↻ internal :bump"
     {:action (fn [_] nil)}  "↻ internal (fn)"
     {}                      "↻ internal"))
+
+(deftest step-event-folds-the-payload-or-names-the-parse-failure
+  (is (= [:go {:x 1}] (sim-h/step-event ":go" "{:x 1}")))
+  (is (= [:go {:y 2}] (sim-h/step-event "[:go {:y 2}]" "{:x 1}"))
+      "a vector the user typed wins over the payload box")
+  (is (= [:go] (sim-h/step-event ":go" "  ")))
+  (is (re-find #"payload" (:error (sim-h/step-event ":go" "{:x")))
+      "a payload that does not parse is an error, not an event without it")
+  (is (:error (sim-h/step-event "[:go" ""))))

@@ -139,23 +139,22 @@
   `vbscript:`). There is no positive allowlist: any
   non-dangerous scheme (built-in or unknown custom) passes through.
 
-  Threads the configured project-root through
-  `rf.source-coords.editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
-  coord (the common case — macros capture the form-meta `:file` slot,
-  typically classpath-relative) resolves to an absolute on-disk path
-  the OS-side editor handler can find. The `:project-root` opt is
-  nil-tolerant — when unset, the file ships verbatim, exactly as the
-  2-arg call ships it.
+  Builds through `config/editor-uri`, which threads the configured
+  editor and project-root into `rf.source-coords.editor-uri/editor-uri`'s
+  3-arg form, so a classpath-relative source-coord (the common case —
+  macros capture the form-meta `:file` slot, typically classpath-relative)
+  resolves to an absolute on-disk path the OS-side editor handler can
+  find. The `:project-root` opt is nil-tolerant — when unset, the file
+  ships verbatim.
 
   The chip render path and the `:rf.xray.fx/open-in-editor` reg-fx both call this
   — one source of truth for the URI shape across the data path and the
   side-effect path."
   [source-coord]
   (when (rf.source-coords.editor-uri/has-source? source-coord)
-    (let [opts {:project-root (config/get-project-root)}]
-      ;; `editor-uri` already denylist-gates the resolved URI inline at
-      ;; build time, returning nil on a forbidden scheme.
-      (rf.source-coords.editor-uri/editor-uri (config/get-editor) source-coord opts))))
+    ;; `editor-uri` already denylist-gates the resolved URI inline at
+    ;; build time, returning nil on a forbidden scheme.
+    (config/editor-uri source-coord)))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
@@ -204,8 +203,9 @@
   time, but the `:rf.xray.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
   must fire here too. A URI on a forbidden scheme (`javascript:` /
-  `data:` / `vbscript:`, case-insensitive, leading-whitespace tolerant)
-  is a click-time no-op. There is no positive allowlist:
+  `data:` / `vbscript:`, case-insensitive, read past leading whitespace
+  and control characters and through an embedded tab, CR or LF) is a
+  click-time no-op. There is no positive allowlist:
   unknown custom non-dangerous schemes navigate as the developer
   intended (the spec mandates a rejection list, not an allowlist).
 

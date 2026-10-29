@@ -161,7 +161,8 @@
 (defn- root-elements
   "Every element a DOM setting is written to: the inline shell root, the
   opener's `<html>`, and the `<html>` of each attached document. Nils are
-  dropped."
+  dropped. Each writer below guards its per-element write, because an
+  attached document's window can close under it."
   []
   (into []
         (remove nil?)
@@ -207,7 +208,8 @@
   [px]
   (let [value (str px "px")]
     (doseq [el (root-elements)]
-      (.setProperty (.-style el) text-size-css-var value)))
+      (try (.setProperty (.-style el) text-size-css-var value)
+           (catch :default _ nil))))
   nil)
 
 ;; ---- density ------------------------------------------------------------
@@ -276,7 +278,8 @@
   [density]
   (let [value (str (density->px density) "px")]
     (doseq [el (root-elements)]
-      (.setProperty (.-style el) tokens/font-size-var-name value)))
+      (try (.setProperty (.-style el) tokens/font-size-var-name value)
+           (catch :default _ nil))))
   nil)
 
 ;; ---- theme --------------------------------------------------------------

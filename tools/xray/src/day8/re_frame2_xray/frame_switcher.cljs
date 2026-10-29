@@ -18,11 +18,12 @@
   Three public symbols make up the slot's external surface — every
   frame-aware feature SHOULD reach through these only:
 
-  - **Sub `:rf.xray/current-frame`** — returns the frame id the user
-    has focused (or the default when no explicit selection has been
-    made). Composes off the spine's `:rf.xray/focus-slot` so the
-    sub re-fires automatically when the spine flips frames via any
-    code path (ribbon picker, palette, headless test driver).
+  - **Sub `:rf.xray/current-frame`** — returns the frame the picker
+    shows: the VIEW-SCOPE frame (`:rf.xray/view-scope-frame`) — the
+    user's pick, else the target frame, else the head event-bundle's
+    frame. It re-fires on a write to either slot by any code path
+    (ribbon picker, palette, headless test driver), and is decoupled
+    from the spine's auto-tracking `[:focus :frame]`.
 
   - **Sub `:rf.xray/available-frames`** — returns a first-seen-order
     vec of distinct frames present in the live event-bundle list, with
@@ -459,15 +460,6 @@
   (install-fx!)
 
   ;; ---- subs ----------------------------------------------------------
-  ;;
-  ;; `:rf.xray/current-frame` composes off `:rf.xray/focus-slot` (the
-  ;; spine's raw stored frame slot). This indirection means the sub re-
-  ;; fires when ANY code path mutates the slot — the ribbon picker, the
-  ;; palette, headless test drivers, the spine's auto-snap on first
-  ;; event-bundle. Reading the composed `:rf.xray/focus` sub here would
-  ;; introduce a circular dependency since the spine's `:focus` sub
-  ;; already pulls in `:rf.xray/event-bundles`; the raw slot is the right
-  ;; primitive.
 
   ;; `:rf.xray/view-scope-frame` — the
   ;; dedicated VIEW-SCOPE slot. The frame is a single defaulted view

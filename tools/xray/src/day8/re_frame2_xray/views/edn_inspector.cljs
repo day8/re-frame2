@@ -218,15 +218,16 @@
                     pass a stable `:site-id` to survive a panel-leave-
                     and-return round-trip.
 
-  There is no `:render-id` arg — the mount-id is auto-generated
-  internally.
+  There is no `:render-id` arg. The Reagent head `edn-inspector`
+  mints its mount-id once, in its form-2 outer `let`; the Fresco head
+  `edn-inspector-view` has no outer body to mint one in, so its caller
+  names the mount with a required `:mount-id`.
 
   ## Per-call-site isolation
 
-  Each `[edn-inspector …]` mount auto-assigns a UUID `mount-id` on
-  first render (captured in a form-2 outer `let`). Two mounts side-
-  by-side in the same panel get independent expansion state. The
-  expansion key is `[panel-id mount-id path]` by default.
+  Each mount has its own `mount-id`, so two mounts side-by-side in the
+  same panel get independent expansion state. The expansion key is
+  `[panel-id mount-id path]` by default.
 
   When the same logical call site needs to SURVIVE a remount (e.g.
   the App-DB tab unmounts on tab-switch and re-mounts on return),
@@ -1354,10 +1355,11 @@
        (when bytes
          [:span {:style {:color (:text-tertiary tokens) :margin-left "4px"}}
           (str "· " bytes " bytes")])])
-    ;; Fallback for unknown shapes — pr-str.
+    ;; Fallback for unknown shapes — a BOUNDED print: an atom over an
+    ;; endless seq, or a #js object, prints through the same vars.
     [:span {:data-rf-type "other"
             :style (token-style :text-primary)}
-     (try (pr-str v) (catch :default _ (str v)))]))
+     (safe-pr-str v)]))
 
 ;; =========================================================================
 ;; delimiters — bracket characters + style per collection kind
@@ -2201,10 +2203,13 @@
 ;;
 ;; Width is estimated by `(* char-count mono-char-width-px)` — JetBrains
 ;; Mono / Source Code Pro at the inspector's 12px size carries an
-;; ~7.2px-wide M-advance; rounding up to 7px gives a slightly conservative
-;; estimate (real strings render a hair narrower, so the inline gate is
-;; slightly stricter than the actual fit — never the reverse, which would
-;; cause horizontal overflow).
+;; ~7.2px-wide M-advance, so the 7px figure under-counts by about 3%; the
+;; safety margin below absorbs that on the lengths a column holds.
+;;
+;; The budget SHRINKS per level (`child-width-budget`): each nested body
+;; indents 18px, and a map's values also sit after the key column and its
+;; 8px gap, so a nested value is measured against the room its own cell
+;; has, not the whole column's.
 ;;
 ;; A `safety-margin-px` of 16px guards against edge-case wrap (a few extra
 ;; pixels for the closing bracket, gutter, scroll-bar reserve). For
@@ -2215,10 +2220,35 @@
 (def mono-char-width-px
   "Monospace M-advance in CSS pixels at the inspector's 12px font size.
   JetBrains Mono / Source Code Pro / DejaVu Sans Mono all sit in the
-  7.0-7.3px range; 7px is the rounded-up conservative pick so the inline
-  fit-gate slightly under-estimates the available room, never over-
-  estimates. Public so tests can pin the math without re-deriving it."
+  7.0-7.3px range; the safety margin covers the difference. Public so
+  tests can pin the math without re-deriving it."
   7)
+
+(def ^:private body-indent-px
+  "How far an expanded body indents its children: `body-grid-style` /
+  `body-block-style`'s 11px margin + 6px padding + 1px guide line."
+  18)
+
+(def ^:private key-gap-px
+  "`body-grid-style`'s key-to-value `column-gap`."
+  8)
+
+(defn- child-width-budget
+  "`opts` for the children of a container body, with `:available-width-px`
+  reduced by the body indent and, for a labelled (map-like) body, by the
+  key column — as wide as its widest key — and the key gap. A width that
+  is not measured yet stays unmeasured."
+  [opts child-pairs labelled?]
+  (let [w (:available-width-px opts)]
+    (if (and (number? w) (pos? w))
+      (assoc opts :available-width-px
+             (- w body-indent-px
+                (if labelled?
+                  (+ key-gap-px
+                     (* mono-char-width-px
+                        (reduce max 0 (map (fn [[k]] (count (safe-pr-str k))) child-pairs))))
+                  0)))
+      opts)))
 
 (def safety-margin-px
   "Pixel headroom reserved against the measured `available-width` before
@@ -2288,8 +2318,7 @@
       (let [n (when (string? value) (count value))]
         (if (and n (> (+ @total n 2) cap))
           (vswap! total + (+ n 2))
-          (vswap! total + (count (try (pr-str value)
-                                      (catch :default _ (str value)))))))
+          (vswap! total + (count (safe-pr-str value)))))
       (let [entries? (map? value)]
         (vswap! total + 2)
         (loop [xs (seq value)]
@@ -3463,7 +3492,8 @@
              (if diff?
                children
                (for [[k cv] children]
-                 [k cv ::missing]))]
+                 [k cv ::missing]))
+             opts (child-width-budget opts child-pairs labelled?)]
          (if labelled?
            ;; --- CSS Grid body for labelled-key kinds ---
            ;; Each row contributes key (col 1) + value (col 2) as direct
@@ -5312,7 +5342,7 @@
   the render extent has unwound. That is the case `capture-frame`
   documents itself for."
   [{:keys [mount-id value opts]}]
-  (when-not (string? mount-id)
+  (when (or (not (string? mount-id)) (str/blank? mount-id))
     (throw (ex-info
              (str "edn-inspector-view needs a stable string :mount-id; it was "
                   (pr-str mount-id) ". A Fresco boundary is a React function "

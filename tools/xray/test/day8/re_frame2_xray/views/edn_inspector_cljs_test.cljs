@@ -1426,6 +1426,20 @@
                                         :opts {:default-expanded-depth 2
                                                :available-width-px 800}})))))
 
+(deftest nested-values-fit-against-their-own-cell
+  ;; A 43-char vector estimates 301px: with the 16px margin it fits a
+  ;; 340px column, but not its cell inside an expanded map, which is
+  ;; 340 - 18 indent - 8 key gap - 21 (`:k1`) = 293px. So the map and both
+  ;; vectors render as trees rather than the vectors overflowing inline.
+  (let [inner (vec (repeat 7 :abcd))
+        text  (collect-text (ei/render-node {:value {:k1 inner :k2 inner}
+                                             :panel-id :p :mount-id "m" :path []
+                                             :depth 0 :expansion-map {}
+                                             :opts {:default-expanded-depth 2
+                                                    :available-width-px 340}}))]
+    (is (= 43 (count (pr-str inner))) "precondition: the vector's printed width")
+    (is (= 3 (count (re-seq #"▾" text))))))
+
 (deftest render-container-too-wide-or-opened-expands-to-tree
   ;; A value too wide for the column expands; so does one that would fit
   ;; inline when the operator has explicitly opened it.

@@ -86,15 +86,15 @@
                          selected-id])
         :sim-values  (when (= sub-mode :sim)
                        {:sim         @(rf/subscribe
-                                        [:rf.xray.static.machines/sim-state])
+                                        [:rf.xray.static.machines/sim-state selected-id])
                         :transitions @(rf/subscribe
-                                        [:rf.xray.static.machines/sim-available-transitions])
+                                        [:rf.xray.static.machines/sim-available-transitions selected-id])
                         :suggestions @(rf/subscribe
-                                        [:rf.xray.static.machines/sim-event-suggestions])
+                                        [:rf.xray.static.machines/sim-event-suggestions selected-id])
                         :current     @(rf/subscribe
-                                        [:rf.xray.static.machines/sim-current-state])
+                                        [:rf.xray.static.machines/sim-current-state selected-id])
                         :last-trans  @(rf/subscribe
-                                        [:rf.xray.static.machines/sim-last-transition])})}
+                                        [:rf.xray.static.machines/sim-last-transition selected-id])})}
        dispatch
        identity))))
 

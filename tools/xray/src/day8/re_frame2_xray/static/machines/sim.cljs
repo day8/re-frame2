@@ -97,9 +97,9 @@
 (defn- run-machine-transition
   "Call `rf.machines/machine-transition` against the cloned definition + sim
   snapshot. Returns the Spec 005 §Level 1 map — `{:status :ok …}` /
-  `{:status :error …}`. Wrapped in `try` so a host that hasn't loaded
-  the machines artefact surfaces a friendly error instead of an
-  uncaught throw."
+  `{:status :error …}`. Wrapped in `try` so an engine throw (a malformed
+  definition or event) surfaces as a rejection carrying its message
+  instead of an uncaught throw."
   [definition snapshot event]
   (try
     (rf.machines/machine-transition definition snapshot event)
@@ -107,9 +107,8 @@
       ;; Synthesise the `:status :error` shape so the step orchestrator
       ;; handles it uniformly.
       {:status :error
-       :error  {:kind        :rf.xray.static.machines.sim/engine-call-failed
-                :exception   (ex-message e)
-                :machines-on-classpath? false}})))
+       :error  {:kind      :rf.xray.static.machines.sim/engine-call-failed
+                :exception (ex-message e)}})))
 
 (defn- build-sim-seed
   "Seed the sim snapshot through the ENGINE's own initial-snapshot
@@ -168,44 +167,47 @@
     (fn [db _query]
       (get db :rf.xray.static.machines/sim-by-machine {})))
 
-  ;; The per-machine sim slot for the currently-selected machine.
-  ;; Returns nil when sim is not active for that machine.
-  (rf/reg-sub :rf.xray.static.machines/sim-state
-    {:inputs [[:rf.xray.static.machines/sim-by-machine] [:rf.xray.static.machines/selected-id]]}
-    (fn [[by-machine selected-id] _query]
-      (when selected-id
-        (get by-machine selected-id))))
+  ;; Every sim sub is keyed by the machine it is asked about —
+  ;; `[sub-id machine-id]`, as `:sub-mode` is — and the detail boundary
+  ;; passes the EFFECTIVE selection it renders (`:data`'s `:selected-id`,
+  ;; which falls back to the first row when the user's pick is absent or
+  ;; filtered out), so the rail and the chart always drive one machine.
 
-  ;; The available-transitions projection for the picker. Memoised via
-  ;; the sub graph.
+  ;; The machine's sim slot; nil when sim is not active for it.
+  (rf/reg-sub :rf.xray.static.machines/sim-state
+    {:inputs [[:rf.xray.static.machines/sim-by-machine]]}
+    (fn [[by-machine] [_ machine-id]]
+      (get by-machine machine-id)))
+
+  ;; The available-transitions projection for the picker.
   (rf/reg-sub :rf.xray.static.machines/sim-available-transitions
-    {:inputs [[:rf.xray.static.machines/sim-state]]}
-    (fn [[sim] _query]
-      (when sim
+    {:inputs [[:rf.xray.static.machines/sim-by-machine]]}
+    (fn [[by-machine] [_ machine-id]]
+      (when-let [sim (get by-machine machine-id)]
         (sim-h/available-transitions
           (:definition sim) (:snapshot sim)))))
 
   ;; Distinct event-id suggestions for the autocomplete datalist.
   (rf/reg-sub :rf.xray.static.machines/sim-event-suggestions
-    {:inputs [[:rf.xray.static.machines/sim-state]]}
-    (fn [[sim] _query]
-      (when sim
+    {:inputs [[:rf.xray.static.machines/sim-by-machine]]}
+    (fn [[by-machine] [_ machine-id]]
+      (when-let [sim (get by-machine machine-id)]
         (sim-h/event-id-suggestions (:definition sim)))))
 
   ;; The sim's current snapshot state, for the on-chart active-state
   ;; highlight (amber via the chart's `:sim?` palette).
   (rf/reg-sub :rf.xray.static.machines/sim-current-state
-    {:inputs [[:rf.xray.static.machines/sim-state]]}
-    (fn [[sim] _query]
-      (sim-h/current-sim-state sim)))
+    {:inputs [[:rf.xray.static.machines/sim-by-machine]]}
+    (fn [[by-machine] [_ machine-id]]
+      (sim-h/current-sim-state (get by-machine machine-id))))
 
   ;; The most-recent transition `{:from :to :event}`, feeding the
   ;; chart's focused-event lens so the taken edge animates after each
   ;; on-chart (or step-button) step. nil before the first step.
   (rf/reg-sub :rf.xray.static.machines/sim-last-transition
-    {:inputs [[:rf.xray.static.machines/sim-state]]}
-    (fn [[sim] _query]
-      (sim-h/last-transition sim))))
+    {:inputs [[:rf.xray.static.machines/sim-by-machine]]}
+    (fn [[by-machine] [_ machine-id]]
+      (sim-h/last-transition (get by-machine machine-id)))))
 
 ;; ---- events -------------------------------------------------------------
 
@@ -241,9 +243,17 @@
   ;; Step the sim — fire one event against the cloned snapshot.
   ;; `event` is a vector like `[:foo/bar {:x 1}]`. The step-and-store
   ;; body is shared with `:sim-chart-edge-clicked` via `step-and-store`.
+  ;; An `:error` (the Step input did not parse, `sim-h/step-event`) is
+  ;; stamped on the rail instead of firing anything.
   (rf/reg-event :rf.xray.static.machines/sim-step
-    (fn [{:keys [db]} [_ {:keys [machine-id event]}]]
-      {:db (step-and-store db machine-id event)}))
+    (fn [{:keys [db]} [_ {:keys [machine-id event error]}]]
+      {:db (if error
+             (if (get-in db [:rf.xray.static.machines/sim-by-machine machine-id])
+               (update-in db [:rf.xray.static.machines/sim-by-machine machine-id]
+                          sim-h/record-error nil
+                          {:kind :rf.xray.static.machines.sim/input-error} error)
+               db)
+             (step-and-store db machine-id event))}))
 
   ;; On-chart edge click → step. The chart's clickable edge
   ;; hands us the raw fireable event-id; coerce it to a step event vector
@@ -426,35 +436,16 @@
   [dispatch machine-id pending-event pending-data]
    [:button
    {:data-testid "rf-xray-static-machines-sim-step-button"
+    ;; `sim-h/step-event` parses the input and folds the payload in; a
+    ;; parse failure goes to the rail as an `:error` rather than firing
+    ;; the event without its payload.
     :on-click    (fn [_]
-                   (let [event-parsed (sim-h/parse-event-vector pending-event)]
-                     (cond
-                       (map? event-parsed)
-                       ;; parse error → swallow at the UI layer; the
-                       ;; user sees the same input still there.
-                       nil
-
-                       :else
-                       (let [;; If the user typed `:foo/bar` only and
-                             ;; also supplied a payload textarea, fold
-                             ;; the payload in. If they typed
-                             ;; `[:foo/bar {:x 1}]` already, the
-                             ;; payload textarea is ignored (the
-                             ;; vector wins).
-                             payload-form (try
-                                            (when-not (clojure.string/blank?
-                                                        (or pending-data ""))
-                                              (cljs.reader/read-string
-                                                pending-data))
-                                            (catch :default _ nil))
-                             event-v      (if (and (= 1 (count event-parsed))
-                                                   (some? payload-form))
-                                            (conj event-parsed payload-form)
-                                            event-parsed)]
-                         (dispatch
-                           [:rf.xray.static.machines/sim-step
-                            {:machine-id machine-id
-                             :event event-v}])))))
+                   (let [step (sim-h/step-event pending-event pending-data)]
+                     (dispatch
+                       [:rf.xray.static.machines/sim-step
+                        (if (map? step)
+                          {:machine-id machine-id :error (:error step)}
+                          {:machine-id machine-id :event step})])))
     :style       {:background (:yellow tokens)
                   :border "none"
                   ;; Dark text on yellow uses :bg-1 (between bg-0 and
@@ -699,7 +690,14 @@
                          :font-size "11px"}}
      [:strong {:style {:display "block" :margin-bottom "2px"}}
       (if no-change? "No change" "Transition rejected")]
-     [:span (str (sim-h/format-event-display event) " — " reason)]]))
+     [:span (str (sim-h/format-event-display event) " — " reason)]
+     ;; The engine's own diagnosis, when it gave one.
+     (when-not no-change?
+       (when-let [detail (some-> (or (:exception info) (some-> (:kind info) pr-str)))]
+         [:span {:data-testid "rf-xray-static-machines-sim-error-detail"
+                 :style {:display "block" :margin-top "2px"}}
+          (cond-> (str detail)
+            (and (:exception info) (:kind info)) (str " (" (pr-str (:kind info)) ")"))]))]))
 
 (defn- audit-trail-row
   [idx {:keys [from to event]}]
@@ -974,8 +972,18 @@
                     :flex "1 1 auto"
                     :min-width "0"
                     :min-height "0"}}
+      ;; The chart draws the CLONE the steps run on, so a hot reload
+      ;; of the live definition cannot put the chart and the engine on
+      ;; different machines.
+      (when (and sim (not= (:definition sim) definition))
+        [:div {:data-testid "rf-xray-static-machines-sim-definition-changed"
+               :style {:padding "6px 10px"
+                       :color (:yellow tokens)
+                       :font-family sans-stack
+                       :font-size (:caption type-scale)}}
+         "The definition changed since this sim started. Exit and re-open Sim to pick it up."])
       [SimChart dispatch {:machine-id  machine-id
-                          :definition  definition
+                          :definition  (or (:definition sim) definition)
                           :current     current
                           :last-trans  last-trans}]]
      [:div {:data-testid "rf-xray-static-machines-sim-rail-pane"

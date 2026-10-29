@@ -4756,16 +4756,16 @@ automatically when `views.edn-inspector` is required.
 included carries a clear win over `pr-str`; the rest stay on the
 built-in dispatch.
 
-| Type           | Header                        | Body                         | Title (hover)        |
-|----------------|-------------------------------|------------------------------|----------------------|
-| `cljs.core/UUID` | `#uuid "…<last-8>"`         | `#uuid "<full-36-char>"`     | full canonical form  |
-| `js/Date` (`inst?`) | `#inst "<relative>"`     | `#inst "<ISO-8601>"`         | full ISO             |
+| Type           | Header                        | Title (hover)        |
+|----------------|-------------------------------|----------------------|
+| `cljs.core/UUID` | `#uuid "…<last-8>"`         | full canonical form  |
+| `js/Date` (`inst?`) | `#inst "<relative>"`     | full ISO             |
 
-**Header and body render together.** A protocol node paints no `▸` / `▾` toggle and defaults
-OPEN (`render-protocol-node`), so the compact header and the full body both show — there is no
-collapsed-vs-expanded state for the operator to flip. `uuid-body-rendered-when-expanded` in
-`edn_inspector_default_formatters_cljs_test.cljs` pins the body rendering with no operator
-action. (Documented as shipped, rf2-y8doi.48.)
+**Header only, no body.** A protocol node paints no `▸` / `▾` toggle and renders any body OPEN
+(`render-protocol-node`), so a full-form body would sit under every compact header and undo it.
+Both formatters return a nil body; the hover title carries the full form.
+`uuid-renders-the-compact-header-alone` in `edn_inspector_default_formatters_cljs_test.cljs`
+pins it.
 
 **Relative-time formatter** — pure-data buckets, no library dep:
 
@@ -4803,8 +4803,8 @@ own. Regression-anchored by
 Public for tests + reference:
 
 - `format-relative` — pure-data inst bucketing against a pinned `now`
-- `render-uuid-header` / `render-uuid-body`
-- `render-inst-header` / `render-inst-body`
+- `render-uuid-header`
+- `render-inst-header`
 
 The ns is required for side-effect (the `extend-type` forms) from
 `views.edn-inspector` itself — no call-site registration needed.
@@ -5323,6 +5323,12 @@ to match under rf2-y8doi.49. The chrome's single-accent identity is unchanged.
 | The container's inline form fits the column | Rendered inline, not expanded |
 | It overflows, and depth < `:default-expanded-depth` (default **8**) | Expanded |
 | It overflows at or past that depth | Collapsed (`▸` preview / `{…N keys}` summary) |
+
+**Each level is measured against its own cell.** A nested container's "column" is what is
+left of its parent's: the expanded body's 18px indent comes off, and inside a map or record so
+do the key column (as wide as that map's widest printed key) and the 8px key gap
+(`child-width-budget`). A value that fits the full column but not its cell expands rather than
+overflowing the row.
 
 Before a width measurement arrives the legacy depth path runs instead: expand below
 `:default-expanded-depth`, and at exactly that depth expand only when the container has ≤ 10

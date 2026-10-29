@@ -86,7 +86,8 @@
 
   Pure data → bool. JVM-runnable so the test corpus exercises every
   kind without a CLJS runtime."
-  (:require [day8.re-frame2-xray.filters.matcher :as event-matcher]))
+  (:require [day8.re-frame2-xray.filters.matcher :as event-matcher]
+            [day8.re-frame2-xray.panels.managed-fx-helpers :as managed-fx-helpers]))
 
 ;; ---- canonical pill shape -----------------------------------------------
 
@@ -203,20 +204,12 @@
 
 (def ^:private correlation-arg-keys
   "The caller-supplied id keys a managed-fx record's correlation pill is
-  built from, read off the issuing effect's `:tags :rf.fx/args`.
-
-  This is the same key set `panels/managed_fx_helpers.cljc`'s private
-  `args-correlation-id` reads when it derives a record's
-  `:correlation-id` — `:request-id` for `:http` and `:ssr-fx`,
-  `:socket-id` for `:websocket`, `:fixed-actor-id` / `:machine-id` /
-  `:id` for `:machine-invoke`. The pill's value
-  IS that derived field, so matching on this set is matching back
-  exactly what the pill was made from.
-
-  Duplicated rather than shared because `args-correlation-id` is
-  private to the helpers namespace; if a surface's id key changes
-  there, change it here too."
-  [:request-id :socket-id :fixed-actor-id :machine-id :id])
+  built from, read off the issuing effect's `:tags :rf.fx/args` — the
+  keys `managed-fx-helpers/args-correlation-id` derives a record's
+  `:correlation-id` from. The pill's value IS that derived field, so
+  matching on this set is matching back exactly what the pill was made
+  from."
+  managed-fx-helpers/correlation-arg-keys)
 
 (defn- issuing-effect-correlation?
   "Does this trace event's `:rf.fx/args` carry `target` at one of the

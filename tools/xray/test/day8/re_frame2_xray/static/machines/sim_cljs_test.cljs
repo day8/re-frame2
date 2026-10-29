@@ -6,6 +6,8 @@
             [re-frame.core :as rf]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.machines :as rf.machines]
+            [day8.re-frame2-machines-viz.chart.layout :as viz.layout]
+            [day8.re-frame2-machines-viz.chart.projection :as viz.projection]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.sim :as sim]
@@ -80,7 +82,7 @@
                       :definition definition}]))
 
 (defn- sim-state []
-  @(rf/subscribe [:rf.xray.static.machines/sim-state]))
+  @(rf/subscribe [:rf.xray.static.machines/sim-state :auth/login]))
 
 ;; The sim plain-fn subtree (`body` / `SimRail` / `SimChart`) does not
 ;; self-subscribe; it receives the derefed sub values from the enclosing
@@ -90,13 +92,13 @@
 (defn- sim-rail-values []
   {:sim         (sim-state)
    :transitions @(rf/subscribe
-                   [:rf.xray.static.machines/sim-available-transitions])
+                   [:rf.xray.static.machines/sim-available-transitions :auth/login])
    :suggestions @(rf/subscribe
-                   [:rf.xray.static.machines/sim-event-suggestions])})
+                   [:rf.xray.static.machines/sim-event-suggestions :auth/login])})
 
 (defn- sim-chart-values []
-  {:current    @(rf/subscribe [:rf.xray.static.machines/sim-current-state])
-   :last-trans @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])})
+  {:current    @(rf/subscribe [:rf.xray.static.machines/sim-current-state :auth/login])
+   :last-trans @(rf/subscribe [:rf.xray.static.machines/sim-last-transition :auth/login])})
 
 (defn- sim-body-values []
   (merge {:machine-id :auth/login :definition fixture-definition}
@@ -106,9 +108,11 @@
 (defn- sim-chart-props
   "Render SimChart for `definition` and return the props it hands
   machine-canvas/Chart. A raw walk, so the Chart survives as data rather
-  than being replaced by its render output."
-  [definition]
-  (let [tree (sim/SimChart rf/dispatch
+  than being replaced by its render output. `dispatch` defaults to
+  `rf/dispatch`."
+  ([definition] (sim-chart-props definition rf/dispatch))
+  ([definition dispatch]
+  (let [tree (sim/SimChart dispatch
                            (merge {:machine-id :auth/login
                                    :definition definition}
                                   (sim-chart-values)))]
@@ -116,7 +120,7 @@
             (when (and (vector? node)
                        (= machine-canvas/Chart (first node)))
               (second node)))
-          (tree-seq (some-fn vector? seq?) seq tree))))
+          (tree-seq (some-fn vector? seq?) seq tree)))))
 
 ;; ---- events ---------------------------------------------------------------
 
@@ -139,7 +143,7 @@
                                             :loading {}}}
                            :done {}}})
     (is (= [:auth :form]
-           @(rf/subscribe [:rf.xray.static.machines/sim-current-state])))))
+           @(rf/subscribe [:rf.xray.static.machines/sim-current-state :auth/login])))))
 
 (deftest sim-step-engine-throw-treated-as-fail
   ;; A host without the machines artefact throws at the engine call; the
@@ -288,8 +292,17 @@
   (rf/with-frame :rf/xray
     (select-static-machine! :auth/login)
     (start-sim! fixture-definition)
-    (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
-                       {:machine-id :auth/login :event-id :start}])
+    ;; Click the `:start` edge through machines-viz's own projector, so the
+    ;; callback receives the chart's real payload — the JS object the
+    ;; event-node's `:onClick` thunk builds — and the `aget` read, the
+    ;; keyword check and the dispatch can all go red.
+    (let [on-edge-click (:on-edge-click
+                          (sim-chart-props fixture-definition #(rf/dispatch-sync %)))
+          graph         (viz.projection/xyflow-graph
+                          (viz.layout/project-definition fixture-definition)
+                          {} {:on-edge-click on-edge-click})
+          start-node    (some #(when (= :start (:eventId (:data %))) %) (:nodes graph))]
+      ((:onClick (:data start-node))))
     (is (= [true :authing :idle :authing true {:counter "number"} true]
            ((juxt :sim? :current-state :from-highlight :to-highlight
                   (comp fn? :on-edge-click) :context-band :context-band-inferred?)

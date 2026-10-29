@@ -185,6 +185,7 @@
   (testing "the pop-out path writes every Xray style block into an
             arbitrary document's <head>, the themes block carrying the real
             palette so the detached window's var() reads resolve"
+    (gs/set-host-theme-css! nil)
     (let [{:keys [doc by-id]} (mk-stub-document)]
       (gs/install-into! doc)
       (is (= #{"rf-xray-fonts" "rf-xray-motion-keyframes" "rf-xray-react-flow-base"
@@ -199,6 +200,7 @@
   (testing "a second install-into! on the same document creates no node:
             the id probe is the guard, since a pop-out document is a DOM the
             opener's `installed?` flag knows nothing about"
+    (gs/set-host-theme-css! nil)
     (let [{:keys [doc]} (mk-stub-document)
           create-ct     (atom 0)
           orig          (.-createElement doc)]

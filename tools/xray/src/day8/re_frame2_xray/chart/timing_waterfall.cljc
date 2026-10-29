@@ -54,8 +54,9 @@
 ;; ---- pure projection ---------------------------------------------------
 
 (defn normalise-phases
-  "Resolve the timing input to a vector of `{:phase :duration-ms :width-pct :offset-pct}`
-  maps so the renderer is a pure positional walk.
+  "Resolve the timing input to a vector of `{:phase :duration-ms :width-pct}`
+  maps so the renderer is a pure positional walk (a stack of bars, each
+  row starting at 0).
 
   Pure fn — JVM-testable.
 
@@ -70,12 +71,7 @@
       `(max 1 …)`, so a zero-width row is safe to draw.
       `slowest-phase` below filters on `pos?` — a zero-length phase can
       never be the slowest.
-    - `:width-pct` is `duration / total` ratio clamped to `[0, 1]`.
-    - `:offset-pct` is the running sum of preceding widths — supports
-      a layered (gantt-style) rendering where each phase starts after
-      its predecessor ends. The default ASCII-spec style is a
-      stack-of-bars (each row starts at 0); the panel can choose either
-      mode by reading the same projection."
+    - `:width-pct` is `duration / total` ratio clamped to `[0, 1]`."
   [{:keys [phases total-ms]}]
   (let [clean     (filterv (fn [[_ ms]] (and (number? ms) (>= ms 0))) (or phases []))
         durations (mapv second clean)
@@ -85,28 +81,28 @@
                       0)]
     (if (or (zero? total) (empty? clean))
       []
-      ;; `:offset-pct` is the running sum of PRECEDING durations as a
-      ;; fraction of total — a scan. `(reductions + 0 durations)` yields
-      ;; `[0 d0 d0+d1 …]`; dropping the final element leaves one
-      ;; preceding-sum per phase, so a single `mapv` projects the rows.
-      (let [pct      (fn [n] (min 1.0 (max 0.0 (/ (double n) (double total)))))
-            offsets  (butlast (reductions + 0 durations))]
-        (mapv (fn [[ph ms] offset]
+      (let [pct (fn [n] (min 1.0 (max 0.0 (/ (double n) (double total)))))]
+        (mapv (fn [[ph ms]]
                 {:phase       ph
                  :duration-ms ms
-                 :width-pct   (pct ms)
-                 :offset-pct  (pct offset)})
-              clean
-              offsets)))))
+                 :width-pct   (pct ms)})
+              clean)))))
+
+(def ^:private slowest-min-phases
+  "How many positive-length phases a waterfall needs before one is marked
+  slow. Marking the larger of one or two says nothing: the managed-fx
+  readers emit `[[:issued 0] [:elapsed N]]`, so a lower floor would mark
+  every request's `:elapsed` slow, however fast."
+  3)
 
 (defn slowest-phase
-  "Identify the phase that owns the largest share of total elapsed time.
-  The panel marks this row with a `← slow` annotation. Pure fn."
+  "Identify the phase that owns the largest share of total elapsed time,
+  or nil when fewer than `slowest-min-phases` phases have a positive
+  length. The panel marks this row with a `← slow` annotation. Pure fn."
   [{:keys [phases]}]
-  (when (seq phases)
-    (let [valid (filter (fn [[_ ms]] (and (number? ms) (pos? ms))) phases)]
-      (when (seq valid)
-        (first (apply max-key second valid))))))
+  (let [valid (filter (fn [[_ ms]] (and (number? ms) (pos? ms))) phases)]
+    (when (>= (count valid) slowest-min-phases)
+      (first (apply max-key second valid)))))
 
 ;; ---- hiccup renderer ---------------------------------------------------
 

@@ -128,13 +128,13 @@
   cannot mint its own per-mount identity — see `ei/edn-inspector-view`.
   That makes `node-key` load-bearing rather than decorative: two mounts
   sharing one `node-key` share a width slot and a projection cache as
-  well as a panel-id, so give each mount its own."
-  ([v] (inspect-view v "root"))
-  ([v node-key]
-   [ei/edn-inspector-view
-    {:mount-id (str "rf-xray-inspect-" node-key)
-     :value    v
-     :opts     (inspect-opts node-key)}]))
+  well as a panel-id, so give each mount its own — which is why there is
+  no 1-arity defaulting it."
+  [v node-key]
+  [ei/edn-inspector-view
+   {:mount-id (str "rf-xray-inspect-" node-key)
+    :value    v
+    :opts     (inspect-opts node-key)}])
 
 (defn inspect-inline
   "Compact one-line current-state rendering for hover tooltips / list

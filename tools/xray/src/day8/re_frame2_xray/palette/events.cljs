@@ -195,8 +195,9 @@
 ;; ---- theme cycle --------------------------------------------------------
 
 (defn- next-theme
-  "Pure helper. Cycle `:dark → :light → :dark`. Anything unknown lands
-  on `:dark` (the canonical default per `config/default-settings`)."
+  "Pure helper. Cycle `:dark → :light → :dark`. Anything unknown — nil
+  included, which renders as the `:light` default
+  (`config/default-settings`) — cycles to `:dark`."
   [current]
   (case current
     :dark  :light

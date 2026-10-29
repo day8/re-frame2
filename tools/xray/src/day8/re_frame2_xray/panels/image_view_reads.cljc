@@ -326,7 +326,7 @@
   seated, however live it is. Pure read."
   [frame-id]
   (boolean
-    (some #(= xray-image-id (:id %))
+    (some #(= xray-image-id (:rf.image/id %))
           (:rf.gen/images (rf.frame/frame-generation frame-id)))))
 
 (defn- foreign-frame?

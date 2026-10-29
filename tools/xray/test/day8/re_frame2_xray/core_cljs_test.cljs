@@ -63,7 +63,8 @@
 (deftest load-theme-is-safe-without-document
   ;; Under node-test there is no js/document; CSS injection is the browser
   ;; target's subject.
-  (is (nil? (core/load-theme! ".foo { color: red; }"))))
+  (is (nil? (core/load-theme! ".foo { color: red; }")))
+  (core/load-theme! nil))
 
 ;; ---- init! contract ----------------------------------------------------
 
