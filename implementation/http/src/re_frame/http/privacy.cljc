@@ -563,8 +563,9 @@
   `:reply-to` and the split `:on-success` / `:on-failure` sugar alike —
   additionally rides the TARGET event registration's own classification
   (through the `:classification/redact-event-by-registration` hook — bound by
-  core at boot), so a payload-carrying reply address redacts exactly as the
-  dispatched reply event itself will.
+  core at boot), in `frame-id`, so a payload-carrying reply address redacts
+  exactly as the dispatched reply event itself will, a spawned actor's by its
+  machine type.
 
   The three keys are alternate ADDRESSING forms for one reply (Spec 014
   §Reply addressing), never alternate PRIVACY contracts — Spec 014 §Unified
@@ -583,21 +584,21 @@
   have redacted cannot be read.
 
   Total: a non-map `args` passes through untouched."
-  [args]
-  (if-not (map? args)
-    args
-    (let [sensitive?            (request-sensitive? args)
-          [carriers malformed?] (projection-carriers)
-          redact-event          (or (rf.late-bind/get-fn :classification/redact-event-by-registration)
-                                    identity)
-          redact-addr           (fn [v] (if (vector? v) (redact-event v) v))]
-      (reduce (fn [m k] (cond-> m (contains? m k) (update k redact-addr)))
-              (cond-> args
-                (map? (:request args))
-                (update :request #(if malformed?
-                                    redacted-sentinel
-                                    (redact-request-tags % sensitive? carriers))))
-              rf.http.encoding/reply-address-keys))))
+  ([args] (project-managed-fx-args args nil))
+  ([args frame-id]
+   (if-not (map? args)
+     args
+     (let [sensitive?            (request-sensitive? args)
+           [carriers malformed?] (projection-carriers)
+           redact-event          (rf.late-bind/get-fn :classification/redact-event-by-registration)
+           redact-addr           (fn [v] (if (and redact-event (vector? v)) (redact-event v frame-id) v))]
+       (reduce (fn [m k] (cond-> m (contains? m k) (update k redact-addr)))
+               (cond-> args
+                 (map? (:request args))
+                 (update :request #(if malformed?
+                                     redacted-sentinel
+                                     (redact-request-tags % sensitive? carriers))))
+               rf.http.encoding/reply-address-keys)))))
 
 ;; ---- trace-event composers ------------------------------------------------
 

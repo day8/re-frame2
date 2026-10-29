@@ -297,6 +297,10 @@
   — would resolve the declaration in whatever universe happened to be bound
   and ship a declared-sensitive payload RAW.
 
+  The owner is also handed to the hook, so an event addressed to a spawned
+  machine actor takes its machine type's classification and a continuation
+  reply's owner resolves in that same frame.
+
   An explicit `nil` owner binds nothing: the ambient resolution is unchanged
   and the subsequent frame-policy `walk-slot` still fails closed on the whole
   slot. The seam is late-bound (`:live-frame/call-with-frame-resolution`) —
@@ -308,8 +312,8 @@
           with-owner (when (some? owner)
                        (rf.late-bind/get-fn :live-frame/call-with-frame-resolution))]
       (if with-owner
-        (with-owner owner #(redact event))
-        (redact event)))
+        (with-owner owner #(redact event owner))
+        (redact event owner)))
     event))
 
 (defn project-event-slot

@@ -295,9 +295,9 @@
 ;; args, so core's event-vector redaction defers to this hook. It is published
 ;; here because the registry requires the classification ns.
 (rf.late-bind/set-fn! :resources/project-execute-event-args
-                   (fn project-execute-event-args-hook [args]
+                   (fn project-execute-event-args-hook [args frame-id]
                      (rf.resources.classification/project-execute-event-args
-                       args rf.resources.mutation-registry/mutation-meta)))
+                       args rf.resources.mutation-registry/mutation-meta frame-id)))
 
 ;; Wired here so they re-install on a `:reload`.
 ;; Spec 016 §Route integration and Spec 016 §SSR and hydration
@@ -360,6 +360,10 @@
    ;; Applied to every row; it no-ops on a row with neither slot.
    :resources/project-fx-args-egress
    rf.resources.trace-egress/project-fx-args-egress
+   ;; A continuation reply riding its `:reply-to` target event, for core's
+   ;; event-vector redaction.
+   :resources/project-reply-event-arg
+   rf.resources.trace-egress/project-reply-event-arg
    :resources/project-resource-sub-egress
    rf.resources.trace-egress/project-read-sub-egress
    ;; The `:rf.runtime/resources` and `:rf.runtime/mutations` roots'

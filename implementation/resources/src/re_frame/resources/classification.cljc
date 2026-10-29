@@ -173,29 +173,32 @@
   `:sensitive?` / `:large?` claim, a sensitive claim winning (`spec-of`
   resolves the `:mutation` id). A payload-carrying `:reply-to` event vector is
   also redacted by its target registration through the
-  `:classification/redact-event-by-registration` hook. An unregistered id, an
-  unclassified spec or a non-map `args` passes through unchanged. Core reaches
-  this through the `:resources/project-execute-event-args` late-bind hook;
-  `spec-of` is injected because a static require would cycle."
-  [args spec-of]
-  (if-not (map? args)
-    args
-    (let [spec       (when-let [mid (:mutation args)] (spec-of mid))
-          sensitive? (true? (:sensitive? spec))
-          sens       (cond-> (when spec (carrier-decl-paths spec :sensitive nil))
-                       sensitive? (into execute-payload-value-paths))
-          large      (cond-> (when spec (carrier-decl-paths spec :large nil))
-                       (and (true? (:large? spec)) (not sensitive?))
-                       (into execute-payload-value-paths))
-          args       (if (or (seq sens) (seq large))
-                       (rf.classification/redact-with-paths args sens large)
-                       args)
-          redact-event (rf.late-bind/get-fn :classification/redact-event-by-registration)
-          reply-to     (:reply-to args)]
-      (if (and redact-event (vector? reply-to))
-        (let [rt' (redact-event reply-to)]
-          (if (identical? reply-to rt') args (assoc args :reply-to rt')))
-        args))))
+  `:classification/redact-event-by-registration` hook, in `frame-id`, so a
+  target addressed to a spawned actor takes its machine type's. An
+  unregistered id, an unclassified spec or a non-map `args` passes through
+  unchanged. Core reaches this through the
+  `:resources/project-execute-event-args` late-bind hook; `spec-of` is
+  injected because a static require would cycle."
+  ([args spec-of] (project-execute-event-args args spec-of nil))
+  ([args spec-of frame-id]
+   (if-not (map? args)
+     args
+     (let [spec       (when-let [mid (:mutation args)] (spec-of mid))
+           sensitive? (true? (:sensitive? spec))
+           sens       (cond-> (when spec (carrier-decl-paths spec :sensitive nil))
+                        sensitive? (into execute-payload-value-paths))
+           large      (cond-> (when spec (carrier-decl-paths spec :large nil))
+                        (and (true? (:large? spec)) (not sensitive?))
+                        (into execute-payload-value-paths))
+           args       (if (or (seq sens) (seq large))
+                        (rf.classification/redact-with-paths args sens large)
+                        args)
+           redact-event (rf.late-bind/get-fn :classification/redact-event-by-registration)
+           reply-to     (:reply-to args)]
+       (if (and redact-event (vector? reply-to))
+         (let [rt' (redact-event reply-to frame-id)]
+           (if (identical? reply-to rt') args (assoc args :reply-to rt')))
+         args)))))
 
 ;; ---- egress projection ----------------------------------------------------
 ;; The frame's live classification is the single source at egress: the

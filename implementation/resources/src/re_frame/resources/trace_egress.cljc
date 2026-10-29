@@ -377,6 +377,30 @@
       (rf.resources.classification/redact-continuation-reply reply spec)
       reply)))
 
+(defn- tokenize
+  "`v` tokenized content-free. A token rides as it is, because `redact-value`
+  would re-digest it."
+  [v]
+  (if (redacted-token? v) v (rf.resources.ssr/redact-value v)))
+
+(defn- project-family-reply-slots
+  "`reply`, a family continuation reply, with the slots its owner and the
+  family's envelope rule speak for projected: `:params` / `:value` tokenize
+  when the owner redacts (`row-owner-redacts?` for a read reply,
+  `mutation-reply-owner-redacts?` for a mutation reply), and otherwise the
+  owner's declared paths substitute (`redact-reply-declarations`); `:error`
+  tokenizes unconditionally. Every other slot is the caller's. Owners resolve
+  in the ambient registration view."
+  [reply frame-id]
+  (let [owner-redacts? (or (and (resource-reply? reply) (row-owner-redacts? reply frame-id))
+                           (mutation-reply-owner-redacts? reply))]
+    (reduce (fn [projected slot]
+              (if (some? (get projected slot))
+                (update projected slot tokenize)
+                projected))
+            (if owner-redacts? reply (redact-reply-declarations reply))
+            (cond-> reply-error-slot owner-redacts? (into reply-payload-slot)))))
+
 (defn- carrier-family-value?
   "Whether a value in a foreign carrier is a scoped key the family may speak
   for: the skeleton plus proof, either `named?` (reached through the family's
@@ -410,10 +434,8 @@
       `project-scope` unconditionally, as does each scope in a mutation
       payload's issuance `:from-db-scopes`;
     - `:value` / `:params` of a family reply (`family-reply?`) tokenize iff
-      its owner redacts (`row-owner-redacts?` for a read reply,
-      `mutation-reply-owner-redacts?` for a mutation reply), and otherwise its
-      owner's declared paths substitute (`redact-reply-declarations`);
-    - `:error` of any family reply (`family-reply?`) tokenizes unconditionally;
+      its owner redacts, and otherwise its owner's declared paths substitute,
+      and its `:error` tokenizes unconditionally (`project-family-reply-slots`);
     - a family reply's `:correlation` gives its `:scope` the scope rule.
   Spec 015 §Projection — applying classification at a boundary"
   [value frame-id named?]
@@ -434,21 +456,16 @@
             (let [[projected-value sensitive?]
                   (project-embedded-keys nested-value frame-id nested-named?)]
               (record-sensitive-projection! sensitive? projected-value)))
-          resource-reply-carrier? (and (map? value) (resource-reply? value))
           family-reply-carrier?   (and (map? value) (family-reply? value))
-          owner-requires-redaction?
-          (and (map? value)
-               (or (and resource-reply-carrier? (row-owner-redacts? value frame-id))
-                   (mutation-reply-owner-redacts? value)))
-          ;; Declarations substitute BEFORE the walk, so the sentinels ride
-          ;; out as scalars; a declaration that matched nothing leaves the row
-          ;; unstamped.
+          ;; The reply's owner slots project BEFORE the walk, so the sentinels
+          ;; ride out as scalars and the tokens as tokens; a reply nothing
+          ;; applied to leaves the row unstamped.
           declaration-projected-value
-          (if (and family-reply-carrier? (not owner-requires-redaction?))
-            (let [redacted-value (redact-reply-declarations value)]
-              (if (= redacted-value value)
+          (if family-reply-carrier?
+            (let [projected-reply (project-family-reply-slots value frame-id)]
+              (if (= projected-reply value)
                 value
-                (record-sensitive-projection! true redacted-value)))
+                (record-sensitive-projection! true projected-reply)))
             value)
 
           runtime-payload?
@@ -478,24 +495,6 @@
                                                     (family-named-key? correlation-key)))))
                           {}
                           map-value)
-
-                       (and family-reply-carrier?
-                            (reply-error-slot map-key)
-                            (some? map-value))
-                       (record-sensitive-projection!
-                         true
-                         (if (redacted-token? map-value)
-                           map-value
-                           (rf.resources.ssr/redact-value map-value)))
-
-                       (and owner-requires-redaction?
-                            (reply-payload-slot map-key)
-                            (some? map-value))
-                       (record-sensitive-projection!
-                         true
-                         (if (redacted-token? map-value)
-                           map-value
-                           (rf.resources.ssr/redact-value map-value)))
 
                        :else
                        (project-value map-value (family-named-key? map-key))))]
@@ -675,6 +674,24 @@
                      tags
                      fx-carrier-slot))]
       (cond-> projected-tags @sensitive-found? (assoc :sensitive? true)))))
+
+(defn project-reply-event-arg
+  "Projects `v`, an argument of an event vector, when it is a family
+  continuation reply riding its `:reply-to` target event: the slots the reply's
+  owner speaks for (`project-family-reply-slots`), so every copy of the reply
+  event's run classifies the owner's data as the reply's FX carrier does. Core's
+  event-vector redaction consults it through the
+  `:resources/project-reply-event-arg` hook on every event-bearing slot, the
+  on-box trace included, which is why the scope rule and the scoped keys stay
+  with the off-box projectors. The owner resolves in `frame-id`'s view. Any
+  other value rides, and `v` itself returns when nothing applies; the app's own
+  handler still receives the raw reply.
+  Spec 015 §Subsystem projection-relative classification"
+  [v frame-id]
+  (if (and (map? v) (family-reply? v))
+    (let [projected (in-frame-view frame-id #(project-family-reply-slots v frame-id))]
+      (if (= projected v) v projected))
+    v))
 
 ;; ---- read subs on `:rf.sub/run` -------------------------------------------
 ;;
