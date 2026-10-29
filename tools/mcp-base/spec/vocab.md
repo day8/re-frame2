@@ -11,7 +11,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 - The `:rf.mcp/*` marker keyword catalogue.
 - The `:rf.size/*` marker keyword catalogue (shared with the framework's `rf/project-egress` walker).
-- The `:rf.egress/*` framework egress-opts keywords a server relays INWARD to that walker (rf2-kuky.93 moved these out of `:rf.size/*`).
+- The `:rf.egress/*` framework egress-opts keywords a server relays INWARD to that walker.
 - The unqualified envelope counter slots (`:dropped-sensitive`, `:elided-large`).
 - The JSON-RPC 2.0 §5.1 error-code constants used by direct JSON-RPC consumers.
 
@@ -25,7 +25,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 `:rf.mcp/*` — per-tool wire-mechanism markers. Owned by the MCP servers; not part of the framework runtime vocabulary.
 
-`:rf.size/*` — the size-elision MARKER `:rf.size/large-elided`, and since rf2-kuky.93 nothing else. Owned jointly with the framework's `rf/project-egress` walker (per [`../../../spec/Conventions.md` §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned); [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md)).
+`:rf.size/*` — the size-elision MARKER `:rf.size/large-elided`, and nothing else. Owned jointly with the framework's `rf/project-egress` walker (per [`../../../spec/Conventions.md` §Reserved namespaces](../../../spec/Conventions.md#reserved-namespaces-framework-owned); [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md)).
 
 `:rf.egress/*` — the framework's egress-opts vocabulary: the named boundary `:rf.egress/profile` and the per-call policy keys beneath it. These travel INWARD to `rf/project-egress`; they are never wire keys (a wire arg drops both the namespace and the `?` — see [`egress.md`](egress.md) and [`sensitive.md`](sensitive.md)).
 

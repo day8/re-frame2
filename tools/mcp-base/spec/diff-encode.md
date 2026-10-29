@@ -66,7 +66,7 @@ This preserves the token-budget premise for the dominant in-place-update app-db 
 
 A vector length change is emitted as one whole-vector replacement. Numeric `:assoc` only overwrites an existing index (or index 0 on a newly vivified vector), and `:dissoc` is a no-op against vector parents; there is no splice grammar. Same-length vectors may diff by index. Other sequential types are whole-leaf replacements.
 
-"Unchanged" means dedup's `wire=` — `=` refined by collection kind — not bare `=`, because `(= [1 2] '(1 2))` while the EDN on the wire keeps them apart. A vector turned into a seq with the same elements (`sort-by`, `filter`, `map` over an already-ordered vector) is therefore a whole-leaf `:assoc` of the new value, and a map key respelled in another kind is a `:dissoc` then `:assoc` under the new key, so the decoded `:db-after` carries the kind app-db really holds (rf2-3x7nj.35.1).
+"Unchanged" means dedup's `wire=` — `=` refined by collection kind — not bare `=`, because `(= [1 2] '(1 2))` while the EDN on the wire keeps them apart. A vector turned into a seq with the same elements (`sort-by`, `filter`, `map` over an already-ordered vector) is therefore a whole-leaf `:assoc` of the new value, and a map key respelled in another kind is a `:dissoc` then `:assoc` under the new key, so the decoded `:db-after` carries the kind app-db really holds.
 
 ## Why patches, not `clojure.data/diff`
 
