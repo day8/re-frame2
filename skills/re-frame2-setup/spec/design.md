@@ -14,7 +14,7 @@ The exit criterion is owned by `SKILL.md`'s [§Canonical greenfield path](../SKI
 
 The same four pillars as the `re-frame2` skill, scoped to greenfield bootstrap:
 
-1. **Correctness — recipes over explanations.** The skill writes the exact files, the exact `shadow-cljs.edn`, the exact entry-namespace contract, and verifies them: it runs `npm install` and a terminating `npx shadow-cljs compile app` itself, starts the watch, and reports the URL (L6). **Q14 lock still applies: NO verification module** — no `references/verify.md` leaf; the browser-mount confirmation stays the author's, and compile success is never presented as a mount claim.
+1. **Correctness — recipes over explanations.** The skill writes the exact files, the exact `shadow-cljs.edn`, the exact entry-namespace contract, and verifies them: it runs `npm install` and a terminating `npx shadow-cljs compile app` itself, starts the watch, and reports the URL (L6). **L6 still applies: NO verification module** — no `references/verify.md` leaf; the browser-mount confirmation stays the author's, and compile success is never presented as a mount claim.
 2. **Idiomaticness — the default IS the canonical artefact.** The default scaffold is the generator template's own emission (L13), not a hand-written approximation of it; the template is itself grounded against `examples/core/counter/` and the canonical artefacts.
 3. **Context economy — `SKILL.md` is a router; the default route reads one leaf; one-level-deep leaves carry the depth.** SKILL.md walks the six-step canonical path; `first-counter.md` is the whole default; every other leaf is read only when a step needs its depth, as `SKILL.md` [§Reference files](../SKILL.md#reference-files-all-one-level-deep) routes it.
 4. **Assume training knowledge.** The author knows `deps.edn`, `npm`, `shadow-cljs`, what a Reagent component is. The skill teaches only the **re-frame2-specific wiring** — which artefacts to add, the `rf/init!` contract, the order of operations between adapter install and React mount.
@@ -43,17 +43,17 @@ Unless the author explicitly says UIx, scaffold against Reagent — Reagent v2 i
 
 The scaffold's `events_test.cljs` is the template's starter file, shipped because the scaffold is the template's emission (L13) — it is not the skill authoring tests. The setup skill runs that starter, compiles the app and starts the server; browser mounting and hot reload remain unverified until observed. Anything after setup — events, subs, machines, schemas, test-authoring — is the main `re-frame2` skill.
 
-### L6 — Q14 — NO verification module; the skill still runs the build
+### L6 — NO verification module; the skill still runs the build
 
 No `references/verify.md` leaf. But the skill is the **executor**: it writes the files, points the framework coordinates at something that resolves, runs `npm install`, runs a terminating `npx shadow-cljs compile app` and the included starter test, starts the dev server, and reports each result and the actual URL. The Done checklist in SKILL.md distinguishes those observed results from browser smoke checks at handoff. A browser check remains unverified until observed; compilation never proves a mount.
 
-### L7 — No bead-ids in user-facing skill content
+### L7 — No issue-tracker ids in the skill
 
-`SKILL.md` + `references/` carry no `rf2-XXXX` references. The `spec/` folder may; user-facing leaves do not.
+`SKILL.md`, `references/` and this `spec/` folder carry no issue-tracker ids. They describe the skill as it is and why; the tracker and git history hold how it got here.
 
 ### L8 — Findings stay local
 
-Per Mike's standing memory rule "Findings is local-only" — never commit `ai/` or `findings/`. This skill's commits contain only `skills/re-frame2-setup/**` (plus the fixture it owns under `tools/template/test/`).
+Exploratory findings live in the repository's version-ignored `ai/` tree and are never committed; a conclusion that governs the skill lands in the skill itself or in this folder.
 
 ### L9 — Single-import contract from day one
 

@@ -10,7 +10,7 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 
 > *I'm re-authoring the `re-frame2-setup` skill at `skills/re-frame2-setup/` — the greenfield-bootstrap skill that walks an author from an empty directory to a mounted first counter, then hands off to `re-frame2` (code-writing) / `re-frame2-pair` (live pair-programming). Read these in order, then write the skill to match what each source owns — do not paste a copy of any of it into this prompt or the leaves:*
 >
-> *1. **[normative — decisions]** `skills/re-frame2-setup/spec/design.md` — the goal, the four pillars (§2, Q14 lock), the locked decisions L1–L14 (cardinal rules, day-one shape, exit hand-off, the derived scaffold), the locked file structure (§5), the discovery surface (§6), and the drift-guard map (§9a). Sole source for the layout, the rules, and the locks.*
+> *1. **[normative — decisions]** `skills/re-frame2-setup/spec/design.md` — the goal, the four pillars (§2), the locked decisions L1–L14 (cardinal rules, day-one shape, exit hand-off, the derived scaffold), the locked file structure (§5), the discovery surface (§6), and the drift-guard map (§9a). Sole source for the layout, the rules, and the locks.*
 > *2. **[normative — inputs & triggers]** `skills/re-frame2-setup/spec/inputs.md` — the canonical greenfield artefacts and mappings the leaves derive from, and the §6 update procedure (the when-to-reauthor triggers).*
 > *3. **[family conventions]** `skills/README.md` — the leaf-size discipline (§Leaf size discipline: the numeric ceiling every leaf obeys), the single-source skill-routing table (§Skill routing: the exit hand-off points here, no per-skill routing table), and the published-skill `allowed-tools` baseline (§Published-skill `allowed-tools` baseline, including the nREPL-localhost reminder).*
 > *4. **[user workflow]** `skills/re-frame2-setup/SKILL.md` (current) — the six-step canonical path the skill teaches, to preserve/refresh rather than re-derive.*
@@ -22,5 +22,5 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 
 - The prompt above is a one-shot — feed it to a fresh session, it produces the skill.
 - The prompt assumes read access to the repo, including `examples/core/counter/` and the generator template.
-- The prompt does **not** ask the session to verify the resulting skill — Mike reads the PR (`design.md` L6 / Q14: the skill deliverable ships no verification module; the shipped skill itself does run the app build it scaffolds).
+- The prompt does **not** ask the session to verify the resulting skill — Mike reads the PR (`design.md` L6: the skill deliverable ships no verification module; the shipped skill itself does run the app build it scaffolds).
 - When to re-author (major-version updates) and the per-surface update procedure are owned by [`inputs.md`](inputs.md) §6 — consult it there rather than restating the triggers in this wrapper.
