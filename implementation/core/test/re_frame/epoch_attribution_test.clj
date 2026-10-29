@@ -307,6 +307,43 @@
             (rf.epoch.state/buffer-for frame)])
         "the child's own settle claims its marker")))
 
+;; A run that threw after its run-start never settled, so its run-start is still
+;; buffered when the next event settles. The harvest keys on the settling
+;; dispatch id, so the stranded run cannot claim the next event's record.
+(deftest harvest-keys-on-the-settling-dispatch-not-a-stranded-run-start
+  (let [frame :test/harvest-stranded
+        rs    (fn [id] {:op-type :rf.event :operation :rf.event/run-start
+                        :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id id}})
+        body  (fn [id] {:op-type :rf.event :operation :rf.event/db-changed
+                        :tags {:rf.trace/dispatch-id id}})]
+    (run! #(rf.epoch.state/buffer-event! frame %) [(rs 5) (body 5) (rs 6) (body 6)])
+    (is (= [[(rs 6) (body 6)] [(rs 5) (body 5)]]
+           [(rf.epoch.state/harvest-buffer-for-event! frame 6)
+            (rf.epoch.state/buffer-for frame)]))
+    (rf.epoch.state/drop-frame-buffer! frame)))
+
+;; A cross-thread dispatch buffers its marker whenever it likes — between the
+;; harvest's read and its write included. The harvest is one swap, so the marker
+;; survives it.
+(deftest harvest-keeps-a-trace-buffered-mid-harvest
+  (let [frame  :test/harvest-race
+        rs     {:op-type :rf.event :operation :rf.event/run-start
+                :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1}}
+        late   {:op-type :rf.event :operation :rf.event/dispatched
+                :tags {:rf.trace/dispatch-id 2}}
+        split  @#'rf.epoch.state/split-for-event
+        first? (atom true)]
+    (rf.epoch.state/buffer-event! frame rs)
+    (with-redefs [rf.epoch.state/split-for-event
+                  (fn [events settling-dispatch-id]
+                    (when (compare-and-set! first? true false)
+                      (rf.epoch.state/buffer-event! frame late))
+                    (split events settling-dispatch-id))]
+      (is (= [[rs] [late]]
+             [(rf.epoch.state/harvest-buffer-for-event! frame 1)
+              (rf.epoch.state/buffer-for frame)])))
+    (rf.epoch.state/drop-frame-buffer! frame)))
+
 (deftest inv-6c-bound-stranded-marker-cleared-by-terminal-path
   ;; The child never runs (no handler), so its marker outlives the parent's
   ;; settle; the child's own rejected settle must clear it, or it accretes.

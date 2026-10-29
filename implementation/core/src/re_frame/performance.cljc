@@ -77,17 +77,11 @@
    (goog-define ^boolean enabled? false))
 
 #?(:clj
-   ;; JVM has no `:advanced` and no DCE. Two scopes use this var:
-   ;;
-   ;;   1. The CLJS macro body, expanded at compile time on the JVM —
-   ;;      it reads this var to decide whether to emit the gated bracket
-   ;;      or just the body. Default: emit the gated bracket so the CLJS
-   ;;      compiler then has the full closed-over body to constant-fold
-   ;;      against the goog-define value at :advanced time.
-   ;;
-   ;;   2. JVM-runtime callers (headless tests, SSR). The CLJC fn forms
-   ;;      below treat the JVM as a permanent no-op — the Performance API
-   ;;      is browser-only — so the JVM expansion is just `(do body...)`.
+   ;; The JVM side of the flag, for JVM-runtime callers (headless tests,
+   ;; SSR). The Performance API is browser-only, so the JVM is a permanent
+   ;; no-op: `mark-and-measure`'s JVM expansion is `(do body...)` and never
+   ;; reads this var. Its CLJS expansion always emits the gated bracket over
+   ;; the goog-define above, which Closure constant-folds at `:advanced`.
    (def ^:const enabled? false))
 
 ;; When true, the per-emit `performance.clearMeasures(name)` is skipped so

@@ -18,6 +18,8 @@
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
             [re-frame.interop :as rf.interop]
+            ;; Loaded for `rf/reg-machine`, whose rows are runtime-db carriers.
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -196,6 +198,32 @@
                                               :rf.view/render-key render-key}]])
           derive     #(filterv (comp render-operations :operation) (:trace-events %))]
       (is (= (derive record) (derive (rf/project-egress record off-box)))))))
+
+(deftest machine-actor-state-stays-behind-the-allow-list-under-include-sensitive
+  (testing "a machine row's :before / :after snapshots are runtime-db state: the
+            trusted-local sensitive opt-in alone ships none of the machine's
+            :data, and only the runtime-db opt-in beside it lets it through"
+    (rf/make-frame {:id :test/vault})
+    (rf/reg-machine :test/lock {:initial :locked
+                                :data    {:pin secret}
+                                :states  {:locked {:on {:open :unlocked}} :unlocked {}}})
+    (rf/dispatch-sync [:test/lock [:rf.machine/start]] {:frame :test/vault})
+    (rf/dispatch-sync [:test/lock [:open]] {:frame :test/vault})
+    (let [record    (last (rf.epoch/epoch-history :test/vault))
+          leaky-ops (fn [projected]
+                      (into #{} (keep #(when (leaks? % secret) (:operation %)))
+                            (:trace-events projected)))
+          sensitive {:rf.egress/profile            :rf.egress/off-box-tool
+                     :rf.egress/include-sensitive? true}]
+      (is (= #{:rf.machine/transition :rf.machine/snapshot-updated} (leaky-ops record))
+          "control: the raw record carries the secret on both machine rows")
+      (is (= #{} (leaky-ops (rf/project-egress record sensitive))))
+      (is (= :test/lock
+             (some #(when (= :rf.machine/transition (:operation %)) (get-in % [:tags :actor-id]))
+                   (:trace-events (rf/project-egress record sensitive))))
+          "the row's identity still ships")
+      (is (= #{:rf.machine/transition :rf.machine/snapshot-updated}
+             (leaky-ops (rf/project-egress record (assoc sensitive :rf.egress/include-runtime-db? true))))))))
 
 (deftest trusted-local-output-is-unchanged
   (testing "under the trusted-local sensitive opt-in no allow-list applies: an

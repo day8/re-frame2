@@ -92,7 +92,7 @@
   #?(:clj  (locking retention-lock (f))
      :cljs (f)))
 
-(declare enforce-depth!)
+(declare enforce-depth! enforce-trace-events-keep!)
 
 (defn merge-config!
   "Validate and merge an `opts` map into the live config atom. Returns
@@ -102,12 +102,9 @@
 
   Validation at this boundary keeps numeric assumptions out of the hot path.
 
-  An ACCEPTED `:depth` is enforced against the rings that already exist,
-  not only against future appends — see `enforce-depth!`. The two numeric
-  knobs deliberately differ here: `:depth` is a bound on what the ring
-  HOLDS, so it is applied at this boundary, whereas `:trace-events-keep`
-  bounds how far back raw traces survive and stays an append-time rule (no
-  retained record has its payload rewritten by a config change).
+  Both accepted knobs are enforced against the rings that already exist, not
+  only against future appends — see `enforce-depth!` and
+  `enforce-trace-events-keep!`.
 
   The config swap and that enforcement are ONE step under the retention lock,
   so no writer holding the previous depth can commit between them — see the
@@ -129,7 +126,9 @@
             ;; that read the previous depth cannot be mid-flight here, and
             ;; one that starts after this section reads the new depth.
             (when (contains? valid-options :depth)
-              (enforce-depth! (:depth valid-options))))))))
+              (enforce-depth! (:depth valid-options)))
+            (when (contains? valid-options :trace-events-keep)
+              (enforce-trace-events-keep! (:trace-events-keep valid-options))))))))
   nil)
 
 (defn current-config
@@ -181,9 +180,9 @@
   actually transitions out of the keep-window, so touching just that
   record (rather than walking the whole history vector) is all that is
   needed. The steady-state invariant holds because every prior append
-  already elided its own just-crossed record; runtime reductions of
-  `trace-events-keep` via `(rf/configure! {:epoch-history ...})` take full
-  effect on subsequent appends rather than retroactively rewriting the buffer."
+  already elided its own just-crossed record, and a runtime reduction of
+  `trace-events-keep` re-establishes it on the live rings before
+  `configure!` returns (`enforce-trace-events-keep!`)."
   [history trace-events-keep]
   (let [history-count (count history)]
     (if (and (some? trace-events-keep)
@@ -722,7 +721,9 @@
 (defn- back-fill-event!
   "Append a raw post-settle event and optional structured row to an existing
   epoch. Returns the updated record for listener re-notification, or nil when
-  the target was evicted or never stored.
+  the target was evicted or never stored, or when nothing was appended (the
+  record kept no raw stream and there is no structured row) — so a listener is
+  never re-sent a record that did not change.
 
   Raw trace is appended only when that record retained `:trace-events`; a
   non-nil structured row is appended independently to `projection-slot`.
@@ -794,12 +795,14 @@
                                                           true)))))))))
         ;; Read the spliced record back from the SAME post-swap value the
         ;; update committed — re-derive the index there (it may differ from any
-        ;; pre-swap index if an append/eviction interleaved). nil when the
-        ;; epoch was not (or no longer) in the ring.
-        updated-histories    (swap! histories update-histories)
-        updated-history      (get updated-histories frame-id)
+        ;; pre-swap index if an append/eviction interleaved). An unchanged map
+        ;; means nothing was spliced, so there is nothing to re-notify.
+        [histories-before
+         histories-after]    (swap-vals! histories update-histories)
+        updated-history      (get histories-after frame-id)
         updated-record-index (epoch-index updated-history epoch-id)]
-    (when updated-record-index
+    (when (and updated-record-index
+               (not (identical? histories-before histories-after)))
       (nth updated-history updated-record-index))))
 
 (defn back-fill-render!
@@ -853,21 +856,41 @@
 (defn harvest-buffer!
   "Atomically read-and-clear the frame's in-flight buffer."
   [frame-id]
-  (let [buffered-events (get @capture-buffers frame-id [])]
-    (swap! capture-buffers dissoc frame-id)
-    buffered-events))
+  (get (first (swap-vals! capture-buffers dissoc frame-id)) frame-id []))
 
 (defn- run-start-dispatch-id
-  "The `:dispatch-id` of the event being settled, read off the FIRST
-  `:rf.event/run-start` emit in the buffer. nil when no run-start fired (a
-  rejected / aborted dispatch, or a halt path whose event never ran) — the
-  no-run-start branch of `harvest-buffer-for-event!` then falls back to the
-  settling envelope's dispatch-id to scope its drop."
+  "The `:dispatch-id` of the buffer's FIRST `:rf.event/run-start` emit, or nil
+  when no run-start fired. It names the settling event only for a caller that
+  has no settling dispatch id of its own."
   [trace-events]
   (some (fn [trace-event]
           (when (= :rf.event/run-start (:operation trace-event))
             (-> trace-event :tags :rf.trace/dispatch-id)))
         trace-events))
+
+(defn- split-for-event
+  "Split `buffered-events` for one settling event, as `[settling remaining]`.
+
+  The settling event is `settling-dispatch-id`, else the buffer's first
+  run-start. Keying on the caller's id is what keeps attribution exact: a
+  run-start a thrown event left behind can never claim the next event's
+  settle. `settling` is that event's traces when its run-start is buffered,
+  else `[]` — nothing ran, so nothing commits. `remaining` keeps every trace
+  carrying a DIFFERENT non-nil dispatch id and drops nil-id orphans. With no
+  id from either source the whole buffer settles and nothing remains. Pure, so
+  it can run inside a CAS-retried swap."
+  [buffered-events settling-dispatch-id]
+  (if-let [event-dispatch-id (or settling-dispatch-id
+                                 (run-start-dispatch-id buffered-events))]
+    (let [own? #(= event-dispatch-id (-> % :tags :rf.trace/dispatch-id))]
+      [(if (some #(and (own? %) (= :rf.event/run-start (:operation %)))
+                 buffered-events)
+         (filterv own? buffered-events)
+         [])
+       (filterv #(let [dispatch-id (-> % :tags :rf.trace/dispatch-id)]
+                   (and (some? dispatch-id) (not= dispatch-id event-dispatch-id)))
+                buffered-events)])
+    [buffered-events []]))
 
 ;; A child's queue-time `:event/dispatched` trace is emitted while its parent
 ;; runs but carries the child's dispatch id. Keep it until the child's matching
@@ -877,76 +900,40 @@
 ;; nil-id orphans are dropped because no event can ever claim them.
 
 (defn harvest-buffer-for-event!
-  "Atomically split the frame's buffer for one settling event by the settling
-  event's `:dispatch-id`:
+  "Atomically split the frame's buffer for one settling event (`split-for-event`):
 
-    * RETURN the events that belong to the settling event — those whose
-      `:tags :dispatch-id` matches the buffer's first `:event/run-start` id.
+    * RETURN the settling event's own traces — or `[]` when its run-start is
+      not buffered, because no event ran to completion and `settle!` must not
+      record a false `:ok` epoch (a rejected dispatch's own error trace is
+      dropped, not returned).
     * LEAVE in the buffer the events that belong to a DIFFERENT dequeued
       event — a child's `:event/dispatched` marker fires during the
       PARENT's do-fx (so it lands in the parent's window) but carries the
       CHILD's `:dispatch-id`; under per-event epochs it must ride the
       child's epoch, not the parent's. It stays buffered for the child's
       own `harvest-buffer-for-event!` at the child's settle.
+    * DROP nil-id orphans. The capture seam normally removes them first; this
+      partition is the defensive bound if one reaches storage.
 
   A marker is retained until its child's own run-start claims it, not for a fixed
   harvest count. A child that never runs is bounded by the terminal paths that
   clear the whole buffer (frame destroy / drain-interrupt / depth-halt /
-  rejected dispatch); see the design note above this defn.
+  rejected dispatch); see the design note above this defn. A nil
+  `settling-dispatch-id` keys on the buffer's first run-start, and with none
+  falls back to a full read-and-clear.
 
-  With no run-start, no event ran to completion. A settling envelope id drops
-  that rejected dispatch's own traces and nil-id orphans while retaining
-  unrelated child markers, and the call returns `[]`, preventing `settle!` from
-  recording a false `:ok` epoch. A nil envelope id falls back to a full
-  read-and-clear."
-  ([frame-id settling-dispatch-id]
-   (let [buffered-events (get @capture-buffers frame-id [])]
-     (if-let [run-dispatch-id (run-start-dispatch-id buffered-events)]
-       ;; Return matching traces, retain non-nil ids for later events, and drop
-       ;; nil-id orphans. The capture seam normally removes orphans first; this
-       ;; partition is the defensive bound if one reaches storage.
-       (let [settling-events
-             (filterv (fn [trace-event]
-                        (= (-> trace-event :tags :rf.trace/dispatch-id)
-                           run-dispatch-id))
-                      buffered-events)
-             ;; Other-event markers: a non-nil dispatch-id that isn't the
-             ;; settling event's. Kept verbatim for the child's own settle.
-             remaining-events
-             (filterv (fn [trace-event]
-                        (let [event-dispatch-id
-                              (-> trace-event :tags :rf.trace/dispatch-id)]
-                          (and (some? event-dispatch-id)
-                               (not= event-dispatch-id run-dispatch-id))))
-                      buffered-events)]
-         ;; Leave the other-event markers in the buffer for their own event's
-         ;; settle; drop orphans (nil dispatch-id) and the harvested settling
-         ;; events.
-         (if (seq remaining-events)
-           (swap! capture-buffers assoc frame-id remaining-events)
-           (swap! capture-buffers dissoc frame-id))
-         settling-events)
-       ;; No run-start means no event ran, so nothing can be committed.
-       (if settling-dispatch-id
-         ;; Scope the drop to THIS dispatch: drop its own traces (the rejection's
-         ;; frame-stamped error trace, `:dispatch-id` = settling) + orphans,
-         ;; RETAIN any unrelated sibling marker for its own settle, RETURN [] so
-         ;; `settle!` commits no misleading `:ok` epoch. Symmetric with the
-         ;; run-start branch.
-         (let [remaining-events
-               (filterv (fn [trace-event]
-                          (let [event-dispatch-id
-                                (-> trace-event :tags :rf.trace/dispatch-id)]
-                            (and (some? event-dispatch-id)
-                                 (not= event-dispatch-id settling-dispatch-id))))
-                        buffered-events)]
-           (if (seq remaining-events)
-             (swap! capture-buffers assoc frame-id remaining-events)
-             (swap! capture-buffers dissoc frame-id))
-           [])
-         ;; No envelope id: full read-and-clear, returning the whole buffer.
-         (do (swap! capture-buffers dissoc frame-id)
-             buffered-events))))))
+  One `swap-vals!`, so a trace another thread buffers mid-harvest — a
+  cross-thread dispatch's `:rf.event/dispatched` marker — is never overwritten."
+  [frame-id settling-dispatch-id]
+  (let [[before _] (swap-vals! capture-buffers
+                               (fn [buffers]
+                                 (let [[_ remaining] (split-for-event
+                                                       (get buffers frame-id [])
+                                                       settling-dispatch-id)]
+                                   (if (seq remaining)
+                                     (assoc buffers frame-id remaining)
+                                     (dissoc buffers frame-id)))))]
+    (first (split-for-event (get before frame-id []) settling-dispatch-id))))
 
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."
@@ -1078,6 +1065,30 @@
                      (seq kept) (assoc frame-id kept))))
                {}
                attribution-map))))
+  nil)
+
+(defn- enforce-trace-events-keep!
+  "Drop `:trace-events` from every retained record outside its ring's newest
+  `trace-events-keep`. Called from `merge-config!` whenever a valid
+  `:trace-events-keep` is accepted, under the same retention lock as
+  `enforce-depth!`, so once `configure!` returns every ring respects the
+  accepted keep — and `elide-just-crossed-trace-events` can go on eliding only
+  the one record each append pushes out of the window. A raise restores
+  nothing: a dropped stream is gone. Returns nil."
+  [trace-events-keep]
+  (swap! histories
+         (fn [histories-map]
+           (reduce-kv (fn [acc frame-id history]
+                        (let [cut (- (count history) trace-events-keep)]
+                          (assoc acc frame-id
+                                 (into []
+                                       (map-indexed (fn [record-index record]
+                                                      (cond-> record
+                                                        (< record-index cut)
+                                                        (dissoc :trace-events))))
+                                       history))))
+                      {}
+                      histories-map)))
   nil)
 
 (defn reset-histories!

@@ -43,9 +43,11 @@
     6. `:render`   — `:op-type :rf.view` + `:operation :rf.view/render`
 
   Events whose op-type/operation pair doesn't fit any bucket flow
-  through `:other` so the event-bundle shape is fully accountable to
-  the input — `(reduce + 0 (map #(+ (count (:effects %)) ...) ...))`
-  equals the input event count when every event is grouped.
+  through `:other`. The single-valued slots (`:event` / `:dispatched`,
+  `:handler`, `:fx`) keep the LAST matching event, so a bundle does not
+  account for every input event: a finished run's `:handler` is its
+  `:rf.event/run-end`, and the `:rf.event/run-start` before it — with that
+  emit's tags — is not in the bundle.
 
   ## Consumers
 

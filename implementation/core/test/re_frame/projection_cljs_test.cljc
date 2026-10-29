@@ -39,8 +39,11 @@
 (def ^:private big-string (apply str (repeat 40000 \x)))
 
 (defn- mk-frame!
-  "A live frame classifying [:auth :token] sensitive and [:docs :blob] large,
-  through the EP-0025 commit-plane effect path."
+  "Make live frame `frame-id` and register a classification of [:auth :token]
+  sensitive and [:docs :blob] large, through the EP-0025 commit-plane effect
+  path. The classification registers into the shared view, so it is not
+  `frame-id`'s alone: every live frame carries it, the ambient `:rf/default`
+  included."
   [frame-id]
   (rf/make-frame {:id frame-id})
   (let [decl {:sensitive [[:auth :token]]
@@ -230,19 +233,25 @@
    :event [:auth/login {:auth {:token "super-secret-token"}}]})
 
 (deftest record-frame-governs-when-opts-omit-frame
-  ;; The fixture's ambient :rf/default declares nothing, so a token redacted
-  ;; here was redacted under the governing frame's policy. With opts omitting
-  ;; :frame the record's own frame governs; an explicit :frame opt overrides
-  ;; the record's.
+  ;; Every live frame carries the shared classification (`mk-frame!`), so two
+  ;; live frames redact the token alike. What tells the governing frame apart
+  ;; is a frame that does not exist: it fails closed and redacts the whole
+  ;; `:event`. With the ambient frame bound away, borrowing it fails the same
+  ;; way. With opts omitting :frame the record's own frame governs; an explicit
+  ;; :frame opt overrides the record's, either way round.
   (mk-frame! :proj/decl)
-  (rf/make-frame {:id :proj/empty})
-  (let [token (fn [out] (get-in (:event out) [1 :auth :token]))
-        owned (rf/project-egress (error-record :proj/decl) {:rf.egress/profile :rf.egress/off-box-tool})]
-    (is (= [:rf/redacted :proj/decl :rf/redacted]
-           [(token owned)
-            (:frame owned)
-            (token (rf/project-egress (error-record :proj/empty)
-                                      {:frame :proj/decl :rf.egress/profile :rf.egress/off-box-tool}))]))))
+  (binding [rf.frame/*current-frame* nil]
+    (let [project (fn [record-frame opts]
+                    (rf/project-egress (error-record record-frame)
+                                       (merge {:rf.egress/profile :rf.egress/off-box-tool} opts)))
+          token   (fn [out] (get-in (:event out) [1 :auth :token]))
+          owned   (project :proj/decl {})]
+      (is (= [:rf/redacted :proj/decl :rf/redacted :rf/redacted :rf/redacted]
+             [(token owned)
+              (:frame owned)
+              (token (project :proj/never {:frame :proj/decl}))
+              (:event (project :proj/decl {:frame :proj/never}))
+              (:event (project :proj/never {}))])))))
 
 (deftest fails-closed-with-no-frame
   ;; With the ambient frame rebound away, project-egress synthesises no

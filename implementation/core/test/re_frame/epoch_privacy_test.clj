@@ -123,6 +123,24 @@
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
       (is (= ["topsecret"] (mapv #(get-in % [:db-after :auth :password]) @seen))))))
 
+(deftest record-signals-reach-collection-declarations
+  (testing "the rollup and the count read a declaration the way the egress walk
+            does: an index-free [:items :token] reaches every element's :token,
+            and [:accounts :token] the :token under every key of a map"
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-paths! [[:items :token] [:accounts :token]])
+    (rf/reg-event :seed (fn [_ _] {:db {:items    [{:token "s-1"} {:token "s-2"}]
+                                        :accounts {"a" {:token "t-1"}}}}))
+    (rf/reg-event :rotate (fn [{:keys [db]} _] {:db (-> db
+                                                        (assoc-in [:items 1 :token] "s-3")
+                                                        (assoc-in [:accounts "a" :token] "t-2"))}))
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+    (doseq [event-id [:seed :rotate :touch]]
+      (rf/dispatch-sync [event-id] {:frame :test/main}))
+    (is (= [[true 2] [true 2] [true 0]]
+           (mapv (juxt :rf.epoch/sensitive? :rf.epoch/redacted-modified-paths-count)
+                 (rf.epoch/epoch-history :test/main))))))
+
 (deftest redacted-modified-paths-count-counts-only-changed-declared-paths
   (testing "the count of declared sensitive paths whose value changed across the
             cascade — the one signal left once projection redacts both sides to
