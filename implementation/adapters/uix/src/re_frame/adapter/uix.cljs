@@ -56,9 +56,9 @@
 ;; ---- public surface (UIx-named) -------------------------------------------
 
 (def set-hiccup-emitter!
-  "Install a render-tree → HTML fn for use by render-to-string. Idempotent.
-  UIx itself doesn't render to string in browser bundles; SSR consumers
-  install the hiccup emitter explicitly (mirroring the Reagent adapter)."
+  "Install the hiccup → HTML fn used by render-to-string. Last call wins.
+  Requiring `re-frame.ssr` installs it through the chained late-bind hook;
+  call this only to install a different emitter."
   (:set-hiccup-emitter! spine-fns))
 
 ;; The narrow raw `useContext` frame read is INTERNAL. It is the mechanism

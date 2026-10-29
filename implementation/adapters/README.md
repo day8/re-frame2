@@ -41,7 +41,7 @@ adapters/
     └── test/...
 ```
 
-All 3 published adapters declare `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
+Both adapters here declare `day8/re-frame2 {:local/root "../../core"}`. Neither depends on the other.
 
 ## Where the substrate logic lives
 
