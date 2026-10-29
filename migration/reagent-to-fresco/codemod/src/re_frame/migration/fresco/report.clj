@@ -72,7 +72,10 @@
        "like event positions or because they carry a function, and a name is not a meaning: "
        "Fluent's `onRenderCell` and Ant's `onRow` are event-SPELLED props whose RETURN VALUE the "
        "caller reads. CHECK EVERY ROW AGAINST THE LIBRARY'S OWN DOCUMENTATION, which is why this "
-       "tool never picks a carrier for you."))
+       "tool never picks a carrier for you. PASTE A DECLARATION ONLY AFTER `--rewrite --write` HAS "
+       "RUN ON ITS FILE: this tool reads `[:>]`-family vectors only, so a site already moved onto "
+       "a declared host gets no entry, and its props cross unconverted — a keyword value as a "
+       "Keyword, a nested map's keys as written."))
 
 (def ^:private simple-name
   "A name `def` will take: lowercase-initial, and none of the `/` or `.`

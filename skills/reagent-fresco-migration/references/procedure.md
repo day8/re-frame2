@@ -92,6 +92,7 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
   | `:substrate-read-hook` (the adapter's `use-sub`/`use-frame`) | in a converted view, `h/sub` and intents; in a React island, `re-frame.fresco.native`'s hooks (MIG-17) |
   | `:substrate-test-harness` | test code — re-point it at the Fresco test kit (Step 5) |
   | `:reactive-graph-control`, `:substrate-view-seam` | no rule — read the census's recovery note and decide with the author |
+  | `:unresolved-reagent-require`, `:unresolved-alias` | no rule — the reporter could not bind this file's Reagent require, so it is partly blind there: read the file by hand, and do not count on Step 6 for its crossings |
 
   Every class the census emits carries a recovery note; read it beside the
   route.
@@ -103,7 +104,8 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
 Two report facts worth carrying: it is written even on a clean run and carries
 a count of untouched sites, so *"not in the report"* is unambiguous; and the
 `h/defhost` sketches are bare declarations followed by the site's callback
-props as comments to check. A callback's meaning is its carrier at the call
+props as comments to check — paste one only after Step 6 has written its file
+([Step 2](#step-2--gate-every-candidate-view-whole-view-law) says why). A callback's meaning is its carrier at the call
 site, and the block's header carries the counter-example to check against the
 library's documentation: an `on*`-named render prop, which takes `h/render-fn`
 (MIG-09/10).
@@ -175,6 +177,12 @@ tier:
 
 Do not rewrite the clean parts of a held view — whole-view coherence,
 cardinal rule 2.
+
+One MIG-09/10 decision waits for Step 6: **a crossing you decide to declare
+with `h/defhost` stays a `[:> …]` until Step 6's write pass has run on its
+file.** The fixer reads only `[:>]`-family vectors, so a crossing hoisted first
+gets no entry, and its props cross unconverted — a keyword value as a Keyword,
+a nested map's keys as written. Hoist it after the write.
 
 Two things are **not** view gates here. The **mechanical** rules are applied
 directly in Step 3, never held. And an **effectful sub body (MIG-25)** is a
@@ -435,16 +443,26 @@ a page that renders: a background tab that delivers no frames delivers no
 
 Re-run Step 0's command, on the same coordinate (pinned or `:local/root`),
 with `--rewrite` added, using only the converted
-files as its input paths: a dry run that prints what would change. Keep views
-held on Reagent outside this write pass. Then add `--write` after `--rewrite` to apply it — this
+files as its input paths: a dry run that prints what would change. A file that
+still holds a view on Reagent goes in whole, since the tool selects by file. A
+W1–W5 hunk reproduces a conversion Reagent already makes, so it leaves a held
+view's crossing as it was. A W6 hunk at a hyphenated tag (`[:> "my-widget" …]`)
+does not: Reagent's keyword path treats that tag as a custom element and stops
+renaming `:class`, `:for` and `:charset`, so revert that hunk in a held view.
+Then add `--write` after `--rewrite` to apply it — this
 **rewrites the consumer's source files in place**, so run it on a clean
 working tree the author can diff and revert.
 
-Last, not first. It touches only the six decidable `[:> …]` families (W1–W6),
+After the views convert, never first. It touches only the six decidable `[:> …]` families (W1–W6),
 preserves formatting, comments and line endings, and every output is outside its
 own rewrite's input language so a second run is a no-op. Re-run the subtree
 compile and tests after the write, and confirm the changed screens render.
 If this pass used a shadow comparison, repeat it on the screens the diff touched.
+
+Then make the `h/defhost` hoists MIG-09/10 decided
+([Step 2](#step-2--gate-every-candidate-view-whole-view-law)): the written
+crossings already carry the strings and camelCased keys a declared host passes
+through as they stand. Re-run the subtree compile and tests after the hoists.
 
 A completed run exits `0` even when the report carries human decisions — it is a
 migration assistant, not a permanent build lint. It exits `1` only when a file

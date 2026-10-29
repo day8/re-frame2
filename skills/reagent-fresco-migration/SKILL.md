@@ -39,7 +39,7 @@ allowed-tools:
 
 Helps an author rewrite **Reagent view code into Fresco** — `re-frame.fresco`, conventionally aliased `h`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes an `h/defview` mounted in brackets; subscription derefs collapse to `(h/sub …)`; DOM handlers stop being closures and become data the tree retains; and the two things Reagent kept inside the component — local atoms and lifecycle — move to where re-frame can see them.
 
-**What it changes:** the consumer's view namespaces (bodies, call sites, requires, the root), and nothing in the dataflow layer. It runs the project's own compile and test commands as it goes, and runs the reporter's file-rewriting `--rewrite --write` mode only as the last step, on a tree the author can diff.
+**What it changes:** the consumer's view namespaces (bodies, call sites, requires, the root), and nothing in the dataflow layer. It runs the project's own compile and test commands as it goes, and runs the reporter's file-rewriting `--rewrite --write` mode only once the views are converted, on a tree the author can diff.
 
 ## Read this first — establish that the user needs this at all
 
@@ -117,7 +117,7 @@ The report has two halves that answer different questions:
 - **The census** (`:census`) — every rostered view-substrate API **call site**, across Reagent's API and re-frame2's own adapters under `re-frame.adapter.`. It sizes the job, and its classes route to MIG rules.
 - **The fixer** (`:entries`) — every `[:> …]`-family crossing into React, where Reagent converted the prop dialect and Fresco does not. Six rewrite families (W1–W6) are decidable from source text; everything else is a named refusal with a recovery sentence.
 
-How to read both halves, and what the report cannot see, is [`references/procedure.md`](references/procedure.md) Step 0. `--rewrite` turns the same command into a dry run of the fixer and `--rewrite --write` **rewrites the consumer's files** — the six decidable families only — which is the LAST step of a migration, not the first (Step 6).
+How to read both halves, and what the report cannot see, is [`references/procedure.md`](references/procedure.md) Step 0. `--rewrite` turns the same command into a dry run of the fixer and `--rewrite --write` **rewrites the consumer's files** — the six decidable families only — which runs once the views are converted and BEFORE any crossing is hoisted to `h/defhost`, never first (Step 6).
 
 ## The mental model (read this before touching a view)
 
@@ -157,7 +157,7 @@ Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 4. **Apply the M-tier rewrites** to the clean views, atomically per view (a header change and all its call sites in one edit).
 5. **Fix the ns requires and the root last** (MIG-24, MIG-15): add `[re-frame.fresco :as h]`; drop `reagent.*` requires only when nothing in the namespace still needs them.
 6. **Compile + test the subtree (the skill runs the gates); the programmer renders + eyeballs it.**
-7. **Finish the prop-dialect fixer on the converted files**, dry-run first, then write and verify the changed subtree again — [procedure Step 6](references/procedure.md#step-6--apply-the-mechanical-codemod-and-re-prove). Only then move to the next.
+7. **Finish the prop-dialect fixer on the converted files**, dry-run first, then write and verify the changed subtree again, and only then hoist repeated crossings to `h/defhost` — the fixer reads only `[:> …]` — [procedure Step 6](references/procedure.md#step-6--apply-the-mechanical-codemod-and-re-prove). Only then move to the next.
 
 ## Gotchas
 
