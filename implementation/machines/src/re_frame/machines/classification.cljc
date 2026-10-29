@@ -122,7 +122,7 @@
     (when-let [reason (opts-declaration-defect k (get opts k))]
       (rf.error/throw-error!
         :rf.error/invalid-machine-classification
-        'rf-machines/reg-machine
+        'rf/reg-machine
         (str "reg-machine " machine-id " declares an opts " k " path that "
              "cannot classify its events: " reason)
         {:recovery :fix-registration
