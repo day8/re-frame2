@@ -14,18 +14,30 @@
  *    a file in the OS temp directory (outside every worktree; `/tmp` on POSIX), created
  *    atomically by hard-linking a fully written record into place, so no reader ever sees
  *    half a holder. The record is {pid, child, childAt, worktree, command, started, token}.
- *    A run that finds the lane busy prints
  *
- *        shadow-lane: waiting for build lane held by <pid> (<worktree>, <command>) since <started>; lock file <path> (delete it if <pid> is not a shadow-cljs build)
+ *    The lane passes in arrival order. A run asking for it writes its record as a ticket
+ *    into the queue directory beside the lock (`<lock>.queue/<token>.ticket`), refreshes
+ *    it on every poll, and takes a freed lane only when no earlier ticket is still
+ *    waiting, so a slow poller is never overtaken by a later arrival. A run that finds
+ *    the lane busy prints
  *
- *    and polls until it is free. A holder whose launcher and compiler child are both gone
- *    is dead, and so is one whose pid now names a process that began after the record
- *    named it: the operating system has handed a dead holder's pid to an unrelated
- *    process. The next run reclaims a dead holder's lock with no manual step; the reclaim happens
- *    under a short-lived guard directory, so two waiters cannot both reclaim and both
- *    proceed. The lock is released when the build ends, on Ctrl-C or a termination signal,
- *    and on process exit; a kill that gives this process no chance to run is covered by
- *    the dead-holder reclaim. Ctrl-C while waiting exits without taking it.
+ *        shadow-lane: waiting for build lane held by <pid> (<worktree>, <command>) since <started>; queue position <n>; lock file <path> (delete it if <pid> is not a shadow-cljs build)
+ *
+ *    where position 1 is next, and polls until its turn. A holder whose launcher and
+ *    compiler child are both gone is dead, and so is one whose pid now names a process
+ *    that began after the record named it: the operating system has handed a dead
+ *    holder's pid to an unrelated process. The next run reclaims a dead holder's lock with
+ *    no manual step; the reclaim happens under a short-lived guard directory, so two
+ *    waiters cannot both reclaim and both proceed. The lock is released when the build
+ *    ends, on Ctrl-C or a termination signal, and on process exit; a kill that gives this
+ *    process no chance to run is covered by the dead-holder reclaim. Ctrl-C while waiting
+ *    exits without taking it. A ticket is retired by the same two tests, and also once
+ *    it goes unrefreshed for TICKET_STALE_MS, so neither a waiter that is killed nor one
+ *    that stops waiting without removing its ticket holds up the queue.
+ *
+ *    Every worktree runs its own copy of this helper, and a copy without the queue still
+ *    shares the lane: it waits on the same lock record and takes a freed lane whenever
+ *    it polls first, but writes no ticket, so the queue orders only the runs that do.
  *
  *    `RF2_SHADOW_LANE_LOCK` names a different lock file, which is how the tests stay off
  *    the real lane. A holder exports its token as `RF2_SHADOW_LANE_TOKEN`, so a descendant
@@ -90,6 +102,10 @@ const IDENTITY_TTL_MS = 30000;
 // A start time reported this far after the record named the pid still counts as the
 // holder's, which absorbs clock granularity; a reused pid begins long after.
 const CLOCK_SLACK_MS = 1000;
+// A waiting run refreshes its ticket on every poll, so one left unrefreshed this long
+// belongs to a run that is no longer waiting. It is well above the longest a poll can be
+// held up by the start-time probes.
+const TICKET_STALE_MS = 30000;
 const ONE_SHOT = new Set(['compile', 'release', 'check', 'run', 'clj-run']);
 const SIGNALS = process.platform === 'win32'
   ? ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']
@@ -255,10 +271,84 @@ function reclaim(lockPath, seen) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The queue
+// ---------------------------------------------------------------------------
+
+// A ticket is the waiting run's lane record, written whole by a rename.
+function writeTicket(queueDir, record) {
+  fs.mkdirSync(queueDir, { recursive: true });
+  const file = path.join(queueDir, `${record.token}.ticket`);
+  fs.writeFileSync(`${file}.tmp`, `${JSON.stringify(record)}\n`);
+  fs.renameSync(`${file}.tmp`, file);
+  return file;
+}
+
+// A ticket a reader retired while this run was still waiting is written again, with its
+// original arrival time, so the run keeps its place.
+function refreshTicket(file, record) {
+  const now = new Date();
+  try {
+    fs.utimesSync(file, now, now);
+  } catch (err) {
+    if (err.code === 'ENOENT') writeTicket(path.dirname(file), record);
+  }
+}
+
+// Best effort: a ticket that cannot be removed goes stale.
+function dropTicket(file) {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch (_) {
+    // retired by TICKET_STALE_MS
+  }
+}
+
+// Arrival order: when each run asked for the lane, ties broken by token.
+function byArrival(a, b) {
+  return Date.parse(a.started) - Date.parse(b.started) || (a.token < b.token ? -1 : a.token > b.token ? 1 : 0);
+}
+
+// The tickets still waiting, in arrival order. One whose pid is gone, or left unrefreshed
+// for TICKET_STALE_MS, is removed on sight; so is a file a writer died before renaming.
+function waitingTickets(queueDir) {
+  let names;
+  try {
+    names = fs.readdirSync(queueDir);
+  } catch (_) {
+    return [];
+  }
+  const tickets = [];
+  for (const name of names) {
+    const file = path.join(queueDir, name);
+    const age = Date.now() - mtimeOf(file);
+    const read = name.endsWith('.ticket') ? readHolder(file) : null;
+    const ticket = read && !read.unreadable ? read : null;
+    if (!ticket) {
+      if (age > STALE_MS) dropTicket(file);
+    } else if (!isAlive(ticket.pid) || age > TICKET_STALE_MS) {
+      dropTicket(file);
+    } else {
+      tickets.push({ ...ticket, file });
+    }
+  }
+  return tickets.sort(byArrival);
+}
+
+// The earliest of `ahead` still waiting, by the holder's start-time rule; a ticket whose
+// pid now names a process that began later is removed.
+function nextInLine(ahead) {
+  for (const ticket of ahead) {
+    if (isRecordedProcess(ticket.pid, ticket.started)) return ticket;
+    dropTicket(ticket.file);
+  }
+  return null;
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // This process's hold on the lane; `depth` makes a nested acquire in-process a no-op.
-const lane = { held: null, depth: 0, waiting: 0 };
+const lane = { held: null, depth: 0, waiting: 0, tickets: new Set() };
 // Compiler children this process spawned and has not yet seen exit.
 const owned = new Set();
 
@@ -272,6 +362,7 @@ async function acquireLane({ command, cwd = process.cwd(), pollMs = POLL_MS } = 
     return releaseOnce();
   }
   const lockPath = laneLockPath();
+  const queueDir = `${lockPath}.queue`;
   const record = {
     pid: process.pid,
     child: null,
@@ -283,41 +374,59 @@ async function acquireLane({ command, cwd = process.cwd(), pollMs = POLL_MS } = 
   const inherited = process.env[TOKEN_ENV];
   const waitStarted = Date.now();
   let announced = null;
+  let ticket = null;
   lane.waiting += 1;
   armSignals();
   try {
+    ticket = writeTicket(queueDir, record);
+    lane.tickets.add(ticket);
     for (;;) {
-      if (tryTake(lockPath, record)) {
-        lane.held = { lockPath, record };
-        lane.depth = 1;
-        break;
-      }
+      refreshTicket(ticket, record);
       const holder = readHolder(lockPath);
-      if (!holder) continue;
-      if (!holder.unreadable && inherited && holder.token === inherited && holderAlive(holder)) {
+      if (holder && !holder.unreadable && inherited && holder.token === inherited && holderAlive(holder)) {
         // An ancestor holds the lane for this whole run; waiting on it would deadlock.
         return () => {};
       }
-      const dead = holder.unreadable
-        ? Date.now() - holder.mtimeMs > STALE_MS
-        : !holderAlive(holder);
-      if (dead) {
-        if (reclaim(lockPath, holder)) {
-          log(`shadow-lane: reclaimed the build lane from dead holder ${describeHolder(holder)}`);
-        } else {
-          await sleep(Math.min(pollMs, 100));
+      if (holder) {
+        const dead = holder.unreadable
+          ? Date.now() - holder.mtimeMs > STALE_MS
+          : !holderAlive(holder);
+        if (dead) {
+          if (reclaim(lockPath, holder)) {
+            log(`shadow-lane: reclaimed the build lane from dead holder ${describeHolder(holder)}`);
+          } else {
+            await sleep(Math.min(pollMs, 100));
+          }
+          continue;
         }
-        continue;
       }
-      const key = holder.unreadable ? 'unreadable' : holder.token;
-      if (announced !== key) {
-        announced = key;
-        const hint = holder.unreadable ? '' : ` (delete it if ${holder.pid} is not a shadow-cljs build)`;
-        log(`shadow-lane: waiting for build lane held by ${describeHolder(holder)}; lock file ${lockPath}${hint}`);
+      // The holder's own ticket can outlive its take by a moment; it is not ahead of anyone.
+      const ahead = waitingTickets(queueDir)
+        .filter((t) => t.token !== (holder && holder.token) && byArrival(t, record) < 0);
+      if (!holder) {
+        if (!nextInLine(ahead)) {
+          if (tryTake(lockPath, record)) {
+            lane.held = { lockPath, record };
+            lane.depth = 1;
+            break;
+          }
+          continue;
+        }
+      } else {
+        const key = `${holder.unreadable ? 'unreadable' : holder.token} ${ahead.length}`;
+        if (announced !== key) {
+          announced = key;
+          const hint = holder.unreadable ? '' : ` (delete it if ${holder.pid} is not a shadow-cljs build)`;
+          log(`shadow-lane: waiting for build lane held by ${describeHolder(holder)}; queue position ${ahead.length + 1}; lock file ${lockPath}${hint}`);
+        }
       }
       await sleep(pollMs);
     }
   } finally {
+    if (ticket) {
+      dropTicket(ticket);
+      lane.tickets.delete(ticket);
+    }
     lane.waiting -= 1;
     disarmIfIdle();
   }
@@ -380,6 +489,8 @@ function reapSync() {
     }
   }
   owned.clear();
+  for (const ticket of lane.tickets) dropTicket(ticket);
+  lane.tickets.clear();
   releaseLane(true);
 }
 
