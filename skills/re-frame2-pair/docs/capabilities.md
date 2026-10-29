@@ -31,7 +31,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Capability | Status | Notes |
 |---|---|---|
 | Read all of `app-db` for any frame | *done* | `snapshot` (`:app-db` slice) via `rf/app-db-value` |
-| Read a specific path | *done* | `get-path` via `(get-in (rf/app-db-value frame-id) path)`; `snapshot {path}` for a bounded subtree |
+| Read a specific path | *done* | `get-path` via `(get-in (rf/app-db-value frame-id) path)`, or the frame's runtime-db for a path rooted at a `:rf.runtime/*` key (`:rf/redacted` unless sensitive reads are allowed); `snapshot {path}` for a bounded subtree |
 | Diff `app-db` before/after one event | *done* | Each `:rf/epoch-record` carries `:db-before` and `:db-after`; `dispatch` / `trace-window` surface the depth-1 `:db-diff` projection |
 | List registered handlers | *done* | `list-handlers {kind}` over `rf/registrations` |
 | Inspect handler + interceptor chain + source coords | *done* | `handler-meta {kind: "event", id}` over `rf/handler-meta` (returns `:ns` / `:line` / `:file` / `:column` / `:doc` / `:tags` / `:handler-fn-hash` / `:rf.mcp/source-uri`). The live `:handler-fn` is **stripped**, not returned — it is replaced by `:handler-fn-hash`, which is what you probe against over a hot-reload |
