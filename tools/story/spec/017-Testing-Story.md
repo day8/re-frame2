@@ -107,10 +107,11 @@ variant-plan compiler**:
 once, phase 2 dispatches the plan's `[:world :setup]`, and phase 4
 drives the plan's `[:world :scripts]` (the named plays, `:plays`
 preserved). The readers that are not plan-routed — snapshot identity
-(`re-frame.story.identity`), the workspace/canvas readers, the
-recorder, and the play-runner's `variant-body->plays` (which feeds only
-the play chip's play LISTING and the CI enumeration, `ci-runner/ci-rows`)
-— read the canonical keys directly. Every EXECUTED play comes from the
+(`re-frame.story.identity`), the workspace/canvas readers and the
+recorder — read the canonical keys directly. The play chip's play
+LISTING and the CI enumeration (`ci-runner/ci-rows`) read the compiled
+plays (`runner-events/variant-plays`), so a variant whose only script a
+`:compose`d fragment supplies is listed and run. Every EXECUTED play comes from the
 compiled plan's `[:world :scripts]`: the canvas's auto-plays, the chip's
 Re-run / Run play / Run all, the recorder export's replay and the CI
 `runPlay` hook (all through the one run owner, `runtime/resume-run!`), and

@@ -5,14 +5,15 @@
   machine) and `re-frame.story.play.runner-events` (re-frame-side
   driver). This namespace exposes the seams a CI runner needs:
 
-  - `variants-with-play-scripts` — pure discovery: scan the Story
-    registrar's variant side-table and return the variant ids whose
-    body carries a non-empty `:script`. Pure data → data; works
-    on JVM and CLJS.
+  - `variants-with-play-scripts` — discovery: the registered variant ids
+    that run a play with at least one step. It reads the compiled plays
+    (`runner-events/variant-plays`), the program the runtime executes, so a
+    variant whose only script comes from a `:compose`d fragment is found.
+    Works on JVM and CLJS.
 
-  - `ci-rows` — pure: enumerate the per-PLAY catalogue (one row per
-    play; a `:plays` variant of size N yields N rows). The metadata
-    bundle a CI runner needs per row (id, play-key, step count).
+  - `ci-rows` — enumerate the per-PLAY catalogue (one row per play; a
+    `:plays` variant of size N yields N rows). The metadata bundle a CI
+    runner needs per row (id, play-key, step count).
 
   - `ci-context` — Playwright-readable JSON envelope: the full per-
     variant catalogue, ready for `JSON.parse` on the browser side.
@@ -33,79 +34,40 @@
     cover the discovery seam without standing up a full Story shell.
 
   - The discovery seam is symmetric across JVM / CLJS (the registrar
-    is `.cljc`), so the same function powers both `clojure -M:test`
-    coverage and the browser-side enumeration.
+    and the plan compiler are `.cljc`), so the same function powers both
+    `clojure -M:test` coverage and the browser-side enumeration.
 
-  ## Pure / impure split
+  ## JVM / CLJS split
 
-  This ns is `.cljc`. The pure seams (`variants-with-play-scripts`,
-  `ci-rows`, `ci-context`) are JVM-runnable; the CLJS-only
-  `install-ci-hooks!` is gated by reader conditionals."
-  (:require [re-frame.story.play.runner :as rf.story.play.runner]
-            [re-frame.story.registrar   :as rf.story.registrar]
-            #?(:cljs [re-frame.story.play.runner-events :as rf.story.play.runner-events])
+  This ns is `.cljc`. `variants-with-play-scripts`, `ci-rows` and
+  `ci-context` are JVM-runnable; the CLJS-only `install-ci-hooks!` is
+  gated by reader conditionals."
+  (:require [re-frame.story.registrar   :as rf.story.registrar]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             #?(:cljs [re-frame.story.config :as rf.story.config])
             #?(:cljs [re-frame.story.runtime :as rf.story.runtime])))
 
 ;; ---- pure discovery ------------------------------------------------------
 
-(defn has-play-script?
-  "True iff `variant-body` carries a non-empty `:script` body.
-  Pure data → data. A bare `:script` vector is enough; a map
-  form is also accepted (the runner's `parse-spec` normalises both
-  shapes, but discovery treats an empty vector / map without
-  `:script` as 'no script' so the CI runner skips it).
-
-  Empty map (`{}`) and empty vector (`[]`) are treated as absent —
-  authors that want to opt-in must declare at least one step."
-  [variant-body]
-  (let [body (:script variant-body)]
-    (cond
-      (nil? body)    false
-      (vector? body) (pos? (count body))
-      (map? body)    (pos? (count (:script body [])))
-      :else          false)))
-
-(defn has-plays?
-  "True iff `variant-body` carries a non-empty `:plays` vector
-  (multi-play). Pure data → data."
-  [variant-body]
-  (let [plays (:plays variant-body)]
-    (boolean (and (vector? plays) (pos? (count plays))))))
-
-(defn has-any-play?
-  "True iff `variant-body` carries EITHER a non-empty `:script`
-  or a non-empty `:plays` vector (multi-play)."
-  [variant-body]
-  (or (has-play-script? variant-body)
-      (has-plays? variant-body)))
-
 (defn variants-with-play-scripts
-  "Return a SORTED vector of variant ids whose body carries a non-empty
-  `:script` or `:plays` slot. Pure data → data; reads the Story
-  registrar's variant side-table.
+  "A SORTED vector of the registered variant ids that run at least one play
+  with a step — `:script`, `:plays`, or a `:compose`d fragment's script
+  alike, read from the compiled plays (`runner-events/variant-plays`).
 
   Sorted so the CI runner walks variants in a deterministic order —
-  helpful when comparing run logs across runs / branches.
-
-  The name keeps the `play-scripts` plural; it includes both
-  `:script` and `:plays`-carrying variants. The CI runner uses
-  `ci-rows` to enumerate per-PLAY rows."
-  ([]
-   (variants-with-play-scripts (rf.story.registrar/registrations :variant)))
-  ([variant-registrations]
-   (->> variant-registrations
-        (filter (fn [[_ body]] (has-any-play? body)))
-        (map first)
-        (sort)
-        (vec))))
+  helpful when comparing run logs across runs / branches."
+  []
+  (->> (keys (rf.story.registrar/registrations :variant))
+       (filter (fn [vid]
+                 (some (comp seq :script) (rf.story.play.runner-events/variant-plays vid))))
+       (sort)
+       (vec)))
 
 (defn ci-rows
   "Enumerate the CI runner's per-row catalogue (multi-play).
-  Each row is one play; a variant with `:plays` of size N yields N
-  rows; a single-script `:script` variant yields ONE row.
-
-  Pure data → data.
+  Each row is one compiled play of a `variants-with-play-scripts` variant;
+  a variant with `:plays` of size N yields N rows; a single-script variant
+  yields ONE row.
 
   Shape (one entry per row):
       {:variant-id <kw>
@@ -117,23 +79,18 @@
   The CI runner uses this to drive one Playwright assertion per row.
   Stable order: variants sorted alphabetically, plays in declaration
   order within each variant."
-  ([]
-   (ci-rows (rf.story.registrar/registrations :variant)))
-  ([variant-registrations]
-   (let [vids (variants-with-play-scripts variant-registrations)]
-     (vec
-       (mapcat
-         (fn [vid]
-           (let [body  (get variant-registrations vid)
-                 plays (rf.story.play.runner/variant-body->plays body)]
-             (map (fn [spec]
-                    {:variant-id vid
-                     :play-key   (:name spec)
-                     :name       (:name spec)
-                     :script-len (count (:script spec))
-                     :auto-run?  (boolean (:auto-run? spec))})
-                  plays)))
-         vids)))))
+  []
+  (vec
+    (mapcat
+      (fn [vid]
+        (map (fn [spec]
+               {:variant-id vid
+                :play-key   (:name spec)
+                :name       (:name spec)
+                :script-len (count (:script spec))
+                :auto-run?  (boolean (:auto-run? spec))})
+             (rf.story.play.runner-events/variant-plays vid)))
+      (variants-with-play-scripts))))
 
 (defn ci-context
   "Build the full CI catalogue: every variant with a play surface

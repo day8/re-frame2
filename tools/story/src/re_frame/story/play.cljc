@@ -245,6 +245,21 @@
 ;; `:plays` variant would step nothing at all.
 ;; ---------------------------------------------------------------------------
 
+(defn compiled-plays
+  "The compiled plan's `[:world :scripts]` for `variant-id`: its named plays,
+  folded and arg-substituted, with `:compose`d fragments' scripts in place —
+  the plays the runtime runs. `opts` is the `run-variant` opts map, folded
+  into the compile as `stepped-program` describes. An unregistered variant
+  yields `[]`; a plan-construction failure throws."
+  [variant-id opts]
+  (if-not (rf.story.registrar/handler-meta :variant variant-id)
+    []
+    (get-in (rf.story.plan/variant-plan
+              variant-id
+              {:run-args (rf.story.args/run-arg-layers variant-id opts)})
+            [:world :scripts]
+            [])))
+
 (defn- stepped-program
   "The folded, arg-substituted step vector for `variant-id`: the scripts of
   the compiled plan's AUTO-RUNNABLE plays, concatenated in order — the
@@ -261,16 +276,11 @@
   unregistered variant yields `[]`; a plan-construction failure throws,
   as the runtime would for the same variant."
   [variant-id opts]
-  (if-not (rf.story.registrar/handler-meta :variant variant-id)
-    []
-    (let [plan  (rf.story.plan/variant-plan
-                  variant-id
-                  {:run-args (rf.story.args/run-arg-layers variant-id opts)})
-          plays (get-in plan [:world :scripts] [])
-          auto  (rf.story.play.runner/auto-runnable-plays plays)]
-      (vec (if (seq auto)
-             (mapcat :script auto)
-             (:script (first plays)))))))
+  (let [plays (compiled-plays variant-id opts)
+        auto  (rf.story.play.runner/auto-runnable-plays plays)]
+    (vec (if (seq auto)
+           (mapcat :script auto)
+           (:script (first plays))))))
 
 (defn variant-play-events
   "The flat event-vector list of `variant-id`'s stepped program (see

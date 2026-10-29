@@ -1835,8 +1835,8 @@
   replay and the CI `runPlay` hook. Each is a fresh run, so a correct
   variant never grades against the previous run's app-db or tape. A
   single play starts from `:setup`; `{:play :all}` prepares once and runs
-  every play in order. The engine drivers (`runner-events/run!`,
-  `run-play!`, `run-all-plays!`) still drive the frame AS IT STANDS.
+  every play in order. The engine, `runner-events/run!`, drives the frame
+  AS IT STANDS.
 
   A re-prepare after a resume claims a fresh generation, so no new run-key
   is needed; one prepared but not yet resumed is still fresh, and dedupes.

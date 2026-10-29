@@ -149,8 +149,7 @@
   `settled-boundary` (spec/017) — in headless the `dispatch-sync!`
   run-to-fixed-point drain — so it is synchronous at the step boundary,
   exactly like `:dispatch-sync`. Yielding between synchronous steps would
-  let concurrent `auto-run!` calls interleave and overshoot counter
-  increments; settling `:dispatch` synchronously removes that hazard for
+  let concurrent runs interleave and overshoot counter increments; settling `:dispatch` synchronously removes that hazard for
   the queued authoring form too.
 
   `:wait-until` is NOT here either: in headless the predicate is checked
@@ -464,9 +463,9 @@
 (defn auto-runnable-plays
   "The subset of `plays` that auto-run on mount — those passing
   `auto-runnable?`. This is the SINGLE definition of 'which plays
-  auto-run'; both the runtime orchestrator (`runtime/run-phase-4!`) and
-  the shell driver (`runner-events/auto-run!`) delegate here so the rule
-  lives in one place. Returns a vector (order-preserving). Pure data →
+  auto-run'; the runtime orchestrator (`runtime/run-phase-4!`) and the
+  step-debugger (`rf.story.play/stepped-program`) both delegate here so the
+  rule lives in one place. Returns a vector (order-preserving). Pure data →
   data."
   [plays]
   (filterv auto-runnable? plays))
@@ -600,10 +599,12 @@
   unified result, so the run-state and the unified `:status` cannot disagree
   — closing the false-GREEN class where a DOM-skip-only variant would read
   `:pass` via the unified result while the run-state read `:cannot-run`.
-  Empty when no step refused."
+  A refusal marked `:recorded?` is left out: its own `:cannot-run` record is
+  already on the accumulator, so nothing counts twice. Empty when no step
+  refused."
   [state]
   (into []
-        (comp (filter cannot-run-step?)
+        (comp (filter (fn [r] (and (cannot-run-step? r) (not (:recorded? r)))))
               (map (fn [r]
                      (cond-> {:status :cannot-run
                               :unit   (:step r)
@@ -790,11 +791,14 @@
 
 (defn fail-summary
   "Render the failure summary for the banner: the first failed
-  assertion (or exception) + the failure count. Returns nil when
-  the run is not in `:fail` state."
+  assertion (or exception) + the failure count. A `:cannot-run` refusal is
+  not a failure, as in `finish`. Returns nil when the run is not in `:fail`
+  state."
   [{:keys [status results]}]
   (when (= status status-fail)
-    (let [fails (filterv (fn [r] (false? (:passed? r))) results)]
+    (let [fails (filterv (fn [r] (and (false? (:passed? r))
+                                      (not (cannot-run-step? r))))
+                         results)]
       {:count   (count fails)
        :first   (first fails)
        :results fails})))
