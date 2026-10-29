@@ -282,7 +282,8 @@
 ;; ===========================================================================
 
 (deftest discover-via-roots-every-candidate-refused
-  ;; The orchestrator falls through (`:error`) rather than attaching.
+  ;; The orchestrator falls through (`:error`) rather than attaching, and
+  ;; names every port file it refused, in precedence order.
   (async done
     (let [pairs (uri-decoding-pairs ["/proj"])
           proj  (second (first pairs))]
@@ -291,7 +292,8 @@
                                   (reads-ports {proj "9001"})
                                   (fn [_port] (js/Promise.resolve false)))
           (.then (fn [r]
-                   (is (= [:error :no-running-shadow-in-workspace [(port-file-in proj)]]
+                   (is (= [:error :no-running-shadow-in-workspace
+                           [(port-file-in proj) (jp proj ".shadow-cljs" "nrepl.port") (jp proj ".nrepl-port")]]
                           [(:status r) (-> r :error :reason) (:stale-port-files r)]))
                    (done)))))))
 
