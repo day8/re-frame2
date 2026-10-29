@@ -165,7 +165,7 @@ Each subsystem **owns the arrangement that fits it** — the projection root and
 | Subsystem | Projection root | Runtime-db root | An instance names its registration by | Hook |
 |---|---|---|---|---|
 | `reg-machine` | one actor snapshot's `:data` | `:rf.runtime/machines` | its `[:rf/runtime :machine-type]`, or its own id for a singleton | `:machines/runtime-classification` |
-| `reg-resource` | entry's `:data` — its params and scope are identity, covered by the standing scope rule and the coarse claim ([016 §Xray and AI tooling](016-Resources.md#xray-and-ai-tooling)) | `:rf.runtime/resources` | its `:resource/key` | `:resources/runtime-classification` |
+| `reg-resource` | entry's `:data`, and a coarse `:sensitive?` / `:large?` claim the whole entry — `:data`, `:error`, `:refresh-error`, `:page-error`, `:next-page-param` and `:page-params` ([016 §Resource registration spec](016-Resources.md#resource-registration-spec)); its params and scope are identity, covered by the standing scope rule and the coarse claim ([016 §Xray and AI tooling](016-Resources.md#xray-and-ai-tooling)) | `:rf.runtime/resources` | its `:resource/key` | `:resources/runtime-classification` |
 | `reg-mutation` | one instance's `:params` / `:scope`, and its `:result` | `:rf.runtime/mutations` | its `:mutation/id` | `:resources/mutation-runtime-classification` |
 | `reg-route` | the current route's `:query` / `:params` | `:rf.runtime/routing` | the current slice's `:route-id` | `:routing/runtime-classification` |
 
