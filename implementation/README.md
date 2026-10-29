@@ -15,10 +15,8 @@ for the canonical matrix. Open implementation beads live in `../.beads/`.
 ## Layout
 
 The implementation is split into per-Maven-artefact subdirectories per
-[Conventions §Adapter shipping convention](../spec/Conventions.md#adapter-shipping-convention)
-(rf2-0hxm). This is extended to per-feature artefacts under rf2-p7va (schemas),
-rf2-xbtj (machines), rf2-k682 (routing), rf2-tfw3 (flows), rf2-5kpd
-(http) and rf2-uo7v (ssr). Each subdirectory carries
+[Conventions §Adapter shipping convention](../spec/Conventions.md#adapter-shipping-convention),
+for the adapters and the per-feature artefacts alike. Each subdirectory carries
 its own `deps.edn`. The top-level `deps.edn` and `shadow-cljs.edn` are
 build coordinators that pull every artefact onto a single classpath
 for the cross-substrate builds (browser tests, elision probe, examples).
@@ -26,9 +24,8 @@ for the cross-substrate builds (browser tests, elision probe, examples).
 There are 2 top-level groupings:
 
 - `adapters/` — adapter artefacts that bridge the reactive substrates
-  (rf2-zha9 directory introduction;
-  rf2-0imy canonical naming, "adapters" not "substrates"). One directory
-  per adapter (`reagent`, `uix`).
+  (named "adapters", not "substrates": the substrate is the runtime an
+  adapter bridges to). One directory per adapter (`reagent`, `uix`).
 - per-feature artefacts — one flat directory per feature
   (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `ssr-ring`,
   `resources` — 8 in all), each plugged into core via the
@@ -36,11 +33,8 @@ There are 2 top-level groupings:
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 The `fresco/` artefact sits beside `core/` and `adapters/` as re-frame2's own
-native view substrate. Reagent and UIx live on as first-class,
-actively-supported adapters. The 2 earlier view substrates — the `ui/` donor
-([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)) and
-`freehand/` ([EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md))
-— were retired and removed under rf2-0yp7w.
+native view substrate. Reagent and UIx are first-class, actively-supported
+adapters.
 
 ```
 implementation/
@@ -74,7 +68,7 @@ implementation/
       views.cljs             reg-view*, React frame-context bridge (CLJS-only).
       adapter/
         context.cljs         The shared React frame Context object every React-shaped
-                             adapter consumes (rf2-3yij Decision 2).
+                             adapter consumes.
       substrate/
         adapter.cljc         The adapter contract: delegation, install/teardown, capability publication.
         plain_atom.cljc      Plain-atom adapter (JVM, SSR, headless).
@@ -82,8 +76,7 @@ implementation/
     test/re_frame/           JVM tests + the substrate-agnostic CLJS tests
                              (conformance, hash-check, elision-probe).
 
-  adapters/                  Substrate adapters live here per rf2-zha9 (renamed from
-                             substrates/ per rf2-0imy) — one directory per adapter
+  adapters/                  Substrate adapters, one directory per adapter
                              (reagent, uix). Per-feature artefacts
                              (schemas, machines, ...) stay flat under implementation/.
     reagent/                 day8/re-frame2-reagent — the Reagent adapter artefact.
@@ -94,47 +87,47 @@ implementation/
                              hydration, Form-2/3 components, reg-view, SSR) and the
                              integration-shaped tests that drive Reagent's own primitives
                              (cross-spec DOM, diamond recompute, runtime).
-    uix/                     day8/re-frame2-uix — the UIx adapter artefact (rf2-3yij).
+    uix/                     day8/re-frame2-uix — the UIx adapter artefact.
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
                              The UIx adapter (use-sub, use-frame, etc.).
 
-  schemas/                   day8/re-frame2-schemas — schemas (Spec 010, rf2-p7va).
+  schemas/                   day8/re-frame2-schemas — schemas (Spec 010).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
     src/re_frame/schemas.cljc      Malli runtime validation.
     test/re_frame/                 JVM + CLJS schema tests.
 
-  machines/                  day8/re-frame2-machines — state machines (Spec 005, rf2-xbtj).
+  machines/                  day8/re-frame2-machines — state machines (Spec 005).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/machines.cljc     Hierarchical FSM, :always, :after, :spawn / spawn / destroy.
-    test/re_frame/                 CLJS machine tests.
+    test/re_frame/                 JVM + CLJS machine tests.
 
-  routing/                   day8/re-frame2-routing — routing (Spec 012, rf2-k682).
+  routing/                   day8/re-frame2-routing — routing (Spec 012).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/routing.cljc      reg-route, 6-rule rank cascade, query coercion,
                                    nav protocol, :rf.route/* events, :rf.nav/* fxs,
                                    :rf/route reg-sub family.
     test/re_frame/                 JVM routing tests.
 
-  flows/                     day8/re-frame2-flows — flows (Spec 013, rf2-tfw3).
+  flows/                     day8/re-frame2-flows — flows (Spec 013).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/flows.cljc        reg-flow, topo-sort, dirty-check + hot-reload.
     test/re_frame/                 JVM flows tests.
 
-  http/                      day8/re-frame2-http — managed HTTP (Spec 014, rf2-5kpd).
+  http/                      day8/re-frame2-http — managed HTTP (Spec 014).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/http/managed.cljc :rf.http/managed args-map, decode pipeline, retry,
                                    abort, frame-aware reply addressing.
     test/re_frame/                 JVM + CLJS http-managed tests.
 
-  ssr/                       day8/re-frame2-ssr — SSR (Spec 011, rf2-uo7v).
+  ssr/                       day8/re-frame2-ssr — SSR (Spec 011).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/ssr.cljc          Hiccup → HTML5 emitter, :rf/hydrate, :rf.server/* fx,
                                    error projector.
     test/re_frame/                 JVM SSR end-to-end tests + source-coord parity tests.
 
   resources/                 day8/re-frame2-resources — managed resource queries
-                             (Spec 016, EP-0003, rf2-p10npe).
+                             (Spec 016, EP-0003).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/resources.cljc    reg-resource / clear-resource / resource-meta /
                                    resource-state / resources, :rf.resource/* events
@@ -145,14 +138,12 @@ implementation/
   fresco/                   day8/re-frame2-fresco — the Fresco view substrate: a
                              boundary is a real React function component minted by
                              `defview`, and the runtime owns only what React does not.
-                             Extracted by rf2-hic-001 as a mechanical copy of the
-                             measured prototype. That prototype — the benchmark
-                             harness — now lives at the repo root as bench/fresco/,
-                             its own hand-run shadow project off this classpath
-                             (rf2-6c12m.1).
+                             Its benchmark harness is bench/fresco/ at the repo
+                             root, its own hand-run shadow project off this
+                             classpath.
     deps.edn                 :local/root deps on ../core and ../ssr (the server module);
                              own :test alias, and the :clein + :clein/build deploy
-                             aliases — published as day8/re-frame2-fresco since rf2-gra70.
+                             aliases — published as day8/re-frame2-fresco.
     scripts/check_optional_module_reachability.py
                              No optional module is reachable from the public door, and
                              nothing in the package requires UIx or the bench tree.
@@ -161,18 +152,17 @@ implementation/
                              instruments compile warnings-fatal (test:fresco-compile).
     src/re_frame/fresco.cljc      Public door — the three macros (defview, event, defhost)
                                    and the author-facing vars, each an alias.
-    src/re_frame/fresco/impl/     The copied runtime: codec, controlled, intent, slot,
+    src/re_frame/fresco/impl/     The runtime: codec, controlled, intent, slot,
                                    state, presence, route-link, runtime, boundary, mount.
     test/re_frame/                 Package smoke: a defview reads a sub through the door
                                    (shadow-cljs build :node-test-fresco).
 
-  ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
-                             (rf2-ny6v7).
+  ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline.
     deps.edn                 :local/root deps on ../core and ../ssr (Ring is test-only).
     src/re_frame/ssr/ring.clj      Ring handler wrapper + :rf.server/* cookie/header glue.
     test/re_frame/                 JVM Ring-adapter tests.
 
-  ssr-node/                  The bounded Node/React SSR service (rf2-hic-056). NOT a Clojure
+  ssr-node/                  The bounded Node/React SSR service. NOT a Clojure
                              artefact and NOT on any classpath or shadow build: plain Node,
                              node: builtins only, no deps.edn and no npm dependency. The JVM
                              owns the request, Node owns the React render, and this bounds
@@ -188,7 +178,7 @@ implementation/
     test/                    node:test suites, run by test/run.cjs. No build, no browser.
 
   test-quiet/                day8/re-frame2-test-quiet — quiet-on-success cljs.test /
-                             clojure.test reporter shared across the test runners (rf2-try1x).
+                             clojure.test reporter shared across the test runners.
     deps.edn                 No runtime deps; a test-tooling library.
     src/re_frame/test_quiet*       Silent-on-success reporter + runner entry points.
 
@@ -259,7 +249,7 @@ implementation/
 | 001 Registration | Done | (covered transitively) |
 | 002 Frames | Done | dispatch/envelope, drain/depth-limit, frame/{lifecycle,multi-instance}, fx/{db-first,ordering-source-order,override-by-id} |
 | 003 — | Reserved (no `003-*.md`; held open per [`spec/README.md`](../spec/README.md) for future cross-frame composition work) | — |
-| 004 — | Vacant (no `004-Views.md`; deleted 2026-08-18 with the substrates it described, and nothing has replaced it — see [`spec/README.md`](../spec/README.md). `004B` and `004C` are separate surviving Specs, not a replacement, and this table does not grade them) | — |
+| 004 — | Vacant (no `004-*.md` — see [`spec/README.md`](../spec/README.md); `004B` and `004C` are separate Specs, and this table does not grade them) | — |
 | 005 State Machines | Done | machine/transition, hierarchical-{compound,cross-level,parent-fallthrough}, always-{single-microstep,depth-exceeded}, after-{single-delay,stale-detection,hierarchy}, spawn-on-entry-destroy-on-exit |
 | 006 Reactive Substrate | Done (Reagent + plain-atom; UIx smoke-tested) | sub/chain |
 | 007 Stories | Out of scope for the CLJS reference (no canonical implementation; the spec defines the Story / Variant / Workspace contract for tooling consumers) | — |
@@ -286,41 +276,20 @@ For the repo-level tiers, prefer:
 ../scripts/test-rigorous-local.sh
 ```
 
-Per-artefact JVM (no setup beyond Clojure CLI):
+Per-artefact JVM (no setup beyond the Clojure CLI): run `clojure -M:test`
+from the artefact's own directory.
 
 ```sh
-# core artefact
 cd implementation/core
 clojure -M:test
-
-# reagent artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
-cd implementation/adapters/reagent
-clojure -M:test
-
-# schemas artefact
-cd implementation/schemas
-clojure -M:test
-
-# machines artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
-cd implementation/machines
-clojure -M:test
-
-# routing artefact
-cd implementation/routing
-clojure -M:test
-
-# flows artefact
-cd implementation/flows
-clojure -M:test
-
-# http artefact
-cd implementation/http
-clojure -M:test
-
-# ssr artefact
-cd implementation/ssr
-clojure -M:test
 ```
+
+Every JVM lane, with the aliases CI runs, is a row of
+[`../scripts/jvm-lanes.txt`](../scripts/jvm-lanes.txt), and
+[`../scripts/test-jvm-implementation.sh`](../scripts/test-jvm-implementation.sh)
+runs every `implementation/` row. `clojure -M:test` here, in
+`implementation/` itself, starts a REPL on the combined classpath and runs
+no tests.
 
 The core run executes the full JVM suite — smoke, conformance, drain,
 SSR end-to-end and so on. Conformance grades two corpora, each by its
@@ -338,7 +307,7 @@ npm run test:cljs       # node-test build, every artefact's CLJS test tree
 npm run test:browser    # browser-test build, headless Chromium via Playwright
 npm run test:elision    # production-elision contract (Spec 009 §Production builds)
 npm run test:bundle-isolation
-npm run test:adapter-smokes   # example-app browser tests
+npm run test:adapter-smokes   # one browser smoke per adapter (adapters/*/testbed)
 ```
 
 `npm run test:cljs` builds the `:node-test` target via shadow-cljs and
@@ -386,10 +355,9 @@ preserving first-seen order.
 > `shadow-cljs watch` build kicks off a Closure externs-prebuild, and
 > several builds compiled simultaneously race on the shared `externs.zip`
 > — intermittent build failures ("Exception parsing externs.zip",
-> "`this.contents` is null"). The old `xray` / `stories` / `all` group
-> aliases fired up to 6 builds into a single watch and tripped the race
-> reliably on some machines (notably Windows), so they were removed
-> (rf2-trlj7). Watch the build(s) you need; keep any explicit list short.
+> "`this.contents` is null"), reliably on some machines (notably
+> Windows) once a watch names half a dozen builds. Watch the build(s) you
+> need; keep any explicit list short.
 
 | Build id | URL |
 |---|---|
@@ -422,20 +390,18 @@ disambiguate names that look interchangeable at a glance.
   (`(-> (rf/registrations {:kind :event}) keys set) → #{...}`). `registrations`
   returns the full id→metadata map; use it directly when the caller
   needs the per-handler value (`:doc`, source coords, route template,
-  fx fn, flow def). (The dedicated `rf/handler-ids` projection was
-  removed — rf2-i4hk4b.)
+  fx fn, flow def). There is no `rf/handler-ids` projection.
 - adapter vs substrate vs artefact — substrate is the
   reactive runtime (Reagent, UIx). Adapter is the
   `re-frame.adapter.*` ns that bridges core to that substrate
-  (canonical naming per rf2-0imy; not "substrate adapter" or
-  "renderer"). Artefact is a Maven coordinate the adapter ships
+  (not "substrate adapter" or "renderer"). Artefact is a Maven coordinate the adapter ships
   as (for example `day8/re-frame2-reagent`, `day8/re-frame2-uix`).
 - `story/ids` vs `rf/registrations` — both enumerate registered
   ids for a kind. `story/ids` is Story's re-export of
   `registrar/ids` colocated with the Story facade so test-driver
   code does not pull `re-frame.core`; `(-> (rf/registrations {:kind kind})
-  keys set)` is the public route for application code (the dedicated
-  `rf/handler-ids` projection was removed — rf2-i4hk4b). They return
+  keys set)` is the public route for application code (there is no
+  `rf/handler-ids` projection). They return
   the same id set for the same kind.
 - projected epoch record vs raw `:db-after` — `epoch/projected-
   record` returns the elision-safe view of an epoch (the structured
