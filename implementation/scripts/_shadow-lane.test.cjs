@@ -4,7 +4,7 @@
 
 /*
  * The build lane and the process tree of `lib/shadow.cjs`, exercised at the process
- * boundary: real child processes take, wait for, reclaim and release a lock file, and
+ * boundary: real child processes take, queue for, reclaim and release a lock file, and
  * a stand-in shadow-cljs runner (a scratch project's `node_modules/shadow-cljs/cli/
  * runner.js`) plays the compiler, so nothing here enters the real shadow-cljs. Every
  * process gets `RF2_SHADOW_LANE_LOCK` pointing into this suite's scratch lane, so the
@@ -99,7 +99,11 @@ function driver() {
         }
       });
     } else if (mode === 'take') {
-      const release = await acquireLane({ command: rest[0], pollMs: 50 });
+      // `take <command> [pollMs] [order file]`: the lane serialises the appends, so the
+      // order file records the order the runs took the lane in.
+      const [command, pollMs = '50', order] = rest;
+      const release = await acquireLane({ command, pollMs: Number(pollMs) });
+      if (order) fs.appendFileSync(order, `${command}\n`);
       say(`HELD ${process.pid}`);
       release();
       say('RELEASED');
@@ -217,9 +221,14 @@ function readLock(lock) {
   return JSON.parse(fs.readFileSync(lock, 'utf8'));
 }
 
+// What a lane leaves behind: anything beside its lock file but the queue directory, and
+// any ticket still in that directory.
 function leftovers(lock) {
   const base = path.basename(lock);
-  return fs.readdirSync(path.dirname(lock)).filter((f) => f.startsWith(`${base}.`));
+  const queue = `${lock}.queue`;
+  const beside = fs.readdirSync(path.dirname(lock))
+    .filter((f) => f.startsWith(`${base}.`) && f !== `${base}.queue`);
+  return [...beside, ...(fs.existsSync(queue) ? fs.readdirSync(queue) : [])];
 }
 
 test('the lane policy follows the command, and a watch names its builds', () => {
@@ -319,7 +328,7 @@ test('a lock whose recorded pids now name processes that began later is reclaime
   for (const s of strangers) s.kill('SIGKILL');
 });
 
-test('a waiter that is killed leaves the holder\'s lock as it was', { timeout: TIMEOUT_MS }, async () => {
+test('a waiter that is killed leaves the holder\'s lock as it was, and the next run clears its ticket', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'holder'], { RF2_SHADOW_LANE_LOCK: lock });
   await eventually(() => a.out.includes('HELD'), 'the holder to take the lane');
@@ -332,7 +341,59 @@ test('a waiter that is killed leaves the holder\'s lock as it was', { timeout: T
   a.child.stdin.write('release\n');
   await a.exited;
   assert.equal(fs.existsSync(lock), false);
+  assert.equal(leftovers(lock).length, 1, 'the kill gave the waiter no chance to remove its ticket');
+  const c = start(['take', 'next'], { RF2_SHADOW_LANE_LOCK: lock });
+  await c.exited;
+  assert.equal(c.code, 0, c.err);
   assert.deepEqual(leftovers(lock), []);
+});
+
+// Each waiter polls faster than the one before it, so a freed lane handed to whichever
+// run polls first would go to the last arrival.
+test('a freed lane passes to its waiters in the order they arrived, not to the first to poll', { timeout: TIMEOUT_MS }, async () => {
+  const lock = freshLock();
+  const order = path.join(lane, 'arrival-order.txt');
+  const h = start(['hold', 'holder'], { RF2_SHADOW_LANE_LOCK: lock });
+  await eventually(() => h.out.includes('HELD'), 'the holder to take the lane');
+  const waiters = [];
+  for (const [name, pollMs] of [['A', 1500], ['B', 400], ['C', 25]]) {
+    const w = start(['take', name, String(pollMs), order], { RF2_SHADOW_LANE_LOCK: lock });
+    const position = waiters.length + 1;
+    await eventually(() => w.err.includes(`queue position ${position};`), `${name}'s waiting line to name its place`);
+    waiters.push(w);
+  }
+  h.child.stdin.write('release\n');
+  await Promise.all([h.exited, ...waiters.map((w) => w.exited)]);
+  for (const w of waiters) assert.equal(w.code, 0, w.err);
+  assert.equal(fs.readFileSync(order, 'utf8'), 'A\nB\nC\n');
+  assert.equal(fs.existsSync(lock), false);
+  assert.deepEqual(leftovers(lock), []);
+});
+
+test('a ticket whose pid now names a later process, or that went unrefreshed, does not hold up a free lane', { timeout: TIMEOUT_MS }, async () => {
+  const lock = freshLock();
+  const queue = `${lock}.queue`;
+  fs.mkdirSync(queue, { recursive: true });
+  const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  live.add(stranger);
+  const anHourAgo = new Date(Date.now() - 3600000);
+  const ticket = (token, pid) => {
+    const file = path.join(queue, `${token}.ticket`);
+    fs.writeFileSync(file, `${JSON.stringify({
+      pid, child: null, worktree: REPO_ROOT, command: 'gone', started: anHourAgo.toISOString(), token,
+    })}\n`);
+    return file;
+  };
+  // A dead waiter's pid handed to a process that began after the ticket named it.
+  ticket('0000000000000001', stranger.pid);
+  // A live process that stopped refreshing its ticket.
+  fs.utimesSync(ticket('0000000000000002', process.pid), anHourAgo, anHourAgo);
+  const b = start(['take', 'successor'], { RF2_SHADOW_LANE_LOCK: lock });
+  await eventually(() => b.code !== undefined, 'the run to take a lane only dead tickets wait for', 20000);
+  assert.equal(b.code, 0, b.err);
+  assert.deepEqual(leftovers(lock), []);
+  assert.ok(isAlive(stranger.pid), 'retiring the ticket touched the unrelated process');
+  stranger.kill('SIGKILL');
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
