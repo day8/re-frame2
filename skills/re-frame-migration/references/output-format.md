@@ -1,6 +1,6 @@
 # output-format
 
-The migration summary format. The shape from [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Output format for your report" is the source of truth; this leaf restates it with one filled-in example so the summary stays consistent across migrations.
+The migration summary format. The shape from [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Output format for your report" is the source of truth; this leaf adds the lines this skill's pins, decisions and done-bar gates need, with two filled-in examples, so the summary stays consistent across migrations.
 
 ## The format
 
@@ -9,11 +9,13 @@ The migration summary format. The shape from [`MIGRATION.md`](https://github.com
 
 - re-frame version: <old> → <new>
 - Pinned MIGRATION.md corpus: `day8/re-frame2@<sha-or-tag>` (path: `<path-to-re-frame2>`)
+- re-frame2 route and pin: <the final coordinates for a `:git/sha` or `:mvn/version` route; for a relative `:local/root` route, the source pin, how the runner fetches it and the directory layout — setup.md §The consumability done-gate>
 - Files modified: <count>
 - Required rules applied: <list of M-N rule IDs, or "none">
+- Type B rules applied (with explicit author approval): <each rule, its sites and the author's decision, or "none">
 - Dependencies changed (non-re-frame): <each non-re-frame dep bumped/added/removed, with the gate that justified it — Phase-0b floor gate (React/Reagent/component-lib), Check-4 toolchain (shadow-cljs/CLJS), or the Xray peer-deps; "none" if the coord swap was the whole diff>
 - Opt-in changes applied: <list of O-N rule IDs, or "none, not requested">
-- Verification: <the exact compile / test commands the skill ran and their results; the boot smoke-test's status — driven clean through a connected runtime, or PENDING with the checklist handed to the programmer>
+- Verification: <one result per done-bar gate — compile, test suite (its totals line), boot smoke-test, optimized / release compile, CI on a clean checkout, and each supported host's acceptance item — each with the exact command and its outcome; a gate that has not run is PENDING, naming the input it lacks; for a 10x app, the Xray swap line from xray-replaces-10x.md §Reporting>
 
 ## Items flagged for human review
 
@@ -43,28 +45,23 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
 
 - re-frame version: `re-frame/re-frame 1.4.5` → `day8/re-frame2 <VERSION>` + `day8/re-frame2-reagent <VERSION>`
 - Pinned MIGRATION.md corpus: `day8/re-frame2@a1b2c3d` (path: `~/src/re-frame2`)
-- Files modified: 14
+- re-frame2 route and pin: one pushed `:git/sha` on `day8/re-frame2` and `day8/re-frame2-reagent`, each with its own `:deps/root`.
+- Files modified: 16
 - Dependencies changed (non-re-frame): `react`/`react-dom` 18 → ^19 and `shadow-cljs` 2.20 → 3.4.10 (Phase-0b floor gate + Check-4 toolchain skew); Reagent rode in via the `-reagent` adapter (not pinned directly). No other deps touched.
-- Required rules applied:
-  - M-0 (1 site): deps.edn coord swap.
-  - M-1 (3 sites): private `re-frame.db` requires removed; `@re-frame.db/app-db` → `(rf/app-db-value :rf/default)` in 3 sites.
-  - M-8 (3 sites): top-level `:dispatch` → `:fx [[:dispatch ...]]`.
-  - M-9 (2 sites): `dispatch-sync` inside handlers → `:fx [[:dispatch ...]]`.
-  - M-16a (1 site, inside an effect map — Type A): `^:flush-dom` metadata → `:fx [[:dispatch-later {:ms 0 :event …}]]`. (No M-16b top-level `(rf/dispatch ^:flush-dom …)` sites in this codebase; had there been any, they'd appear under "Items flagged for human review.")
-  - M-17 (1 site, Type A — single-frame app): `reg-global-interceptor` → default-frame `:interceptors`.
-  - M-20 (4 sites): `:re-frame/default` → `:rf/default`.
-  - M-25 (1 site): `day8.re-frame.test` → `re-frame.test-support`; `day8.re-frame/test` 0.1.5 coord dropped (no runner at that version).
+- Required rules applied: M-0 (deps.edn coord swap), M-1 (3 sites, `@re-frame.db/app-db` → `(rf/app-db-value :rf/default)`), M-8 (3), M-9 (2), M-16a (1), M-17 (1, single-frame → default-frame `:interceptors`), M-20 (4), M-25 (1; the 0.1.5 coord, which ships no runner, dropped), M-40 (`init!` and the `:rf/default` app frame added; one adapter, so Type A), M-42 (root mount → `client-root`), M-73 (30 sites, by the codemod, none flagged).
 - Type B rules applied (with explicit author approval):
-  - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`. Surfaced the call site; author confirmed Reagent as the boot adapter.
+  - M-11 (9 sites): bare `rf/dispatch` in `:on-click` handlers → ops captured at render with `(rf/capture-frame)`.
 - Opt-in changes applied: none, not requested.
 - Verification:
-  - Compile: clean.
-  - Tests: 47 pass, 0 fail (pre-migration baseline: 47/0).
-  - Smoke-test: boot OK, dispatch + sub + hot-reload all green.
+  - Compile: `npx shadow-cljs compile app` — 0 errors, 0 warnings.
+  - Tests: `npx shadow-cljs compile test && node out/test.js` — 47 tests, 0 failures, 0 errors (pre-migration baseline: 47/0/0).
+  - Boot smoke-test: driven through the `re-frame2-pair` MCP — clean on every page.
+  - Release compile: `npx shadow-cljs release app` — clean.
+  - CI on a clean checkout: green.
 
 ## Items flagged for human review
 
-None — the one Type B rule this codebase tripped (M-40, the adapter choice) was settled with the author during the migration; everything else was Type A.
+None — the one judgment call this codebase tripped (M-11) was settled with the author during the migration; everything else was Type A.
 
 ## Anything unexpected
 
@@ -73,7 +70,7 @@ None — the one Type B rule this codebase tripped (M-40, the adapter choice) wa
 
 ## Worked example B — Type B rules and a flagged test
 
-Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame structure with a `reg-global-interceptor`, and a render-count assertion in a test.
+Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame structure with a `reg-global-interceptor`, a render-count assertion in a test, and re-frame-10x.
 
 ```markdown
 ## Migration summary
@@ -82,16 +79,18 @@ Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame stru
 - Pinned MIGRATION.md corpus: `day8/re-frame2@a1b2c3d` (path: `~/src/re-frame2`)
 - Files modified: 18 (+ 2 awaiting author decision)
 - Dependencies changed (non-re-frame): already on React 19 + a current toolchain (floor gate was a fast pass); `@xyflow/react` + `elkjs` added for the Xray Machine-inspector chart (10x→Xray swap). No other deps touched.
-- Required rules applied: M-0, M-1 (5 sites), M-8 (7 sites), M-9 (3 sites), M-20 (9 sites), M-25 (1 site).
+- Required rules applied: M-0, M-1 (5 sites), M-8 (7 sites), M-9 (3 sites), M-20 (9 sites), M-25 (1 site), M-40 (1 site — `init!` and the app frame added), M-42 (1 site — root mount), M-73 (41 sites, codemod).
 - Type B rules applied (with explicit author approval):
   - M-3 (2 sites): `:dispatch` effects with intermediate-render dependency were both real animation pacing — converted to `:dispatch-later`.
-  - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`. Surfaced the call site; author confirmed Reagent as the boot adapter.
   - M-17 (1 site, multi-frame): `reg-global-interceptor` was an audit logger — converted to an `:observability :handled-events` sink (`register-observability-sink!`).
 - Opt-in changes applied: none, not requested.
 - Verification:
-  - Compile: clean.
-  - Tests: 89 pass, 1 fail. Render-count assertion in `views_test.cljs:42` failed (M-12); see flagged items.
-  - Smoke-test: boot OK, dispatch + sub + hot-reload all green.
+  - Compile: `npx shadow-cljs compile app` — 0 errors, 2 warnings (the held `reg-sub-raw` sites).
+  - Tests: `node out/test.js` — 89 tests, 1 failure (M-12, flagged), 0 errors.
+  - Boot smoke-test: PENDING on the M-18 decisions — both subs namespaces throw at load.
+  - Release compile: `npx shadow-cljs release app` — builds, same 2 warnings.
+  - CI on a clean checkout: PENDING on the M-18 decisions and the M-12 re-baseline.
+  - Devtools: 10x dropped at M-0; Xray mounted after M-40 — the app is on Xray.
 
 ## Items flagged for human review
 
