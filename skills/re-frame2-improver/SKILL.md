@@ -22,15 +22,14 @@ allowed-tools:
 
 # re-frame2-improver
 
-Static code review for existing re-frame2 code. One request, one complete critique: read the in-scope source, detect anti-patterns from a small catalogue, and return every material finding in the same turn — severity-ordered, each with concrete file/line evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom in the `re-frame2` skill (`patterns/` or `references/`) or `spec/`. The on-demand complement to `re-frame2`, which authors new code from the same idioms. **Explicit-pull-only**: user asks for a review → activate → deliver the complete review → exit.
+Static code review for existing re-frame2 code. One request, one complete critique: read the in-scope source, detect anti-patterns from a small catalogue, and return every material finding in the same turn. The on-demand complement to `re-frame2`, which authors new code from the same idioms. **Explicit-pull-only**: user asks for a review → activate → deliver the complete review → exit.
 
 ## Core job
 
 One complete, proportionate critique per request:
 
 - Every material finding the catalogue detects, highest consequence first — nothing held back for a follow-up round.
-- Each finding stands alone: `path:line` evidence, the concrete consequence, the smallest safe correction, and the canonical-idiom link.
-- A broader redesign appears as one distinct, optional sentence — only when its payoff justifies the migration.
+- Each finding stands alone, in the [§Output format](#output-format) shape — the smallest safe correction first, a broader redesign only as one optional sentence when its payoff justifies the migration.
 - If the catalogue finds nothing, one concise clean verdict naming the reviewed scope and saying it was checked against this catalogue — a clean verdict is not a general bug-free claim.
 
 ## Trigger semantics (locked)

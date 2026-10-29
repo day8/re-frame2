@@ -45,6 +45,8 @@ Route by direction:
 - **Writes → data-only fx.** [`fx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/fx.md) — wrap the side-effect in `reg-fx` once, then issue `[[:my-fx args]]` from the handler's `:fx`. The fx-handler body is the one place imperative interop is legitimate. (HTTP + transport retry/timers → Managed HTTP, [`manual-retry-loops.md`](manual-retry-loops.md).)
 - **Reads → input data, by destination.** A **durable write** needs a **recorded fact**; a **diagnostic / host-transient** slot may stay an **ambient** `reg-cofx`. [`cofx.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/cofx.md) owns the cofx mechanics (grades, `:rf/time-ms`, recordable generators); the routing rule is the fork below.
 
+Spec source: [`spec/002-Frames.md`](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md) (effects — `reg-fx` and the closed effect map). `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
+
 ### Reads — the durable/diagnostic fork (EP-0010)
 
 **Durable state folds facts, never reads.** A read inside a handler routes by **where its value lands**, not merely by being impure:
@@ -63,8 +65,6 @@ Route by direction:
 - **Do not flag `(rf/subscribe-once [:some/sub])` in a handler body.** Converting it to a cofx purely because it appears in a handler is a policy-inverted rewrite. A cofx wrap is a *preference* — recommend it only when the read should be reusable across handlers, parameterised by name, stubbable, schema-validated, or visible as a named coeffect.
 - **Do flag a *reactive* `@(rf/subscribe …)` or a retained reaction** in a handler body — that leaks (the read-signals list above).
 - **Do flag `subscribe-once` inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition ([`spec/006-ReactiveSubstrate.md`](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) §`subscribe-once`; [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §Causal host facts). The fix is **payload threading** (the triggering event carries the fact) or a **declared recordable coeffect** on the machine's `:rf.cofx` record. For a sub read the recordable source is purpose-built: the machines-only `{:rf/sub query-v :as fact-id}` form in a `:rf.cofx/requires`, which records the sub's value once at processing-start so replay re-presents it ([`reg-machine.md` §Guard / action contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/state-machines/reg-machine.md#guard--action-contract)). Only a **named** `:guards` / `:actions` entry can declare requirements (an inline callback that tries fails registration with `:rf.error/machine-cofx-requires-inline`), so that fix also names the callback — `:guard :cart/total-ok?`, `:entry :mark-vip`.
-
-Spec source: [`spec/002-Frames.md`](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md) (effects — `reg-fx` and the closed effect map). `reg-fx` and `reg-cofx` are public `re-frame.core` exports; there is no `inject-cofx` — coeffect delivery is the `:rf.cofx/requires` declaration.
 
 ## Worked example
 
