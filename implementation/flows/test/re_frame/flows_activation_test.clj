@@ -7,6 +7,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
+            [re-frame.flows]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
