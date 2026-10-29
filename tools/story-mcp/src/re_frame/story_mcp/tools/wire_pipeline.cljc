@@ -99,7 +99,9 @@
    "get-variant"       "Variant body is large — request `variant->edn` if you want EDN-only, or raise `max-tokens` (0 disables)."
    "variant->edn"      "Variant EDN body is large — narrow the variant or raise `max-tokens` (0 disables)."
    "list-stories"      "Story registry is large — narrow with `:tags`, or raise `max-tokens` (0 disables)."
-   "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."})
+   "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."
+   "register-variant"  "The variant IS registered; only the reply was over budget. Do not register it again: read it back with `get-variant`."
+   "unregister-variant" "The variant IS unregistered; only the reply was over budget. Do not call this again."})
 
 (def ^:private ranked-slot-count
   "How many of the payload's largest slots the overflow hint names."
