@@ -669,7 +669,7 @@ it('TEETH rf2-nrieg0: a declared-but-unparseable var() contrast token FAILS LOUD
   );
 });
 
-it('TEETH: the old low-alpha amber focus ring rgba(200,116,26,0.18) is rejected', () => {
+it('TEETH: the low-alpha amber focus ring rgba(200,116,26,0.18) is rejected', () => {
   const style = GOOD_SHARED_STYLE + '\ninput:focus { outline: none; box-shadow: 0 0 0 3px rgba(200,116,26,0.18); }';
   const errors = sharedErrors({ [STYLE]: style });
   assert.ok(
