@@ -623,6 +623,17 @@
             [[:dispatch [parent-id inner]]]))]
     (vec (concat (or destroy-fx []) (or dispatch-fx [])))))
 
+(defn- parent-in-join?
+  "True while the join at `[parent-id invoke-id]` still has its parent in the
+  `:spawn-all` state: the parent's committed `:state` includes the invoke
+  node. A transition commits before its action fx and the leaving state's
+  `:exit` run, so a destroy issued from either sees the parent already gone
+  from the join."
+  [runtime-db parent-id invoke-id]
+  (let [parent (get-in runtime-db (rf.machines.paths/snapshot-path parent-id))]
+    (and (some? parent)
+         (rf.machines.transition/invoke-node-active? parent invoke-id))))
+
 (defn cancel-child
   "Pure. `runtime-db` with logical child `child-id`'s attempt closed in the
   join at `[parent-id invoke-id]`: the id joins the `:cancelled` tombstone
@@ -630,18 +641,21 @@
 
   `counts-as-failure?` is true for a keyword destroy — the app's own explicit
   destroy of the child — which counts as that child FAILING (Spec 005 §Join
-  semantics). When it also resolves the join, through `:on-any-failed` on a
-  join not yet resolved, `:resolved?` latches in this same write, so nothing
-  folds between the cancellation and the resolution `resolve-cancelled-child!`
-  then carries out. The runtime's own cancellations never count: the exit
-  cascade passes false, and the cancel-on-decision cascade's destroys meet a
-  join already resolved."
+  semantics) while the join is live, its parent still in the `:spawn-all`
+  state. When it also resolves the join, through `:on-any-failed` on a join
+  not yet resolved, `:resolved?` latches in this same write, so nothing folds
+  between the cancellation and the resolution `resolve-cancelled-child!` then
+  carries out. A destroy issued while the parent leaves the state ends the
+  join along with it and never resolves it. Nor do the runtime's own
+  cancellations: the exit cascade and the parent's own teardown pass false,
+  and the cancel-on-decision cascade's destroys meet a join already resolved."
   [runtime-db parent-id invoke-id child-id counts-as-failure?]
   (let [path        (rf.machines.paths/spawned-path parent-id invoke-id)
         join-state  (get-in runtime-db path)
         join-state' (update join-state :cancelled (fnil conj #{}) child-id)
         resolves?   (and counts-as-failure?
                          (not (:resolved? join-state))
+                         (parent-in-join? runtime-db parent-id invoke-id)
                          (:fail-fired?
                            (compute-resolution
                              (current-spawn-all-spec
@@ -662,8 +676,9 @@
   the returned fx destroy every survivor and dispatch `:on-any-failed`, its
   `<result>` the `cancellation-result`. Otherwise, with no `:on-any-failed` to
   answer it, the one-shot unsatisfiable-join advisory fires when this
-  cancellation FIRST strands the join. Returns the fx vector for the caller to
-  run, or nil."
+  cancellation FIRST strands a join whose parent is still in it; a parent
+  leaving the state ends the join instead. Returns the fx vector for the
+  caller to run, or nil."
   [runtime-db frame-id parent-id invoke-id child-id before after]
   (let [spec (current-spawn-all-spec
                parent-id
@@ -678,6 +693,7 @@
                              cancellation-result resolution))
 
       (and (not (:resolved? after))
+           (parent-in-join? runtime-db parent-id invoke-id)
            (join-unsatisfiable? spec after)
            (not (join-unsatisfiable? spec before)))
       (do (emit-join-unsatisfiable! frame-id parent-id invoke-id spec after)

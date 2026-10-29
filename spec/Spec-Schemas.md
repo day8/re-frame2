@@ -2351,7 +2351,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; Each child invoke-spec extends InvokeSpec with a required :id keyword
 ;; that names the child for join-state addressing, and DROPS :on-error — a
 ;; join child's failure control flow is the block's :on-any-failed, so the
-;; key is rejected at registration rather than silently ignored. :on-done IS
+;; key is rejected at registration rather than silently ignored. It drops the
+;; spawn-level :timeout / :on-timeout too: a deadline on the join is the
+;; state-level :timeout or :after (below). :on-done IS
 ;; honoured, as a fn only: it folds the parent's :data at that child's
 ;; finality, before the join fold. A non-fn child :on-done is rejected at
 ;; registration with :rf.error/machine-bad-on-done-clause.
