@@ -34,7 +34,7 @@ Steps:
 > *Standing rules for this migration:*
 >
 > *- The smallest correct diff. No stylistic refactoring. No renamings I didn't ask for.*
-> *- Apply rules in their listed order — later rules sometimes depend on earlier ones.*
+> *- Apply rules in the skill's sequencing order — later rules sometimes depend on earlier ones.*
 > *- JVM-side tests (anything in `.clj` test runners) are in scope. Don't silently CLJS-only the project.*
 > *- If you hit a v1 surface that doesn't match any rule, **stop and ask**. Don't invent migration rules.*
 > *- Don't bump UNRELATED deps as part of this migration. The migration-forced bumps are exempt and expected: the Phase-0b GO-state floor/toolchain edits (React → 19, Reagent → 2.x if I pin it directly, the component libraries the floor gate approved, shadow-cljs per Check 4, the CI test-runner browser pin per Check 5, and any explicit ClojureScript pin) plus the Xray npm peer-deps (`@xyflow/react`, `elkjs`) when the 10x→Xray swap fires. What stays banned is an opportunistic "while I'm in here" bump of a dep the migration doesn't force. List every non-re-frame dependency you changed, and which gate justified it, in the Phase-6 report.*

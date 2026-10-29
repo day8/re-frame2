@@ -72,6 +72,7 @@ Listener registration is **one stream-parameterized verb** — `(register-listen
 ```
 
 `:op-type` values on the trace stream: the bare severity/flow discriminators `:error`, `:warning`, `:info`, `:flow`, plus the `:rf.<family>` domino discriminators (`:rf.event`, `:rf.sub`, `:rf.fx`, `:rf.cofx`, `:rf.view`, `:rf.frame`, `:rf.machine`, …). Note the family discriminators carry the `:rf.` prefix — a listener filtering effects matches `:rf.fx`, not bare `:fx`. The mapping from `:operation` prefix to `:op-type` is in the catalogue's `:op-type` column.
+
 ## Production elision — what elides and what stays always-on
 
 The error-handling surface is **split** across the dev/prod gate. Getting this backwards leads to wiring production monitoring on a surface that silently goes dark.

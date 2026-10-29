@@ -1,6 +1,6 @@
 # sequencing
 
-The recommended order to walk the migration rules. Restated so a partial migration can resume cleanly without re-reading the full [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) ordering.
+The order to walk the migration rules, set by the dependencies between them rather than by [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md)'s rule numbering, and how a partial migration resumes from it.
 
 ## Top-level shape
 
