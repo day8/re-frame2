@@ -100,6 +100,13 @@
 ;; path. Naming the key once keeps the reads below honest.
 (def ^:private socket-invoke-id [:active])
 
+(def handshake-timeout-ms
+  "How long `:connecting` and `:authenticating` each wait before giving the
+   socket up. A server can accept a socket and then never finish opening it
+   or never answer the auth frame; without a deadline the connection would
+   sit in the handshake for good, with only Disconnect to get it out."
+  10000)
+
 (defn- socket-id
   "The live socket-actor id, read from the `:spawned` map every callback
    receives on its context. Returns nil whenever
@@ -644,16 +651,25 @@
 
        :states
        {:connecting
-        {:tags #{:websocket/active :websocket/connecting}
+        {:tags  #{:websocket/active :websocket/connecting}
+         ;; A handshake step that outlives its deadline is a lost socket:
+         ;; count the retry and back off, exactly as a drop does. Leaving
+         ;; :active destroys the actor, which closes the socket.
+         :after {handshake-timeout-ms {:target [:reconnecting]
+                                       :action :on-socket-lost}}
          ;; Guarded like every socket-sourced lifecycle event: an `:ws/opened`
          ;; from a socket we've already replaced (a slow open landing after a
          ;; disconnect+reconnect) must not advance THIS connection.
-         :on   {:ws/opened {:guard  :current-socket?
-                            :target :authenticating}}}
+         :on    {:ws/opened {:guard  :current-socket?
+                             :target :authenticating}}}
 
         :authenticating
         {:tags  #{:websocket/active :websocket/authenticating}
          :entry :send-auth
+         ;; The same deadline, for a server that opened the socket and never
+         ;; answers the auth frame.
+         :after {handshake-timeout-ms {:target [:reconnecting]
+                                       :action :on-socket-lost}}
          ;; Both auth outcomes are epoch-guarded: a straggler `:ws/auth-ok`
          ;; from a replaced socket must not prematurely mark us `:connected`,
          ;; and a straggler `:ws/auth-failed` must not tear a fresh
@@ -691,8 +707,7 @@
                   ;; is received; one that came from the live socket but
                   ;; failed the wire contract is refused without the
                   ;; machine moving. A frame from a socket we have already
-                  ;; replaced matches neither and is dropped, exactly as
-                  ;; before.
+                  ;; replaced matches neither and is dropped.
                   :ws/received [{:guard  :trusted-frame?
                                  :action :receive-message}
                                 {:guard  :current-socket?
@@ -717,6 +732,13 @@
        ;; leaving the state cancels the timer, a backoff armed on an
        ;; earlier visit can never fire late — nothing to remember, nothing
        ;; to clean up.
+       ;;
+       ;; A production client adds a jitter term, so a fleet of clients that
+       ;; dropped together doesn't reconnect in lockstep
+       ;; (spec/Pattern-WebSocket.md). Take the random part in as a
+       ;; recordable coeffect on the event that enters :reconnecting and keep
+       ;; it in `:data`: a `rand` here would be an ambient read inside a
+       ;; machine callback, and replay would pick a different delay.
        ;; See docs/machines/concepts.md#guards-actions-tags-and-after--the-recognition-kit.
        :after  {(fn delay-backoff-ms [{snap :snapshot}]
                   (let [{:keys [retries base-ms max-backoff-ms]} (:data snap)]
@@ -784,6 +806,10 @@
   ;; unpacking the hierarchical `:state` vector or re-reading the snapshot
   ;; itself.
   ;; See docs/machines/glossary.md#state-tag.
+  (rf/reg-sub :ws/active?
+    {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/active]]}
+    (fn [[has-tag?] _] has-tag?))
+
   (rf/reg-sub :ws/connecting?
     {:inputs [[:rf.machine/has-tag? :ws/connection :websocket/connecting]]}
     (fn [[has-tag?] _] has-tag?))

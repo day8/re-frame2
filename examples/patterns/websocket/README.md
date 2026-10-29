@@ -34,7 +34,9 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 - A spawned actor owning the host-side socket. The `:websocket/socket` actor
   is itself a small [machine](../../../docs/machines/glossary.md#machine). It
   turns outbound `:send` events into wire writes and forwards inbound server
-  messages back to the parent. Its actions stay pure, as every machine action
+  messages back to the parent. It reports `:ws/opened` only when the socket
+  itself says it opened, because a real `WebSocket` throws on a write while it
+  is still connecting. Its actions stay pure, as every machine action
   does: they RETURN the `:ws.socket/open`, `:ws.socket/send` and
   `:ws.socket/close` effects, and those effect handlers own the JS
   `WebSocket`-shaped reference, in a private store keyed by the actor's
@@ -54,6 +56,12 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   entry from the retry count, `(min (* base-ms (Math/pow 2 retries)) max-backoff-ms)`.
   The runtime's `:after`-epoch invariant drops stale timers from earlier
   `:reconnecting` visits for free, so there's no cancellation flag to remember.
+  A production client adds jitter to it; the comment on that `:after` says how.
+
+- An `:after` deadline on each handshake step. A server that accepts the
+  socket but never finishes opening it, or never answers the auth frame, sends
+  the connection to `:reconnecting` instead of holding it in the handshake.
+  Disconnect stays live through the handshake too.
 
 - Eventless `:always` cascades doing 2 distinct jobs: `:reconnecting`'s
   `:max-retries-exceeded?` guard falls straight through to `:failed` when the
@@ -193,7 +201,7 @@ The example ships with a tiny in-process `WebSocket`-shaped stub in `messages.cl
 - `messages/send-server-push!` — used by the "Trigger server push" button to deliver a manual server-pushed event
 - `messages/simulate-disconnect!` — used by the "Drop connection" button to force every live mock socket closed, triggering the reconnect cascade
 
-Production swap-out: replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onerror` / `onclose` to the same actor-level dispatches. The connection machine — and every test against it — does not change. That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.
+Production swap-out: replace `mock-socket-for-actor` with a real `(js/WebSocket. url)` and wire its `onopen` / `onmessage` / `onclose` to the same actor-level dispatches the mock makes — `:opened`, `:received` and `:closed` (an `onerror` is always followed by an `onclose`, so it needs no event of its own). `:ws.socket/close` detaches those handlers before it calls `.close()`. The connection machine — and every test against it — does not change. That's the payoff of the machine-owns-the-actor / actor-owns-the-host-reference split: the transport is a swappable detail the lifecycle never sees.
 
 ## How to run
 
