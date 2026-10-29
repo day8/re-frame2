@@ -33,7 +33,6 @@
 ;; Restore registrations and reload family hooks between tests.
 (defn- refresh-families! []
   (rf.flows/reset-flows!)
-  (rf.flows/reset-last-inputs!)
   (rf.registrar/clear-kind! :app-schema)
   #?(:clj (do (require 're-frame.routing :reload)
               (require 're-frame.resources :reload)

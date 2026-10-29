@@ -34,7 +34,6 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
-  (rf.flows/reset-last-inputs!)
   (rf/init! rf.substrate.plain-atom/adapter)
   ;; re-`require` every optional façade so its framework registrations are
   ;; present after the clear-all! above.

@@ -1,15 +1,14 @@
 (ns re-frame.flows-tool-write-test
-  "An epoch tool write installs frame-state outside any drain, so afterwards
-  the frame's flow memo no longer vouches for the inputs it cached: every flow
-  re-claims its output paths and recomputes on the next event. The memo still
-  accounts for the output paths the frame holds, so a flow cleared or moved
-  after the write has its former path vacated on that event (Spec 013
+  "An epoch tool write installs frame-state outside any drain, and the next
+  event's flow pass settles each flow against it: changed inputs recompute,
+  and equal inputs re-assert the remembered output, which is what `:derive`
+  returns for them (Spec 013 §Dirty-check semantics). The memo still accounts
+  for the output paths the frame holds, so a flow cleared or moved after the
+  write has its former path vacated on that event (Spec 013
   §Re-registration)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            ;; `replace-frame-state!` is epoch's tool write; it
-            ;; distrusts the frame's flow memo through `:flows/distrust-memo!`.
             [re-frame.epoch :as rf.epoch]
             [re-frame.flows]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -62,15 +61,20 @@
          (after-a-tool-write
            #(rf/reg-flow :out {:inputs [[:n]] :output-path [:new]} inc)))))
 
-(deftest an-unchanged-flow-recomputes-from-the-installed-state
-  (let [runs (atom 0)]
-    (run-flow! {:inputs [[:n]] :output-path [:old]}
-               (fn [n] (swap! runs inc) (inc n)))
-    (touch!)
-    (is (= 1 @runs) "control: an event that changes no input skips the flow")
-    (is (tool-write! {:rf.db/app (assoc (db) :old 99)}))
-    (is (= {:n 3 :old 4} (touch!)))
-    (is (= 2 @runs) "the event after the write recomputes rather than trusting the memo")))
+(deftest an-overwritten-output-is-restored-on-the-next-event
+  (run-flow! {:inputs [[:n]] :output-path [:old]} inc)
+  (is (tool-write! {:rf.db/app (assoc (db) :old 99)}))
+  (is (= {:n 3 :old 99} (db)) "precondition: the write installed the edited output")
+  (is (= {:n 3 :old 4} (touch!))))
+
+(deftest an-input-set-back-to-its-pre-write-value-restores-its-output
+  ;; The write installs an input and an output that agree; the event that sets
+  ;; the input back meets the memo's inputs and re-asserts the memo's output.
+  (run-flow! {:inputs [[:n]] :output-path [:old]} inc)
+  (is (tool-write! {:rf.db/app {:n 10 :old 11}}))
+  (rf/reg-event :set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+  (rf/dispatch-sync [:set-n 3] {:frame :t/f})
+  (is (= {:n 3 :old 4} (db))))
 
 (deftest a-tool-write-that-empties-runtime-db-leaves-the-output-classified
   ;; A flow output's classification is a declaration the frame's policy

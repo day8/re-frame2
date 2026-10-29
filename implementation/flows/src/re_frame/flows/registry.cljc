@@ -24,9 +24,7 @@
 ;; A ROW is `{:flow definition :inputs input-vec :output value}`: the definition
 ;; the flow was last evaluated with, the inputs that evaluation read and the
 ;; output it produced. The definition carries its `:output-path`, so a row also
-;; names the slot it wrote. A row holding only `:flow` is one a tool write left
-;; untrusted (`distrust-memo!`): its flow recomputes on the next
-;; event, and the reconciler can still vacate the slot it names.
+;; names the slot it wrote.
 ;;
 ;; The memo always describes the committed frame state: a pass proposes rows
 ;; and the router publishes them (`publish-memo!`) only once the candidate they
@@ -72,20 +70,6 @@
   throws or is rejected leaves the memo as it was."
   [frame-id rows]
   (reset! (ensure-frame-memo-atom! frame-id) rows)
-  nil)
-
-(defn ^:no-doc distrust-memo!
-  "Strip the inputs and output from every row of `frame-id`'s memo, keeping
-  each row's definition. The `:flows/distrust-memo!` hook: epoch fires it after
-  a tool write installs frame-state outside any event, so the next event
-  recomputes every flow against the installed state, while each
-  row still names the output path a departure or a moved `:output-path`
-  vacates."
-  [frame-id]
-  (when-let [a (frame-memo-atom frame-id)]
-    (swap! a (fn [rows]
-               (reduce-kv (fn [rows id row] (assoc rows id (dissoc row :inputs :output)))
-                          rows rows))))
   nil)
 
 (defn ^:no-doc last-inputs-snapshot
@@ -474,15 +458,10 @@
 
 ;; ---- test-only resets ----------------------------------------------------
 
-(defn reset-last-inputs!
-  "Test-only: drop every frame's evaluation memo. Registrations are the
-  registrar's, which a test fixture snapshots and restores."
+(defn reset-flows!
+  "Test-only: drop every frame's evaluation memo — the `:flows/reset-flows!`
+  hook the runtime-reset fixture fires. Registrations are the registrar's,
+  which the fixture snapshots and restores."
   []
   (reset! frame-memo {})
   nil)
-
-(defn reset-flows!
-  "Test-only: drop every frame's evaluation memo — the `:flows/reset-flows!`
-  hook the runtime-reset fixture fires."
-  []
-  (reset-last-inputs!))

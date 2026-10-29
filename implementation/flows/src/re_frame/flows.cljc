@@ -41,7 +41,6 @@
 ;; is the one kind-keyed `(rf/clear :flow id)`. The registry fn is the
 ;; late-bind hook target.
 (def reset-flows!       rf.flows.registry/reset-flows!)
-(def reset-last-inputs! rf.flows.registry/reset-last-inputs!)
 
 ;; No `flow-algebra-view` facade alias. The flow algebra view
 ;; ships NO public accessor (Derivations §Flows expose algebra views) — every
@@ -233,16 +232,30 @@
           {}
           ids))
 
+(defn- named-definitions
+  "Every definition of the ids in `ids` the bound view holds. An id more than
+  one namespace registers is one a live frame refuses to run; classification
+  is a union, so every namespace's definition of it is kept, and the flow
+  pass, not the policy build, reports the ambiguity."
+  [ids]
+  (let [ambiguous (rf.registrar/ambiguous-registrations rf.flows.registry/kind)]
+    (mapcat (fn [id]
+              (if-let [ns->flow (get ambiguous id)]
+                (vals ns->flow)
+                (some-> (rf.registrar/lookup rf.flows.registry/kind id) list)))
+            ids)))
+
 (defn ^:no-doc output-classification
   "The `:flows/output-classification` hook: `{flow-id {:sensitive [abs-path …]
   :large [abs-path …]}}` for the flows frame `frame-id` runs that classify
-  their output — each id its `:flows` names that resolves through the bound
-  view, and each definition its memo holds a row for, so a departed or moved
-  output stays classified until the event that vacates it. Called while
+  their output — each definition of an id its `:flows` names, and each
+  definition its memo holds a row for, so a departed or moved output stays
+  classified until the event that vacates it. Called while
   `re-frame.elision/frame-policy` builds the frame's policy, inside its
-  resolution. Spec 013 §Flow tracing."
+  resolution, so it never throws: every egress of the frame builds that
+  policy. Spec 013 §Flow tracing."
   [frame-id]
-  (let [defs (concat (vals (active-flows (:flows (rf.frame/frame-config frame-id))))
+  (let [defs (concat (named-definitions (:flows (rf.frame/frame-config frame-id)))
                      (keep :flow (vals (rf.flows.registry/frame-last-inputs-snapshot frame-id))))]
     (reduce (fn [acc flow]
               (if-let [decl (rf.flows.registry/output-declaration flow)]
@@ -298,10 +311,11 @@
   view bound — so the ids resolve live for a frame made without `:images`, and
   through its sealed generation for one made with them.
 
-  The memo decides what runs. A flow with no row, a row computed with a
-  different definition, or a row a tool write left without inputs, recomputes;
-  otherwise `=`-equal inputs skip `:derive` and re-assert the remembered
-  output. A row whose flow left the frame, or
+  The memo decides what runs. A flow with no row, or a row computed with a
+  different definition, recomputes; otherwise `=`-equal inputs skip `:derive`
+  and re-assert the remembered output, which is what `:derive` returns for
+  them, so a frame-state a tool write installed outside any event needs no
+  memo reset. A row whose flow left the frame, or
   moved its `:output-path`, has the old path vacated in this same pending db.
   The activation checks run over the active set on every pass, so a
   re-registration that completes a cycle or an output overlap aborts the event.
@@ -326,12 +340,8 @@
               (fn [[db rows] id]
                 (let [flow       (get active id)
                       row        (get rows id)
-                      ;; A row a tool write left without inputs no longer
-                      ;; vouches for its evaluation.
-                      evaluated? (and (identical? flow (:flow row))
-                                      (contains? row :inputs))
                       new-inputs (read-inputs db runtime-db flow)]
-                  (if (and evaluated? (= new-inputs (:inputs row)))
+                  (if (and (identical? flow (:flow row)) (= new-inputs (:inputs row)))
                     [(reassert-output frame-id db flow new-inputs row) rows]
                     (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
                       [db (assoc rows id {:flow flow :inputs new-inputs :output output})]))))
@@ -352,9 +362,6 @@
 (rf.late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (rf.late-bind/set-fn! :flows/reset-flows!       reset-flows!)
 (rf.late-bind/set-fn! :flows/output-classification output-classification)
-;; Epoch's tool writes install frame-state outside any event, so the memo stops
-;; vouching for what it cached.
-(rf.late-bind/set-fn! :flows/distrust-memo!     rf.flows.registry/distrust-memo!)
 ;; Frame destruction drops the frame's memo: the flow definitions are registrar
 ;; rows a destroy leaves alone, so the memo is the whole teardown. Spec 002 §Lifecycle contributions.
 (rf.frame/contribute-lifecycle!

@@ -7,22 +7,14 @@
   asserts the conformance-corpus's recorded outcome against what the
   artefact actually produces.
 
-  This is the ssr artefact's own conformance gate. Riding the CORE
-  artefact's `re-frame.conformance-test` instead would have two
-  drawbacks:
-
-    1. Core's runner doesn't implement the SSR-specific assertion
-       channels — `:ssr/active-head`, `:ssr/request-result`,
-       `:ssr/rendered-head-contains`. Fixtures that assert ONLY through
-       those channels would pass silently because the matcher is absent.
-    2. The gate would run at the wrong artefact. An ssr-touching PR could
-       break a fixture and only surface at core's gate — at which
-       point the failure has to be triaged across two artefacts.
-
-  This namespace closes both gaps. It runs at the ssr artefact's gate
-  (so an ssr regression fails the ssr CI step), and it implements the
-  SSR-specific matchers (so the corpus's hydration / head / response /
-  projector contracts are checked against the live runtime).
+  Core's corpus runner (`re-frame.conformance-test`) grades these
+  fixtures too, but reads `:ssr/public-error` and every `:trace-emissions`
+  claim off the dev trace bus alone, so its production-posture run leaves
+  out every fixture carrying one. This runner also runs under the
+  production gate
+  (`-Dre-frame.debug=false`, below) and adjudicates both there from the
+  always-on axes, which is what keeps the SSR error projection's
+  production wire graded.
 
   ## What this runner does
 
@@ -130,10 +122,9 @@
 
   ## Coverage scope
 
-  Only `ssr-*.edn` fixtures. The Mode B machines runner
-  (`machines_conformance_test`) and the core artefact's full-corpus
-  runner own everything else; running them again here would be
-  redundant and would slow the gate."
+  Only `ssr-*.edn` fixtures. Core's full-corpus runner owns everything
+  else; running it again here would be redundant and would slow the
+  gate."
   (:require [clojure.set]
             [clojure.test :refer [deftest is use-fixtures]]
             [clojure.edn :as edn]

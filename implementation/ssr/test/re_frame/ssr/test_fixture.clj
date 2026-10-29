@@ -30,7 +30,6 @@
   ;; Keyed by payload id (a frame id): a claim left by a prior test would make
   ;; the next test's first hydrate look like a sibling root's second one.
   (rf.ssr.install/reset-installed-payloads!)
-  (rf.flows/reset-last-inputs!)
   (rf/init! rf.ssr/adapter)
   ;; clear-all! wiped these namespaces' ns-load registrations.
   (require 're-frame.routing :reload)

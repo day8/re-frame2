@@ -624,13 +624,12 @@
           (if (nil? changed-keys)
             (rf.epoch.tool-pair/refuse! :rf.error/no-such-handler
                                         {:kind :frame :frame frame-id})
-            (do (rf.epoch.tool-pair/reset-flows-dirty-check! frame-id)
-                (let [record (record-synthetic-replace-epoch!
-                               frame-id incarnation-token
-                               frame-state-before frame-state-after)]
-                  {:ok?      true
-                   :frame    frame-id
-                   :epoch-id (:epoch-id record)}))))))))
+            (let [record (record-synthetic-replace-epoch!
+                           frame-id incarnation-token
+                           frame-state-before frame-state-after)]
+              {:ok?      true
+               :frame    frame-id
+               :epoch-id (:epoch-id record)})))))))
 
 (defn- perform-replace-frame-state!
   "Carry out the partial frame-state patch once preconditions have passed.
