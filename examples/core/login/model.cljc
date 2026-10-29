@@ -152,11 +152,6 @@
 ;; then nudges the machine with a bare `:submit` signal. So every sub-event —
 ;; :submit, :dismiss, :success, :failure — takes the same relaxed tail.
 ;;
-;; The enum also names `:rf.machine/start`, the framework's eager-creation kick
-;; (docs/machines/concepts.md): a Story variant sends
-;; `[:auth.login/flow [:rf.machine/start]]` to bring the machine alive before
-;; any user event, and this schema sees that vector like any other.
-;;
 ;; The trailing `[:? :any]` is the slot for the HTTP reply. When a managed-HTTP
 ;; call resolves, the framework appends its canonical reply envelope
 ;; (`{:status :ok :value …}` or `{:status :error :error …}`) as the last arg of
@@ -171,8 +166,7 @@
    ;; the schema would match `[:auth.login/flow :auth.login/submit …]` instead of
    ;; the real `[:auth.login/flow [:auth.login/submit] …]`. `[:schema …]` resets
    ;; the regex context so this branch matches the nested sub-event vector.
-   [:schema [:cat [:enum :rf.machine/start
-                   :auth.login/submit :auth.login/dismiss
+   [:schema [:cat [:enum :auth.login/submit :auth.login/dismiss
                    :auth.login/success :auth.login/failure]
              [:* :any]]]
    [:? :any]])

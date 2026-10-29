@@ -301,11 +301,30 @@
                     authored-chain)]
       (assoc matched :count (count (:matched matched))))))
 
+(defn- reserved-machine-event?
+  "Whether the inner id of a `[machine-id [inner-id …]]` event is in the
+  framework-owned `:rf.machine` namespace or one of its `:rf.machine.*`
+  sub-areas: the lifecycle traffic the machine runtime mints, such as the
+  creation kick, a `:spawn` child's completion carrier and an `:after` timer
+  firing (Spec 005 §Reserved synthetic events)."
+  [event]
+  (let [inner (nth event 1 nil)
+        n     (when (vector? inner)
+                (let [inner-id (nth inner 0 nil)]
+                  (when (keyword? inner-id) (namespace inner-id))))]
+    (boolean (and n (or (= "rf.machine" n)
+                        (and (> (count n) 11) (= "rf.machine." (subs n 0 11))))))))
+
 (defn- validate-event!
   "Validate the dispatched event against the handler's `:schema` before its
   declared cofx are delivered and its chain runs (Spec 010 §Validation order
   on event processing). Returns truthy to run the handler; falsy to skip it,
   after emitting `:rf.error/schema-validation-failure` with `:where :event`.
+
+  A machine handler's `:schema` describes the author's events, so a reserved
+  lifecycle event addressed to it runs unchecked in both arms: no author can
+  whitelist the runtime's wire shapes (Spec 005 §What validates machine events
+  today).
 
   Two arms at one site. Dev runs the late-bound `:schemas/validate-event!`,
   where a throwing validator passes. Production runs
@@ -316,13 +335,19 @@
   `frame` is threaded so the failure trace carries `:frame`, which production
   has no other source for."
   [event-id event handler-meta frame]
-  (if (rf.spec/dev-mode?)
+  (cond
+    (and (:rf/machine? handler-meta) (reserved-machine-event? event))
+    true
+
+    (rf.spec/dev-mode?)
     (if-let [validate! (rf.late-bind/get-fn :schemas/validate-event!)]
       (try (validate! event-id event handler-meta frame)
            (catch #?(:clj Throwable :cljs :default) _
              true))
       ;; Outside the catch-and-pass, so a boundary refusal stays a refusal.
       (rf.spec/validate-at-boundary! event-id event handler-meta frame))
+
+    :else
     (rf.spec/validate-at-boundary! event-id event handler-meta frame)))
 
 (defn- assemble-initial-ctx
