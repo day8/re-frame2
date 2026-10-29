@@ -11,6 +11,7 @@
    [re-frame.core :as rf]
    [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
+   [re-frame.fx :as rf.fx]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources]
@@ -19,10 +20,20 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
+(def ^:private last-managed-args (atom nil))
+
+(defn- capturing-transport-fixture
+  [f]
+  (reset! last-managed-args nil)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (f))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
-       :cljs {:adapter rf.adapter.reagent/adapter})))
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  capturing-transport-fixture)
 
 (defn- reg!
   [id overrides]
@@ -130,6 +141,34 @@
         "the error body and the cursor redact beside :data")
     (is (= slots (project :feed/plain))
         "control: an undeclared resource's slots ride raw")))
+
+(deftest a-coarse-sensitive-claim-redacts-a-failed-attempts-error-in-the-work-log
+  ;; A failed attempt's terminal summary keeps the envelope the entry's
+  ;; `:error` holds, and the work log rides every runtime-db read. The
+  ;; entry's `:error` claim reaches it: the walker reads a claim index-free,
+  ;; so below the claim's first segment a map key or an index may consume no
+  ;; segment, and `[… <key-id> :error]` names `[… <key-id> :recent-work <i>
+  ;; :outcome :error]` too.
+  (let [error  {:kind        :rf.http/http-4xx
+                :http-status 422
+                :body        {:email ["alice@example.com is already registered"]}}
+        failed (fn [id spec]
+                 (reg! id spec)
+                 (rf/dispatch-sync [:rf.resource/ensure {:resource id :scope :rf.scope/global
+                                                         :params {:slug "x"} :owner [:app :s]}])
+                 (rf/dispatch-sync (conj (:on-failure @last-managed-args) {:status :error :error error}))
+                 (let [path (rf.resources.state/entry-path
+                              (rf.resources.state/scoped-resource-key :rf.scope/global id {:slug "x"}))
+                       e    (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) path)]
+                   [(first (:recent-work e))
+                    (first (:recent-work (rf/project-egress e {:frame :rf/default :path path})))]))
+        [raw secret]      (failed :signup/secret {:sensitive? true})
+        [plain-raw plain] (failed :signup/plain {})]
+    (is (= [:failed error] [(:status raw) (get-in raw [:outcome :error])])
+        "premise: the failed attempt keeps the error envelope in the work log, raw in process")
+    (is (= (assoc-in raw [:outcome :error] rf.privacy/redacted-sentinel) secret)
+        "the sensitive resource's work log redacts the error, the attempt's facts riding")
+    (is (= plain-raw plain) "control: an undeclared resource's work log rides raw")))
 
 (deftest a-resource-that-declares-nothing-claims-nothing
   (reg! :plain/card {})

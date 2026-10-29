@@ -647,22 +647,33 @@
 ;; unioned in — the frame's live classification for a live value, and for a
 ;; prior one the claims the policy it was computed under makes on the
 ;; runtime-db it was computed from — so an owner re-registered without its
-;; declaration does not ship data loaded under it raw. A coarse root claim is
-;; not a path claim, so it is not recovered. In-process `@(subscribe …)` stays
-;; raw.
+;; declaration does not ship data loaded under it raw. A coarse claim is that
+;; policy's claim on each entry value slot the value carries, so it is
+;; recovered the same way. In-process `@(subscribe …)` stays raw.
 
-(def ^:private data-roots
-  "Where each read sub's value carries its owner's data projection (`[]`: the
-  value is the projection). A feed's merged item list is projected by
-  `project-feed-items` instead, so `:rf.resource/items` has no root."
-  {:rf/resource                [[:data] [:previous-data]]
-   :rf.resource/data           [[]]
-   :rf.resource/previous-data  [[]]
-   :rf.resource/items          []
-   :rf.resource/pages          [[]]
-   :rf.resource/infinite-state [[:pages]]
-   :rf/mutation                [[:result]]
-   :rf.mutation/result         [[]]})
+(def ^:private slot-roots
+  "Where each read sub's value carries its owner's slots, by slot (`[]`: the
+  value is the slot). `:data` is the owner's data projection, which its path
+  declarations and its coarse claim cover. A resource view-model also carries
+  the entry's other value slots under their own keys, and a focused error read
+  is one of them; the coarse whole-entry claim alone covers those
+  (`entry-value-slots`), and a slot a value does not hold is never walked. A
+  feed's merged item list is projected by `project-feed-items` instead, so
+  `:rf.resource/items` has no data root."
+  (let [entry-slots (into {}
+                          (comp (remove #{:data}) (map (fn [slot] [slot [[slot]]])))
+                          rf.resources.classification/entry-value-slots)]
+    {:rf/resource                (assoc entry-slots :data [[:data] [:previous-data]])
+     :rf.resource/data           {:data [[]]}
+     :rf.resource/previous-data  {:data [[]]}
+     :rf.resource/error          {:error [[]]}
+     :rf.resource/refresh-error  {:refresh-error [[]]}
+     :rf.resource/page-error     {:page-error [[]]}
+     :rf.resource/items          {:data []}
+     :rf.resource/pages          {:data [[]]}
+     :rf.resource/infinite-state (assoc entry-slots :data [[:pages]])
+     :rf/mutation                {:data [[:result]]}
+     :rf.mutation/result         {:data [[]]}}))
 
 (def ^:private mutation-subs
   "The mutation read subs; they name an instance, not a mutation."
@@ -693,11 +704,14 @@
     (when-some [resource-id (:resource payload)]
       (rf.resources.registry/resource-meta resource-id))))
 
-(defn- data-paths
-  "The spec's data declaration unioned with the `recovered` claims, re-rooted
-  under each of `roots`: `[sensitive-paths large-paths]`."
-  [spec [r-sens r-large] roots]
-  (let [marks  (:data (rf.resources.classification/spec-declaration-marks spec))
+(defn- slot-paths
+  "The claims on the owner's `slot`, re-rooted under each of `roots`: the
+  spec's data declaration when `slot` is `:data` (no other slot takes a path),
+  its coarse claim as the whole slot, and the `recovered` claims —
+  `[sensitive-paths large-paths]`."
+  [spec slot [r-sens r-large] roots]
+  (let [marks  (when (= :data slot)
+                 (:data (rf.resources.classification/spec-declaration-marks spec)))
         sens   (cond-> (into (vec (keys (:sensitive marks))) r-sens) (:sensitive? spec) (conj []))
         large  (cond-> (into (vec (keys (:large marks))) r-large) (:large? spec) (conj []))
         rebase (fn [paths] (into [] (for [root roots p (distinct paths)] (into root p))))]
@@ -736,11 +750,12 @@
   (let [n (count prefix)]
     (fn [p] (when (and (>= (count p) n) (= prefix (subvec p 0 n))) (subvec p n)))))
 
-(defn- recovered-data-claims
-  "The data-relative claims `registry` holds for a read sub's owner: its
-  mutation instance's `:result`, or the `:data` of every entry of its resource
-  (one spec declares them all). `runtime-db` holds the entries the claims name."
-  [sub-id payload registry runtime-db]
+(defn- recovered-claims
+  "The `slot`-relative claims `registry` holds for a read sub's owner: its
+  mutation instance's `:result`, a mutation's one slot, or `slot` of every
+  entry of its resource (one spec declares them all). `runtime-db` holds the
+  entries the claims name."
+  [sub-id payload registry runtime-db slot]
   (if (contains? mutation-subs sub-id)
     (registry-claims registry
                      (under (conj (rf.resources.mutation-runtime/instance-path (:instance payload))
@@ -753,7 +768,7 @@
                        (fn [p]
                          (when (and (>= (count p) (+ n 2))
                                     (= entries (subvec p 0 n))
-                                    (= :data (nth p (inc n)))
+                                    (= slot (nth p (inc n)))
                                     (= owner (second (:resource/key (get table (nth p n))))))
                            (subvec p (+ n 2))))))))
 
@@ -766,7 +781,7 @@
   a list, the whole list redacts, because guessing where a declared field went
   could miss one."
   [items spec recovered resource-id pages]
-  (let [[sens large] (data-paths spec recovered [[]])
+  (let [[sens large] (slot-paths spec :data recovered [[]])
         accessor     (rf.resources.state/resolve-page->items (:page->items spec))]
     (cond
       (and (empty? sens) (empty? large))
@@ -827,20 +842,29 @@
       :rf/mutation (project-key-slot value :affected-keys true frame-id)
       value)))
 
+(defn- whole-value-slot
+  "The slot a read sub's value is, when its `slots` say the value is one slot
+  whole, else nil."
+  [slots]
+  (when (= 1 (count slots))
+    (let [[slot roots] (first slots)]
+      (when (= [[]] roots) slot))))
+
 (defn project-read-sub-egress
   "Projects a resource or mutation read sub's `value` for egress: the owner's
-  data declaration under each data root, a feed's merged items through its
-  accessor, and the scoped keys in `:previous-key` / `:affected-keys`. `query-v`
-  names the owner; `opts` carries `:frame`. The five-arity projects a PRIOR
-  value against the `prior-inputs` it was computed from and the
-  `prior-policy` it was computed under. Any other query returns `value`
-  unchanged; a value with nothing to project rides identical."
+  data declaration under each data root, its coarse claim over every owner
+  slot the value carries, a feed's merged items through its accessor, and the
+  scoped keys in `:previous-key` / `:affected-keys`. `query-v` names the
+  owner; `opts` carries `:frame`. The five-arity projects a PRIOR value
+  against the `prior-inputs` it was computed from and the `prior-policy` it
+  was computed under. Any other query returns `value` unchanged; a value with
+  nothing to project rides identical."
   ([query-v value opts]
    (project-read-sub-egress query-v value opts ::live nil))
   ([query-v value {:keys [frame]} prior-inputs prior-policy]
    (let [sub-id (when (sequential? query-v) (first query-v))
-         roots  (get data-roots sub-id)]
-     (if (nil? roots)
+         slots  (get slot-roots sub-id)]
+     (if (nil? slots)
        value
        (let [payload     (second query-v)
              live?       (or (= ::live prior-inputs) (nil? prior-inputs))
@@ -851,15 +875,25 @@
              frame-state #(if live? (live-frame-state frame) (first prior-inputs))
              spec        (when (map? payload) (owner-spec sub-id payload runtime-db))
              recovered   (when (and inputs-db (map? payload))
-                           (recovered-data-claims sub-id payload inputs-reg inputs-db))
-             value       (if (or spec (some seq recovered))
-                           (let [projected    (project-feed-items sub-id value spec recovered
+                           (into {}
+                                 (map (fn [slot]
+                                        [slot (recovered-claims sub-id payload inputs-reg
+                                                                inputs-db slot)]))
+                                 (keys slots)))
+             value       (if (or spec (some #(some seq %) (vals recovered)))
+                           (let [projected    (project-feed-items sub-id value spec (:data recovered)
                                                                   query-v frame-state)
-                                 [sens large] (data-paths spec recovered roots)]
+                                 [sens large] (reduce-kv
+                                                (fn [[sens large] slot roots]
+                                                  (let [[s l] (slot-paths spec slot (get recovered slot)
+                                                                          roots)]
+                                                    [(into sens s) (into large l)]))
+                                                [[] []]
+                                                slots)]
                              ;; A whole-value projection anchors the walk at the
-                             ;; `:data` slot the owner declared against.
-                             (if (= [[]] roots)
-                               (redact-anchored :data projected sens large)
+                             ;; slot the owner declared against.
+                             (if-let [slot (whole-value-slot slots)]
+                               (redact-anchored slot projected sens large)
                                (rf.classification/redact-with-paths
                                  projected sens large {:index-free? true})))
                            value)]

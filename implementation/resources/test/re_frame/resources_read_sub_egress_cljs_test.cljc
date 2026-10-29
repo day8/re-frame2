@@ -4,11 +4,12 @@
 
   A `reg-resource` / `reg-mutation` `:sensitive` declaration is claimed at
   the entry's or instance's absolute runtime-db position while it is present,
-  while a read sub returns the bare projection — the entry's data, the
-  instance's result, the scoped keys they sit under. So the sub's trace is
-  classified from the owner spec, re-rooted onto the sub's value, and a prior
-  value stays redacted after an evict or a clear has removed the instance and
-  its claims.
+  while a read sub returns the bare projection — the entry's data and error
+  channels, the instance's result, the scoped keys they sit under. So the
+  sub's trace is classified from the owner spec, re-rooted onto the sub's
+  value, a resource's coarse claim covering every entry value slot the value
+  carries, and a prior value stays redacted after an evict or a clear has
+  removed the instance and its claims.
 
   The in-process reads stay raw: classification applies at egress only. Every
   assertion read off the trace bus sits inside a
@@ -56,6 +57,9 @@
 
 (defn- reply! [value]
   (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value value})))
+
+(defn- fail! [error]
+  (rf/dispatch-sync (conj (:on-failure @last-managed-args) {:status :error :error error})))
 
 (defn- capture-traces
   "Run `f` and return every trace event emitted meanwhile."
@@ -173,3 +177,47 @@
         (is (= [:acct/summary true false]
                [(second k) (contains? (nth k 2) :rf/redacted) (carries? acct (sub-runs events))])
             "the affected key carries its owner's coarse claim, the resource id riding")))))
+
+(def ^:private echoed "rkcsf-alice@example.com")
+
+(defn- failed-first-load
+  "Register resource `id` under `spec`, hold its `:rf/resource` and
+  `:rf.resource/error` reads, and fail its first load with `error`. Returns
+  `{:live <in-process reads> :off-box [view-error error-sub carries-echo?]}`,
+  the off-box half read off the failure's sub runs."
+  [id spec error]
+  (rf/reg-resource id
+    (merge {:scope :rf.scope/global :params-schema [:map [:form :string]]} spec)
+    (fn [_ _] {:request {:method :post :url "/signup"}}))
+  (let [q       {:resource id :scope :rf.scope/global :params {:form "signup"}}
+        state-q [:rf/resource q]
+        error-q [:rf.resource/error q]
+        read!   (hold [state-q error-q])
+        _       (read!)
+        window  (capture-traces
+                  (fn []
+                    (rf/dispatch-sync [:rf.resource/ensure (assoc q :owner [:app :signup])])
+                    (fail! error)
+                    (read!)))
+        live    (read!)]
+    {:live    [(get-in live [state-q :error]) (get live error-q)]
+     :off-box (when rf.interop/debug-enabled?
+                [(get-in (last-run-tags state-q window) [:rf.sub/value :error])
+                 (:rf.sub/value (last-run-tags error-q window))
+                 (carries? echoed (sub-runs window))])}))
+
+(deftest a-coarse-resources-read-sub-error-body-is-redacted-off-box
+  ;; The coarse claim covers the whole entry, so the error channel a read sub
+  ;; carries beside the data redacts with it: a 4xx body routinely echoes the
+  ;; value the user submitted.
+  (let [error  {:kind        :rf.http/http-4xx
+                :http-status 422
+                :body        {:email [(str echoed " is already registered")]}}
+        secret (failed-first-load :signup/secret {:sensitive? true} error)
+        plain  (failed-first-load :signup/plain {} error)]
+    (is (= [error error] (:live secret) (:live plain)) "the in-process reads stay raw")
+    (when rf.interop/debug-enabled?
+      (is (= [redacted redacted false] (:off-box secret))
+          "the sensitive resource's error body arrives redacted on the view and the focused read")
+      (is (= [error error true] (:off-box plain))
+          "control: an undeclared resource's error body rides raw"))))

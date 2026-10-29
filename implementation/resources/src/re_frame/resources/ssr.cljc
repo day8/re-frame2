@@ -222,8 +222,9 @@
   "Returns `[wire-entry metadata]` for one durable `entry`, projected by its
   classification against the SSR `frame-id`. The wire entry ships `:data`
   through the frame's classification (`:serialize`), the redaction sentinel
-  (`:redact`) or no `:data` (`:omit`); `:refresh-error` rides only with
-  serialized data, and transient work pointers never ride. The metadata
+  (`:redact`) or no `:data` (`:omit`); the entry's other value slots
+  (`entry-value-slots`) ride only with serialized data, and transient work
+  pointers never ride. The metadata
   carries the raw `:resource/key`, `:projected-key`, `:disposition`,
   `:freshness`, `:withheld?` and `:refetch-on-client?`; it is a server-side
   diagnostic, so it reports withheld coarse entries too.
@@ -263,13 +264,14 @@
                       ;; The two coarse arms are defence in depth: their rows
                       ;; are withheld, and these shapes keep the metadata safe
                       ;; and fail closed should a caller ever ship the entry.
+                      ;; They drop the slots the coarse claim covers; a
+                      ;; redacted entry keeps the `:data` sentinel the
+                      ;; client's refetch plan reads.
                       :redact
-                      (-> entry
-                          (assoc :data rf.privacy/redacted-sentinel)
-                          (dissoc :refresh-error))
+                      (-> (apply dissoc entry rf.resources.classification/entry-value-slots)
+                          (assoc :data rf.privacy/redacted-sentinel))
                       :omit
-                      (-> entry
-                          (dissoc :data :refresh-error)))
+                      (apply dissoc entry rf.resources.classification/entry-value-slots))
         ;; An in-flight attempt belongs to the server timeline, so neither it
         ;; nor its pointer rides the round-trip, and nor does the terminal tail.
         ;; Spec 016 §2. In-flight work does not survive restore as live work
