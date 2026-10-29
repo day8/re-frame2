@@ -34,12 +34,12 @@ per-namespace contract doc; the table below indexes them:
 |---|---|---|
 | `vocab` | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
 | `sensitive` | spec/009 §Privacy fail-closed default-suppress filter (`sensitive-event?`, `strip-sensitive`, per-frame `scrub-snapshot`) + malformed-stamp counter. | [`sensitive.md`](sensitive.md) |
-| `egress` | Cross-MCP `:rf.egress/*` profile vocabulary — the framework-runtime-free mirror of the closed six-member egress profile NAME SET (`profiles`) plus the shared posture→profile mapping (`mcp-tool-profile`) (EP-0015 §10). The `:rf.egress/*` floor table is the framework's alone since rf2-kuky.88. | [`egress.md`](egress.md) |
+| `egress` | Cross-MCP `:rf.egress/*` profile vocabulary — the framework-runtime-free mirror of the closed six-member egress profile NAME SET (`profiles`) plus the shared posture→profile mapping (`mcp-tool-profile`) (EP-0015 §10). The `:rf.egress/*` floor table is the framework's alone. | [`egress.md`](egress.md) |
 | `elision` | Wire-boundary `:rf.size/large-elided` marker counter (`count-elided-markers`). | [`elision.md`](elision.md) |
 | `args` | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword-checked`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
 | `diff-encode` | Path-keyed structural diff for epoch `:db-after` slots, projected into path-headed cluster sections, plus encoder/decoder Malli gates. | [`diff-encode.md`](diff-encode.md) |
 | `section-grouping` | Patch-list → path-headed cluster sections (`group-patches-into-sections` / `sections->patches`); consumed by `diff-encode`. | [`section-grouping.md`](section-grouping.md) |
-| `dedup` | The structural-dedup codec (`de-dupe-eq` / `expand`, vendored from `day8/de-dupe` under rf2-2ii52) plus the wire-boundary encode policy over it (`empty-payload?` / `no-substitutions?` / `dedup-value`). | [`dedup.md`](dedup.md) |
+| `dedup` | The structural-dedup codec (`de-dupe-eq` / `expand`, vendored from `day8/de-dupe`) plus the wire-boundary encode policy over it (`empty-payload?` / `no-substitutions?` / `dedup-value`). | [`dedup.md`](dedup.md) |
 | `overflow` | Overflow-marker payload builder (`overflow-payload`) + `token-estimate` + fallback hint. | [`overflow.md`](overflow.md) |
 | `cap` | Wire-boundary two-stage token-budget cap pipeline + `max-tokens` resolver + `ResultIO` protocol. | [`cap.md`](cap.md) |
 | `cursor` | Shared cursor-pagination machinery — base64 codec, opaque encode/decode with `::malformed` recovery, `:limit` clamp, and `cursor-stale-result` envelope. | [`cursor.md`](cursor.md) |
@@ -49,11 +49,11 @@ per-namespace contract doc; the table below indexes them:
 All `.cljc`, so consumers compile them under their own platform —
 re-frame2-pair-mcp's shadow-cljs node build, story-mcp's JVM
 classpath. The library's `deps.edn` carries `org.clojure/clojure` and
-nothing else at runtime: the one external dep it used to have
-(`day8/de-dupe`, the persistent-data-structure walker behind `dedup`)
-was vendored in under rf2-2ii52, because a `:git/url` coordinate is one
-`clein pom` drops silently and it blocked this artefact's publish path
-outright. Its pom is now complete by construction. No consumer-side
+nothing else at runtime: `day8/de-dupe`, the persistent-data-structure
+walker behind `dedup`, is vendored in rather than depended on, because
+a `:git/url` coordinate is one
+`clein pom` drops silently, which would block this artefact's publish path
+outright. Its pom is complete by construction. No consumer-side
 transport runtime deps either.
 
 ## Handler-arity divergence

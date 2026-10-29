@@ -1,7 +1,7 @@
 # `dedup` — the structural-dedup codec and the wire-boundary encode step
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Owns the cross-MCP structural dedup outright: the equality-based codec (`de-dupe-eq` / `expand`), the cache-element wire shape, and the encode policy (`empty-payload?`, `no-substitutions?`, `dedup-value`) layered on top. The codec was vendored from `day8/de-dupe` v0.3.0 under rf2-2ii52 — see [§Provenance](#provenance--vendored-from-day8de-dupe). Diff-encode (the epoch `:db-after` transform that runs just before dedup) lives in [`diff-encode.md`](diff-encode.md); the wire-cap that runs just after lives in [`cap.md`](cap.md).
+> Owns the cross-MCP structural dedup outright: the equality-based codec (`de-dupe-eq` / `expand`), the cache-element wire shape, and the encode policy (`empty-payload?`, `no-substitutions?`, `dedup-value`) layered on top. The codec is vendored from `day8/de-dupe` v0.3.0 — see [§Provenance](#provenance--vendored-from-day8de-dupe). Diff-encode (the epoch `:db-after` transform that runs just before dedup) lives in [`diff-encode.md`](diff-encode.md); the wire-cap that runs just after lives in [`cap.md`](cap.md).
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
@@ -18,7 +18,7 @@ Both servers require `re-frame.mcp-base.dedup` directly. The shared `.cljc` tran
 
 ## Provenance — vendored from `day8/de-dupe`
 
-The codec arrived here as an external runtime dependency, `day8/de-dupe {:git/url … :git/tag "v0.3.0"}`, and was absorbed under rf2-2ii52. The reason was packaging, not preference:
+The codec is vendored from `day8/de-dupe {:git/url … :git/tag "v0.3.0"}` rather than depended on. The reason is packaging, not preference:
 
 - `clein pom` can only express an `:mvn/version` coordinate. Handed a `:git/url` it prints `Skipping coordinate: …` and generates a pom **without** it — the same silent skip it has for `:local/root`, which the `:local/root → :mvn/version` rewrite exists to repair.
 - There is no equivalent repair for a git coordinate. `day8/de-dupe` is not on Clojars and cannot be put there under that group: Clojars requires NEW projects to use a *verified* reverse-domain group, and a non-reverse-domain group cannot be verified. Publishing would have meant a new coordinate, a new tag, group verification, and a permanent standalone release surface — for a 271-line single-namespace library with one production call site in this repo.
@@ -67,7 +67,7 @@ Slot `0` is always the root. The namespace stayed `de-dupe.cache` through the ab
 
 ### Reference grammar and the collision rule
 
-Occupying the namespace is not the same as owning it. A re-frame app may legitimately hold `de-dupe.cache/whatever` in app-db, a story may emit one in rendered or diagnostic data, and — once JSON has erased the distinctions between symbols, keywords and strings — an ordinary payload value of that spelling is indistinguishable from a serialised reference symbol. A decoder that classified a value by its namespace alone therefore turned payload data into `nil`, into another slot's subtree, or into a thrown missing-entry error (rf2-kjv05). References are spelled, not merely namespaced.
+Occupying the namespace is not the same as owning it. A re-frame app may legitimately hold `de-dupe.cache/whatever` in app-db, a story may emit one in rendered or diagnostic data, and — once JSON has erased the distinctions between symbols, keywords and strings — an ordinary payload value of that spelling is indistinguishable from a serialised reference symbol. A decoder that classified a value by its namespace alone would therefore turn payload data into `nil`, into another slot's subtree, or into a thrown missing-entry error. References are spelled, not merely namespaced.
 
 **In value position**, a token `de-dupe.cache/<name>` — a symbol, keyword or string on the Clojure side, one JSON string once the wire has flattened them — is exactly one of:
 
@@ -81,7 +81,7 @@ Occupying the namespace is not the same as owning it. A re-frame app may legitim
 
 **Which types are escaped, and why exactly those three.** Symbols, **keywords** and strings — the set a JSON encoder flattens onto a bare namespaced string, and therefore the set that can collide once the value leaves Clojure. Cheshire renders `de-dupe.cache/cache-1`, `:de-dupe.cache/cache-1` and `"de-dupe.cache/cache-1"` identically, and identically to a real reference. `token-name` tests `ident?` and `string?` for that reason and nothing broader: no other Clojure scalar can produce a slash-bearing name in this namespace.
 
-Escaping a proper subset is the failure mode worth naming, because it is invisible from the host: `cache-element?` classifies only symbols, so an unescaped payload keyword is never aliased *on the JVM or in CLJS* and every round-trip assertion passes — while the JSON projection is silently corrupt, in value and map-key position alike. rf2-kjv05's first cut escaped symbols and strings and left exactly that gap; a keyword is the ordinary spelling of both a value and a map key in re-frame app-db data, so it was the likeliest of the three to be hit. The host-side pins are therefore on the **wire spelling**, not only on the round-trip.
+Escaping a proper subset is the failure mode worth naming, because it is invisible from the host: `cache-element?` classifies only symbols, so an unescaped payload keyword is never aliased *on the JVM or in CLJS* and every round-trip assertion passes — while the JSON projection is silently corrupt, in value and map-key position alike. Escaping symbols and strings alone would leave exactly that gap; a keyword is the ordinary spelling of both a value and a map key in re-frame app-db data, so it is the likeliest of the three to be hit. The host-side pins are therefore on the **wire spelling**, not only on the round-trip.
 
 **What the grammar does not restore is the Clojure type across JSON.** A payload symbol, keyword and string in this namespace all reach a Node consumer as the same string — as they would anywhere else in the payload; JSON has no symbol or keyword. The guarantee is that the JSON *projection* passes through the codec unchanged (encode then decode is the identity on it), alongside the exact Clojure round-trip on the host.
 
@@ -97,7 +97,7 @@ No committed gate runs the whole `Clojure → Cheshire → Node` seam in one pro
 
 Compresses `form` into a flat cache map. Slot `cache-0` holds the root; every further slot is a subtree that occurred more than once, replaced at each occurrence by its cache-element symbol. Scalars, empty collections and two-element vectors are never pooled: the first two are shorter inline than any reference, and a two-element vector is how a map entry rebuilds. Cache-id allocation is call-local, so the same input always yields the same slot ids.
 
-The encoder reads the value and nothing else. Metadata is not wire data, so the caller's metadata can neither name a slot nor replace a subtree; which slot a subtree occupies is tracked by the walk itself (rf2-gwye.30). A record rebuilds as itself with exactly its own entries: an extension key that the grammar escapes, or that is pooled into a reference, replaces its original spelling rather than landing beside it, in both directions (rf2-gwye.31).
+The encoder reads the value and nothing else. Metadata is not wire data, so the caller's metadata can neither name a slot nor replace a subtree; which slot a subtree occupies is tracked by the walk itself. A record rebuilds as itself with exactly its own entries: an extension key that the grammar escapes, or that is pooled into a reference, replaces its original spelling rather than landing beside it, in both directions.
 
 ### `expand cache` → value
 
@@ -143,7 +143,7 @@ Applies structural dedup to `v` and wraps the result in the cross-MCP marker `{:
 
 Values reaching the wire boundary are equality-shared, not identity-shared: re-frame2-pair-mcp reconstructs CLJS values from EDN over bencode (no identity sharing survives the transport), and story-mcp synthesises assertion records and rendered hiccup fresh per call. Equality is what makes the cross-record share-pooling actually fire on the wire boundary.
 
-The equality is **wire** equality: Clojure `=` refined by collection kind. `=` and `hash` both treat `[1 2 3]` and `(1 2 3)` as the same value. The EDN on the wire does not: it prints them differently, reads them back differently, and they answer `vector?` differently. So a vector never shares a slot with a list or seq, at any depth. Two otherwise-equal maps whose children differ in kind stay in separate slots. The counting pass, the repeat check and slot lookup all use this one equivalence. Within a kind, pooling is plain equality, and sorted collections still lower to unsorted (rf2-gwye.32).
+The equality is **wire** equality: Clojure `=` refined by collection kind. `=` and `hash` both treat `[1 2 3]` and `(1 2 3)` as the same value. The EDN on the wire does not: it prints them differently, reads them back differently, and they answer `vector?` differently. So a vector never shares a slot with a list or seq, at any depth. Two otherwise-equal maps whose children differ in kind stay in separate slots. The counting pass, the repeat check and slot lookup all use this one equivalence. Within a kind, pooling is plain equality, and sorted collections lower to unsorted.
 
 ## The wrapper-aware helper stays consumer-side
 
