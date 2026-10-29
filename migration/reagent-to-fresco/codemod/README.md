@@ -23,7 +23,7 @@ repository:
 clojure -Srepro \
   -Sdeps '{:deps {day8/re-frame2-fresco-codemod
                   {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "a31653bd89f42a05a59b60484409121f35e6ef3b"
+                   :git/sha   "0b8fe8c3ba82e95dd7297d3137b001d075d02062"
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
   -M -m re-frame.migration.fresco.codemod src/
 ```
