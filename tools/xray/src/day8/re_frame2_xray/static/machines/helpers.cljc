@@ -125,13 +125,17 @@
   :b {}}}}` is THREE states (`:authed` + `:a` + `:b`), matching the
   occupiable-state count the topology renderer emits for the same
   definition (machines-viz `chart.layout/semantic-counts` `:state-count`).
+  A `:type :history` node counts as nothing: it is a pseudo-state that is
+  never occupied (Spec 005 §History states), and the chart excludes it too.
 
   Pure data — JVM-runnable; no CLJS-only deps so the helper stays
   portable to the `clojure -M:test` target."
   [state-map]
   (if (map? state-map)
     (reduce-kv (fn [acc _state-id node]
-                 (+ acc 1 (count-state-map (:states node))))
+                 (if (= :history (:type node))
+                   acc
+                   (+ acc 1 (count-state-map (:states node)))))
                0
                state-map)
     0))
@@ -171,17 +175,22 @@
     (count-state-map (:states definition))))
 
 (defn- live-instance-count
-  "Number of times the machine-id appears in the snapshots map. Reads
-  ONE frame's snapshots (the panel's target-frame). With one frame, the
-  count is either 0 (uninitialised) or 1 (initialised) — the pip cluster
-  degrades cleanly to a single dot in the common case. TODO: sum across
-  frames once a reactive cross-frame walker exists.
+  "Number of live instances of `machine-id` in the snapshots map, which is
+  keyed by ACTOR id. A singleton sits under its own machine-id; a spawned
+  actor sits under its own id (`:p/kid#1`) and names its registered type
+  at `[:rf/runtime :machine-type]`, so both are counted. A nil snapshot is
+  an uninitialised machine and counts as nothing. Reads ONE frame's
+  snapshots (the panel's target-frame). TODO: sum across frames once a
+  reactive cross-frame walker exists.
 
   Pure-data here so a single-frame OR a future multi-frame caller can
   feed the same projection without changing the row shape."
   [snapshots machine-id]
-  (let [snap (get snapshots machine-id)]
-    (if (some? snap) 1 0)))
+  (count (filter (fn [[actor-id snapshot]]
+                   (and (some? snapshot)
+                        (or (= actor-id machine-id)
+                            (= machine-id (get-in snapshot [:rf/runtime :machine-type])))))
+                 snapshots)))
 
 (defn project-row
   "Build one row for the browse-all list. Pure data.
@@ -191,7 +200,7 @@
     `definition`  — the `:rf/machine` registrar projection map (nil if missing).
     `coord`       — the registration's call-site coord (`lift-source-coord`),
                     or nil.
-    `snapshots`   — `{machine-id snapshot}` for the target-frame.
+    `snapshots`   — `{actor-id snapshot}` for the target-frame.
 
   Output:
     {:machine-id    <kw>

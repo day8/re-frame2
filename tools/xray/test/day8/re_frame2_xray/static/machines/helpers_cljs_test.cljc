@@ -1,11 +1,13 @@
 (ns day8.re-frame2-xray.static.machines.helpers-cljs-test
   "Unit tests for the Static Machines projection helpers: pure data, plus
-  one real `reg-machine` registration for the call-site coord.
+  real `reg-machine` registrations for the call-site coord and the
+  live-instance count.
   Dual-runtime so the projection contract is covered on
   the JVM and in the `:node-test` bundle alike."
   (:require #?(:clj  [clojure.test :refer [are deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [are deftest is use-fixtures]])
             [clojure.string :as str]
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -77,6 +79,67 @@
 
     nil              0
     {:initial :idle} 0))
+
+;; A `:type :history` node is a pseudo-state that is never occupied, and the
+;; chart the row opens leaves it out of its own state count, so the row's
+;; count and the chart's agree.
+(deftest state-count-leaves-out-a-history-pseudo-state
+  (are [definition n] (= [n n] [(:state-count (h/project-row :m/x definition nil {}))
+                                (:state-count (layout/semantic-counts definition))])
+    ;; :player + :stopped + :playing + :at-start + :mid-track, not :hist
+    {:initial :player
+     :states  {:player
+               {:initial :stopped
+                :states  {:stopped {:on {:play [:player :playing :hist]}}
+                          :playing {:initial :at-start
+                                    :states  {:hist      {:type           :history
+                                                          :deep?          true
+                                                          :default-target :at-start}
+                                              :at-start  {:on {:seek :mid-track}}
+                                              :mid-track {}}}}}}}
+    5
+
+    ;; control: the same machine without its history node
+    {:initial :player
+     :states  {:player
+               {:initial :stopped
+                :states  {:stopped {:on {:play [:player :playing]}}
+                          :playing {:initial :at-start
+                                    :states  {:at-start  {:on {:seek :mid-track}}
+                                              :mid-track {}}}}}}}
+    5))
+
+;; ---- live-instance count ------------------------------------------------
+
+(defn- runtime-snapshots []
+  (get-in (rf/frame-state-value :rf/default)
+          [:rf.db/runtime :rf.runtime/machines :snapshots]))
+
+;; The snapshots map is keyed by ACTOR id: a spawned actor sits under its own
+;; id and names its type at `[:rf/runtime :machine-type]`, so it counts toward
+;; its type's row. Every snapshot below is the machines runtime's own.
+(deftest live-count-counts-spawned-actors-under-their-type
+  (rf/reg-machine ::child {:initial :live :states {:live {}}})
+  (rf/reg-machine ::parent
+    {:initial :idle
+     :states  {:idle {:on {:go {:action (fn [_]
+                                          {:fx [[:rf.machine/spawn
+                                                 {:machine-id ::child
+                                                  :id-prefix  ::kid}]]})}}}}})
+  (rf/reg-machine ::singleton {:initial :open :states {:open {}}})
+  (rf/dispatch-sync [::singleton [:rf.machine/start]])
+  (dotimes [_ 3] (rf/dispatch-sync [::parent [:go]]))
+  (let [snapshots (runtime-snapshots)
+        rows      (h/project-rows [::child ::parent ::singleton] {} {} snapshots)]
+    (is (not (contains? snapshots ::child))
+        "PRECONDITION: no snapshot sits under the spawned type's own id")
+    (is (= {::child 3 ::parent 1 ::singleton 1}
+           (into {} (map (juxt :machine-id :live-count)) rows)))
+    (is (= {:kind :pips :count 3} (h/pip-render-plan (:live-count (first rows)))))
+    (is (= ::child (:machine-id (first (h/apply-sort rows :live)))))))
+
+(deftest live-count-ignores-an-uninitialised-singleton
+  (is (= 0 (:live-count (h/project-row :m/a {} nil {:m/a nil})))))
 
 ;; ---- search -------------------------------------------------------------
 
