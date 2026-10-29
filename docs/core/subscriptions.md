@@ -460,9 +460,12 @@ Two functions step outside the deref-driven lifecycle:
   value. It is a non-reactive read: you get the value as of now and are not
   registered for changes. Use it at the REPL, in tests, and in tools. It takes the
   same `{:frame f}` opts as `subscribe` for reading a named frame from outside any
-  scope. Don't call it from an event handler, which would make the handler read
-  state it did not declare: when a handler needs a derived value, materialise it
-  with a [flow](glossary.md#flow) or declare it as a [coeffect](coeffects.md).
+  scope. Don't call it in an event handler's body, which would make the handler
+  read state it did not declare. When a handler needs a sub's value, declare the
+  read as a [coeffect](coeffects.md) that calls `subscribe-once`, compute it
+  purely with `rf/compute-sub` against the handler's `db` —
+  `(rf/compute-sub [:cart/total] db)` — or materialise it with a
+  [flow](glossary.md#flow).
 - **`rf/unsubscribe`** hands back, by hand, the reaction `subscribe` returned —
   `(rf/unsubscribe r)` — for the rare case where you took a reference
   programmatically. Each call returns one share of the ref-count, and a reaction
