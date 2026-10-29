@@ -294,6 +294,25 @@
                                       (str "(rf/reg-event-db :id (fn [db _] " body "))"))))
         body)))
 
+(deftest nil-preserving-builders-need-a-non-nil-input
+  ;; `(dissoc nil :k)` is nil, so a `dissoc` of the db param is proven non-nil
+  ;; and a `dissoc` of a lookup into it is not, called directly or threaded
+  ;; first; a thread-last builder is handed its own first argument
+  (doseq [[body expected]
+          [["(if reset? (dissoc (:draft db) :dirty) db)" [:flag :nil-capable true]]
+           ["(if reset? (dissoc db :dirty) db)"          [:rewrite nil false]]
+           ["(-> (:draft db) (dissoc :dirty))"           [:flag :nil-capable true]]
+           ["(-> db (assoc :seen true) (dissoc :dirty))" [:rewrite nil false]]
+           ["(->> (:draft db) (into {}))"                [:rewrite nil false]]]]
+    (let [[{:keys [action flag note]} :as findings]
+          (rf.migration.reg-event-codemod/scan-string
+            (str "(rf/reg-event-db :x (fn [db [_ reset?]] " body "))"))]
+      (is (= [1 expected]
+             [(count findings)
+              [action flag (and (str/includes? (str note) "`(:draft db)` — a keyword lookup")
+                                (str/includes? (str note) "`dissoc` returns nil when handed nil"))]])
+          body))))
+
 (deftest not-nil-capable-when-every-branch-is-non-nil
   (doseq [src (concat
                 (for [body ["(if ok? (assoc db :ok true) db)"

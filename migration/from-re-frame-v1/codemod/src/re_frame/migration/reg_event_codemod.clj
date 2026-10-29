@@ -189,14 +189,15 @@
 ;; Conservative: we ask "can this BODY (the final form of the handler) evaluate
 ;; to nil under SOME input?", and answer NO (=> rewrite) only when a local
 ;; syntactic reading proves it non-nil: a literal collection, the handler's own
-;; db param, a builder headed by a guaranteed-non-nil db-builder (or a `->`
-;; thread ending in one), a branching form whose every branch is proven
-;; non-nil, or a `cond->` over a non-nil init whose every stage is a builder.
-;; Anything else flags — the safe direction for D7 — and the reason names the
-;; DECIDING sub-form and says which of two things the codemod knows: that it
-;; CAN evaluate to nil (a `when`, an `if` with no else, a `get`, a literal
-;; nil), or only that it is NOT PROVEN non-nil (a helper call or a local, whose
-;; value the codemod cannot see).
+;; db param, a db-builder that never returns nil (`assoc`), one that passes a
+;; nil input through (`dissoc`, `merge`) handed a value proven non-nil, a `->`
+;; thread ending in such a builder, a branching form whose every branch is
+;; proven non-nil, or a `cond->` over a non-nil init whose every stage is a
+;; builder. Anything else flags — the safe direction for D7 — and the reason
+;; names the DECIDING sub-form and says which of two things the codemod knows:
+;; that it CAN evaluate to nil (a `when`, an `if` with no else, a `get`, a
+;; literal nil), or only that it is NOT PROVEN non-nil (a helper call or a
+;; local, whose value the codemod cannot see).
 
 (defn- sig-children
   "The child nodes of a node the reader keeps: no whitespace, no comments, no
@@ -206,12 +207,16 @@
        (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))))))
 
 (def ^:private nil-safe-heads
-  "Head symbols whose return is a guaranteed-non-nil value when given a
-  guaranteed-non-nil first arg (the db). These are the pervasive db-builders; a
-  body headed by one of these cannot return nil for a map db."
-  #{"assoc" "assoc-in" "update" "update-in" "dissoc" "merge" "merge-with"
-    "conj" "into" "concat" "select-keys" "rename-keys" "vary-meta"
-    "with-meta" "assoc!" "update-keys" "update-vals"})
+  "Head symbols of the db-builders that never return nil, whatever value they
+  are handed: `(assoc nil :k v)` is `{:k v}`, and `with-meta` throws on nil."
+  #{"assoc" "assoc-in" "update" "update-in" "conj" "concat" "select-keys"
+    "vary-meta" "with-meta" "assoc!" "update-keys" "update-vals"})
+
+(def ^:private nil-preserving-heads
+  "Head symbols of the db-builders that return nil when handed nil —
+  `(dissoc nil :k)` and `(merge nil)` are nil — so a call is non-nil only when
+  the value it is handed is."
+  #{"dissoc" "merge" "merge-with" "into" "rename-keys"})
 
 (def ^:private nil-capable-heads
   "Head symbols whose call can yield a falsey/absent value however non-nil its
@@ -223,12 +228,13 @@
 
 (defn- classify-head
   "Classify a head-name string for nil-capability. Returns one of
-  :safe / :nil-capable / :unknown."
+  :safe / :preserving / :nil-capable / :unknown."
   [head-name]
   (cond
-    (contains? nil-safe-heads head-name)     :safe
-    (contains? nil-capable-heads head-name)  :nil-capable
-    :else                                    :unknown))
+    (contains? nil-safe-heads head-name)       :safe
+    (contains? nil-preserving-heads head-name) :preserving
+    (contains? nil-capable-heads head-name)    :nil-capable
+    :else                                      :unknown))
 
 (defn- can-be-nil [node why] {:node node :why why})
 
@@ -236,10 +242,13 @@
 
 (defn- head-nil-reason
   "The nil reason for `node`, a call or thread stage headed by the simple name
-  `head-name`, per `classify-head`."
-  [node head-name]
+  `head-name`, per `classify-head`. `input-reason` is a thunk of the nil reason
+  of the value the builder is handed, which decides a nil-preserving one."
+  [node head-name input-reason]
   (case (classify-head head-name)
     :safe        nil
+    :preserving  (when-let [r (input-reason)]
+                   (update r :why str ", and `" head-name "` returns nil when handed nil"))
     :nil-capable (can-be-nil node (str "`" head-name "` can return nil"))
     :unknown     (unproven node (str "`" head-name "` is not a form the codemod"
                                      " can prove non-nil, so check what it returns"))))
@@ -255,14 +264,30 @@
 (declare nil-reason form-binds?)
 
 (defn- stage-nil-reason
-  "The nil reason of a thread stage: a call is decided by its head, a bare
-  symbol by its name."
-  [stage db-sym]
-  (let [v (when (= :token (n/tag stage)) (try (n/sexpr stage) (catch Exception _ nil)))]
+  "The nil reason of a thread stage, given `input-reason`, a thunk of the nil
+  reason of the value threaded into it. That value is what a bare symbol is
+  handed, and what a nil-preserving builder is handed when `first?` (`->`,
+  `cond->`) threads it first. Any other call reads as a form of its own, so a
+  thread-last builder is handed its own first argument."
+  [stage db-sym first? input-reason]
+  (let [list? (= :list (n/tag stage))
+        hd    (if list? (first (sig-children stage)) stage)
+        v     (when (and hd (= :token (n/tag hd))) (try (n/sexpr hd) (catch Exception _ nil)))]
     (cond
-      (= :list (n/tag stage)) (nil-reason stage db-sym)
-      (symbol? v)             (head-nil-reason stage (name v))
-      :else                   (unproven stage "a thread stage the codemod cannot read"))))
+      (and (symbol? v)
+           (or (not list?) (and first? (= :preserving (classify-head (name v))))))
+      (head-nil-reason stage (name v) input-reason)
+
+      list? (nil-reason stage db-sym)
+      :else (unproven stage "a thread stage the codemod cannot read"))))
+
+(defn- thread-nil-reason
+  "The nil reason of a `->` (`first?`) or `->>` thread of `init` through
+  `stages`: the last stage decides, handed the thread before it."
+  [init stages first? db-sym]
+  (if-let [stage (last stages)]
+    (stage-nil-reason stage db-sym first? #(thread-nil-reason init (butlast stages) first? db-sym))
+    (nil-reason init db-sym)))
 
 (defn- truthy-literal?
   "Is `node` a test that always passes: a keyword (`:else`) or `true`?"
@@ -292,9 +317,7 @@
 
           ;; -> / ->> thread: the value flows to the LAST stage.
           (#{"->" "->>"} head-name)
-          (if-let [stage (last (rest args))]
-            (stage-nil-reason stage db*)
-            (nil-reason (first args) db*))
+          (thread-nil-reason (first args) (rest args) (= "->" head-name) db*)
 
           (#{"when" "when-let" "when-some" "when-not" "when-first"} head-name)
           (can-be-nil node (str "a `" head-name "` is nil when its test fails"))
@@ -317,12 +340,14 @@
             (branches (concat (take-nth 2 (rest clauses))
                               (when (odd? (count clauses)) [(last clauses)]))))
 
-          ;; the init when no test passes, else the last stage that ran
+          ;; the init when no test passes, else the last stage that ran; each
+          ;; stage is handed the init or an earlier stage, both proven non-nil
           (#{"cond->" "cond->>"} head-name)
           (let [[init & clauses] args]
             (if (and init (even? (count clauses)))
               (or (nil-reason init db*)
-                  (some #(stage-nil-reason % db*) (take-nth 2 (rest clauses))))
+                  (some #(stage-nil-reason % db* (= "cond->" head-name) (constantly nil))
+                        (take-nth 2 (rest clauses))))
               (unproven node (str "a `" head-name "` the codemod cannot read"))))
 
           ;; do / let / letfn / binding: the value is the LAST body form.
@@ -331,7 +356,7 @@
             (nil-reason tail db*)
             (can-be-nil node (str "an empty `" head-name "` is nil")))
 
-          :else (head-nil-reason node head-name))))))
+          :else (head-nil-reason node head-name #(nil-reason (first args) db*)))))))
 
 (defn- nil-reason
   "Why the handler BODY `node` may evaluate to nil, or nil when it is proven
