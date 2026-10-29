@@ -29,7 +29,7 @@ is needed. Re-run it when you upgrade.
 - `defmachine` lints as `def`.
 - `with-frame` lints as `do` and `with-new-frame` as `let`, so the frame
   symbol it binds is a lexical local. `re-frame.test-support/with-trace-recorder!`
-  lints as `let` over its recorder symbol.
+  and `with-emit-recorder!` lint as `let` over their recorder symbol.
 
 No custom findings ship: every entry gives a macro its shape and leaves the
 analysis to clj-kondo.

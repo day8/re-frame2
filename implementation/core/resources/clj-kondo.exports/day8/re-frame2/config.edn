@@ -73,8 +73,9 @@
  ;; run-destroy (`let`-shape). Their hooks make both parse cleanly and
  ;; the binding-vector case surface the lexical `sym`.
  ;;
- ;; `re-frame.test-support/with-trace-recorder!` is `let`-shaped over its
- ;; recorder symbol, and ships in this artefact beside the others.
+ ;; `re-frame.test-support/with-trace-recorder!` and `with-emit-recorder!` are
+ ;; `let`-shaped over their recorder symbol and share one hook;
+ ;; `re-frame.kondo-export-test` requires a hook for every such bracket.
  ;;
  ;; The hook code is `hooks/re_frame/core.clj` beside this file.
  :hooks
@@ -82,4 +83,5 @@
   {re-frame.core/reg-view                       hooks.re-frame.core/reg-view
    re-frame.core/with-frame                     hooks.re-frame.core/with-frame
    re-frame.core/with-new-frame                 hooks.re-frame.core/with-new-frame
-   re-frame.test-support/with-trace-recorder!   hooks.re-frame.core/with-trace-recorder!}}}
+   re-frame.test-support/with-trace-recorder!   hooks.re-frame.core/with-trace-recorder!
+   re-frame.test-support/with-emit-recorder!    hooks.re-frame.core/with-trace-recorder!}}}

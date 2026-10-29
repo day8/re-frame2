@@ -57,7 +57,8 @@
                     body))}))
 
 (defn with-trace-recorder!
-  "clj-kondo macro hook for `re-frame.test-support/with-trace-recorder!`:
+  "clj-kondo macro hook for `re-frame.test-support/with-trace-recorder!` and
+  `with-emit-recorder!`, which share one shape:
 
       (with-trace-recorder! [recs-sym opts?] body+)
 
