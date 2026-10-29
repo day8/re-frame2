@@ -69,7 +69,8 @@
   the router rejects the candidate, which never installs), and keeps
   validating the frame's sibling schemas so one bad registration cannot
   disable the frame's pre-install app-db validation."
-  (:require [re-frame.elision :as rf.elision]
+  (:require [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -212,9 +213,23 @@
   (-> (scrub-slots tags value-bearing-slots)
       (assoc :sensitive? true)))
 
-(def ^:private app-db-whole-slots
-  "The `:app-db` failure slots that re-ship the whole registered value."
+(def ^:private whole-value-slots
+  "The failure slots that re-ship the whole checked value under the
+  explainer's own shape, so no declared path can be walked into them."
   [:explain :explain-humanized])
+
+(defn- holds-redaction?
+  "True when `v` holds the `:rf/redacted` sentinel anywhere."
+  [v]
+  (boolean (some #(= redacted-sentinel %) (tree-seq coll? seq v))))
+
+(defn- drop-unbacked-large
+  "Drop a `:large? true` stamp that no slot's size marker backs any more,
+  because sensitivity redacted every slot the schema's size arm had marked."
+  [tags]
+  (cond-> tags
+    (and (:large? tags) (not-any? #(rf.elision/marker? (get tags %)) size-elided-slots))
+    (dissoc :large?)))
 
 (defn- project-through-classification
   "Project an `:app-db` failure's value-bearing slots through `frame-id`'s
@@ -227,7 +242,9 @@
 
     - `:value`, narrowed to the failing leaf, is walked at the leaf's own
       path (`leaf-path`), so it is path-precise like every wire slot. A slot
-      the schema already redacted or size-elided is left alone.
+      the schema already redacted is left alone, and so is one it size-elided
+      unless the classification redacts part of the leaf: sensitive wins,
+      because the marker would carry the secret's size.
     - `:explain` / `:explain-humanized` re-ship the whole registered value
       and are not path-anchored, so they cannot be walked like `:value`.
       When `classified?` they are redacted whole and the trace is stamped
@@ -238,19 +255,26 @@
   which reads here as sensitive."
   [tags frame-id classified? registered-path registered-value leaf-path leaf-value]
   (let [walk   (fn [v path] (rf.elision/elide-wire-value v {:frame frame-id :path path}))
+        leaf   (walk leaf-value leaf-path)
         large? (and (not classified?)
                     (boolean (some rf.elision/marker?
                                    (tree-seq coll? seq (walk registered-value registered-path)))))]
     (cond-> tags
       (and (contains? tags :value) (= leaf-value (:value tags)))
-      (assoc :value (walk leaf-value leaf-path))
+      (assoc :value leaf)
+
+      (and (rf.elision/marker? (:value tags)) (holds-redaction? leaf))
+      (assoc :value redacted-sentinel)
 
       classified?
-      (-> (scrub-slots app-db-whole-slots) (assoc :sensitive? true))
+      (-> (scrub-slots whole-value-slots) (assoc :sensitive? true))
 
       large?
       (elide-large-slots registered-value
-                         (remove #(= redacted-sentinel (get tags %)) app-db-whole-slots)))))
+                         (remove #(= redacted-sentinel (get tags %)) whole-value-slots))
+
+      :always
+      drop-unbacked-large)))
 
 (defn- common-prefix
   "Return the longest common prefix of two sequential collections (as a
@@ -660,6 +684,48 @@
 
 ;; ---- `check!` — the one validation seam -----------------------------------
 
+(defn- project-through-registration
+  "Apply `classification`, the registering handler's own `{:sensitive [path …]
+  :large [path …]}` rooted at the checked `value`, to a failure's tags after
+  the schema's decision, the way `project-through-classification` applies the
+  frame's classification on the app-db surface — so a payload path declared at
+  registration needs no second `:sensitive?` on the schema (Spec 010
+  §`:sensitive?`).
+
+    - The slots carrying the checked value (`:value`, `:received`,
+      `:rf.fx/args`) are redacted at the paths where the schema left them
+      raw. A size marker the schema put there gives way to `:rf/redacted` when
+      a sensitive path matches, because it would carry the secret's size.
+    - `:explain` / `:explain-humanized` are not path-anchored. When a
+      sensitive path matches they are redacted whole and the trace is stamped
+      `:sensitive? true`; otherwise, when a large path matches, a size marker
+      stands in for whichever the schema left raw."
+  [tags value {:keys [sensitive large]}]
+  (if (and (empty? sensitive) (empty? large))
+    tags
+    (let [projected  (rf.classification/redact-with-paths value sensitive large)
+          sensitive? (not= value (rf.classification/redact-with-paths value sensitive []))
+          raw?       #(not (or (= redacted-sentinel %) (rf.elision/marker? %)))
+          tags       (reduce (fn [t slot]
+                               (let [v (get t slot)]
+                                 (cond
+                                   (not (contains? t slot))                t
+                                   (= value v)                             (assoc t slot projected)
+                                   (and sensitive? (rf.elision/marker? v)) (assoc t slot redacted-sentinel)
+                                   :else                                   t)))
+                             tags
+                             [:value :received :rf.fx/args])]
+      (cond
+        sensitive?
+        (-> (scrub-slots tags whole-value-slots) (assoc :sensitive? true) drop-unbacked-large)
+
+        (not= value projected)
+        (elide-large-slots tags value (filter #(and (contains? tags %) (raw? (get tags %)))
+                                              whole-value-slots))
+
+        :else
+        tags))))
+
 (defn- failure-tags
   "The failure tags for `value` failing `schema`, redacted and size-elided.
 
@@ -672,21 +738,22 @@
   development-only port (Spec 010 §Humanize-hook). `reason` is a thunk,
   called only in development, so a surface's reason prose never reaches a
   release bundle through a check that runs there."
-  [{:keys [where id schema value frame recovery extra-tags reason]}]
+  [{:keys [where id schema value frame recovery extra-tags reason classification]}]
   (let [explanation (explain-with-registered-fn schema value)
         humanized   (when rf.interop/debug-enabled? (humanize-explain explanation))]
-    (redact-validation-tags
-      schema
-      (cond-> (merge {:where    where
-                      :value    value
-                      :received value
-                      :explain  explanation
-                      :recovery recovery}
-                     extra-tags)
-        (some? id)                          (assoc :failing-id id)
-        (some? frame)                       (assoc :frame frame)
-        (some? humanized)                   (assoc :explain-humanized humanized)
-        (and rf.interop/debug-enabled? reason) (assoc :reason (reason))))))
+    (-> (redact-validation-tags
+          schema
+          (cond-> (merge {:where    where
+                          :value    value
+                          :received value
+                          :explain  explanation
+                          :recovery recovery}
+                         extra-tags)
+            (some? id)                          (assoc :failing-id id)
+            (some? frame)                       (assoc :frame frame)
+            (some? humanized)                   (assoc :explain-humanized humanized)
+            (and rf.interop/debug-enabled? reason) (assoc :reason (reason))))
+        (project-through-registration value classification))))
 
 (defn- malformed-tags
   "The `:rf.error/malformed-schema` tags for a validator that threw `ex` on
@@ -720,6 +787,9 @@
     :recovery    the recovery the caller applies; default `:no-recovery`
     :extra-tags  the surface's own structural tags (`:event-id`,
                  `:machine-id`, `:phase`, `:rollback?`, `:source`, …)
+    :classification  the registering handler's own `{:sensitive [path …]
+                 :large [path …]}`, rooted at `:value`, applied after the
+                 schema's decision (`project-through-registration`)
     :reason      `(fn [] reason-string)`, called in development only
     :tags-only?  true to receive the tags without the seam emitting them
 
@@ -732,7 +802,8 @@
     - `:tags` are the redacted, size-elided failure tags: `:where`,
       `:failing-id`, `:frame`, `:value` / `:received` / `:explain`, in
       development `:explain-humanized` and `:reason`, `:sensitive? true` or
-      `:large? true` when the schema says so, and the caller's extra tags.
+      `:large? true` when the schema or `:classification` says so, and the
+      caller's extra tags.
       A malformed schema's tags carry `:schema` and no value-bearing slot.
 
   Unless `:tags-only?`, the seam emits the trace under `:category` itself.
@@ -756,6 +827,15 @@
               {:category (if thrown :rf.error/malformed-schema :rf.error/schema-validation-failure)
                :tags     tags})
             {:category (if thrown :rf.error/malformed-schema :rf.error/schema-validation-failure)}))))))
+
+(defn- registration-classification
+  "`reg-meta`'s own `:sensitive` / `:large` paths, each re-rooted under `root`,
+  the checked value's position of the payload they index (Spec 015
+  §Registration-owned transient classification)."
+  [reg-meta root]
+  (let [reroot (fn [paths] (mapv #(into root %) paths))]
+    {:sensitive (reroot (:sensitive reg-meta))
+     :large     (reroot (:large reg-meta))}))
 
 (defn- run-validation
   "The meta-bearing surfaces' (event / fx / sub) call into `check!`.
@@ -991,7 +1071,7 @@
                      tags          (-> (cond-> base-tags
                                          sensitive? redact-tags
                                          large?     (-> (elide-large-slots registered-value
-                                                                           app-db-whole-slots)
+                                                                           whole-value-slots)
                                                         (elide-large-slots leaf-value [:value])))
                                        ;; Then the frame's classification, at
                                        ;; the unredacted leaf path.
@@ -1044,6 +1124,8 @@
         :id         event-id
         :value      event
         :frame      frame
+        ;; An event's paths index its payload, the vector's second element.
+        :classification (registration-classification handler-meta [1])
         :extra-tags {:event-id event-id :schema-id event-id}
         :reason     #(reason-string "Event " event-id " payload failed schema "
                                     (:schema handler-meta) event)})
@@ -1069,6 +1151,7 @@
         :id         sub-id
         :value      value
         :frame      frame
+        :classification (registration-classification sub-meta [])
         :extra-tags {:rf.sub/id sub-id :schema-id sub-id :rf.sub/query-v query-v}
         :reason     #(reason-string "Subscription " sub-id " return value failed schema "
                                     (:schema sub-meta) value)})
@@ -1103,6 +1186,7 @@
         :id         fx-id
         :value      args
         :frame      frame
+        :classification (registration-classification fx-meta [])
         :recovery   :skipped
         :extra-tags (cond-> {:rf.fx/id fx-id :rf.fx/args args :schema-id fx-id}
                       event-id (assoc :event-id event-id))
