@@ -13,7 +13,7 @@
 
   Disposal is **synchronous on derefer-count → 0** (per
   Spec 006 §Reference counting and disposal). When the last subscriber
-  drops (`unsubscribe!` drives the 1 → 0 transition), the cache entry is
+  drops (`unsubscribe-if-reaction!` drives the 1 → 0 transition), the cache entry is
   evicted IN-TICK — the reaction is disposed, the on-dispose callback
   releases input refs (cascading down a layer-2+ chain), and the slot is
   dissoc'd from the cache. No deferred-grace timer, no batched dispose:
@@ -42,17 +42,14 @@
   holds a ref-count-0 entry, and 1 → 0 disposes in-tick with no grace
   period. What moves is only WHO holds the reference during the gap.
 
-  **Paid anyway, on the mount path that ships.** Through the public
-  adapter render slot with no `act` / `flushSync`, the escrow's macrotask
-  reaper fires before React's passive `useSyncExternalStore` subscribe, so
-  the gap is crossed by nobody, this eviction runs, and the commit
-  rebuilds — two constructions per cold read. The cache side is unaffected
-  either way (it sees an ordinary release and an ordinary 1 → 0), and the
-  reaper's horizon decides the outcome. Read the paragraph above as the
-  mechanism, not as a claim about what a shipped mount costs.
+  On the mount path that ships, the commit arrives inside the escrow
+  reaper's horizon and adopts; that margin is measured, not guaranteed
+  (Spec 006 §Render-phase provisional acquisition and commit adoption). When
+  it is lost, the reaper's release takes the ordinary 1 → 0 here and the
+  commit rebuilds. The cache sees an ordinary release either way.
 
   The `swap-vals!`-after-CAS patterns (in `dispose-entry-now!`,
-  `unsubscribe!`, and `invalidate-sub-on-replace!`) all encode the same
+  `unsubscribe-if-reaction!`, and `invalidate-sub-on-replace!`) all encode the same
   concurrency-safety property: any side-effect (`rf.interop/dispose!`)
   reads from the PRE-swap snapshot and runs AFTER the CAS commits.
   `swap!` is allowed to retry on JVM contention, so a side-effecting
@@ -140,6 +137,23 @@
                   :rf.sub/query-v k
                   :rf.sub/reason  reason})))
 
+(defn- warn-dispose-failure!
+  "Record that disposing the reaction cached at `k` threw `ex` while `where`
+  evicted it. Eviction stays best-effort — the walk goes on — but what escapes
+  `dispose!` is a consumer's on-dispose callback, and swallowing it silently
+  would leave a holder that never learned of the eviction with no trace. The
+  same diagnostic the declared-input release emits (Spec 009
+  `:rf.warning/sub-input-dispose-exception`), with `where` naming the
+  eviction path."
+  [frame-id k ex where]
+  (rf.trace/emit-error! :rf.warning/sub-input-dispose-exception
+                        {:frame          frame-id
+                         :rf.sub/query-v k
+                         :exception      ex
+                         :where          where
+                         :recovery       :ignored})
+  nil)
+
 (defn ^:no-doc emit-no-more-derefers!
   "INTERNAL. Emit the `:no-more-derefers` dispose trace for a slot
   evicted by the RATOM FAMILY'S OWN teardown route rather than by a ref-count
@@ -151,7 +165,7 @@
   drops and it carries no `auto-run`, which is precisely what a view unmount
   does. That fires re-frame's own on-dispose callback, which then removes the
   slot — a genuine eviction, at a genuine `no-more-derefers` moment, reached
-  without passing through `unsubscribe!`'s 1 → 0 edge. Spec 006 §Reference
+  without passing through `unsubscribe-if-reaction!`'s 1 → 0 edge. Spec 006 §Reference
   counting and disposal requires the emit AT THE EVICTION SITE, so the
   on-dispose callback needs a way to make it.
 
@@ -209,72 +223,19 @@
         ;; :hmr by a co-pending HMR drain.
         (binding [*disposal-cause* :no-more-derefers]
           (try (rf.interop/dispose! r)
-               (catch #?(:clj Throwable :cljs :default) _ nil)))))
-    nil))
-
-(defn unsubscribe!
-  "Decrement the ref-count on the cached subscription for `k`. When
-  ref-count reaches 0, dispose the entry **synchronously** — evict the
-  cache slot, run the reaction's on-dispose callback (which releases
-  input refs symmetrically), and emit `:rf.sub/dispose` with reason
-  `:no-more-derefers`. Per Spec 006 §Reference counting and disposal.
-
-  No grace-period: the 1 → 0 transition disposes in-tick. A resubscribe
-  arriving AFTER `unsubscribe!` returns is treated as a fresh cache miss
-  (`compute-and-cache!` builds a new reaction). For the React-render-
-  churn case where a component briefly unmounts then remounts with the
-  same subscription, the recomputed value is `=` to the disposed one
-  so the new render observes no value change.
-
-  That churn is accepted between two DIFFERENT owners. It is not meant to
-  be paid inside ONE mount, and the React-hook spine has a way to avoid
-  it: hold the render-phase reference until the commit adopts it, so a
-  cold first mount need not drive 1 → 0 between its own render and its
-  own commit (see `unsubscribe-if-reaction!` below and Spec 006
-  §Render-phase provisional acquisition and commit adoption). On the
-  mount path consumers actually use, the escrow's macrotask reaper beats
-  React's passive subscribe and that release lands here anyway, so the
-  cold first mount reaches this edge and rebuilds. The rule this
-  docstring states holds either way; only who reaches the edge, and how
-  often, is at issue, and the reaper's horizon decides it.
-
-  Called from the public `re-frame.subs/unsubscribe` after `cache-key`
-  + `cache` resolution; the facade fn holds the public API shape.
-
-  `frame-id` is threaded through to `dispose-entry-now!`
-  so the `:rf.sub/dispose` trace emit at the actual eviction site
-  carries the right `:frame` tag."
-  [cache k frame-id]
-  (let [;; The swap-fn body is pure — it returns only the new cache
-        ;; map. The drop-to-zero signal is read from the diff between
-        ;; `old` and `new` AFTER the CAS commits. `swap!` is allowed
-        ;; to retry on JVM contention, so a side-effecting
-        ;; `(reset! dropped-to-zero? true)` inside the swap-fn body
-        ;; could fire on a discarded retry whose CAS lost — leading
-        ;; to a spurious dispose.
-        [old new] (swap-vals! cache
-                              (fn [m]
-                                (if-let [entry (get m k)]
-                                  (let [old-n (or (:ref-count entry) 1)
-                                        n     (max 0 (dec old-n))]
-                                    (assoc-in m [k :ref-count] n))
-                                  m)))
-        ;; This swap drove the 1 → 0 transition iff the entry was
-        ;; present in both old and new AND old's ref-count was 1 AND
-        ;; new's ref-count is 0. Reading from the snapshots avoids the
-        ;; side-effect-in-swap-fn race.
-        dropped-to-zero? (and (contains? new k)
-                              (= 1 (or (get-in old [k :ref-count]) 1))
-                              (zero? (or (get-in new [k :ref-count]) 0)))]
-    (when dropped-to-zero?
-      (dispose-entry-now! cache k frame-id))
+               (catch #?(:clj Throwable :cljs :default) e
+                 (warn-dispose-failure! frame-id k e :no-more-derefers))))))
     nil))
 
 (defn ^:no-doc unsubscribe-if-reaction!
-  "INTERNAL. `unsubscribe!` with an IDENTITY GUARD: decrement
-  the ref-count for `k` **only while the slot still holds `reaction`**, then
-  take the ordinary 1 → 0 in-tick disposal. Not part of the public API —
-  `re-frame.subs/unsubscribe` remains the teardown every consumer calls.
+  "INTERNAL — the cache's one release. Decrement the ref-count for `k`
+  **only while the slot still holds `reaction`** (an IDENTITY GUARD), and on
+  the 1 → 0 transition dispose the entry synchronously through
+  `dispose-entry-now!`: evict the slot, run the reaction's on-dispose callback
+  (which releases its input refs), and emit `:rf.sub/dispose`
+  `:no-more-derefers`. No grace period: a resubscribe after the release is a
+  fresh miss (Spec 006 §Reference counting and disposal). The public
+  `re-frame.subs/unsubscribe` reaches it after resolving the cache.
 
   The guard exists for **holders that may outlive their slot**. The React-hook
   spine's render-phase provisional acquisition (Spec 006 §Render-phase
@@ -287,13 +248,9 @@
   ref another subscriber owns. Guarded, a stale release is a clean no-op: its
   reference died with the eviction.
 
-  Everything else is `unsubscribe!`'s: the same `swap-vals!`-after-CAS
-  discipline (the swap-fn body is pure; the drop-to-zero signal is read from
-  the pre/post snapshots so a retried `swap!` cannot fire a spurious
-  dispose), the same `dispose-entry-now!` eviction, the same
-  `:no-more-derefers` emit. The cache's shape, its algorithm, and Spec 006's
-  no-grace-period rule are untouched — this fn only narrows WHEN the
-  decrement applies, never what a decrement does.
+  The swap-fn body is pure: the drop-to-zero signal is read from the
+  pre/post snapshots, so a `swap!` retried under JVM contention cannot fire a
+  spurious dispose.
 
   `frame-id` is threaded through to `dispose-entry-now!` so the eviction
   site's `:rf.sub/dispose` emit carries the right `:frame` tag."
@@ -309,8 +266,7 @@
                                   m)))
         ;; This swap drove the 1 → 0 transition iff the guard admitted it —
         ;; the slot still holds OUR reaction in the post-swap snapshot — and
-        ;; the count went 1 → 0. Same snapshot-diff reasoning as
-        ;; `unsubscribe!`.
+        ;; the count went 1 → 0, read from the snapshots.
         dropped-to-zero? (and (identical? reaction (get-in new [k :reaction]))
                               (= 1 (or (get-in old [k :ref-count]) 1))
                               (zero? (or (get-in new [k :ref-count]) 0)))]
@@ -444,7 +400,8 @@
         (doseq [k evicted-keys]
           (when-let [r (get-in old [k :reaction])]
             (try (rf.interop/dispose! r)
-                 (catch #?(:clj Throwable :cljs :default) _ nil)))))
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (warn-dispose-failure! frame-id k e :hot-reload))))))
       evicted-keys)
     []))
 
@@ -460,8 +417,8 @@
 
 (defn- clear-frame-sub-cache!
   "Evict and dispose every entry in `frame-id`'s sub-cache, emitting
-  `:rf.sub/dispose` `:cache-clear` per slot. Returns the values the per-entry
-  disposes threw, in traversal order. See `clear-sub-cache!`."
+  `:rf.sub/dispose` `:cache-clear` per slot. Returns `[cache-key thrown]` for
+  each per-entry dispose that threw, in traversal order. See `clear-sub-cache!`."
   [frame-id]
   (if-let [cache (:sub-cache (rf.frame/frame frame-id))]
     ;; Evict the whole cache BEFORE any dispose! call — see the
@@ -486,7 +443,7 @@
                     (try (rf.interop/dispose! r)
                          failures
                          (catch #?(:clj Throwable :cljs :default) e
-                           (conj failures e)))
+                           (conj failures [k e])))
                     failures))
                 []
                 snapshot)))
@@ -494,8 +451,9 @@
 
 (defn clear-sub-cache!
   "Dispose every cached entry in a frame's runtime sub-cache and clear
-  the cache. A throwing per-entry dispose is swallowed and the walk
-  continues.
+  the cache. A throwing per-entry dispose does not stop the walk; each
+  failure is recorded as a `:rf.warning/sub-input-dispose-exception`
+  diagnostic (`:where :cache-clear`).
 
   Test fixtures and REPL-driven reloads call this between scenarios
   to ensure the cache is empty before re-subscribing. Test code
@@ -511,21 +469,22 @@
 
   The cache atom is reset to `{}` BEFORE any
   `rf.interop/dispose!` call, not after. A layer-2+ slot's on-dispose
-  callback releases its declared-input refs via `unsubscribe!`, which — if
+  callback releases its declared-input refs via `unsubscribe-if-reaction!`, which — if
   the input's slot were still present in the cache atom mid-walk — could
   drive its ref-count to 0 and fire `dispose-entry-now!`, re-emitting a
   SECOND `:rf.sub/dispose` (reason `:no-more-derefers`) for a slot this
   same walk is about to visit with reason `:cache-clear`; the resulting
   double-emit's ORDER (and thus which reason lands first) would depend on
   hash-map iteration order over the cache. Clearing the atom first means
-  every cascade-driven `unsubscribe!` finds nothing to evict, so it can
+  every cascade-driven release finds nothing to evict, so it can
   never re-fire — every slot in the pre-clear snapshot gets exactly one
   emit, deterministically reasoned `:cache-clear`."
   ([] (clear-sub-cache! (rf.frame/require-current-frame!
                           :clear-sub-cache!
                           {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
-   (clear-frame-sub-cache! frame-id)
+   (doseq [[k ex] (clear-frame-sub-cache! frame-id)]
+     (warn-dispose-failure! frame-id k ex :cache-clear))
    nil))
 
 (defn clear-all-frame-sub-caches!
@@ -551,7 +510,7 @@
   closed-enum reason shared with explicit `clear-sub-cache!` test/REPL
   teardown)."
   []
-  (into [] (mapcat clear-frame-sub-cache!) (rf.frame/frame-ids)))
+  (into [] (comp (mapcat clear-frame-sub-cache!) (map second)) (rf.frame/frame-ids)))
 
 (rf.late-bind/set-fn! :subs.cache/clear-all-frame-sub-caches!
                    clear-all-frame-sub-caches!)
@@ -582,7 +541,7 @@
   The cache atom is reset to `{}` BEFORE any
   `rf.interop/dispose!` call — same rationale as `clear-sub-cache!` above.
   Without pre-clearing, disposing a layer-2+ slot cascades (via its
-  on-dispose callback) into `unsubscribe!` on its declared inputs; if an
+  on-dispose callback) into the release of its declared inputs; if an
   input's slot were still live in the cache mid-walk, that could drive
   its ref-count to 0 and fire a SECOND `:rf.sub/dispose` (reason
   `:no-more-derefers`) for a slot this walk is about to visit with
@@ -603,7 +562,8 @@
           (emit-dispose! frame-id k :frame-destroy)
           (when-let [r (:reaction entry)]
             (try (rf.interop/dispose! r)
-                 (catch #?(:clj Throwable :cljs :default) _ nil)))))))
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (warn-dispose-failure! frame-id k e :frame-destroy))))))))
   nil)
 
 (rf.late-bind/set-fn! :subs.cache/dispose-all-for-frame-destroy!

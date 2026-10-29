@@ -318,15 +318,22 @@
   restores scheduler state, and the EARLIEST (E1 over E2) surfaces once via
   `surface-escaped!`. `depth` is decremented on both the success and throw
   paths so nested-epoch accounting stays correct. `capture-none` presence
-  (not truthiness) keeps a `false`/`nil` body throw representable."
-  [{:keys [depth escaped] :as scheduler} body-thunk]
+  (not truthiness) keeps a `false`/`nil` body throw representable.
+
+  An epoch opened while a drain is RUNNING — a subscriber's write, at depth
+  zero but inside the outer drain's loop — closes as a nested epoch: the
+  running loop picks up what the body queued, and the outer drain's terminal
+  owns the surfacing. Closing it as outermost would surface an escape an
+  earlier thunk of that drain stored into this unrelated write, and drop
+  this body's own throw behind it."
+  [{:keys [depth escaped flushing?] :as scheduler} body-thunk]
   (vswap! depth inc)
   (let [body-escaped (try
                        (body-thunk)
                        capture-none
                        (catch :default e e))]
     (vswap! depth dec)
-    (if (zero? @depth)
+    (if (and (zero? @depth) (not @flushing?))
       (do
         ;; Body threw E1 → it escaped earliest, so it is the PRIMARY. Seed
         ;; `:escaped` before draining so the drain's own escape can't displace
@@ -341,8 +348,9 @@
         ;; close is terminal — no later sibling drain follows).
         (drain-scheduler! scheduler)
         (surface-escaped! scheduler))
-      ;; Nested epoch close: the outer epoch owns the drain + surfacing;
-      ;; propagate a body escape upward so it reaches that boundary.
+      ;; Nested epoch close, or a close inside a running drain: the outer
+      ;; epoch owns the drain + surfacing; propagate a body escape upward so
+      ;; it reaches that boundary.
       (when-not (identical? capture-none body-escaped)
         (throw body-escaped)))))
 
@@ -2145,37 +2153,22 @@
 ;; render reaction (they intentionally don't publish
 ;; `:adapter/make-reaction`, so `rf.interop/make-reaction` returns nil and
 ;; the views-side arm no-ops). This spine seam provides parity: the
-;; React-hook wrap-view arms a `React.useEffect` empty-deps cleanup that
-;; emits `:rf.view/unmounted` on instance teardown.
+;; React-hook wrap-view renders an unmount sentinel whose `React.useEffect`
+;; empty-deps cleanup emits `:rf.view/unmounted` on instance teardown.
 ;;
-;; Render-key threading. On the Reagent family the instance-token is
-;; cached on the component object so the render-key
-;; (`[view-id instance-token]`) is stable across re-renders. The React-
-;; hook spine has no such per-instance object the views-side token-mint
-;; can latch onto (`provider/reagent-component-token` mints a FRESH token
-;; every render under UIx because no `:adapter/current-component` is
-;; published), so this seam mints its OWN stable per-instance token into a
-;; `useRef` — `[view-id <stable-token>]` is a well-formed render-key tuple
-;; whose token survives re-renders and matches the render whose teardown
-;; it marks. The required `:rf.view/unmounted` tags (`:view-id`, `:frame`)
-;; carry the values resolved in-render; `:render-key` carries the stable
-;; per-instance tuple.
+;; Render-key threading. The sentinel's `:rf.view/unmounted` carries the
+;; render key of the render that built it — the `*render-key*` the views
+;; layer bound, read through the `:views/reading-render-key` late-bind hook —
+;; so the teardown names the same `[view-id instance-token]` the instance's
+;; `:rf.view/rendered` traces carry. The registered-view head below holds the
+;; instance token stable across re-renders (`*instance-token*`). A sentinel
+;; built outside any registered render (a wrapped fn invoked directly) mints
+;; its own token once.
 ;;
 ;; Production elision. The whole arm sits inside `rf.interop/debug-enabled?`
 ;; — under :advanced + goog.DEBUG=false the wrap collapses to the bare
 ;; `user-fn` (no hooks, no emit), so the `rf.view/unmounted` sentinel
 ;; stays absent in prod bundles.
-
-(def ^:private unmount-instance-counter
-  "Process-wide monotonic counter for stable per-instance render-key
-  tokens minted by the React-hook wrap-view's unmount sentinel.
-  Dev-only — the only call site sits inside the sentinel
-  component, which only runs when React renders it under
-  `rf.interop/debug-enabled?`, so this and its `swap!` DCE in production
-  builds. Distinct from the views-side `provider/instance-counter` (the
-  spine carries no spine→views dependency edge); both are in-run
-  discriminators with no cross-run correlation guarantee."
-  (atom 0))
 
 (defn- emit-view-unmounted-via-hook!
   "Fire `:rf.view/unmounted` for `render-key` in `frame-id` through the
@@ -2189,6 +2182,13 @@
   (when rf.interop/debug-enabled?
     (when-let [emit! (rf.late-bind/get-fn :views/emit-view-unmounted!)]
       (emit! view-id render-key frame-id))))
+
+(defn- reading-render-key
+  "The render key the views layer bound for the registered render in
+  flight, or nil outside one (`:views/reading-render-key`)."
+  []
+  (when-let [read-key (rf.late-bind/get-fn :views/reading-render-key)]
+    (read-key)))
 
 (defn make-unmount-sentinel
   "Build the per-view unmount-sentinel React function component.
@@ -2208,129 +2208,62 @@
   same safety the after-render sentinel relies on.
 
   Props (passed by wrap-view via `React/createElement`):
-    :view-id  the registered view id (the `:view-id` tag + render-key head)
-    :frame    the frame resolved at wrap-view render time (the `:frame`
-              tag; captured in a ref so the cleanup, which runs outside
-              React render, reports the frame the instance rendered under)
+    :viewId     the registered view id (the `:view-id` tag)
+    :frame      the frame resolved at wrap-view render time (the `:frame`
+                tag)
+    :renderKey  the render key of the render that built the element, or
+                nil outside a registered render
 
-  Stable per-instance token: minted once into a `useRef` so the
-  `:render-key` tuple `[view-id <token>]` survives re-renders and matches
-  the render whose teardown it marks. Empty-deps `#js []` → the effect's
-  cleanup runs exactly once on unmount (one-shot, matching the Reagent
-  path's reaction-dispose semantics)."
+  The frame and render key are kept in refs so the cleanup, which runs
+  outside React render, reports what the instance last rendered under. With
+  no render key the sentinel mints one token into a ref, once. Empty-deps
+  `#js []` → the effect's cleanup runs exactly once on unmount (one-shot,
+  matching the Reagent path's reaction-dispose semantics)."
   []
   (fn unmount-sentinel [^js props]
     (let [view-id    (.-viewId props)
-          frame-id   (.-frame props)
-          token-ref  (React/useRef nil)
-          token      (or (.-current token-ref)
-                         (let [t (swap! unmount-instance-counter inc)]
-                           (set! (.-current token-ref) t)
-                           t))
-          render-key [view-id token]
-          ;; Capture the frame in a ref so a frame change across re-renders
-          ;; (rare for a mounted instance) still has the cleanup report the
-          ;; last-rendered frame rather than a stale closure value.
+          key-ref    (React/useRef nil)
           frame-ref  (React/useRef nil)]
-      (set! (.-current frame-ref) frame-id)
+      (set! (.-current key-ref)
+            (or (.-renderKey props)
+                (.-current key-ref)
+                [view-id (rf.adapter.context/mint-instance-token!)]))
+      (set! (.-current frame-ref) (.-frame props))
       (React/useEffect
         (fn unmount-arm-effect []
           (fn cleanup []
-            (emit-view-unmounted-via-hook! view-id render-key
+            (emit-view-unmounted-via-hook! view-id (.-current key-ref)
                                            (.-current frame-ref))))
         #js [])
       nil)))
 
-(def ^:private void-dom-tags
-  "HTML5 void elements — self-closing, MUST NOT receive children. React
-  raises a void-element error (and SSR/hydration breaks) if `input`,
-  `img`, `br`, … are given a child. The set is fixed in HTML5 (no
-  maintenance burden).
+(defn- with-unmount-sentinel
+  "Pair `annotated` — the source-coord / view-id-annotated user output — with
+  an unmount sentinel, so the view instance fires `:rf.view/unmounted` on
+  teardown. The result is a `React.Fragment` of `annotated`, unchanged, and
+  the sentinel as its sibling. Neither the Fragment nor the sentinel renders
+  DOM, so the committed DOM, and every layout or selector over it, is
+  exactly the user's.
 
-  Lockstep with `re-frame.ssr.emit/void-elements` (same membership,
-  keyword vs string shapes). Bundle isolation forbids `:require` across
-  artefacts (core must not reach into the SSR artefact), so the set is
-  duplicated by intent. If HTML5 ever extends the void-element list
-  (extraordinarily unlikely), update every copy."
-  #{"area" "base" "br" "col" "embed" "hr" "img" "input" "link"
-    "meta" "param" "source" "track" "wbr"})
+  A sibling, never a child of the user's root: a child would rewrite the
+  root's `children`, which breaks a void element, a root carrying
+  `dangerouslySetInnerHTML` and a component that owns its children (a render
+  prop, `React.Children.only`), and an unkeyed trailing child moves whenever
+  the child count changes, remounting the sentinel and emitting a false
+  `:rf.view/unmounted`. In the Fragment the sentinel always sits second, so
+  it mounts once per view instance — a view rendering nil or a string
+  included, since that is a mounted instance too.
 
-(defn- void-dom-root?
-  "True when `react-element` is a void HTML DOM element (string `type`
-  in `void-dom-tags`) — React rejects children on such roots, so the
-  unmount sentinel must ride as a SIBLING (in a Fragment) rather than a
-  child. Function/class components and Fragments have non-string types
-  and are never void."
-  [react-element]
-  (let [t (some-> ^js react-element .-type)]
-    (and (string? t) (contains? void-dom-tags t))))
-
-(defn- append-unmount-sentinel
-  "Attach an unmount-sentinel to `annotated` (the source-coord /
-  view-id-annotated user output) so the view instance fires
-  `:rf.view/unmounted` on teardown. Two shapes, keyed on
-  whether the user's root is a VOID DOM element:
-
-  - Non-void root (the dominant case): `cloneElement` with a trailing
-    extra CHILD. This preserves the root's `type`, `key`, and existing
-    props/children — the inspected output is still the user's annotated
-    root element, NOT a Fragment wrapper, so the source-coord + view-id
-    contract and the layout-critical no-wrapper guarantee both hold.
-
-  - Void root (`input` / `img` / `br` / …): React rejects
-    children on void elements (it raises a void-element error and breaks
-    hydration), so the sentinel CANNOT be a child. Instead, return a
-    `React.Fragment` holding the user's annotated root element UNCHANGED
-    (its `data-rf2-source-coord` / `data-rf-view` attrs intact) plus the
-    sentinel as a SIBLING. A Fragment renders no wrapper DOM node, so the
-    committed tree's DOM semantics are stable — the void element stays a
-    direct child of its real parent, with no synthetic host element. The
-    inspected root is still the user's annotated void element; only the
-    sentinel's sibling position changes. This keeps a valid registered
-    view returning a void root valid under dev-mode instrumentation (a
-    sentinel CHILD would make it invalid, producing React void-element
-    errors that vanish in production).
-
-  The sentinel renders no DOM in BOTH shapes. On a headless direct
-  invocation of the wrapped fn (the suite's render-trace tests call
-  `((rf/view id))`) this merely builds an element object whose sentinel
-  hooks never run; only a real React mount renders the sentinel and arms
-  its useEffect cleanup.
-
-  Non-element / nil output (a view returning a string or nil) has no
-  mountable root instance — pass it through unchanged (no unmount arm,
-  consistent with such a view having nothing to tear down)."
+  On a headless direct invocation of the wrapped fn this merely builds
+  element objects whose sentinel hooks never run."
   [unmount-sentinel id frame-id annotated]
-  (cond
-    (or (nil? annotated) (nil? (.-type ^js annotated)))
+  (React/createElement
+    (.-Fragment React) nil
     annotated
-
-    (void-dom-root? annotated)
-    ;; Void root — sentinel rides as a SIBLING inside a Fragment so the
-    ;; user's void element receives NO children. The annotated root is
-    ;; forwarded unchanged (source-coord / data-rf-view attrs intact).
-    (let [sentinel-el (React/createElement unmount-sentinel
-                                           #js {:viewId id :frame frame-id})]
-      (React/createElement (.-Fragment React) nil annotated sentinel-el))
-
-    :else
-    ;; Non-void root — append the sentinel as a CHILD (no Fragment wrap,
-    ;; so layout-critical positioning / flexbox / grid / :nth-child stay
-    ;; intact).
-    (let [sentinel-el (React/createElement unmount-sentinel
-                                           #js {:viewId id :frame frame-id})
-          existing    (some-> ^js annotated .-props .-children)
-          ;; cloneElement's variadic children REPLACE the original
-          ;; `props.children`, so the original children must be carried
-          ;; forward explicitly. `existing` is nil (no children), a single
-          ;; child, or a JS array — normalise to a flat arg list with the
-          ;; sentinel appended last.
-          children    (cond
-                        (nil? existing)   #js [sentinel-el]
-                        (array? existing) (.concat existing #js [sentinel-el])
-                        :else             #js [existing sentinel-el])]
-      (.apply React/cloneElement nil
-              (.concat #js [annotated nil] children)))))
+    (React/createElement unmount-sentinel
+                         #js {:viewId    id
+                              :frame     frame-id
+                              :renderKey (reading-render-key)})))
 
 (defn make-wrap-view
   "Return a `wrap-view` fn. The
@@ -2338,22 +2271,14 @@
   wrapped-user-fn` and produces a render fn that injects
   both `data-rf2-source-coord` (Spec 006 §Source-coord annotation) and
   `data-rf-view` (Spec 006 §View tagging contract) on the rendered
-  root DOM element, AND appends a no-DOM unmount-sentinel child so the
-  view instance fires `:rf.view/unmounted` on teardown (React-hook
-  parity for the Reagent family's reaction-dispose unmount hook), all
-  when `rf.interop/debug-enabled?` is true. Production builds elide via
-  `rf.interop/debug-enabled?` per Spec 009 §Production builds. The
-  registered head calls the wrapped fn inside its own render rather than
-  handing it to React as a component, so the head carries the
-  `displayName` and the wrapped fn carries none.
-
-  The sentinel is appended as a CHILD (via `cloneElement`) rather than
-  hooks called inline in the wrapped fn: the wrapped fn is also INVOKED
-  HEADLESS (`((rf/view id))` in the render-trace tests), where calling
-  React hooks throws. Building the sentinel as an element defers its hook
-  execution to a real React render — the same safety the after-render
-  sentinel relies on. Appending preserves the root's `type` / `key` /
-  props, so the source-coord + view-id annotation contract holds."
+  root DOM element, and pairs the output with a no-DOM unmount sentinel
+  (`with-unmount-sentinel`) so the view instance fires `:rf.view/unmounted`
+  on teardown (React-hook parity for the Reagent family's reaction-dispose
+  unmount hook), all when `rf.interop/debug-enabled?` is true. Production
+  builds elide via `rf.interop/debug-enabled?` per Spec 009 §Production
+  builds. The registered head calls the wrapped fn inside its own render
+  rather than handing it to React as a component, so the head carries the
+  `displayName` and the wrapped fn carries none."
   []
   (let [unmount-sentinel (make-unmount-sentinel)]
     (fn wrap-view [id metadata user-fn]
@@ -2372,7 +2297,7 @@
                            (let [frame-id  (rf.adapter.context/function-component-current-frame)
                                  out       (apply user-fn args)
                                  annotated (inject-source-coord-attr coord-attr view-attr out)]
-                             (append-unmount-sentinel unmount-sentinel id frame-id annotated)))]
+                             (with-unmount-sentinel unmount-sentinel id frame-id annotated)))]
           wrapped)
         user-fn))))
 
@@ -2455,13 +2380,32 @@
   for the mounted registry head is the `<id>` of its own `rf:render:<id>`
   measure (Spec 009 §Naming convention). Dev-only: the shell
   itself is a CORRECTNESS seam and is built in production too, but the name
-  string rides `rf.interop/debug-enabled?` and elides with the rest."
+  string rides `rf.interop/debug-enabled?` and elides with the rest.
+
+  In dev, a React render also holds the instance's render-key token in a
+  `useRef` and offers it to the view's render through
+  `rf.adapter.context/*instance-token*`, so the instance's render traces and
+  its `:rf.view/unmounted` share one stable `[view-id token]` across
+  re-renders. A direct invocation offers none and mints per call."
   []
   (fn componentize-view [id _metadata wrapped]
     (let [shell (fn view-component [& args]
-                  (if (react-props? (first args))
-                    (wrapped (first args))
-                    (apply wrapped args)))]
+                  (let [props (first args)]
+                    (cond
+                      (not (react-props? props))
+                      (apply wrapped args)
+
+                      rf.interop/debug-enabled?
+                      (let [token-ref (React/useRef nil)
+                            token     (or (.-current token-ref)
+                                          (let [t (rf.adapter.context/mint-instance-token!)]
+                                            (set! (.-current token-ref) t)
+                                            t))]
+                        (binding [rf.adapter.context/*instance-token* (volatile! token)]
+                          (wrapped props)))
+
+                      :else
+                      (wrapped props))))]
       (when rf.interop/debug-enabled?
         (set! (.-displayName ^js shell) (rf.performance/entry-id id)))
       shell)))
@@ -2496,7 +2440,7 @@
 ;; round trip — subscribe, deref, unsubscribe — would let a render that never
 ;; commits retain nothing, but on a query with no live cache entry that round
 ;; trip is `0 → 1 → 0`, and `1 → 0` is the disposal edge:
-;; `re-frame.subs.cache/unsubscribe!` evicts in-tick, no grace period.
+;; `re-frame.subs.cache/unsubscribe-if-reaction!` evicts in-tick, no grace period.
 ;; Microseconds later the commit-owned `subscribe-fn` would miss that same
 ;; cache and BUILD THE REACTION AGAIN. Every cold subscription read on this
 ;; spine would construct two reactions and run the user's sub body twice — for
@@ -2518,7 +2462,7 @@
 ;;
 ;; WHAT IT IS NOT. It is NOT a ref-count-0 cache tenancy. The token is an
 ;; ordinary reference held by an ordinary owner; the cache never holds a
-;; zero-ref entry, `unsubscribe!`'s 1 → 0 in-tick dispose is untouched, and no
+;; zero-ref entry, the release's 1 → 0 in-tick dispose is untouched, and no
 ;; entry gains a state machine. Reagent and plain-atom never reach this
 ;; code.
 ;;
@@ -3281,9 +3225,10 @@
                   (fn [on-change]
                     ;; WHAT THIS CLOSURE HOLDS, rather than what
                     ;; ADDRESS it subscribed to. `held` is `#js [reaction
-                    ;; watch-key]`: the ONE reaction this store-subscription
-                    ;; currently owns a durable +1 on, and the watch key placed
-                    ;; on it. `wire!` (below) replaces both atomically, so a
+                    ;; watch-key on-disposed]`: the ONE reaction this
+                    ;; store-subscription currently owns a durable +1 on, the
+                    ;; watch key placed on it, and the disposal callback armed
+                    ;; on it. `wire!` (below) replaces all three, so a
                     ;; framework-owned eviction can hand the hook a REBUILT
                     ;; reaction without React re-running `subscribe-fn` — which
                     ;; it never will, since the memo is keyed on `[stable-key]`
@@ -3319,7 +3264,7 @@
                             ;; is cheap and collision-free.
                             (let [wk (keyword use-sub-watch-ns
                                               (str (gensym "watch-")))]
-                              (vreset! held #js [reaction wk])
+                              (vreset! held #js [reaction wk nil])
                               ;; Publish the durable
                               ;; reaction KEY-TAGGED with this invocation's
                               ;; `stable-key` so `get-snap` derefs THIS live
@@ -3377,25 +3322,32 @@
                                 ;;     destroyed frame. A rebuild would reach
                                 ;;     `make-derived-value`, which throws
                                 ;;     `:rf.error/adapter-disposed` mid-teardown.
-                                (rf.interop/add-on-dispose! reaction
-                                  (fn on-committed-disposed []
-                                    (let [h @held]
-                                      (when (and (not @released?)
-                                                 (some? h)
-                                                 (identical? (aget h 0) reaction)
-                                                 (some? (rf.frame/frame stable-frame-kw))
-                                                 (some? (rf.substrate.adapter/current-adapter)))
-                                        ;; Take the REBUILT entry and re-wire
-                                        ;; onto it, then tell React to re-read
-                                        ;; the snapshot. `subscribe-fn`'s
-                                        ;; IDENTITY is untouched, so React's
-                                        ;; subscribe/unsubscribe contract and
-                                        ;; the same-key steady state are exactly
-                                        ;; what they were.
-                                        (wire! (rf.subs/subscribe
-                                                 stable-query-v
-                                                 {:frame stable-frame-kw}))
-                                        (on-change)))))))
+                                ;;
+                                ;; Armed REMOVABLY (`rf.subs/add-removable-on-dispose!`)
+                                ;; and removed by the release below: the reaction
+                                ;; is shared and may outlive this subscription by
+                                ;; many mounts, and an armed closure retains
+                                ;; `on-change` (the fiber) until the reaction dies.
+                                (rf.subs/add-removable-on-dispose! reaction
+                                  (aset @held 2
+                                    (fn on-committed-disposed []
+                                      (let [h @held]
+                                        (when (and (not @released?)
+                                                   (some? h)
+                                                   (identical? (aget h 0) reaction)
+                                                   (some? (rf.frame/frame stable-frame-kw))
+                                                   (some? (rf.substrate.adapter/current-adapter)))
+                                          ;; Take the REBUILT entry and re-wire
+                                          ;; onto it, then tell React to re-read
+                                          ;; the snapshot. `subscribe-fn`'s
+                                          ;; IDENTITY is untouched, so React's
+                                          ;; subscribe/unsubscribe contract and
+                                          ;; the same-key steady state are exactly
+                                          ;; what they were.
+                                          (wire! (rf.subs/subscribe
+                                                   stable-query-v
+                                                   {:frame stable-frame-kw}))
+                                          (on-change))))))))
                             nil)]
                     ;; Take the durable committed ref now (post-commit). This is
                     ;; the ONLY place a lasting +1 is acquired. The returned
@@ -3440,7 +3392,9 @@
                           (vreset! held nil)
                           (when (some? h)
                             (let [r (aget h 0)]
-                              (when r (remove-watch r (aget h 1)))
+                              (when r
+                                (remove-watch r (aget h 1))
+                                (rf.subs/remove-on-dispose! r (aget h 2)))
                               ;; Clear the published
                               ;; committed reaction, but ONLY if it still holds
                               ;; THIS closure's handle (compare the tagged

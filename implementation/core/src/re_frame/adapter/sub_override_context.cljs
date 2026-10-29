@@ -21,10 +21,9 @@
 
   ## Why it lives in core (CLJS-only)
 
-  Core already `:require`s React directly via `re-frame.views`, so this
-  file adds no new transitive runtime dep. It is CLJS-only
-  (`re_frame/adapter/sub_override_context.cljs`) — the JVM build never
-  loads it, mirroring `re-frame.adapter.context`. Core only DECLARES the
+  It is CLJS-only (`re_frame/adapter/sub_override_context.cljs`), so the
+  JVM build never loads it or its React require, mirroring
+  `re-frame.adapter.context`. Core only DECLARES the
   carriage + the consult; the resolver that READS this context is
   published from the Story side via the `:subs/resolve-sub-override`
   late-bind hook, so core stays tools-free and bundle-isolation holds.

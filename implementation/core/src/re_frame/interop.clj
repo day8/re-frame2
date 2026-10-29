@@ -6,13 +6,26 @@
   See Spec 011 §JVM-runnable view rendering and Spec 008 §JVM-runnable
   test suites."
   (:require [clojure.string :as str])
-  (:import [java.util.concurrent Executor Executors ScheduledExecutorService TimeUnit ScheduledFuture]))
+  (:import [java.util.concurrent Executor Executors ScheduledExecutorService ThreadFactory TimeUnit ScheduledFuture]))
 
 (set! *warn-on-reflection* true)
 
 ;; ---- next-tick scheduling -------------------------------------------------
 
-(defonce ^:private executor (Executors/newSingleThreadExecutor))
+(defn- daemon-thread-factory
+  "Threads for the runtime's executors: named `<prefix>-<n>`, and daemon, so
+  a JVM whose main thread has returned exits rather than waiting forever on
+  an idle executor. The cost is that work still queued at that moment is
+  dropped: a script that needs its events to finish uses `dispatch-sync`."
+  ^ThreadFactory [prefix]
+  (let [n (atom 0)]
+    (reify ThreadFactory
+      (newThread [_ r]
+        (doto (Thread. ^Runnable r (str prefix "-" (swap! n inc)))
+          (.setDaemon true))))))
+
+(defonce ^:private executor
+  (Executors/newSingleThreadExecutor (daemon-thread-factory "re-frame-next-tick")))
 
 (defn next-tick
   "Schedule f for execution on the runtime's executor — the JVM counterpart of
@@ -163,7 +176,7 @@
 ;; effectively immediately.
 
 (defonce ^:private ^ScheduledExecutorService scheduled-executor
-  (Executors/newSingleThreadScheduledExecutor))
+  (Executors/newSingleThreadScheduledExecutor (daemon-thread-factory "re-frame-timer")))
 
 (defn set-timeout!
   "Schedule f to run after ms milliseconds. Returns an opaque handle

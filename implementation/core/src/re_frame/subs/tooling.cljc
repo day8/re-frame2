@@ -166,10 +166,9 @@
   Tool-Pair-friendly shape:
   `{query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}`.
 
-  CLJS-only — on the JVM the cache exists for ref-counting purposes but
-  the cached reactions are not deref-able, so this fn returns `nil`. Per
-  Spec 002 §The public registrar query API and Tool-Pair §How AI tools
-  attach.
+  CLJS-only — a browser-host tooling read; on the JVM this fn returns
+  `nil`. Per Spec 002 §The public registrar query API and Tool-Pair §How
+  AI tools attach.
 
   Per-entry slots:
 
@@ -453,7 +452,7 @@
   CLJS-only and dev-only — gated on `rf.interop/debug-enabled?` (the
   `goog.DEBUG` mirror) so production builds DCE the cache walk. Returns
   `nil` for a missing/destroyed frame, and `nil` on the JVM + in production
-  (the cached reactions are not deref-able on the JVM)."
+  (Spec 002 §The public registrar query API marks it CLJS-only)."
   [frame-id]
   #?(:cljs
      (when rf.interop/debug-enabled?

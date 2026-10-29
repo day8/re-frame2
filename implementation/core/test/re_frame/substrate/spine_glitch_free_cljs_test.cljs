@@ -293,3 +293,23 @@
     (is (= [[1 2] [2 3]] @seen))
     (replace! root {:a 4 :b 10})
     (is (= [[1 2] [2 3] [3 4]] @seen))))
+
+(deftest re-entrant-write-during-a-failing-drain-keeps-each-failure-with-its-owner
+  ;; An earlier thunk of the outer drain throws; a later subscriber writes
+  ;; re-entrantly. The subscriber's write succeeded, so it must not receive the
+  ;; drain's failure: that surfaces from the outer write, once.
+  (let [{:keys [make-derived replace! root]} (build-graph)
+        boom   (ex-info "boom" {})
+        bad    (make-derived [root] (fn [db] (if (= 1 (:a db)) 1 (throw boom))))
+        l1     (make-derived [root] (fn [db] (:a db)))
+        nested (atom ::not-run)]
+    @bad
+    @l1
+    (add-watch bad :w (fn [_ _ _ _]))
+    (add-watch l1 :w (fn [_ _ _ _]
+                       (when (= ::not-run @nested)
+                         (reset! nested (thrown-by #(replace! root {:a 3 :b 10}))))))
+    (is (identical? boom (thrown-by #(replace! root {:a 2 :b 10})))
+        "the outer write surfaces the drain's failure")
+    (is (= ::none @nested)
+        "the re-entrant write returned normally rather than throwing a failure it did not cause")))

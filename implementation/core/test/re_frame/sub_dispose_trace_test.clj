@@ -141,6 +141,31 @@
       (finally
         (rf/unregister-listener! :trace ::input-dispose-throw)))))
 
+(deftest eviction-dispose-throw-is-surfaced-at-each-eviction-site
+  ;; What escapes a cached reaction's `dispose!` is a consumer's on-dispose
+  ;; callback. Every eviction path keeps going and, in dev, names the slot,
+  ;; the failure and the path rather than discarding it.
+  (rf/reg-event :init (fn [_ _] {:db {:n 1}}))
+  (rf/dispatch-sync [:init])
+  (let [boom   (ex-info "boom: a consumer's on-dispose threw" {})
+        armed! (fn [q] (rf.interop/add-on-dispose! (rf/subscribe [q]) #(throw boom)))
+        acc    (collect-traces! ::eviction-dispose-throw)
+        seen   (fn [] (for [ev @acc
+                            :when (= :rf.warning/sub-input-dispose-exception (:operation ev))]
+                        [(:rf.sub/query-v (:tags ev)) (:where (:tags ev))
+                         (identical? boom (:exception (:tags ev)))]))]
+    (try
+      (rf/reg-sub :evict/a (fn [db _] (:n db)))
+      (rf/reg-sub :evict/b (fn [db _] (:n db)))
+      (armed! :evict/a)
+      (armed! :evict/b)
+      (rf/reg-sub :evict/a (fn [db _] (inc (:n db))))
+      (rf.subs.cache/clear-sub-cache! :rf/default)
+      (when rf.interop/debug-enabled?
+        (is (= [[[:evict/a] :hot-reload true] [[:evict/b] :cache-clear true]] (seen))))
+      (finally
+        (rf/unregister-listener! :trace ::eviction-dispose-throw)))))
+
 ;; A ratom-family substrate disposes a cached reaction by its own route when its
 ;; last watcher drops, without consulting `:ref-count` (Spec 006 §Which lifetime
 ;; governs a ratom adapter). An explicit `subscribe` holds the slot on every

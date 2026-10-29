@@ -10,11 +10,9 @@
 
   The context lives in core (CLJS-only) because:
 
-    1. Core already :requires React directly via re-frame.views, so this
-       file adds no new transitive runtime dep. The plain-atom adapter
-       (the JVM-runnable half) does not load this ns — it sits in
-       re_frame/adapter/context.cljs (CLJS-only) and the JVM build
-       never sees it.
+    1. It is CLJS-only (re_frame/adapter/context.cljs): the plain-atom
+       adapter (the JVM-runnable half) does not load it, so the JVM build
+       never sees its React require.
 
     2. Both adapters MUST share the *same* React.createContext object —
        two separate createContext calls produce distinct contexts whose
@@ -148,6 +146,39 @@
   contract). CLJS-side alias of the neutral cross-host owner
   [[re-frame.source-coords/format-view-id]]."
   rf.source-coords/format-view-id)
+
+;; ---- registered-view instance tokens --------------------------------------
+;;
+;; A render key is `[view-id instance-token]` (Spec 009 §Per-`:operation`
+;; quick reference, `:rf.view/render`).
+;; The views layer reads the token for the render in flight; on the Reagent
+;; family it lives on the component object, and on a React-hook substrate the
+;; registered-view head (`re-frame.substrate.spine/make-componentize-view`)
+;; holds it in a `useRef` and offers it here. Both sides reach this leaf ns,
+;; which is why the counter and the offer live in it.
+
+(defonce ^:private instance-counter (atom 0))
+
+(defn mint-instance-token!
+  "A fresh integer token for a view instance. Process-wide and monotonic:
+  unique within one run, with no cross-run correlation."
+  []
+  (swap! instance-counter inc))
+
+(def ^:dynamic *instance-token*
+  "A volatile holding the instance token a React-hook registered-view head
+  offers to the render in flight, or nil. `claim-instance-token!` empties
+  it, so only the head's own view render takes it, never a view that render
+  invokes directly."
+  nil)
+
+(defn claim-instance-token!
+  "Take the token the enclosing registered-view head offered, or nil."
+  []
+  (when-let [offer *instance-token*]
+    (let [token @offer]
+      (vreset! offer nil)
+      token)))
 
 ;; ---- coercion helper for React-context reads ------------------------------
 ;;

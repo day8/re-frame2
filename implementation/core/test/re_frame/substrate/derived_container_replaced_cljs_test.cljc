@@ -5,7 +5,7 @@
   flows through) throws the canonical `:rf.error/derived-container-replaced`
   ex-info without invoking the adapter, and in dev also emits the matching
   `:error` trace (Spec 009). The plain-atom adapter exercises both host branches
-  of `replaceable-container?`: `.cljc` runs on the JVM and on node.
+  of the `derived-container?` check: `.cljc` runs on the JVM and on node.
 
   The throw is production behaviour; the trace is a bare `rf.trace/emit!` site,
   elided under `-Dre-frame.debug=false`, so its assertions sit behind

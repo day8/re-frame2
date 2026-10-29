@@ -81,6 +81,21 @@
               :children [:span] :fallback [:div "loading"]}))
         ":children and :fallback are stripped; frame opts pass through")))
 
+(deftest same-root-opts-counts-fns-equal-and-nothing-else
+  (testing "a fresh inline fn per render is the same configuration; a changed
+            value, key or arity of a collection is not"
+    (let [opts (fn [] {:id           :root/x
+                       :fx-overrides {:http (fn [_] :stub)}
+                       :interceptors [{:id :i :before (fn [ctx] ctx)}]})]
+      (is (true? (rf.views.frame-boundary/same-root-opts? (opts) (opts)))
+          "two renders' opts differ only by fn identity")
+      (is (false? (rf.views.frame-boundary/same-root-opts?
+                    (opts) (assoc (opts) :id :root/y))))
+      (is (false? (rf.views.frame-boundary/same-root-opts?
+                    (opts) (assoc (opts) :initial-events []))))
+      (is (false? (rf.views.frame-boundary/same-root-opts?
+                    (opts) (update (opts) :interceptors conj {:id :j})))))))
+
 ;; ---- end-to-end: the Reagent user-facing surfaces validate ----------------
 ;;
 ;; These don't mount (node has no DOM); they call the public Reagent

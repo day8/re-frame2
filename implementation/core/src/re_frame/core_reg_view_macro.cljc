@@ -162,7 +162,12 @@
              ;; rewriting of user view code; the blast radius is the
              ;; frame api's opts only. The frame is captured at render time
              ;; (`make-capture-frame` captures `(current-frame-id)` once).
-             fn-body  `(fn ~sym ~args
+             ;; The render fn must not be named `sym`: inside the body that
+             ;; name would bind the raw fn, so a view that renders itself
+             ;; (`[tree-node child]`) would mount the unregistered fn for
+             ;; every nested node. A fresh name keeps `sym` resolving to the
+             ;; Var, which the leading `declare` makes resolvable here.
+             fn-body  `(fn ~(gensym (str (name sym) "-render-")) ~args
                          (let [handle#    (re-frame.capture-frame/make-capture-frame
                                             (re-frame.core/current-frame-id)
                                             {:dispatch-opts       ~dispatch-opts-form
@@ -181,6 +186,7 @@
          ;; stored descriptor's registration coordinate (see
          ;; `re-frame.source-coords`).
          `(do
+            (declare ~sym)
             (binding [re-frame.source-coords/*pending-coords* ~coord-form]
               (re-frame.core/reg-view* ~id
                 ~full-slot-meta

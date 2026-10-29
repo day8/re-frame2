@@ -91,6 +91,20 @@
 (defn- source-coord [el] (react-element-attr el "data-rf2-source-coord"))
 (defn- view-attr     [el] (react-element-attr el "data-rf-view"))
 
+(defn- children-of
+  "`el`'s `props.children` as a vector: empty, one child, or the array."
+  [el]
+  (let [kids (some-> ^js el .-props .-children)]
+    (cond (array? kids) (vec kids) (nil? kids) [] :else [kids])))
+
+(defn- view-root
+  "The user's annotated root out of a dev wrap-view output: the first child
+  of the Fragment that pairs it with the unmount sentinel."
+  [out]
+  (is (identical? (.-Fragment React) (.-type out))
+      "the dev wrap-view output is a Fragment of the root and its unmount sentinel")
+  (first (children-of out)))
+
 (defn- with-captured-console-warn+error
   "Replace BOTH js/console.warn and js/console.error with recording shims
   around `thunk`. Returns the vector of joined-message strings observed on
@@ -198,7 +212,7 @@
                                               #js {:className "card" :id "x"}
                                               "body"))]
       (rf/reg-view* id user-fn)
-      (let [out   ((rf/view id))
+      (let [out   (view-root ((rf/view id)))
             props (.-props out)]
         (is (= "div" (.-type out)))
         (is (= "card" (aget props "className")) "user className preserved")
@@ -216,7 +230,7 @@
           user-fn   (fn [] (React/createElement
                              "div" #js {"data-rf2-source-coord" user-attr} "hi"))]
       (rf/reg-view* id user-fn)
-      (let [out ((rf/view id))]
+      (let [out (view-root ((rf/view id)))]
         (is (= "div" (.-type out)))
         (is (= user-attr (source-coord out))
             "user-supplied data-rf2-source-coord survives the wrap-view pass")))))
@@ -230,7 +244,7 @@
           user-fn (fn [] (React/createElement "i" #js {} "x"))]
       (rf/reg-view* id user-fn)
       (is (= [(namespace id) (clojure.core/name id) "?" "?"]
-             (str/split (source-coord ((rf/view id))) #":"))))))
+             (str/split (source-coord (view-root ((rf/view id)))) #":"))))))
 
 ;; ===========================================================================
 ;; view-id (data-rf-view) stamping (Spec 006 §View tagging contract)
@@ -245,7 +259,7 @@
           user-fn (fn [] (React/createElement
                           Frag nil (React/createElement "p" nil "a")))]
       (rf/reg-view* id user-fn)
-      (let [out ((rf/view id))]
+      (let [out (view-root ((rf/view id)))]
         (is (identical? Frag (.-type out)))
         (is (nil? (view-attr out)) "no data-rf-view on Fragment root (exempt)")
         (is (nil? (source-coord out)) "no data-rf2-source-coord on Fragment root (parity)")))))
@@ -259,7 +273,7 @@
           user-fn   (fn [] (React/createElement
                             "div" #js {"data-rf-view" user-attr} "hi"))]
       (rf/reg-view* id user-fn)
-      (let [out ((rf/view id))]
+      (let [out (view-root ((rf/view id)))]
         (is (= user-attr (view-attr out))
             "user-supplied data-rf-view survives the wrap-view pass")))))
 
@@ -270,7 +284,7 @@
     (let [id      (mint-kw substrate-kw "view-explicit-coords")
           wrapped (wrap-view id {:line 42 :column 7}
                              #(React/createElement "div" #js {} "x"))
-          out     (wrapped)
+          out     (view-root (wrapped))
           coord   (source-coord out)]
       (is (= (str id) (view-attr out)))
       (is (str/ends-with? coord ":42:7")))))
@@ -330,18 +344,20 @@
     (let [id       (mint-kw substrate-kw "react-key-0")
           item-key "rk-0"]
       (rf/reg-view* id (fn [] (React/createElement "li" #js {:key item-key} "item")))
-      (let [out ((rf/view id))]
+      (let [out (view-root ((rf/view id)))]
         (is (= ["li" item-key true]
                [(.-type out) (.-key out) (string? (source-coord out))]))))))
 
 ;; ===========================================================================
-;; void-element unmount-sentinel — wrap-view must NOT attach a
-;; child to a void DOM root (input / img / br / …). React rejects children on
-;; void elements and would raise a void-element error / break hydration; the
-;; sentinel must ride as a Fragment SIBLING instead. Headless structural
-;; assertion (runs under node-test for every entry file via the macro); the
-;; DOM-mount counterpart (no warning + exactly-one :rf.view/unmounted) lives
-;; in `assert-void-root-view-unmount-no-warning` (browser gate).
+;; ===========================================================================
+;; unmount sentinel — wrap-view pairs the user's root with the sentinel in a
+;; Fragment and never touches the root's children. A child appended to the
+;; root would be refused by a void element and by a root carrying
+;; dangerouslySetInnerHTML, would reach a component that owns its children,
+;; and would move whenever the child count changed. Headless structural
+;; assertions (run under node-test for every entry file via the macro); the
+;; DOM-mount counterparts are `assert-void-root-view-unmount-no-warning` and
+;; `assert-unmount-sentinel-leaves-root-children-alone` (browser gate).
 ;; ===========================================================================
 
 (defn assert-void-root-view-sentinel-is-fragment-sibling
@@ -350,21 +366,48 @@
   (testing (str name " — void root: sentinel is a Fragment sibling")
     (let [id (mint-kw substrate-kw "void-root-input")]
       (rf/reg-view* id (fn [] (React/createElement "input" #js {})))
-      (let [out ((rf/view id))]
+      (let [out    ((rf/view id))
+            kids-v (children-of out)
+            root-el (first kids-v)]
         (is (= (.-Fragment React) (.-type out)))
-        (let [kids    (some-> ^js out .-props .-children)
-              kids-v  (cond (array? kids) (vec kids) (nil? kids) [] :else [kids])
-              root-el (first kids-v)]
-          (is (= 2 (count kids-v)))
-          (is (= "input" (.-type root-el)))
-          (let [void-children (some-> ^js root-el .-props .-children)]
-            (is (or (nil? void-children)
-                    (and (array? void-children) (zero? (alength ^js void-children))))
-                "React forbids children on void elements"))
-          (is (string? (source-coord root-el)))
-          (is (= (str id) (view-attr root-el))))))))
+        (is (= 2 (count kids-v)))
+        (is (= "input" (.-type root-el)))
+        (is (empty? (children-of root-el)) "React forbids children on void elements")
+        (is (string? (source-coord root-el)))
+        (is (= (str id) (view-attr root-el)))))))
 
-;; ===========================================================================
+(defn assert-unmount-sentinel-never-touches-root-children
+  "Whatever the root, the wrap-view output is `Fragment(root, sentinel)` and
+  the root's own children prop is exactly what the view rendered."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — unmount sentinel: the root's children are the view's own")
+    (let [inner-html #js {:__html "<b>x</b>"}
+          owner      (fn [_props] nil)
+          cases      [["dangerouslySetInnerHTML root"
+                       #(React/createElement "div" #js {:dangerouslySetInnerHTML inner-html})
+                       (fn [root] (is (nil? (.. root -props -children))
+                                      "a dangerouslySetInnerHTML root gained a children prop"))]
+                      ["single-child root"
+                       #(React/createElement "p" nil "only")
+                       (fn [root] (is (= "only" (.. root -props -children))))]
+                      ["root component owning its children"
+                       #(React/createElement owner nil "fn-child")
+                       (fn [root] (is (= "fn-child" (.. root -props -children))))]
+                      ["nil output"
+                       (constantly nil)
+                       (fn [root] (is (nil? root)))]]]
+      (doseq [[i [label user-fn check]] (map-indexed vector cases)]
+        (testing label
+          (let [id  (mint-kw substrate-kw (str "sentinel-case-" i))
+                _   (rf/reg-view* id user-fn)
+                out ((rf/view id))
+                [root sentinel :as kids] (children-of out)]
+            (is (identical? (.-Fragment React) (.-type out)))
+            (is (= 2 (count kids)))
+            (is (= id (some-> ^js sentinel .-props .-viewId))
+                "the second child is this view's unmount sentinel")
+            (check root)))))))
+
 ;; frame-context corrupted `_currentValue` (Spec 009 §Error contract)
 ;; ===========================================================================
 
@@ -653,7 +696,7 @@
         (let [id      (mint-kw substrate-kw "copied-map-wrap-view")
               user-fn (fn [] (React/createElement "span" #js {} "hi"))]
           (rf/reg-view* id user-fn)
-          (let [out ((rf/view id))]
+          (let [out (view-root ((rf/view id)))]
             (is (= "span" (.-type out)) "root element type preserved")
             (is (string? (source-coord out))
                 (str "data-rf2-source-coord STILL stamped under the copied " name
@@ -5878,8 +5921,8 @@
           (fn [ev]
             (when (= :rf.view/unmounted (:operation ev))
               (swap! recorded conj ev))))
-        ;; Register a trivial DOM-rooted view. Its wrapper carries the
-        ;; spine wrap-view's unmount-sentinel child (which holds the
+        ;; Register a trivial DOM-rooted view. Its wrapper pairs the root
+        ;; with the spine wrap-view's unmount sentinel (which holds the
         ;; useEffect arm), and `(rf/view id)` is the adapter's mountable
         ;; component head, so it goes STRAIGHT into
         ;; `React/createElement` as the component type — no host component
@@ -5966,6 +6009,84 @@
             (finally
               (rf.trace.tooling/unregister-listener! ::void-view-unmounted-recorder)
               (try (.unmount root) (catch :default _ nil))))))))))
+
+(defn assert-unmount-sentinel-leaves-root-children-alone
+  "DOM-mount counterpart of `assert-unmount-sentinel-never-touches-root-children`,
+  and the render-trace identity of a mounted React-hook view.
+
+  A root carrying `dangerouslySetInnerHTML` mounts with no React error. A view
+  whose root's child count changes across re-renders (none → one → none → two)
+  stays ONE instance: no `:rf.view/unmounted` until its real teardown, every
+  `:rf.view/rendered` carries the same render key and the frame of the
+  boundary above it, `:rf.view/mount?` is true on the first render only, and
+  the one `:rf.view/unmounted` names that same render key.
+
+  Browser-DOM gate (real createRoot / unmount); skipped on node-test via
+  `with-browser-act`. cfg keys: :substrate-kw, :name."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — unmount sentinel leaves the root's children alone; one instance, one render key")
+    (with-browser-act
+     (fn [act-fn]
+      (let [frame-kw (mint-kw substrate-kw "sentinel-frame")
+            html-id  (mint-kw substrate-kw "sentinel-inner-html")
+            kids-id  (mint-kw substrate-kw "sentinel-child-count")
+            traces   (atom [])
+            listener ::sentinel-children-recorder]
+        (rf/make-frame {:id frame-kw})
+        (rf.trace.tooling/register-listener! listener
+          (fn [ev]
+            (when (and (#{:rf.view/rendered :rf.view/unmounted} (:operation ev))
+                       (#{html-id kids-id} (:rf.view/id (:tags ev))))
+              (swap! traces conj ev))))
+        (rf/reg-view* html-id
+                      (fn [] (React/createElement "div" #js {:dangerouslySetInnerHTML
+                                                             #js {:__html "<b>inner</b>"}})))
+        (rf/reg-view* kids-id
+                      (fn [^js props]
+                        (apply React/createElement "ul" nil
+                               (for [i (range (.-n props))]
+                                 (React/createElement "li" #js {:key i} (str i))))))
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)
+              render!    (fn [n]
+                           (act-fn
+                             (fn []
+                               (.render root
+                                 (rf.adapter.context/provider-element
+                                   frame-kw
+                                   (React/createElement "section" nil
+                                     (React/createElement (rf/view html-id) #js {})
+                                     (React/createElement (rf/view kids-id) #js {:n n})))))))
+              of         (fn [op id] (filter #(and (= op (:operation %))
+                                                   (= id (:rf.view/id (:tags %))))
+                                             @traces))]
+          (try
+            (let [errors (with-captured-console-warn+error
+                           (fn [] (doseq [n [0 1 0 2]] (render! n))))]
+              (is (empty? (filter #(re-find #"(?i)dangerouslySetInnerHTML|children" %) errors))
+                  (str "no React error about children on the mounted roots; got " (pr-str errors))))
+            (is (= "<b>inner</b>" (.-innerHTML (.querySelector mount-node "section > div")))
+                "the dangerouslySetInnerHTML root rendered its markup")
+            (is (= 2 (.-length (.querySelectorAll mount-node "section > ul > li")))
+                "the child-count view rendered its latest children")
+            (is (empty? (of :rf.view/unmounted kids-id))
+                "no :rf.view/unmounted while the view stays mounted across child-count changes")
+            (let [rendered (of :rf.view/rendered kids-id)
+                  keys     (map #(:rf.view/render-key (:tags %)) rendered)]
+              (is (= 4 (count rendered)) "one :rf.view/rendered per render")
+              (is (= 1 (count (distinct keys))) "every render of the instance carries one render key")
+              (is (= [true false false false] (map #(:rf.view/mount? (:tags %)) rendered))
+                  "only the first render is a mount")
+              (is (every? #(= frame-kw (:frame (:tags %))) rendered)
+                  "each render trace carries the frame of the boundary above it")
+              (act-fn (fn [] (.unmount root)))
+              (is (= [(first keys)]
+                     (map #(:rf.view/render-key (:tags %)) (of :rf.view/unmounted kids-id)))
+                  "exactly one :rf.view/unmounted, naming the instance's render key"))
+            (finally
+              (rf.trace.tooling/unregister-listener! listener)
+              (try (.unmount root) (catch :default _ nil))
+              (rf/destroy-frame! frame-kw)))))))))
 
 (defn assert-mounted-display-name-is-devtools-visible
   "Mount the registered head `(rf/view id)` as a real React component and

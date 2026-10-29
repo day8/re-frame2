@@ -32,6 +32,15 @@
   ;; the id comes from the ns at expansion time, so it is spelled literally
   (is (some? (rf/view :re-frame.reg-view-test/widget-a))))
 
+(deftest reg-view-that-renders-itself-nests-the-registered-head
+  ;; Inside the body the view's own symbol is the Var, not the raw render fn,
+  ;; so every nested node mounts through the registered head.
+  (rf/reg-view tree-node [n]
+    (if (pos? n) [:ul [tree-node (dec n)]] [:li "leaf"]))
+  (rf/make-frame {:id ::tree-frame :doc "the render-time frame"})
+  (let [nested-head (first (last (rf/with-frame ::tree-frame (tree-node 1))))]
+    (is (identical? (rf/view :re-frame.reg-view-test/tree-node) nested-head))))
+
 (deftest reg-view-metadata-override-takes-precedence
   (rf/reg-view ^{:rf/id :explicit/widget} widget-c [_n] [:p "c"])
   (is (some? (rf/view :explicit/widget)))

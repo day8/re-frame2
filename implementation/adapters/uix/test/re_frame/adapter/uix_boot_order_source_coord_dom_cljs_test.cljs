@@ -104,7 +104,9 @@
         (is (= [false true] [(identical? head head-at-registration)
                              (identical? head (rf/view boot-row-id))])
             "the lookup re-derived against the installed adapter, and memoizes it so React sees one component type")
-        (let [lookup-output (head)]
+        (let [lookup-output (aget (.. ^js (head) -props -children) 0)]
+          ;; The dev head's output pairs the root with its unmount sentinel
+          ;; in a Fragment; the root is the first child.
           (is (= ["span" true]
                  [(.-type ^js lookup-output)
                   (string? (element-attr lookup-output "data-rf2-source-coord"))])

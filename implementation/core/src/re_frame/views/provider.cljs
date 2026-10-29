@@ -37,7 +37,7 @@
      as `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`.
 
   3. Per-render instance-token machinery — `mint-instance-token!`,
-     `reagent-component-token`. Tokens disambiguate concurrently-
+     `instance-token`. Tokens disambiguate concurrently-
      mounted instances of the same view-kind. The `*render-key*`
      dynamic var lives in `re-frame.views` so the wrapper's binding
      and consumer reads share the same canonical Var.
@@ -299,40 +299,35 @@
 ;; ---- per-render identity --------------------------------------------------
 ;;
 ;; Render-trace entries carry a `:render-key` of shape
-;; `[<view-id> <instance-token>]`. Tokens are minted at mount time
-;; from a process-wide counter and disambiguate concurrently-mounted
-;; instances of the same kind — they're for in-run discrimination
-;; only, no cross-run correlation.
+;; `[<view-id> <instance-token>]`. Tokens come from one process-wide
+;; counter (`rf.adapter.context/mint-instance-token!`) and disambiguate
+;; concurrently-mounted instances of the same kind — they're for in-run
+;; discrimination only, no cross-run correlation.
 ;;
 ;; The `*render-key*` dynamic var and `current-render-key` reader
 ;; live in `re-frame.views` (the public ns) so the canonical Var sits
 ;; at the public path tests reach via `re-frame.views/*render-key*`.
-;; The mint / per-component-instance machinery lives here with its
-;; state (`instance-counter`, `.-rfInstanceToken`).
 
-(defonce ^:private instance-counter (atom 0))
+(def mint-instance-token!
+  "Return a fresh integer token for a view instance. See
+  `rf.adapter.context/mint-instance-token!`."
+  rf.adapter.context/mint-instance-token!)
 
-(defn mint-instance-token!
-  "Return a fresh integer token for a freshly-mounted view instance. The
-  counter is process-wide and monotonic; values are unique within a
-  single process run but carry no cross-run correlation guarantee."
-  []
-  (swap! instance-counter inc))
-
-(defn reagent-component-token
-  "Return the per-component-instance token, minting one on first call.
-  Stored on the Reagent component object as `.-rfInstanceToken` so the
-  same mounted instance reuses the token across re-renders. When called
-  outside a Reagent component (direct invocation in headless tests),
-  mints a fresh token per call — that mirrors the per-mount-fresh
-  semantics for tests that simulate one mount per call."
+(defn instance-token
+  "The token of the view instance rendering now, stable across its
+  re-renders: kept on the Reagent component object as `.-rfInstanceToken`,
+  or the one a React-hook registered-view head offers
+  (`rf.adapter.context/claim-instance-token!`). Outside any mounted
+  instance (a direct headless invocation) mints a fresh token per call,
+  which mirrors one mount per call."
   []
   (if-let [cmp (current-component)]
     (or (.-rfInstanceToken ^js cmp)
         (let [tok (mint-instance-token!)]
           (set! (.-rfInstanceToken ^js cmp) tok)
           tok))
-    (mint-instance-token!)))
+    (or (rf.adapter.context/claim-instance-token!)
+        (mint-instance-token!))))
 
 (defn component-lifecycle-reaction
   "Return the per-component-instance lifecycle reaction,
