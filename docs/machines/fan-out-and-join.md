@@ -295,7 +295,9 @@ immediately, even when another child could still succeed.
   once, and the child's result is
   `{:status :cancelled :rf.reply/cancel-reason :explicit}`. Without it, the
   join is stranded and the same warning fires. The children the runtime
-  cancels itself, when the join resolves or the state exits, never count.
+  cancels itself, when the join resolves or the state exits, never count, and
+  nor does a child you destroy while the parent leaves the state, re-entering
+  it included: the join ends with the state.
 - **A child address a live actor already holds rejects the whole invoke**
   (`:rf.error/machine-spawn-all-duplicate-id`). Two parents spawning one
   child type both mint `<type>#1`; the second batch starts nothing rather
