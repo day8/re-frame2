@@ -226,7 +226,8 @@ module.exports = {
   entries: ['app/root'],
 
   // Once per isolate, before the first render. Install the substrate here
-  // — Spec 006 allows exactly one per process.
+  // — Spec 006 allows exactly one per process. A promise it returns is
+  // awaited, and a rejection refuses the boot as a throw does.
   boot() { /* rf.init!(adapter); registerViews(); */ },
 
   // Once per request. `state` and `runtime` are frozen. Return the body
@@ -253,7 +254,10 @@ under `re_frame/ssr_node/`, and `re-frame.ssr.ring.node/renderer` given
 command on a port the OS picks, checks the ready line, relaunches the
 command if it exits, and stops it when the renderer is closed or the JVM
 exits. It passes `--timeout-ms`, `--max-timeout-ms` and `--admission-ms`
-from its own opts, so the two halves cannot disagree. Nothing is installed,
+from its own opts, so the two halves cannot disagree. It also passes
+`--exit-with-stdin`, so a JVM killed without running its shutdown hooks
+still takes the sidecar with it: the OS closes the stdin pipe only the JVM
+holds, and the launcher closes as it does on SIGTERM. Nothing is installed,
 and the sidecar is always the one built with the JVM artefact. The copy is
 pinned to this directory byte for byte by this package's own suite.
 
@@ -278,6 +282,8 @@ re-frame2-ssr-node --module /srv/my-app/out/server-bundle.cjs
   --max-timeout-ms <n>       ceiling on the deadline a request may ask for          [5000]
   --admission-ms <n>         how long a request waits for a free isolate before 503 [250]
   --max-request-bytes <n>    ceiling on the body, and on state + runtime together   [1048576]
+  --exit-with-stdin          stop, as on SIGTERM, when stdin ends (for a supervisor
+                             holding the pipe)
 ```
 
 `node bin/serve.cjs` is the same program. It serves `POST /render`
@@ -302,7 +308,8 @@ Once listening, the launcher writes one line to stdout:
 `host` and `port` are the bound address, so a supervisor that passed
 `--port 0` reads the real port here. A bundle that logs at boot shares
 stdout, so scan for the line whose `"rf.ssr-node"` key is `"ready"`. The exit
-code is `0` after SIGTERM or SIGINT, `1` when the service failed — it could
+code is `0` after SIGTERM, SIGINT or (under `--exit-with-stdin`) the end of
+stdin, `1` when the service failed — it could
 not start, or could not replace an isolate — and `2` for a wrong command line.
 
 ### Deployment

@@ -26,9 +26,18 @@
 // is BOUND to, as the OS reports it; `url` is that address spelled for a
 // dialler. Diagnostics go to stderr.
 //
+// ## --exit-with-stdin
+//
+// A supervisor that holds the other end of this process's stdin passes it,
+// and the end of stdin then closes the service as SIGTERM does. The OS
+// closes that pipe however the supervisor ends, so a JVM killed without
+// running its shutdown hooks still takes the sidecar with it. An operator's
+// daemon, whose stdin may be /dev/null, does not pass it.
+//
 // ## EXIT CODES
 //
-//     0  stopped by SIGTERM or SIGINT after a graceful close
+//     0  stopped by SIGTERM, SIGINT or (under --exit-with-stdin) the end of
+//        stdin, after a graceful close
 //     1  the service failed: it could not start (the module refused, its
 //        buildId cannot be a header, or the port is taken), or a terminated
 //        isolate could not be replaced
@@ -64,6 +73,7 @@ const OPTIONS = Object.fromEntries(
     },
   ]),
 );
+OPTIONS['exit-with-stdin'] = { type: 'boolean', default: false };
 OPTIONS.help = { type: 'boolean', short: 'h', default: false };
 
 const USAGE = [
@@ -73,6 +83,7 @@ const USAGE = [
     const flag = `  --${name} ${description}`;
     return defaultValue === undefined ? flag : `${flag}  [${defaultValue}]`;
   }),
+  '  --exit-with-stdin  stop, as on SIGTERM, when stdin ends (for a supervisor holding the pipe)',
   '  -h, --help',
   '',
 ].join('\n');
@@ -97,6 +108,14 @@ const describeError = (error) =>
   error && error.code
     ? `${error.code} — ${error.message}`
     : String(error && error.message ? error.message : error);
+
+/** Settles once stdin ends: whoever held its other end is gone. */
+const stdinEnded = () =>
+  new Promise((resolve) => {
+    const ended = () => resolve('stdin ended');
+    for (const event of ['end', 'close', 'error']) process.stdin.once(event, ended);
+    process.stdin.resume();
+  });
 
 /** The bound address, spelled for a dialler: IPv6 gets its brackets. */
 const urlOf = (host, port) => `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
@@ -169,6 +188,7 @@ async function main(argv) {
     new Promise((resolve) => {
       for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => resolve(sig));
     }),
+    ...(flags['exit-with-stdin'] ? [stdinEnded()] : []),
     service.whenFailed.then(() => null),
   ]);
   if (signal === null) {

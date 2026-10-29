@@ -25,7 +25,11 @@
 
   The renderer is a fn that is also `java.io.Closeable`: `.close` (or
   `with-open`) stops a sidecar the renderer owns and does nothing for one it
-  dials, and a JVM shutdown hook stops an owned sidecar nobody closed.
+  dials, and a JVM shutdown hook stops an owned sidecar nobody closed. A
+  JVM that ends without running its hooks — killed outright, or crashed —
+  still takes its sidecar with it: the launch passes `--exit-with-stdin`,
+  so the sidecar closes itself once its stdin pipe, which only this JVM
+  holds, is closed by the OS.
 
   ## What crosses, and what does not
 
@@ -657,7 +661,10 @@
            ;; deadline is also the ceiling, so it is never clamped.
            "--timeout-ms" (str timeout-ms)
            "--max-timeout-ms" (str timeout-ms)
-           "--admission-ms" (str admission-ms)]
+           "--admission-ms" (str admission-ms)
+           ;; Only this JVM holds the child's stdin pipe, and the OS closes
+           ;; it however the JVM ends, shutdown hooks run or not.
+           "--exit-with-stdin"]
     isolates (into ["--isolates" (str isolates)])))
 
 (defn- launch!
