@@ -84,7 +84,7 @@ page.
 
 shadow-cljs calls a `:browser` build's module `:init-fn` exactly once, at
 bundle load, and thereafter invokes only `^:dev/after-load` hooks
-(measured on shadow-cljs 3.4.10, rf2-r0kk7). Every emitted `core.cljs`
+(measured on shadow-cljs 3.4.10). Every emitted `core.cljs`
 therefore carries such a hook — `mount!` — and that hook, not `init`, is
 what a save re-runs:
 

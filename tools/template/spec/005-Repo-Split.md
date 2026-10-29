@@ -2,7 +2,7 @@
 
 > **Normative procedure for moving `tools/template/` out of the
 > re-frame2 monorepo to its permanent home at
-> `github.com/day8/re-frame2-template`** (rf2-dolpf §4 / rf2-7jgkv).
+> `github.com/day8/re-frame2-template`**.
 >
 > Scope: this doc owns the migration sequence + the deps-new coord
 > retarget. The steady-state spec of the template lives in 000 / 001
@@ -13,7 +13,7 @@
 **Sequencing prerequisite.** The Stage-6 W8 prerequisite — collapse the
 substrate variants onto the compiled-view scaffold (synthesis
 `11-adoption-workstreams.md` W8) — is void: that variant was retired
-(rf2-qmvep, 2026-07-25) rather than adopted, so nothing gates this split
+(2026-07-25) rather than adopted, so nothing gates this split
 on it. The split itself runs in Stage 7 after every alpha gate is green
 (synthesis `08-delivery.md` §2, Stage 7).
 
@@ -35,7 +35,7 @@ Secondary benefits:
 
 - **Release cadence independence.** Template releases tag on the
   template repo, not the monorepo. The two trees ship at their own
-  pace. The `tools/template/VERSION` file (added at rf2-h0w5y §3.1)
+  pace. The `tools/template/VERSION` file
   is already independent of the framework-wide repo-root `VERSION`,
   in anticipation.
 - **Smaller clone footprint** for `clojure -Tnew` consumers — they
@@ -43,8 +43,8 @@ Secondary benefits:
   (which is heavy: 22 K-line spec, full implementation tree, multiple
   tool surfaces, etc.).
 - **Cleaner CI surface.** The template repo owns its
-  `template-release.yml` workflow + tag-on-release pipeline
-  (rf2-h0w5y §3.1); the monorepo's CI doesn't need to know about
+  `template-release.yml` workflow + tag-on-release pipeline;
+  the monorepo's CI doesn't need to know about
   template publishes post-split.
 
 ## §2 What lives where after the split
@@ -226,8 +226,8 @@ document — every `%`-bearing spelling *here* is the real thing.
 ## §3 Migration sequence (operator-side)
 
 This is the **operator-handoff sequence**. The scaffolding (this
-doc, the migration note, the cross-ref sweep) landed under
-rf2-7jgkv; the steps below are Mike-side actions that complete the
+doc, the migration note, the cross-ref sweep) is in place;
+the steps below are Mike-side actions that complete the
 split.
 
 ### §3.1 Seed the external repo
@@ -259,8 +259,8 @@ git push template-repo template-split-export:main
 
 ### §3.2 Move the release workflow
 
-The template-release workflow (`.github/workflows/template-release.yml`,
-landed at rf2-h0w5y §3.1) currently lives in the re-frame2 monorepo.
+The template-release workflow (`.github/workflows/template-release.yml`)
+currently lives in the re-frame2 monorepo.
 Move it to the external repo:
 
 ```bash
@@ -295,7 +295,7 @@ edits:
 - **The pre-split Release-body caveat retires with the split.**
   `release_gate_test.clj`'s `release-body-carries-pre-split-caveat-test`
   requires the cut Release body to state it is *not a usable public
-  scaffold*, to name the `:local/root` rewrite, and to cite rf2-8n4s71 —
+  scaffold*, to name the `:local/root` rewrite, and to cite this page —
   because pre-split the emitted framework coords are unpublished and the
   `io.github.day8/re-frame2-template` git-coord does not resolve.
   Completing this split is exactly what makes that coord resolve, so the
@@ -387,7 +387,7 @@ a loud message in the fast local loop — the idiom
 not acceptable for any tier in the table above: they are the pin, surface
 and behavioural coverage the release gate rests on.
 
-**Story coupling, restored (rf2-1bkoc).** Earlier drafts of this
+**Story coupling, restored.** Earlier drafts of this
 section listed two dependencies the suite then shed and now has again:
 `template_emission_test.clj` resolves the emitted `stories.cljs`'s
 `re-frame.story` symbols against `tools/story/src/`, and
@@ -411,19 +411,19 @@ framework-pin bump (the guard weakens to "template pins == fixture pins
 == last-known framework pins"). It cannot serve `emitted_test_run_test`
 at all: that tier needs a real `implementation/node_modules` to junction
 and real adapter sources to compile against. Taking it wholesale would
-mean dropping the behavioural tier — the exact false-green rf2-jdj17 /
-rf2-ek857f hardened against — so it is never an option for the release
+mean dropping the behavioural tier — the exact false-green the in-monorepo gates are
+hardened against — so it is never an option for the release
 gate.
 
 Whichever shape wins for the pin tiers, the external-repo release
 workflow (§5) MUST run the full set green from the standalone layout
 before the first `template-v…` tag — a release that skips these tiers is
-the exact false-green the in-monorepo gates (rf2-jdj17, rf2-ek857f) were
+the exact false-green the in-monorepo gates were
 hardened against, reintroduced post-split.
 
 ### §3.3 Pin the initial release tag
 
-The git-coord distribution (rf2-h0w5y §3.1) cuts a tag per release.
+The git-coord distribution cuts a tag per release.
 The first tag on the external repo establishes the initial release
 that `clojure -Tnew create :template io.github.day8/re-frame2-template`
 can resolve:
@@ -435,8 +435,7 @@ git tag template-v0.0.1.alpha
 git push template-repo template-v0.0.1.alpha
 ```
 
-(The `template-v…` prefix matches the workflow's trigger filter; see
-rf2-h0w5y §3.1.)
+(The `template-v…` prefix matches the workflow's trigger filter.)
 
 ### §3.4 Verify the published invocation works
 
@@ -526,15 +525,12 @@ references that survived the docs sweep and either:
 - Point at the external repo (`https://github.com/day8/re-frame2-template`).
 - Delete if the reference is now meaningless.
 
-Both build-file edits this step used to list are ALREADY TAKEN, ahead
-of the split and for unrelated reasons. `tools/deps.edn`'s `:local/root
-"template"` entry is gone: it hung off the aggregate `:test` alias,
-which PR #9093 (rf2-6r9j.139) retired as a second hand-written JVM-lane
-inventory beside `scripts/test-jvm-tools.sh`. The `tools/shadow-cljs.edn`
-"JVM-only" exclusion comment is gone with the whole file, deleted by the
-same PR (rf2-6r9j.140) as an ungated mirror of two of Pair MCP's builds.
-The template is already off the tools/ classpath, so this step is now the
-docs sweep above plus the README entry below.
+No build file needs an edit. `tools/deps.edn` carries no `:local/root
+"template"` entry and no aggregate `:test` alias (that would be a second
+hand-written JVM-lane inventory beside `scripts/test-jvm-tools.sh`), and
+there is no `tools/shadow-cljs.edn`. The template is already off the
+tools/ classpath, so this step is the docs sweep above plus the README
+entry below.
 
 The repo-root README's Project Layout entry retires (replace the
 `template/` row with a one-line "see github.com/day8/re-frame2-template"
@@ -550,7 +546,7 @@ the split:
 | Pre-split (development) | `day8/re-frame2-template` | `:local/root "tools/template"` in the consuming `deps.edn`. Used by tests + manual smoke. Does NOT trigger deps-new's auto-git-clone. |
 | Pre-split (via published-shape coord) | `io.github.day8/re-frame2-template` | deps-new clones the **re-frame2 monorepo** (because the `day8/re-frame2-template` GitHub repo doesn't exist yet), then fails to find `resources/day8/re_frame2_template/template.edn` at the cloned repo root (it's under `tools/template/` in the monorepo). Not a viable production path; only `:local/root` works pre-split. |
 | Post-split (published) | `io.github.day8/re-frame2-template` | deps-new clones from `https://github.com/day8/re-frame2-template.git` via `auto-git-url`, then `find-root` resolves the template body inside the cloned tree at `resources/io/github/day8/re_frame2_template/` (the path `->file` derives from the full `io.github.day8/…` symbol — see §2.1). |
-| Post-split (pinned to tag) | `io.github.day8/re-frame2-template#template-v<version>` | Same as above, but pinned to a specific git tag (matches the `template-v…` tag space from rf2-h0w5y §3.1). |
+| Post-split (pinned to tag) | `io.github.day8/re-frame2-template#template-v<version>` | Same as above, but pinned to a specific git tag (matches the `template-v…` tag space). |
 
 The local-dev fallback (`:local/root` against a checkout of the
 external repo) continues to work post-split, but the coord changes
@@ -578,7 +574,7 @@ published coord also uses, so there is no second on-disk copy.)
 
 ## §5 CI workflow (lives in the external repo post-split)
 
-The `template-release.yml` workflow (from rf2-h0w5y §3.1) currently
+The `template-release.yml` workflow currently
 lives in the re-frame2 monorepo at
 `.github/workflows/template-release.yml`. Post-split it lives **in
 the external repo**, not the monorepo.
@@ -597,8 +593,8 @@ and the test-architecture setup per §3.2.1):
      and export `RF2_FRAMEWORK_ROOT` at it (§3.2.1) together with
      `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`. Without the env var the
      behavioural tier short-circuits to skip-asserts and the release
-     regresses to fast-loop-only — the false-green rf2-ek857f /
-     rf2-jdj17 hardened against. Without the Chromium install the
+     regresses to fast-loop-only — the false-green the in-monorepo
+     gates are hardened against. Without the Chromium install the
      emitted dev-page boot proof cannot launch.
   3. `clojure -M:test` from the template repo root. The tiers this must
      carry, every one of them against the external checkout:
@@ -665,13 +661,7 @@ post-split; the monorepo carries a pointer at most.
   §1 — WHY deps-new + git-coord over clj-new + Clojars.
 - [`migration/from-clj-new-template/README.md`](../../../migration/from-clj-new-template/README.md)
   — user-facing migration note for existing clj-new template users.
-- rf2-dolpf — EPIC umbrella; closes once §4.3 operator handoff lands.
-- rf2-7jgkv — this scaffolding + cross-ref sweep.
-- rf2-h0w5y — git-coord release pipeline (the
-  `template-release.yml` workflow, which moves into the external
-  repo as part of the split).
-- rf2-4bs7k — senior review that prescribed §2.1 (the published-coord
-  resource retarget) and §3.2.1 (the post-split test architecture).
-- rf2-ek857f / rf2-jdj17 — the in-monorepo false-green release gates;
-  §3.2.1 + §5 carry their hardening forward so the post-split release
-  gate cannot regress to a fast-loop-only test.
+- `.github/workflows/template-release.yml` — the git-coord release
+  pipeline, which moves into the external repo as part of the split.
+  §3.2.1 + §5 carry the in-monorepo release gates' hardening forward so
+  the post-split release gate cannot regress to a fast-loop-only test.

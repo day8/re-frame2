@@ -3,7 +3,7 @@
 > WHY each major decision was made. The audit trail behind the
 > [000-Vision](000-Vision.md) / [001-Substrate-Variants](001-Substrate-Variants.md)
 > / [002-Generated-Shape](002-Generated-Shape.md) / [Principles](Principles.md)
-> / [API](API.md) shape. Beads referenced as rf2-xxxx. Superseded
+> / [API](API.md) shape. Superseded
 > decisions stay, marked as such, because the reasoning behind them is
 > the record of what was tried.
 
@@ -16,11 +16,8 @@ Clojars-published artefact.
 
 **History.** v1 of this template (through 2026-05) was a clj-new
 template published to Clojars as `day8/clj-template.re-frame2`. The
-template walkthrough Q2 lock (2026-05-12, rf2-dolpf) flipped both
-decisions: deps-new over clj-new, git-coord over Clojars. The
-migration landed across rf2-cwvnj (§2.1 spike) / rf2-c2770 (§2.2-2.4
-full body + flags) / rf2-40vmd (§2.5 clj-new drop) / rf2-h0w5y
-(§3 release pipeline). The pre-flip rationale survives as
+template walkthrough Q2 lock (2026-05-12) flipped both
+decisions: deps-new over clj-new, git-coord over Clojars. The pre-flip rationale survives as
 [§Retired §clj-new-over-deps-new](#retired--clj-new-over-deps-new)
 below for the historical record.
 
@@ -32,7 +29,7 @@ below for the historical record.
 | B — clj-new + Clojars | The v1 shape. Declarative Mustache resources + a `:project/new` alias; Clojars-published. | Rejected (see migration rationale below). |
 | C — bb-based CLI / wizard | A bb-based wizard ("include Story? include 10x? Reagent or UIx or Helix?"). | Rejected for v1 (still the right answer for branching choices that materially exceed deps-new's substitution capability). |
 
-> **Amended (rf2-zq34m, 2026-09-02).** The three-flag set the first
+> **Amended (2026-09-02).** The three-flag set the first
 > bullet below reasons from is gone — see [§10](#10--one-selector-one-manifest-rf2-zq34m).
 > deps-new stays for the reasons that survive it: the programmatic body
 > carries the per-substrate `case` where it can be read and tested,
@@ -133,11 +130,11 @@ Reagent remains the default — it's the canonical substrate every
 re-frame example targets first. UIx is an equal citizen, not an
 afterthought.
 
-> **Amended at S7/W13 (rf2-d6epb, 2026-07-22).** The Helix adapter was
+> **Amended at S7/W13 (2026-07-22).** The Helix adapter was
 > removed framework-wide, and the template's `:helix` variant went with
 > it.
 >
-> **Amended again (rf2-qmvep, 2026-07-25).** The EXPERIMENTAL `:ui`
+> **Amended again (2026-07-25).** The EXPERIMENTAL `:ui`
 > compiled-view variant (added under the 2026-07-19 template-menu
 > ruling) is retired. It emitted a `day8/re-frame2-ui` Maven
 > coordinate, and Mike's 2026-07-22 ruling is that the artefact is
@@ -158,7 +155,7 @@ hello-world, not a routing-demo.
 
 **Why.**
 
-- **rf2-2kzw throughline.** [The Guide introduction — a tiny counter
+- **The Guide throughline.** [The Guide introduction — a tiny counter
   application](../../../docs/core/introduction.md) walks through a
   counter. The reference `examples/core/counter/` and
   `examples/substrates/uix/counter/` apps
@@ -180,7 +177,7 @@ trees are for studying complete patterns.
 
 ## §4 — No-Story-yet (default), opt-in via a Story flag (rf2-t009p)
 
-> **SUPERSEDED 2026-09-02 by rf2-zq34m — see
+> **SUPERSEDED 2026-09-02 — see
 > [§10](#10--one-selector-one-manifest-rf2-zq34m).** The default-off
 > half of this decision stands and is now the whole of it: the template
 > pre-wires nothing for Story, and the opt-in flag that scaffolded the
@@ -189,7 +186,7 @@ trees are for studying complete patterns.
 > coord, a require and a mount — and the generated README's next-steps
 > section links that page. The record below is why the flag existed.
 >
-> **Amended 2026-09-14 (rf2-1bkoc) — see §10's amendment.** The
+> **Amended 2026-09-14 — see §10's amendment.** The
 > default-off half is reversed as well: every scaffold now wires Story
 > on the dev build, with no flag. The opt-in flag stays gone.
 
@@ -200,7 +197,7 @@ that adapter's coverage matched Reagent's.
 
 **Why default-off.**
 
-- **Story is post-1.0 but still moving.** Stage 8 (rf2-c9mm)
+- **Story is post-1.0 but still moving.** Stage 8
   landed; subsequent stages tune the authoring surface. Default-on
   would force every scaffolded app to track every change to the
   seven `reg-*` macros and the variant id grammar.
@@ -331,7 +328,7 @@ run and boot the emitted app.
 The behavioural compile+run+boot slice (`emitted_test_run_test.clj`) is
 opt-in via `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets this; local
 fast-loop default-off). It is the tier that proves the scaffold a
-newcomer opens actually paints — and, since rf2-eiev, that the
+newcomer opens actually paints — and that the
 `:advanced` bundle they then deploy paints too, for every substrate; the
 manifest equality, the static-parse audit and the lockstep guards are the
 cheap contract underneath it.
@@ -343,9 +340,8 @@ which defaults to `:reagent`). String, symbol, and any other shape
 throws with a clear message naming the valid set.
 
 **History.** This tightened from a forgiving-input posture
-(kw/string/symbol all accepted) to keyword-only in rf2-h0imw, on the
-back of the rf2-c8tmc first-principles audit (Finding #3 / §D5). The
-earlier forgiving posture was defensive against shell quoting
+(kw/string/symbol all accepted) to keyword-only on the back of a
+first-principles audit. The earlier forgiving posture was defensive against shell quoting
 variance that — in deps-new's actual k/v contract — does not happen:
 deps-new passes top-level args through as Clojure values, so a
 keyword on the CLI reaches `data-fn` as a keyword. The
@@ -376,7 +372,7 @@ input. Removing them aligns the code with the actual contract.
 
 ## §9 — Xray on by default (rf2-y9zqc)
 
-> **SUPERSEDED 2026-09-02 by rf2-zq34m — see
+> **SUPERSEDED 2026-09-02 — see
 > [§10](#10--one-selector-one-manifest-rf2-zq34m).** The scaffold no
 > longer wires Xray: no coordinate, no preload, no layout host, no
 > host CSS, no npm packages. Xray attaches to a generated app through
@@ -392,15 +388,15 @@ input. Removing them aligns the code with the actual contract.
 `:devtools {:preloads …}`, and the `[data-rf-xray-host]` layout
 column in `index.html` / `app.css`.
 
-**Amendment (rf2-p6f6u ruling, 2026-07-22).** The decision's scope
+**Amendment (2026-07-22).** The decision's scope
 narrowed to the **Reagent** scaffold. Xray's panel shell mounts
 through the ratom-family substrates; on the element-shaped React
-substrates the mount verbs refuse cleanly (rf2-qgfo4), so a `:uix`
+substrates the mount verbs refuse cleanly, so a `:uix`
 scaffold wired for Xray promised a panel that could never open. The
 `:uix` variant shipped no Xray pieces at all and its README noted the
 devtools story honestly.
 
-> **The PREMISE of that amendment expired on 2026-09-12 (rf2-k97c).** Xray
+> **The PREMISE of that amendment expired on 2026-09-12.** Xray
 > now paints through a React root it owns rather than through the host
 > adapter's `:render`, and the refusal path was retired with the coupling it
 > guarded — so "the mount verbs refuse cleanly on the element-shaped React
@@ -499,9 +495,9 @@ it is recorded rather than hidden behind the word "minimal". Default-on
 Xray is reconsidered only on first-run evidence that auto-opening the
 panel materially improves onboarding, only once Xray has a stable
 published coordinate (`xray-v*`), and only if it can mount on every
-default substrate. **That last clause is DISCHARGED as of 2026-09-12
-(rf2-k97c): Xray mounts on UIx.** It reads *"today it cannot mount on
-UIx (rf2-p6f6u), and its Reagent-only preload is exactly the asymmetry
+default substrate. **That last clause is DISCHARGED as of 2026-09-12:
+Xray mounts on UIx.** It reads *"today it cannot mount on
+UIx, and its Reagent-only preload is exactly the asymmetry
 that would force the manifest contract into exception clauses"* until
 then; the root swap removed the asymmetry, so a revisit no longer has
 to argue past it. The other two conditions — onboarding evidence, a
@@ -518,8 +514,6 @@ variant and a dev-only entry that mounts the shell on `#/stories`. The
 manifest grows from twelve files to thirteen and the substrate swap from
 three files to four. `:substrate` stays the one selector and no flag
 returns. Xray stays out, and its revisit condition above is unchanged.
-Ruled under epic rf2-0ae7o by delegation; Mike's confirmation of that
-epic is pending.
 
 **Why default-on rather than opt-in.** Option C was rejected because one
 flag preserves the whole option genus — the known-keys gate, coercion,
@@ -546,7 +540,7 @@ Clojars coordinate that does not resolve.
 ## Retired — clj-new-over-deps-new
 
 > This was the v1 decision (through 2026-05). Superseded by §1 above
-> on 2026-05-12 per Mike's template walkthrough Q2 lock (rf2-dolpf).
+> on 2026-05-12 per Mike's template walkthrough Q2 lock.
 > Retained for historical record; do not act on it.
 
 **Decision (retired).** The template was a clj-new template, not a
@@ -609,4 +603,4 @@ that no longer applies.
   decisions implement.
 - [API.md](API.md) — the consolidated public surface.
 - [`tools/README.md`](../../README.md) — the per-tool spec/ folder
-  convention (rf2-bfax).
+  convention.

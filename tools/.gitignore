@@ -1,4 +1,4 @@
-# rf2-nuuk3 — coordinator-level transient artefacts. shadow-cljs and
+# Coordinator-level transient artefacts. shadow-cljs and
 # clojure -X both create caches in cwd; running the tools/-level
 # coordinator from `tools/` lands them here.
 .shadow-cljs/
