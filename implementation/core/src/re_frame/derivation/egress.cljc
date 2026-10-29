@@ -50,6 +50,9 @@
     - a **live sub's `:value`** first redacted by that sub's own registration
       classification, resolved through the frame's own view — the projection
       its `:sub/run` trace applies to the same value;
+    - a **live route fact's `:params` / `:query`** walked as the route read
+      subs that return them, so the route's own re-rooted declaration
+      governs them;
     - **fail-closed** on a nil / unreachable frame — the observed frame-id
       is stamped as the `:frame` opt whatever it is, and `elide-wire-value`
       reads that opt by KEY PRESENCE, so a nil / destroyed id takes its
@@ -92,6 +95,26 @@
 ;; this list.
 (def value-bearing-node-keys
   [:value :params :query :state])
+
+;; A route declares `:sensitive` / `:large` against its slice's `:params` /
+;; `:query`, and the frame claims those declarations RE-ROOTED under
+;; `[:rf.runtime/routing :current …]` (Spec 012 §Re-rooting at egress). The
+;; live route fact carries the two maps bare, so a walk rooted at either field
+;; can never match its own route's declaration. Each is walked as the
+;; framework route read sub that returns it instead: `elide-wire-value`'s
+;; `:query-v` opt seeds the walk at that sub's storage position through
+;; routing's own seed table, the re-seeding every route read egress surface
+;; applies (Spec 012 §Egress of the route read surfaces).
+(def ^:private route-fact-read-subs
+  {:params :rf.route/params
+   :query  :rf.route/query})
+
+(defn- route-fact-node?
+  "True when `node-key` names the LIVE route fact: the composer keys the route
+  family's one slice fact `:rf/route`. A static route node is keyed by its
+  route id and carries no `:params` / `:query` values."
+  [node-key]
+  (= :rf/route node-key))
 
 ;; ---------------------------------------------------------------------------
 ;; LIVE RESOURCE IDENTITY redaction.
@@ -388,7 +411,11 @@
     `:sensitive` / `:large` paths through `rf.classification/project-sub-value`,
     the projection the sub's `:sub/run` trace applies to the same value. The
     registration resolves through `frame-id`'s own view; the node's query-vector
-    `:id` stays raw.
+    `:id` stays raw;
+  - **the route's own declaration** — the live route fact's `:params` /
+    `:query` walk as the route read subs that return them
+    (`route-fact-read-subs`), so the route's re-rooted `:sensitive` /
+    `:large` declaration matches; walked at the field's root it never would.
 
   STRUCTURE IS PRESERVED (the headline guarantee): a redacted value / param
   is still an `:input` / `:param` edge, the node is still present and still
@@ -464,12 +491,17 @@
    ;; The walker validates liveness itself, so there is no
    ;; local reachability probe and no sentinel frame id to mint.
    (let [walk-opts  (assoc opts :frame frame-id)
+         field-opts (fn [node-key k]
+                      (if-let [sub-id (when (route-fact-node? node-key)
+                                        (route-fact-read-subs k))]
+                        (assoc walk-opts :query-v [sub-id])
+                        walk-opts))
          redact-node
          (fn [node-key node]
            (cond-> (reduce
                     (fn [n k]
                       (if (contains? n k)
-                        (assoc n k (rf.elision/elide-wire-value (get n k) walk-opts))
+                        (assoc n k (rf.elision/elide-wire-value (get n k) (field-opts node-key k)))
                         n))
                     (cond-> node
                       (live-sub-node? node)

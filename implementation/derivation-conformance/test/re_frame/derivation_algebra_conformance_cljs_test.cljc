@@ -566,6 +566,30 @@
     (is (= rf.privacy/redacted-sentinel
            (live-value (rf.derivation.egress/project-graph graph :app/partner-image) [:partner/api-token])))))
 
+;; A route declares against its slice and the frame re-roots the claim, so the
+;; live route fact's bare `:params` / `:query` must still meet that declaration.
+(def ^:private route-egress-frame :app/route-egress)
+
+(deftest g-graph-egress-redacts-a-route-param-by-its-route-declaration
+  (rf/make-frame {:id route-egress-frame})
+  (rf/reg-route :route/reset
+                {:sensitive      [[:params :token] [:query :invite]]
+                 :query-defaults {:invite ""}}
+                "/reset/:token/:section")
+  (rf/dispatch-sync [:rf.route/navigate {:to     :route/reset
+                                         :params {:token secret-token :section "posts"}
+                                         :query  {:invite secret-token :tab "recent"}}]
+                    {:frame route-egress-frame})
+  (let [raw      (rf.derivation.graph/live-derivation-graph route-egress-frame all-contributors)
+        redacted (rf.derivation.egress/project-graph raw route-egress-frame)
+        route    (fn [graph] (select-keys (get-in graph [:nodes :rf/route]) [:params :query]))]
+    (is (contains-secret? (route raw)))
+    (is (= {:params {:token rf.privacy/redacted-sentinel :section "posts"}
+            :query  {:invite rf.privacy/redacted-sentinel "tab" "recent"}}
+           (route redacted)))
+    (is (not (contains-secret? redacted)))
+    (is (= redacted (rf.derivation.egress/project-graph redacted route-egress-frame)))))
+
 ;; A subscription query can resemble a scoped resource key.
 (def ^:private scoped-key-shaped-query
   [:items/page :active {:limit 10}])
