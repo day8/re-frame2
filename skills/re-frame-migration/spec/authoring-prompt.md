@@ -26,7 +26,7 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 >
 > *1. `migration/from-re-frame-v1/README.md` is the source of truth — don't invent rules. Every rewrite cites a rule id; an unmatched call site that isn't on the preserved list is stopped on and flagged, never guessed. A genuinely ambiguous rule files a GitHub issue against `day8/re-frame2` rather than editing MIGRATION.md inline. (`bd` is monorepo-internal and never invoked from a published skill — `skills/README.md` baseline.)*
 > *2. Type A is automatic; Type B is asked-first. Never silently apply a Type B rewrite.*
-> *3. Smallest correct diff. No stylistic refactoring, no opt-in modernisations unless explicitly requested; apply M-rules in MIGRATION.md order (M-0 first, then walk); JVM interop is in scope — don't silently CLJS-only the project.*
+> *3. Smallest correct diff. No stylistic refactoring, no opt-in modernisations unless explicitly requested; apply M-rules in `references/sequencing.md` order (M-0 first, then walk); JVM interop is in scope — don't silently CLJS-only the project.*
 > *4. Announce, then sweep. Before a multi-file Type-A sweep, post the rule, the count of files matched, and a one-line example diff shape, then proceed — a progress update the author can scope-limit, not a second acknowledgement to wait on. Unresolved Type-B decisions are presented in ONE batch at the end.*
 > *5. The skill runs the gates it discovers (this is lock L3 below — the two are the same rule, stated once). It finds the project's own noninteractive install / compile / test commands and runs them, recording command and result; it never prints a command for the author to paste back. The Phase-4 boot smoke-test is the done-bar.*
 >
