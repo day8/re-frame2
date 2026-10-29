@@ -292,11 +292,11 @@
   (testing "egress applies only :data-rooted paths, so a spec path rooted
             anywhere else is refused rather than accepted to redact nothing"
     (doseq [axis [:sensitive :large]]
-      (is (= [:rf.error/invalid-machine-classification axis]
-             ((juxt :rf.error/id :axis)
+      (is (= [:rf.error/invalid-machine-classification axis 'rf/reg-machine :spec]
+             ((juxt :rf.error/id :axis :where :declared-in)
               (registration-error :rf.machine-redaction/unrooted nil
                                   (assoc one-state axis [[:data :ok] [:token]]))))
-          (str axis " [[:token]] is refused")))
+          (str axis " [[:token]] is refused, :where naming the public reg-machine")))
     (is (nil? (registration-error :rf.machine-redaction/rooted nil
                                   (assoc one-state :sensitive [[:data :token] [:data]])))
         "[:data …] and the whole-:data [:data] register")))
@@ -304,13 +304,13 @@
 (deftest machine-opts-classification-path-must-index-the-routed-event
   (testing "the opts map classifies the routed event, so a path that does not
             index that vector — a :data path above all — is refused"
-    (is (= [:rf.error/invalid-machine-classification :sensitive :opts]
-           ((juxt :rf.error/id :axis :where)
+    (is (= [:rf.error/invalid-machine-classification :sensitive 'rf/reg-machine :opts]
+           ((juxt :rf.error/id :axis :where :declared-in)
             (registration-error :rf.machine-redaction/opts-data
                                 {:sensitive [[:data :token]]} one-state)))
         "an opts [:data …] path is refused (it would redact traces but not SSR)")
-    (is (= [:rf.error/invalid-machine-classification :large :opts]
-           ((juxt :rf.error/id :axis :where)
+    (is (= [:rf.error/invalid-machine-classification :large 'rf/reg-machine :opts]
+           ((juxt :rf.error/id :axis :where :declared-in)
             (registration-error :rf.machine-redaction/opts-key
                                 {:large [[:blob]]} one-state))))
     (is (nil? (registration-error :rf.machine-redaction/opts-ok
