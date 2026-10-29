@@ -67,7 +67,7 @@
   (testing "the template release workflow is present and tag-triggered"
     (let [yaml (release-workflow-text)]
       (when yaml
-        (is (tag-triggered? yaml)
+        (is (true? (tag-triggered? yaml))
             "release workflow's on: block triggers on a template-v… tag push")))))
 
 (deftest release-gate-trigger-check-bites-test
