@@ -79,8 +79,9 @@
   published-build default). There is no value-match (taint-by-equality; see
   EP-0025), so a secret copied out of a declared-sensitive app-db slot INTO a non-app-db
   DOM position SHIPS RAW (FAIL-OPEN) — the path walker reaches only values at
-  a classified path. To keep a value out of rendered content, classify its
-  app-db PATH so it is redacted at the source before a view renders it. A hard
+  a classified path. Classifying an app-db path never changes what a view
+  renders — real values flow through the app unchanged (Spec 015) — so to
+  keep a value out of rendered content the app must omit or mask it. A hard
   per-node `max-text` cap trims the common large case first; raw content is
   the trusted-local read (launched with `--allow-sensitive-reads`); an
   unresolvable frame still fails closed with `:ambiguous-frame`. The

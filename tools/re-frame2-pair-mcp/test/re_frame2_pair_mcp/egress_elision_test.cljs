@@ -12,6 +12,7 @@
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.list-subscriptions :as ls]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.record :as record]
@@ -149,6 +150,20 @@
         (full-epochs {:include-sensitive true})
         (projected off-box+sensitive)
         [":machines :rf/redacted"]]
+       ;; Machine declarations are rooted at the runtime-db snapshots
+       ;; coordinate, so the slice's `:state` map is projected there; walked
+       ;; from the slice root, a declared-large `[:data …]` never matches.
+       ["gate on + include-sensitive, machines" true snap/snapshot-tool snapshot-canned
+        (merge (full-epochs {:include-sensitive true}) {:include #js ["machines"]})
+        [(str " opts (merge {:frame fid} " (elision/egress-opts-edn false true) ")")
+         (str "(update-in fmap [:machines :state]"
+              "          (fn [s] (re-frame.core/project-egress s (assoc opts :path [:rf.runtime/machines :snapshots]))))")]
+        ["(update fmap :machines f)" ":machines :rf/redacted"]]
+       ["gate on + include-sensitive + elision false, machines" true snap/snapshot-tool snapshot-canned
+        (merge (full-epochs {:include-sensitive true :elision false}) {:include #js ["machines"]})
+        [(str " opts (merge {:frame fid} " (elision/egress-opts-edn true true) ")")
+         "(assoc opts :path [:rf.runtime/machines :snapshots])"]
+        ["(update fmap :machines f)"]]
        ["gate on + elision false" true snap/snapshot-tool snapshot-canned
         (full-epochs {:include #js ["app-db" "sub-cache" "epochs"] :elision false})
         (conj (projected off-box) ":rf.egress/include-large? true")]]

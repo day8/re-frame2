@@ -107,33 +107,36 @@
            (vec (array-seq (rd/walk-for-shadow-edns* readdir root)))))))
 
 ;; ===========================================================================
-;; project-home->candidate* — the port file beside a shadow-cljs.edn.
+;; project-home->candidates* — the port files beside a shadow-cljs.edn.
 ;; ===========================================================================
 
-(deftest candidate-reads-the-first-port-file-present
-  ;; The three locations are tried in order; a missing or non-numeric port
-  ;; file yields no candidate (the project is not running).
+(deftest candidates-read-every-port-file-present-in-precedence-order
+  ;; Every location that reads is kept, in order, because a stale file can
+  ;; precede the live one; a missing or non-numeric port file is skipped.
   (let [reads (fn [pattern content]
                 (fn [path]
                   (if (re-find pattern path) content (throw (js/Error. "ENOENT")))))]
-    (is (= {:project-home "/proj"
-            :port-file    (jp "/proj" "target" "shadow-cljs" "nrepl.port")
-            :port         12345}
-           (rd/project-home->candidate*
-             (reads #"target[\\/]shadow-cljs[\\/]nrepl\.port$" "12345") "/proj")))
-    (doseq [[read-fn port note]
-            [[(reads #"\.shadow-cljs[\\/]nrepl\.port$" "5555") 5555
-              "second candidate (.shadow-cljs/nrepl.port) wins if target/ absent"]
-             [(reads #"\.nrepl-port$" "8765") 8765
-              "third candidate (.nrepl-port) is the last fallback"]
-             [(fn [_path] (throw (js/Error. "ENOENT"))) nil
-              "no port file at any of the three locations → nil (project not running)"]
-             [(reads #"target" "not-a-number") nil
-              "isNaN port content → nil (don't return NaN as a port)"]]]
-      (let [c (rd/project-home->candidate* read-fn "/proj")]
-        (if port
-          (is (= port (:port c)) note)
-          (is (nil? c) note))))))
+    (is (= [{:project-home "/proj" :port-file (jp "/proj" "target" "shadow-cljs" "nrepl.port") :port 1111}
+            {:project-home "/proj" :port-file (jp "/proj" ".shadow-cljs" "nrepl.port") :port 2222}
+            {:project-home "/proj" :port-file (jp "/proj" ".nrepl-port") :port 3333}]
+           (rd/project-home->candidates*
+             (fn [path]
+               (condp re-find path
+                 #"target[\\/]shadow-cljs[\\/]nrepl\.port$" "1111"
+                 #"\.shadow-cljs[\\/]nrepl\.port$"          "2222"
+                 #"\.nrepl-port$"                           "3333"))
+             "/proj"))
+        "all three read: target/shadow-cljs, then .shadow-cljs, then .nrepl-port")
+    (doseq [[read-fn ports note]
+            [[(reads #"\.shadow-cljs[\\/]nrepl\.port$" "5555") [5555]
+              "only .shadow-cljs/nrepl.port reads"]
+             [(reads #"\.nrepl-port$" "8765") [8765]
+              "only .nrepl-port reads"]
+             [(fn [_path] (throw (js/Error. "ENOENT"))) []
+              "no port file at any of the three locations (project not running)"]
+             [(reads #"target" "not-a-number") []
+              "isNaN port content is skipped (don't return NaN as a port)"]]]
+      (is (= ports (mapv :port (rd/project-home->candidates* read-fn "/proj"))) note))))
 
 ;; ===========================================================================
 ;; discover-via-roots* — orchestration with all I/O injected.
@@ -291,6 +294,49 @@
                    (is (= [:error :no-running-shadow-in-workspace [(port-file-in proj)]]
                           [(:status r) (-> r :error :reason) (:stale-port-files r)]))
                    (done)))))))
+
+(deftest discover-via-roots-skips-a-stale-preferred-port-file
+  ;; One project, two port files: a force-killed JVM left
+  ;; target/shadow-cljs/nrepl.port naming a dead port, and the running watch
+  ;; wrote .shadow-cljs/nrepl.port. The first file must not hide the second.
+  (async done
+    (let [pairs (uri-decoding-pairs ["/proj"])
+          proj  (second (first pairs))
+          dead  (jp proj "target" "shadow-cljs" "nrepl.port")
+          live  (jp proj ".shadow-cljs" "nrepl.port")]
+      (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
+                                  (walk-returns {proj [(jp proj "shadow-cljs.edn")]})
+                                  (fn [path]
+                                    (condp = path
+                                      dead "47101"
+                                      live "47102"
+                                      (throw (js/Error. "ENOENT"))))
+                                  (fn [port] (js/Promise.resolve (= 47102 port))))
+          (.then (fn [r]
+                   (is (= {:status           :one
+                           :candidate        {:project-home proj :port-file live :port 47102}
+                           :stale-port-files [dead]}
+                          r)
+                       "the live second file attaches; the stale first one is named")))
+          (.catch (fn [e] (is false (str "discovery rejected: " (.-message e)))))
+          (.finally done)))))
+
+(deftest discover-via-roots-keeps-one-candidate-per-project
+  ;; Two live files in one project are one build, not an ambiguity: the
+  ;; first in precedence order is the project's candidate.
+  (async done
+    (let [pairs (uri-decoding-pairs ["/proj"])
+          proj  (second (first pairs))]
+      (-> (rd/discover-via-roots* (fn [] (js/Promise.resolve (roots-resp pairs)))
+                                  (walk-returns {proj [(jp proj "shadow-cljs.edn")]})
+                                  (fn [path]
+                                    (if (re-find #"nrepl\.port$" path) "9001" (throw (js/Error. "ENOENT"))))
+                                  accepts-all)
+          (.then (fn [r]
+                   (is (= {:status    :one
+                           :candidate {:project-home proj :port-file (port-file-in proj) :port 9001}}
+                          r))))
+          (.finally done)))))
 
 (defn- listen!
   "Resolve a `net.Server` listening on an ephemeral 127.0.0.1 port. It drops

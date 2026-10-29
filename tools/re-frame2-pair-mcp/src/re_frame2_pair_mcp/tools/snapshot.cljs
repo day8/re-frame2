@@ -19,6 +19,13 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
+(def ^:private machine-snapshots-path
+  "Where the `:machines` slice's `:state` map lives in the frame's
+  runtime-db, and so the root of the coordinates each machine's `:sensitive`
+  / `:large` declaration applies at (Spec 015 §Subsystem projection-relative
+  classification)."
+  [:rf.runtime/machines :snapshots])
+
 (defn snapshot-tool [conn raw-args]
   (let [build-id    (wire/arg-build conn raw-args)
         frames      (args/parse-frames-arg (wire/arg raw-args :frames))
@@ -137,7 +144,10 @@
         ;; `:include-sensitive true` ⇒ the live runtime-db snapshots ship
         ;; (the operator's deliberate opt-in to runtime-db diagnostics),
         ;; still projected under the same opts as `:app-db` so the size
-        ;; axis (`elision`) holds for them too.
+        ;; axis (`elision`) holds for them too. The slice's `:state` map is
+        ;; projected at its runtime-db coordinate (`machine-snapshots-path`),
+        ;; where each machine's `:large` declaration is rooted; walked from
+        ;; the slice root, no declaration would match.
         redact-runtime-db? (not incl?)
         ;; The `walked` reduction always fires: the `:app-db` /
         ;; `:sub-cache` slices route through the door on EVERY read,
@@ -202,7 +212,9 @@
                                  (str " fmap (if (contains? fmap :machines)"
                                       "        (assoc fmap :machines :rf/redacted) fmap)")
                                  (str " fmap (if (contains? fmap :machines)"
-                                      "        (update fmap :machines f) fmap)"))
+                                      "        (update-in fmap [:machines :state]"
+                                      "          (fn [s] (re-frame.core/project-egress s (assoc opts :path "
+                                      (pr-str machine-snapshots-path) ")))) fmap)"))
                                "] fmap)")
         ;; When the resolved scope is the DEFAULT `:app`
         ;; (reserved `:rf/*` tool frames excluded), piggyback the list of

@@ -1,7 +1,8 @@
 // Drives bin/call.cjs, the one-shot shell client, against the compiled
 // out/server.js. Needs no live shadow-cljs: it calls the server-local tool,
 // an unknown tool, and an app-facing tool with discovery forced to fail, and
-// checks each one's stdout, stderr and exit status.
+// checks each one's stdout, stderr and exit status. Its stdout decoding is
+// checked against a mocked server, where the chunk boundaries are exact.
 //
 // The app-facing case is bounded well under the SDK's 60-second request
 // timeout because discovery sends the client a `roots/list` request, and a
@@ -11,9 +12,11 @@
 'use strict';
 
 const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const CLI = path.join(__dirname, '..', 'bin', 'call.cjs');
 const SERVER = path.join(__dirname, '..', 'out', 'server.js');
@@ -82,6 +85,51 @@ check('non-JSON arguments -> exit 2 before any server starts',
   badArgs.status === 2 && badArgs.stderr.includes('<json-args> is not JSON') &&
     !badArgs.stderr.includes('[re-frame2-pair-mcp]'),
   show(badArgs));
+
+// 5. A multibyte character split across two stdout chunks decodes whole.
+//    The CLI source runs in a VM context against a mocked server process, so
+//    the chunk boundary is exact: the same reply arrives as one chunk, then
+//    cut between the two UTF-8 bytes of the é.
+function runCliOverChunks(chunks) {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stdin = new EventEmitter();
+  child.stdin.write = () => {};
+  child.stdin.end = () => {};
+  child.kill = () => {};
+  let stdout = '';
+  const proc = {
+    execPath: process.execPath,
+    argv: ['node', CLI, 'probe'],
+    stdout: { write: (x) => { stdout += x; } },
+    stderr: { write: () => {} },
+    exit: () => { throw new Error('unexpected exit'); },
+  };
+  const fakeRequire = (n) =>
+    n === 'node:child_process' ? { spawn: () => child }
+      : n === 'node:fs' ? { existsSync: () => true }
+        : require(n);
+  vm.runInNewContext(fs.readFileSync(CLI, 'utf8'), {
+    require: fakeRequire,
+    __dirname: path.dirname(CLI),
+    process: proc,
+    setTimeout: () => ({ unref() {} }),
+  });
+  for (const c of chunks) child.stdout.emit('data', c);
+  child.emit('exit', 0, null);
+  return { stdout: stdout.trim(), exit: proc.exitCode };
+}
+const TEXT = 'café 日本語';
+const wire = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { content: [{ type: 'text', text: TEXT }] } }) + '\n');
+const cut = wire.indexOf(Buffer.from('é')) + 1;
+const whole = runCliOverChunks([wire]);
+const split = runCliOverChunks([wire.subarray(0, cut), wire.subarray(cut)]);
+check('one chunk -> the text result verbatim, exit 0',
+  whole.stdout === TEXT && whole.exit === 0,
+  JSON.stringify(whole));
+check('a multibyte character split across chunks -> the same text, exit 0',
+  split.stdout === TEXT && split.exit === 0,
+  JSON.stringify(split));
 
 if (failures.length) {
   console.error('\n' + failures.length + ' CALL-CLI CHECK(S) FAILED');
