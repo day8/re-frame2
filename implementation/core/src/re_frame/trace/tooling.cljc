@@ -59,7 +59,8 @@
   short-circuit cleanly without one.
 
   Per Spec 009 §Per-frame trace rings."
-  (:require [re-frame.interop :as rf.interop]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             ;; `event-bundle` reuses the six-domino fold
             ;; (`absorb` over `empty-event-bundle`) from the projection ns
@@ -427,6 +428,28 @@
       (into [] (mapcat (fn [did] (get runs did))) order))
     []))
 
+(def ^:private flat-only-filter-keys
+  "The event-level filter keys. Each matches a field of a raw trace event that
+  an event bundle does not carry, so only a `:flat` read applies them (Spec 009
+  §Filter vocabulary)."
+  [:operation :op-type :since :severity :handler-id :source :sensitive?])
+
+(defn- refuse-flat-only-filters!
+  "Throw `:rf.error/trace-buffer-flat-only-filter` for a bundle read carrying
+  an event-level filter key. Ignored, the key would keep every bundle, so
+  `{:op-type :error}` would answer \"which runs errored?\" with all of them. A
+  nil value is no constraint, as in `match-event?`."
+  [opts]
+  (when-let [ks (seq (filterv #(some? (get opts %)) flat-only-filter-keys))]
+    (rf.error/throw-error!
+      :rf.error/trace-buffer-flat-only-filter
+      'rf/trace-buffer
+      (str "rf/trace-buffer: " (pr-str (vec ks)) " match raw trace events, so "
+           "they need {:flat true}; an event-bundle read cannot apply them. Add "
+           ":flat true, or keep bundles with a :pred over their :trace-events.")
+      {:recovery :pass-flat-true
+       :extra    {:flat-only-keys (vec ks)}})))
+
 (defn trace-buffer
   "Per-frame trace ring reader. Returns the named frame's retained
   events, oldest-first (one bundle per dequeued event / pipeline run).
@@ -469,6 +492,9 @@
     :between [t0 t1]— same axis, window
     :pred           — arbitrary predicate, receives bundle or event
 
+  A bundle read (no `:flat`) carrying a `:flat`-only key throws
+  `:rf.error/trace-buffer-flat-only-filter` rather than ignoring it.
+
   Returns `[]` for a destroyed / never-registered frame (per Spec 009
   §Reads against a destroyed / missing frame) and `[]` in production
   (the ring is never allocated under `goog.DEBUG=false`).
@@ -481,7 +507,8 @@
      (let [rings @trace-rings]
        (if (:flat opts)
          (filterv #(match-event? % opts) (frame-ring-flat-events rings frame-id))
-         (filterv #(match-event-bundle? % opts) (frame-ring-event-bundles rings frame-id)))))))
+         (do (refuse-flat-only-filters! opts)
+             (filterv #(match-event-bundle? % opts) (frame-ring-event-bundles rings frame-id))))))))
 
 (defn- cleared-ring
   "Return `frame-id`'s ring emptied at its own effective retention cap.
