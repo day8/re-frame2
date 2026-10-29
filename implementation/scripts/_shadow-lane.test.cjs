@@ -318,6 +318,46 @@ test('a dead launcher whose compiler child lives still holds the lane, and the w
   assert.equal(fs.existsSync(lock), false);
 });
 
+// A holder records its compiler child only after it takes the lane, so a waiter can
+// print its line in between, while the record names the launcher alone.
+test('a waiter that printed before the holder recorded its compiler child prints again naming the child', { timeout: TIMEOUT_MS }, async () => {
+  const lock = freshLock();
+  const [launcher, compiler] = [0, 1].map(() => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    live.add(child);
+    return child;
+  });
+  const record = {
+    pid: launcher.pid,
+    child: null,
+    worktree: REPO_ROOT,
+    command: 'starting-compile',
+    started: new Date().toISOString(),
+    token: '0123456789abcdef',
+  };
+  fs.writeFileSync(lock, `${JSON.stringify(record)}\n`);
+  const b = start(['take', 'successor'], { RF2_SHADOW_LANE_LOCK: lock });
+  await eventually(
+    () => b.err.includes(`; lock file ${lock} (delete it if ${launcher.pid} is not a shadow-cljs build)`),
+    'the waiting line naming the launcher alone',
+  );
+  // Recorded the way the holder records it: a staged record renamed over the lock.
+  const staged = `${lock}.${record.token}.tmp`;
+  fs.writeFileSync(staged, `${JSON.stringify({ ...record, child: compiler.pid, childAt: new Date().toISOString() })}\n`);
+  fs.renameSync(staged, lock);
+  await eventually(
+    () => b.err.includes(`; lock file ${lock} (delete it only if neither ${launcher.pid} nor its compiler ${compiler.pid} is a shadow-cljs build)`),
+    'the waiting line to name the recorded compiler child',
+  );
+  assert.equal(b.out.includes('HELD'), false, 'the run took a lane whose holder lives');
+  launcher.kill('SIGKILL');
+  compiler.kill('SIGKILL');
+  await b.exited;
+  assert.equal(b.code, 0, b.err);
+  assert.match(b.err, new RegExp(`reclaimed the build lane from dead holder ${launcher.pid} `));
+  assert.equal(fs.existsSync(lock), false);
+});
+
 test('a killed holder\'s lock is reclaimed by the next run with no manual step', { timeout: TIMEOUT_MS }, async () => {
   const lock = freshLock();
   const a = start(['hold', 'doomed'], { RF2_SHADOW_LANE_LOCK: lock });

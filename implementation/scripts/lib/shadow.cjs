@@ -415,7 +415,10 @@ async function acquireLane({ command, cwd = process.cwd(), pollMs = POLL_MS } = 
           continue;
         }
       } else {
-        const key = `${holder.unreadable ? 'unreadable' : holder.token} ${ahead.length}`;
+        // The line prints again when the holder, its recorded compiler child or the
+        // queue position changes: a holder records its child only after taking the
+        // lane, so a line printed in between would otherwise never name the child.
+        const key = `${holder.unreadable ? 'unreadable' : `${holder.token} ${holder.child}`} ${ahead.length}`;
         if (announced !== key) {
           announced = key;
           // The lane stays held while either recorded process lives (`holderAlive`).
