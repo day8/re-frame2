@@ -6,7 +6,7 @@
    the substrate-free [`login.model`](model.cljc) namespace, required below for
    its side-effecting registrations. That namespace is the ONE owner of the
    `auth.login` dataflow; read it for the ideas (the five-state login machine,
-   the machine + slice split, the three password-egress boundaries).
+   the machine + slice split, the four password-egress boundaries).
 
    This file is the Reagent HALF: the only substrate-specific code. Below it are
    the `reg-view` views, the React root, the adapter init, and the mount — the

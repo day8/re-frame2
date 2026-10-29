@@ -42,7 +42,7 @@
 ;; each machine's :guards / :actions. Locality over magic.
 ;;
 ;; Its near-twin lives next door: the `login` example
-;; (examples/core/login/core.cljs) has the same states, guards, actions, and
+;; (examples/core/login/model.cljc) has the same states, guards, actions, and
 ;; transitions. What differs is what each example teaches AROUND the machine.
 ;; `login` is the full feature scaffold — Malli schemas, a sensitive-request
 ;; flag, a password-routing stub — all wired into a living Reagent feature. This
@@ -89,14 +89,16 @@
               :on-failure [:walkthrough.login/flow [:walkthrough.login/failure]]}]]})
 
     :record-error
-    ;; The classified failure map rides under :error. This is the action the
-    ;; terminal failure runs too — so the third, locking-out failure is counted
-    ;; (attempts → 3) and its message retained, not discarded on the way to
-    ;; :locked-out.
+    ;; The classified failure map rides under :error. A 401 classifies as
+    ;; `{:kind :rf.http/http-4xx :http-status 401 :body …}`, so the server's
+    ;; message is in the parsed error `:body`, not at the top level
+    ;; (docs/async/http.md). This is the action the terminal failure runs
+    ;; too — so the third, locking-out failure is counted (attempts → 3) and
+    ;; its message retained, not discarded on the way to :locked-out.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc :error (or (:message error) "Login failed.")))})
+                 (assoc :error (or (get-in error [:body :message]) "Login failed.")))})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]

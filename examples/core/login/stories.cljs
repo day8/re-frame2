@@ -148,14 +148,16 @@
 
 (defn- failure-reply
   "The canonical managed-HTTP failure envelope the machine's `:record-error`
-   action reads: `{:status :error :error <classified-failure-map>}`, the message
-   riding under `:error`. Driving `:auth.login/failure` with it pins the exact
-   reply a variant wants. A bare `{:failure …}` map — a shape the machine never
-   reads — leaves `:record-error` reading a nil `:error`, so the flow falls back
-   to its generic \"Login failed.\" message instead of the server's."
+   action reads: `{:status :error :error <classified-failure-map>}`. The map is
+   the one a 4xx classifies as, with the server's JSON error body parsed under
+   `:body` — so the message rides at `[:error :body :message]`, exactly where
+   the demo backend's 401 delivers it. Driving `:auth.login/failure` with it
+   pins the exact reply a variant wants."
   [http-status message]
   {:status :error
-   :error  {:kind :rf.http/http-4xx :http-status http-status :message message}})
+   :error  {:kind        :rf.http/http-4xx
+            :http-status http-status
+            :body        {:message message}}})
 
 (defn register-all!
   "Register all of the login example's Story artefacts. Safe to call twice —

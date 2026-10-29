@@ -104,7 +104,7 @@ source stamps empty, so Xray loses click-to-source for that machine.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc  :error (or (:message error) "Login failed.")))})}
+                 (assoc  :error (or (get-in error [:body :message]) "Login failed.")))})}
 
    :states
    {:idle

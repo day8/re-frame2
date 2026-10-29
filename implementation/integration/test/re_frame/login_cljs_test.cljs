@@ -28,11 +28,15 @@
      - well-formed-data-passes      — a normal failing login (string
        message) settles without any `:where :machine-data` trace.
      - retry-clears-prior-error     — a direct retry from `:error-shown` clears
-       the stale `:error` as the machine re-enters `:submitting`."
+       the stale `:error` as the machine re-enters `:submitting`.
+     - server-message-through-the-transport — a submit answered 401 by a stub
+       transport, so the transport itself classifies the failure, shows the
+       server's message rather than the generic fallback."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.machines]  ;; loaded for its late-bind hooks (`rf/reg-machine`)
+            [re-frame.http.stub-transport :as rf.http.stub-transport]
             [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.integration-support :as rf.integration-support]
             [re-frame.test-support :as rf.test-support]
@@ -61,14 +65,18 @@
           [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow :state]))
 
 (defn- failure-reply
-  "The framework-shaped managed-HTTP failure envelope the machine's
-   `:record-error` action reads: `{:status :error :error {… :message …}}`, with
-   `:message` riding under `:error`. The action's `:event` sees it as the second
-   element of the `:failure` sub-event — the same view a real reply-appended
-   `[:auth.login/flow [:auth.login/failure] <this>]` produces."
+  "The managed-HTTP failure envelope a 401 delivers, as the machine's
+   `:record-error` action reads it: `{:status :error :error <failure>}`, where
+   the failure is the `:rf.http/http-4xx` map the transport classifies, with the
+   server's JSON error body parsed under `:body`. The action's `:event` sees it
+   as the second element of the `:failure` sub-event — the same view a real
+   reply-appended `[:auth.login/flow [:auth.login/failure] <this>]` produces."
   [message]
   {:status :error
-   :error  {:kind :rf.http/http-4xx :http-status 401 :message message}})
+   :error  {:kind        :rf.http/http-4xx
+            :http-status 401
+            :status-text "Unauthorized"
+            :body        {:message message}}})
 
 (defn- submit! [f]
   (rf/dispatch-sync [:auth.login/flow [:auth.login/submit]] {:frame f}))
@@ -131,3 +139,27 @@
       (submit! f)
       (is (= [:submitting nil] [(machine-state f) (:error (machine-data f))])
           "the retry re-entered :submitting (no reply issued), its :clear-error action clearing the stale error"))))
+
+;; ---------------------------------------------------------------------------
+;; (4) the server's message survives the transport's own failure shape
+;; ---------------------------------------------------------------------------
+
+(def ^:private rejecting-backend
+  "Answers every request the way the demo backend answers a wrong password.
+   No delay, so the reply settles inside the submitting `dispatch-sync`."
+  (rf.http.stub-transport/route-transport
+    (constantly {:status 401 :status-text "Unauthorized" :body {:message "Invalid credentials."}})))
+
+(deftest server-message-through-the-transport
+  (testing "a submit the backend rejects shows the server's message, read from the failure the transport classified"
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (rf.http.stub-transport/with-transport rejecting-backend
+        (fn []
+          (doseq [event [[:auth.login/initialise-form]
+                         [:auth.login/edit-field :email "ada@example.com"]
+                         [:auth.login/edit-password {:value "wrong-password"}]
+                         [:auth.login/submit-form]]]
+            (rf/dispatch-sync event {:frame f}))))
+      (is (= [:error-shown "Invalid credentials." 1]
+             [(machine-state f) (:error (machine-data f)) (:attempts (machine-data f))])
+          "the 401 settled the flow in :error-shown with the body's message, not the generic fallback"))))
