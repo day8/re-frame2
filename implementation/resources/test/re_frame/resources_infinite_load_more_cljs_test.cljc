@@ -203,6 +203,28 @@
       (is (= [(page [:a] "c1") (page [:b] "c2")] (:data (entry k)))
           "the single page appends once"))))
 
+(deftest an-ensure-over-a-live-load-more-answers-from-cache
+  ;; A load-more is another cause's page, not the ensure's causal attempt, so a
+  ;; fresh feed answers the ensure's `:reply-to` at once, and the page's later
+  ;; failure is the feed's `:page-error`, never the caller's.
+  (let [k       (load-page-0! :lm/feed (page [:a] "c1"))
+        replied (atom [])]
+    (rf/reg-event :test/feed-replied (fn [_ [_ reply]] (swap! replied conj reply) {}))
+    (load-more! :lm/feed)
+    (let [load-more-args @last-managed-args]
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :lm/feed :scope :rf.scope/global
+                                              :params {:filter :recent} :owner [:machine :m]
+                                              :reply-to [:test/feed-replied]}])
+      (is (= [[{:status :ok :cache-hit? true :value [:a]}] true]
+             [(mapv #(select-keys % [:status :cache-hit? :value]) @replied)
+              (identical? load-more-args @last-managed-args)])
+          "the ensure answers from cache at once and issues nothing")
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:test :w]}])
+      (is (= [] @aborts) "the live page holds the ensure's owner, so the first owner's release keeps it")
+      (reply-failure! {:kind :rf.http/http-5xx :http-status 503})
+      (is (= [1 :loaded 503] [(count @replied) (:status (entry k)) (:http-status (:page-error (entry k)))])
+          "the page's failure lands on the feed, and the caller heard once"))))
+
 ;; ===========================================================================
 ;; a load-more failure is the THIRD error channel (keep feed + :page-error)
 ;; ===========================================================================
@@ -546,6 +568,30 @@
       (ensure! :we/feed)
       (reply-success! (page [:a*] "c1"))
       (is (nil? (:invalidated-at (entry k)))))))
+
+(deftest a-load-more-that-drops-a-sweep-leg-leaves-the-feed-stale
+  ;; A load-more queued in page 0's drain runs before the page-1 leg, which
+  ;; then finds it live and drops. A load-more re-arms no sweep, so the sweep
+  ;; stops short and keeps the mark: page 1 still holds pre-write data.
+  (let [k (accumulate-3! :wg/feed {:refetch {:refetch-all-pages? true}})]
+    (release-and-invalidate!)
+    (ensure! :wg/feed)
+    (let [page-0-reply (conj (:on-success @last-managed-args) {:status :ok :value (page [:a*] "c1")})]
+      (rf/reg-event :test/reply-then-load-more
+        (fn [_ _] {:fx [[:dispatch page-0-reply]
+                        [:dispatch [:rf.resource/load-more
+                                    {:resource :wg/feed :scope :rf.scope/global
+                                     :params {:filter :recent} :cause [:user :feed/load-more]}]]]}))
+      (rf/dispatch-sync [:test/reply-then-load-more]))
+    (is (= 3 (in-flight-page-index)) "FIXTURE — the load-more started before the page-1 leg ran")
+    (reply-success! (page [:d] nil))
+    (let [e (entry k)]
+      (is (= [[[:a*] [:b] [:c] [:d]] nil false true]
+             [(mapv :items (:data e)) (:current-work e) (contains? e :refetch-sweep)
+              (some? (:invalidated-at e))])
+          "the sweep stops at the dropped leg and the feed stays stale"))
+    (ensure! :wg/feed)
+    (is (= 0 (in-flight-page-index)) "so the next ensure refetches the window")))
 
 ;; ===========================================================================
 ;; an authoritative write drops the superseded read's sweep

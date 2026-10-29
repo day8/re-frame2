@@ -202,11 +202,16 @@
         ;; `:current-work` pointing at an `:abort-requested` attempt, so the
         ;; pointer alone does not prove there is work to join.
         joinable?  (rf.resources.work-ledger/live-work? entry)
+        ;; A live page fetch past page 0 is not an ensure's causal attempt:
+        ;; page 0 has settled, so the feed serves from cache and a `:reply-to`
+        ;; never waits on, or fails with, another cause's page.
+        ;; Spec 016 §Read completion continuations — call-site `:reply-to`
+        page-fetch? (and joinable? (pos-int? (:page-index (:work entry))))
         ;; The freshness basis is the token's `:rf/time-ms`, never the host
         ;; clock, so a replay takes the same serve-vs-fetch branch.
         fresh-skip? (and (not force-new?)
-                         (not in-flight?)
-                         (= :loaded (:status entry))
+                         (or page-fetch?
+                             (and (not in-flight?) (= :loaded (:status entry))))
                          (not (rf.resources.state/entry-stale? entry time-ms)))
         owner-newly-attached? (and (some? owner)
                                    (not (contains? (:active-owners entry) owner)))
@@ -227,8 +232,11 @@
       ;; fresh-skip
       fresh-skip?
       ;; `attach-owner` bumps `:revision` on a new owner, so an optimistic
-      ;; rollback cannot drop it.
-      (let [hit  (rf.resources.state/attach-owner entry owner)
+      ;; rollback cannot drop it. A live page fetch takes the owner too, or
+      ;; releasing its other owners would abort a page this one still holds.
+      (let [hit  (cond-> (rf.resources.state/attach-owner entry owner)
+                   page-fetch? (rf.resources.work-ledger/update-attempt
+                                 prior-work rf.resources.work-ledger/join-owner+cause owner nil))
             rdb' (-> runtime-db
                      (assoc-in (rf.resources.state/entry-path scoped-key) hit)
                      (cond->
@@ -637,6 +645,9 @@
 
       ;; A leg queued behind a refetch or ensure finds that attempt live, and
       ;; it re-armed its own sweep, so the leg drops rather than displacing it.
+      ;; A load-more re-arms nothing: the dropped leg stops the sweep short,
+      ;; and the sweep's claim on the stale mark goes with it, so the feed
+      ;; stays stale. Spec 016 §Refetch and invalidation of an infinite feed
       (rf.resources.work-ledger/live-work? entry)
       (do
         (rf.trace/emit! :rf.event :rf.resource/load-more-skipped
@@ -644,7 +655,10 @@
                       :reason :in-flight :work/id (:current-work entry)
                       :page-count (rf.resources.state/page-count entry)
                       :owner owner :cause cause})
-        {:rf.db/runtime runtime-db})
+        {:rf.db/runtime (cond-> runtime-db
+                          (pos-int? (:page-index (:work entry)))
+                          (update-in (rf.resources.state/entry-path scoped-key)
+                                     rf.resources.state/clear-refetch-sweep))})
 
       :else
       (start-page-attempt
