@@ -2,6 +2,8 @@
 
 `reg-event` handlers that ingest untrusted data — HTTP responses, WebSocket frames, `postMessage` payloads, query-string params, `localStorage` rehydration — without an always-on production validator at the boundary. Dev-only `:schema` and `reg-app-schema` are necessary but not sufficient: both are elided in production builds (`goog.DEBUG = false`), so the handler writes whatever the source returned straight into `app-db` in the deployed bundle.
 
+**Contents:** Detection rules and the two boundary shapes · Why it's an anti-pattern · The canonical fix · Worked example · Regression example — the body-read trap and its recordable-cofx fix · Edge cases.
+
 ## Detection rules
 
 **The cardinal rule.** Any handler that crosses an untrusted boundary — HTTP response, WebSocket frame, `postMessage` payload, query-string param, `localStorage` rehydration, IndexedDB read, third-party iframe — is **flagged** unless **production validation** is wired for *the untrusted value itself*.

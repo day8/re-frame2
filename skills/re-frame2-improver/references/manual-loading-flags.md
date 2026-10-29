@@ -2,6 +2,8 @@
 
 Boolean flag keys in `app-db` — `:foo/loading?`, `:bar/saving?`, `:baz/in-flight?` — flipped on by a "start" event and flipped off by every "done" / "failed" / "cancelled" terminator. The flag and the data live as separate keys; keeping them coherent is the application's problem.
 
+**Contents:** Detection rules · Why it's an anti-pattern · The canonical fix — the one-line repair, the one-axis status, and when a machine pays · Worked example · Edge cases.
+
 ## Detection rules
 
 Greppable signals:

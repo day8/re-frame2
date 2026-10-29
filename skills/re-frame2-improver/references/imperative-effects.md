@@ -9,6 +9,8 @@ Two directions of impurity hide under this one heading, and they route to **two 
 
 Getting the direction right matters: a read routed to `reg-fx` produces a broken rewrite (an fx can't hand a value *back* into the same handler turn), and a write routed to `reg-cofx` is equally wrong. Classify direction first; then, for reads, classify durable vs diagnostic.
 
+**Contents:** Detection rules by direction · Why it's an anti-pattern · The canonical fix — the durable/diagnostic fork for reads, and `subscribe-once` in a handler versus a machine callback · Worked example · Edge cases.
+
 ## Detection rules
 
 Greppable signals inside `reg-event` handler bodies, **grouped by direction**:
