@@ -41,7 +41,9 @@
   boot can do for it, because each of those initialises its OWN process:
 
     (host/init!)                                     ;; installs the adapter
-    (def renderer (host/renderer))                   ;; launches the sidecar
+    ;; `defonce`: each `renderer` under `:module` launches its own
+    ;; sidecar, so a re-evaluated `def` would leave the last one running.
+    (defonce renderer (host/renderer))               ;; launches the sidecar
     (jetty/run-jetty (host/app renderer) {:port 3000 :join? false})
 
   `init!` installs the SSR substrate adapter. Requiring `re-frame.ssr`

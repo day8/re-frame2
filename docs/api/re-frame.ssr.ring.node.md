@@ -17,7 +17,9 @@ Assuming the app's `:app/init` event is registered, `out/my-app-server/server.js
 (rf/init! ssr/adapter)
 
 ;; Launches the sidecar on the bundle, and fails here if it cannot.
-(def renderer
+;; `defonce`: each `renderer` under `:module` launches its own
+;; sidecar, so a re-evaluated `def` would leave the last one running.
+(defonce renderer
   (node/renderer
     {:module       "out/my-app-server/server.js"
      :entry        "my-app/root"
