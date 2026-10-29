@@ -4,7 +4,8 @@
   subscribe): `(subscribe query-v {:frame target})` reads the named frame, and
   the 1-arity, or opts without `:frame`, resolves the carried `with-frame`
   scope and fails loud with `:rf.error/no-frame-context` absent one.
-  `subscribe` is a plain fn on both hosts, so it is also a value.
+  `subscribe` is a plain fn on both hosts, so it is also a value. A second
+  argument that is neither a map nor nil is refused.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -55,6 +56,27 @@
           (rf/with-frame :soa/t2 @(rf/subscribe [:soa/val]))
           (rf/with-frame :soa/t1 @(rf/subscribe [:soa/val] {:other true}))
           (:rf.error/id (ex-data-of #(deref (rf/subscribe [:soa/val] {:other true}))))])))
+
+(deftest a-non-map-opts-is-refused-rather-than-read-as-the-ambient-frame
+  ;; `(:frame opts)` reads nil off a keyword or a vector, so a bare frame id and
+  ;; v1's dynamic-args vector would otherwise read the carried scope's frame.
+  (setup!)
+  (rf/with-frame :soa/t1
+    (is (= (repeat 4 :rf.error/bad-subscribe-opts)
+           (mapv #(:rf.error/id (ex-data-of %))
+                 [#(rf/subscribe [:soa/val] :soa/t2)
+                  #(rf/subscribe [:soa/val] [:dyn])
+                  #(rf/subscribe-once [:soa/val] :soa/t2)
+                  #(rf/subscribe-once [:soa/val] [:dyn])])))
+    (is (= {:where 'rf/subscribe-once :recovery :pass-an-opts-map
+            :received {:type :vector :count 1}}
+           (select-keys (ex-data-of #(rf/subscribe-once [:soa/val] [:dyn]))
+                        [:where :recovery :received])))
+    (is (= [:A :B :A]
+           [@(rf/subscribe [:soa/val] nil)
+            (rf/subscribe-once [:soa/val] {:frame :soa/t2})
+            (rf/subscribe-once [:soa/val] nil)])
+        "nil, like a map, is opts")))
 
 (deftest subscribe-is-a-value-on-both-hosts
   ;; A plain fn composes: mapped over query vectors in the carried scope, and

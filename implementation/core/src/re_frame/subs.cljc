@@ -2004,6 +2004,24 @@
            #?(:cljs (claim-render-owned-ref! frame-id k query-v reaction))
            reaction))))))))) ;; close or + let[frame-record superseded?] + fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
 
+(defn- refuse-non-map-opts!
+  "Throw `:rf.error/bad-subscribe-opts` for a second argument to `subscribe` /
+  `subscribe-once` that is neither a map nor nil. `(:frame opts)` reads nil
+  off a keyword or a vector, so `(subscribe [:q] :frame-b)` and v1's
+  dynamic-args form `(subscribe [:q] [dyn])` would otherwise read the ambient
+  frame. Spec 009 §Error event catalogue."
+  [where opts]
+  (let [received (rf.error/diag-value-summary opts)]
+    (rf.error/throw-error!
+      :rf.error/bad-subscribe-opts
+      where
+      (str where " takes an opts map as its second argument, e.g. {:frame "
+           "target} to read a named frame, and got a " (name (:type received))
+           ". A frame id goes under :frame; a query's parameters go in the "
+           "query vector itself.")
+      {:recovery :pass-an-opts-map
+       :extra    {:received received}})))
+
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity ambient form
@@ -2017,6 +2035,8 @@
   wrong frame. Pass the public opts form `(subscribe query-v {:frame
   target})` to read a named frame from outside any scope (async callbacks,
   tools, tests, SSR); `target` is a frame-id keyword or a live frame value.
+  A second argument that is neither a map nor nil throws
+  `:rf.error/bad-subscribe-opts`.
 
   While a Reagent component renders — a `reg-view` or a plain fn — the
   ambient form resolves the boundary above it in the tree (Spec 006 §One
@@ -2070,6 +2090,8 @@
    ;; `:subscribe` op's pinned token — INTERNAL, reserved `:rf.frame/` ns)
    ;; rides alongside `:frame` so the read is fenced to the exact captured
    ;; incarnation. nil for every ordinary explicit-frame read.
+   (when-not (or (nil? opts) (map? opts))
+     (refuse-non-map-opts! 'rf/subscribe opts))
    (if-some [target (:frame opts)]
      (subscribe-in-frame target query-v (:rf.frame/expected-incarnation opts))
      (subscribe query-v))))
@@ -2133,7 +2155,8 @@
   under no established scope raises `:rf.error/no-frame-context`, never a
   `:rf/default` floor. Pass the public opts form `(subscribe-once query-v
   {:frame target})` to read a named frame from outside any scope; `target`
-  is a frame-id keyword or a live frame value."
+  is a frame-id keyword or a live frame value. A second argument that is
+  neither a map nor nil throws `:rf.error/bad-subscribe-opts`."
   ([query-v]
    (subscribe-once-in-frame
      (rf.frame/require-current-frame!
@@ -2146,6 +2169,8 @@
    ;; shape-discrimination, no internal frame-first reach. `opts` may carry
    ;; `{:frame target}` (a frame-id keyword or a live frame value); ambient
    ;; when absent.
+   (when-not (or (nil? opts) (map? opts))
+     (refuse-non-map-opts! 'rf/subscribe-once opts))
    (if-some [target (:frame opts)]
      (subscribe-once-in-frame target query-v)
      (subscribe-once query-v))))
