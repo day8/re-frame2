@@ -60,9 +60,7 @@ What this layer covers:
 - Conformance corpus — `conformance_test.cljs`: one
   inline-fixture corpus driving every tool through `tools/invoke`
   against a stub conn, asserting recorded wire-shape EDN. Sibling
-  to `re-frame.ssr-conformance-test` / `re-frame.machines-conformance-test`
-  / `re-frame.schemas-conformance-test` / `re-frame.flows-conformance-test`
-  on the framework side.
+  to `re-frame.ssr-conformance-test` on the framework side.
 - Snapshot pipeline / wire shape — `wire_cap_test.cljs`,
   `typical_tokens_test.cljs`. These exercise
   the SHAPE the server emits without ever opening a socket; nREPL is
