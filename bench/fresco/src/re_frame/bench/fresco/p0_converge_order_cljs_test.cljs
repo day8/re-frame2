@@ -409,8 +409,8 @@
   ;; overlap in 37 of 40 row-runs, the three unresolved falling on M1, M2
   ;; and narrow in two runs, so no row is disjoint twice, and the direction
   ;; half never refuses. Counted as 40 independent row-runs, the
-  ;; Reagent-first stratum is higher in 23 — the old 11-of-12 statistic on
-  ;; the balanced design, where it is not an effect.
+  ;; Reagent-first stratum is higher in 23 — the five-round runs' 11-of-12
+  ;; statistic, read on the balanced design, where it is not an effect.
   (let [rounds-of  (fn [row] (mapcat #(get % row) ensemble))
         strata-of  (fn [row] (mapcat #((juxt :reagent-first :uix-first) (verdict-of % row)) ensemble))
         count-of   (fn [row pred bound]
