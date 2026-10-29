@@ -15,8 +15,11 @@ a leaf ever uses a separator this cannot read, widen the alternation
 in NEXT_LABEL_RE by that one token; never loosen the label pattern into a
 general emphasis scan, or ordinary italic prose starts reading as a label.
 
-Run from the repo root:
+Run from any directory:
     python3 scripts/check_skill_redirect_anchors.py
+
+It grades the tree it lives in, resolving both paths from its own location, so
+a run from outside the repo or from a sibling worktree still reads this tree.
 
 Exits non-zero if any reference points at a label that does not exist in
 SKILL-REDIRECT.md. Run before any edit to SKILL-REDIRECT.md, and from CI to
@@ -31,8 +34,9 @@ import sys
 import pathlib
 
 
-REDIRECT_FILE = pathlib.Path("SKILL-REDIRECT.md")
-SKILLS_DIR = pathlib.Path("skills")
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+REDIRECT_FILE = REPO_ROOT / "SKILL-REDIRECT.md"
+SKILLS_DIR = REPO_ROOT / "skills"
 
 # Bullet-label syntax in SKILL-REDIRECT.md is:
 #   - **Label** -> URL `[tag]` `[tag]`
@@ -83,7 +87,7 @@ def main() -> int:
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
 
     if not REDIRECT_FILE.exists():
-        print(f"ERROR: {REDIRECT_FILE} not found. Run from repo root.", file=sys.stderr)
+        print(f"ERROR: {REDIRECT_FILE} not found.", file=sys.stderr)
         return 2
 
     redirect_text = REDIRECT_FILE.read_text(encoding="utf-8")
@@ -118,7 +122,7 @@ def main() -> int:
         print()
         print("Broken references (label does not appear as a bullet in SKILL-REDIRECT.md):")
         for path, ln, raw, norm in broken:
-            rel = path.as_posix()
+            rel = path.relative_to(REPO_ROOT).as_posix()
             print(f"  {rel}:{ln}  label={raw!r}  base={norm!r}")
         print()
         print("Fix options:")
