@@ -10,7 +10,7 @@
 - Each frame is one JSON object on one line; the server reads from
   stdin, writes to stdout. stderr is reserved for diagnostics
   (failure traces; never used for protocol traffic).
-- **Application output is a diagnostic, not a frame** (rf2-gwye.57). A
+- **Application output is a diagnostic, not a frame.** A
   `tools/call` runs the author's own code, and an ordinary `println` in
   a Story event handler writes to `*out*` — which in the CLI is stdout,
   where it is not a frame and breaks the client's line parser over a run
@@ -26,17 +26,17 @@
   method is also honoured. At EOF `-main` also RELEASES what the CLI
   acquired — Clojure's non-daemon future executor, which every variant
   run uses — so a session that ran a story exits promptly instead of
-  idling out that pool's 60-second keep-alive (rf2-gwye.59). `run-loop!`
+  idling out that pool's 60-second keep-alive. `run-loop!`
   never does this: it is the embeddable half, and a library caller's
   futures must outlive it.
-- **Frame-length cap** (rf2-g9fje): each inbound frame is bounded at
+- **Frame-length cap**: each inbound frame is bounded at
   `re-frame.story-mcp.protocol/max-frame-bytes` (4 MB — well above
   the largest legitimate MCP payload). A frame exceeding the cap is
   drained to its next newline boundary and yields a parse-error
   response; the loop continues. The cap exists so a hostile or
   runaway producer can't OOM the server with an unterminated frame.
 
-## No-intern argument ingress (rf2-3luf3)
+## No-intern argument ingress
 
 Any code path that mints a fresh keyword from an attacker-/AI-supplied
 string lets the caller choose what the JVM interns: each unique string
@@ -76,7 +76,7 @@ before the bounded allowlists run.** Concretely:
   level — they neither intern nor reach a handler.
 
   For the **top-level `tools/call` argument** level specifically, a
-  dropped key is no longer SILENTLY discarded (rf2-ovmc5e). Its RAW
+  dropped key is not SILENTLY discarded. Its RAW
   STRING form is recorded as Clojure **metadata** on the normalised
   arguments map under `protocol/unknown-arg-keys-meta` — never as a map
   entry (so it cannot reach a handler) and never keywordised (so the
@@ -94,7 +94,7 @@ before the bounded allowlists run.** Concretely:
   `:rf.error` id on the structured slot is
   `:rf.story-mcp/unknown-arguments`.
 
-  **Two-level enforcement (rf2-an95jj).** The global allowlist
+  **Two-level enforcement.** The global allowlist
   (`protocol/arg-keys`) is the UNION of every tool's argument keys, so it
   only rejects keys no tool reads. A key valid for ANOTHER tool — e.g.
   `:body` (register-variant) on a read tool — survives
@@ -114,7 +114,7 @@ before the bounded allowlists run.** Concretely:
   holds: a per-tool-invalid key is already an interned keyword (it passed
   the global allowlist), so reporting it mints nothing.
 
-  **Bounded error envelopes (rf2-p0eiq3).** Both the global and per-tool
+  **Bounded error envelopes.** Both the global and per-tool
   unknown-argument diagnostics — and the invalid-`:max-tokens` rejection —
   ride the SAME wire-boundary token cap (`mcp-base.cap/apply-cap`) that
   bounds every normal tool response (see
@@ -131,20 +131,20 @@ before the bounded allowlists run.** Concretely:
     `:active-modes` (`read-run-opts`) — a finite, registry-derived
     allowlist. An override key outside it — like an `:active-modes` id
     outside the registered-mode set — is **refused** at the handler
-    boundary (`run-opts-semantic-error`, rf2-sw1d) rather than dropped:
+    boundary (`run-opts-semantic-error`) rather than dropped:
     the coercer's drop is retained as the no-intern floor, but the tool
     returns `isError` naming the raw identifier and the accepted set
     instead of executing a different scenario. See
-    [`API.md`](API.md#run-options-rf2-sw1d) §Run options. The allowlist is
+    [`API.md`](API.md#run-options) §Run options. The allowlist is
     the effective set (variant args ∪ the active modes' contributed
     keys) rather than the bare variant's declared keys because Story's
     args precedence merges mode args *before* cell-local overrides, so
     an arg introduced only by an active mode is a legitimate override
-    target (rf2-to3q7). The active modes are coerced first so the
+    target. The active modes are coerced first so the
     allowlist is derived from the same effective args the render uses.
   - the object-form `register-variant` `:body` is keywordised by
     `coerce-body` only **behind the `--allow-writes` operator gate** and
-    only **after** the rf2-g9fje depth cap AND the rf2-tag30h **width
+    only **after** the depth cap AND the **width
     cap** (`max-body-string-keys`, total string-key count across the
     tree), so the intern is bounded by an operator gate, a depth ceiling,
     AND a width ceiling. The depth cap alone bounds nesting but not the
@@ -166,7 +166,7 @@ before the bounded allowlists run.** Concretely:
     unchanged.
 
 This closes the input-side vector. The output-side egress scrubbing
-(rf2-12f2q, pre-frame hardening rf2-tag30h) is a separate concern
+is a separate concern
 documented with the result envelope.
 
 ## Protocol version pin
@@ -216,7 +216,7 @@ The server uses the standard JSON-RPC 2.0 error codes:
 | `-32700` | Parse error | Malformed JSON. The reply carries `id: null`; the run-loop survives and continues reading. |
 | `-32600` | Invalid request | The frame is JSON but not a valid JSON-RPC request shape, **or** a request other than `initialize` / `ping` arrives before the `initialize` handshake completes (the pre-initialize lifecycle gate — see [§Lifecycle state enforcement](#lifecycle-state-enforcement)). |
 | `-32601` | Method not found | Unknown method name. |
-| `-32602` | Invalid params | `tools/call` `name` is missing or not a string, **or** `tools/call` `arguments` is present but not an object (a scalar / array / string — a params-CONTAINER shape failure; rf2-2zym5e). Per-ARGUMENT validation does NOT surface here — within a well-formed arguments map, each tool self-validates a wrong-typed / missing field (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. An unknown top-level argument KEY (rf2-ovmc5e) likewise returns an `isError: true` tool result (`:rf.error :rf.story-mcp/unknown-arguments`) before dispatch, not a protocol error. |
+| `-32602` | Invalid params | `tools/call` `name` is missing or not a string, **or** `tools/call` `arguments` is present but not an object (a scalar / array / string — a params-CONTAINER shape failure). Per-ARGUMENT validation does NOT surface here — within a well-formed arguments map, each tool self-validates a wrong-typed / missing field (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. An unknown top-level argument KEY likewise returns an `isError: true` tool result (`:rf.error :rf.story-mcp/unknown-arguments`) before dispatch, not a protocol error. |
 | `-32603` | Internal error | An unexpected exception during dispatch. |
 
 **Tool-execution errors** (a tool ran, but its semantic failed —
@@ -227,7 +227,7 @@ agent see the failure mode without aborting the conversation. See
 example: a write-surface call when writes are gated off returns
 `isError: true` with a documented hint, not `-32601`.
 
-**Unknown top-level argument keys** (rf2-ovmc5e) are diagnosed, not
+**Unknown top-level argument keys** are diagnosed, not
 silently dropped. A caller-supplied `tools/call` argument key outside
 the bounded `protocol/arg-keys` allowlist is kept (as a raw string,
 never interned) only as metadata for the dispatcher; before the handler
@@ -302,7 +302,7 @@ TypeScript SDK to mark the server initialized on the `initialize`
 response rather than waiting for the notification, so a client that
 pipelines `initialize` + `tools/list` does not race a refusal. The
 notification is still accepted as a no-op, so a well-behaved client sees
-no error. (rf2-e6knrq.)
+no error.
 
 ## `tools/list`
 
@@ -365,8 +365,8 @@ space, at any depth and in key position, becomes
 `{:rf.story-mcp/unencodable "<class name>"}`: bounded loss, and never an
 object address. Without the projection an un-encodable slot throws inside
 `protocol/write-frame!`, *past* the handler's own error result, and the client
-gets a protocol fault on what was a tool-domain failure (rf2-2z9u3,
-rf2-ia904). The `-32603` arm remains the outer net for a fault in dispatch
+gets a protocol fault on what is a tool-domain failure.
+The `-32603` arm is the outer net for a fault in dispatch
 itself.
 
 ## Cross-references
