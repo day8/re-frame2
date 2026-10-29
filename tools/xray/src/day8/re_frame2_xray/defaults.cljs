@@ -27,6 +27,17 @@
   require cycle. Re-exported as `shell/default-frame-id`."
   :rf/xray)
 
+(defn close-event-for
+  "The event the chrome `✕` dispatches for click `e`: `:rf.xray/close-popout`
+  when the click landed inside the pop-out window's shell (its root carries
+  `data-rf-xray-mode=\"popout\"`), else `:rf.xray/close-shell`. A pop-out
+  action never changes the opener's mount state (tools/xray/spec/011
+  §Pop-out), so the two surfaces close through different events."
+  [e]
+  (if (some-> e .-currentTarget (.closest "[data-rf-xray-mode=\"popout\"]"))
+    :rf.xray/close-popout
+    :rf.xray/close-shell))
+
 (def default-target-frame
   "The default OBSERVED-target state when no host frame has been
   selected: **`nil` = UNSELECTED**.

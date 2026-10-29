@@ -1071,7 +1071,12 @@
 
   `:dispatch-fn` is the frame-aware dispatcher captured by
   the [[ribbon]] boundary's body so the settings / close clicks land on
-  the surrounding instance frame, not a `:rf/xray` literal."
+  the surrounding instance frame, not a `:rf/xray` literal.
+
+  In the pop-out the `✕` closes the pop-out window and leaves the opener's
+  mount state alone (`defaults/close-event-for`), and the `⛶` is hidden by
+  `theme/global-styles`' chrome sheet, since the shell is already popped out
+  (tools/xray/spec/011 §Pop-out)."
   [{:keys [dispatch-fn]}]
   (let [icon-style {:background      "transparent"
                     :border          "none"
@@ -1111,7 +1116,7 @@
      [:button {:data-testid "rf-xray-icon-close"
                :title       "Close (Ctrl+Shift+C)"
                :aria-label  "Close Xray"
-               :on-click    #(dispatch-fn [:rf.xray/close-shell])
+               :on-click    #(dispatch-fn [(defaults/close-event-for %)])
                :style       icon-style}
       [:span {:aria-hidden "true"} "✕"]]]))
 
@@ -1481,59 +1486,12 @@
 ;; standardised `scrollbar-width` / `scrollbar-color` inline (set on the
 ;; container's `:style`). WebKit/Blink still ship the legacy `::-webkit-
 ;; scrollbar` pseudo-elements which can ONLY be reached via a real CSS
-;; stylesheet (no React inline-style equivalent), so we inject a one-shot
-;; `<style>` tag scoped to `[data-testid="rf-xray-event-list"]` at
-;; namespace load. The scope keeps the slim chrome confined to the L2
-;; list — no global page-level webkit-scrollbar override (would conflict
-;; with host-app stylesheets).
-;;
-;; `defonce` + idempotent DOM probe keeps shadow-cljs `:after-load` from
-;; double-injecting; the guard skips the side-effect entirely under node-
-;; test where `js/document` does not exist.
-
-(def ^:private scrollbar-style-id
-  "rf-xray-event-list-scrollbar")
-
-(def ^:private scrollbar-css
-  "Webkit/Blink slim-scrollbar rules scoped to the L2 event-list container.
-  Mirror of the inline Firefox `scrollbar-width`/`-color` props so all
-  browsers land on the same visual rhythm.
-
-  Colours echo `(:border-subtle tokens)` / `(:text-tertiary tokens)` —
-  hardcoded as hex/rgba here because the rule lives in a string outside
-  the hiccup tree where the tokens map isn't directly available."
-  (str "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar"
-       " { width: 6px; height: 6px; }"
-       "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar-track"
-       " { background: transparent; }"
-       "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar-thumb"
-       " { background: rgba(107, 112, 128, 0.4); border-radius: 3px; }"
-       "[data-testid=\"rf-xray-event-list\"]::-webkit-scrollbar-thumb:hover"
-       " { background: rgba(107, 112, 128, 0.7); }"))
-
-(defonce ^:private scrollbar-style-injected?
-  ;; defonce so shadow-cljs `:after-load` doesn't re-inject; the `<style>`
-  ;; node itself is identified by `id` so even a fresh load reusing this
-  ;; symbol would not double-inject.
-  (atom false))
-
-(defn- inject-scrollbar-style!
-  "Idempotent one-shot injection of the slim-scrollbar CSS into
-  `<head>`. No-op when `js/document` is absent (node-test) or the
-  style node is already present."
-  []
-  (when (and (not @scrollbar-style-injected?)
-             (exists? js/document)
-             (.-head js/document)
-             (.-createElement js/document))
-    (let [existing (when (.-getElementById js/document)
-                     (.getElementById js/document scrollbar-style-id))]
-      (when-not existing
-        (let [node (.createElement js/document "style")]
-          (set! (.-id node) scrollbar-style-id)
-          (.appendChild node (.createTextNode js/document scrollbar-css))
-          (.appendChild (.-head js/document) node))))
-    (reset! scrollbar-style-injected? true)))
+;; stylesheet (no React inline-style equivalent), so the `::-webkit-scrollbar` rules scoped to
+;; `[data-testid="rf-xray-event-list"]` ship in `theme/global-styles`'s
+;; stylesheet set, which `install-into!` writes into every document the
+;; shell renders in — the opener's and the pop-out's. The scope keeps the
+;; slim chrome confined to the L2 list — no global page-level
+;; webkit-scrollbar override (would conflict with host-app stylesheets).
 
 ;; ---- L2 auto-scroll on focus change --------------------------------------
 ;;
@@ -2431,7 +2389,7 @@
                     :padding       (->px l2-list-padding-px)
                     ;; Firefox standardised props for the
                     ;; slim scrollbar. WebKit/Blink pseudo-element rules ship
-                    ;; via the `inject-scrollbar-style!` <style> tag above —
+                    ;; in `theme/global-styles`' stylesheet set —
                     ;; pseudo-elements can't be set via React inline-style.
                     :scrollbar-width "thin"
                     :scrollbar-color "rgba(107, 112, 128, 0.4) transparent"}}
@@ -2564,8 +2522,7 @@
     user clicked, so the scroll-into-view is suppressed there to avoid
     stealing the cursor. The container carries
     Firefox's standardised `scrollbar-width`/`-color`; WebKit/Blink
-    rules ship via a one-shot `<style>` injection (see
-    `inject-scrollbar-style!`).
+    rules ship in `theme/global-styles`' stylesheet set.
 
     The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door,
     documented for exactly this position (`re-frame.core/capture-frame`'s
@@ -2573,11 +2530,6 @@
     `dispatch`, so this body is the same shape as its five boundary
     siblings."
     []
-    ;; Idempotent stylesheet injection. Lives in the
-    ;; view body so it runs on first paint of the L2 list (which is
-    ;; mounted by the shell-view); defonce + DOM guards keep it a
-    ;; no-op everywhere it matters.
-    (inject-scrollbar-style!)
     (event-list-tree
       (:dispatch (rf/capture-frame))
       {;; Read ONCE per L2 paint; thread the resolved

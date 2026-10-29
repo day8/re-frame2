@@ -208,16 +208,16 @@
          `:mount-id`, one width slot and one `:site-id`. This is the mount
          door onto that prop, so it is the door that has to carry it")
     (is (= {:instance-id "right"}
-           (crossed (delivered-by {:frame :my-app/cart :instance-id "right"})))
+           (crossed (delivered-by {:frame :my-app/xray-side :instance-id "right"})))
         "and it composes with `:frame` rather than replacing it"))
 
   (testing "the `:frame` opt is untouched by `:instance-id`."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-app-db-diff! :mount-point
-                                   {:frame :my-app/cart :instance-id "right"})
-        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
-            "the frame-provider still wraps the frame the host named")))))
+                                   {:frame :my-app/xray-side :instance-id "right"})
+        (is (= {:frame :my-app/xray-side} (second (captured-tree capture)))
+            "the frame-provider still wraps the own frame the host named")))))
 
 (deftest mount-fns-without-an-instance-name-deliver-exactly-what-they-did
   (testing "an UNNAMED app-db mount delivers the bare
@@ -286,8 +286,8 @@
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-trace! :mount-point
-                             {:frame :my-app/cart :instance-id "right"})
-        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
+                             {:frame :my-app/xray-side :instance-id "right"})
+        (is (= {:frame :my-app/xray-side} (second (captured-tree capture)))
             "and it composes with `:frame` rather than replacing it — the
              frame-provider still wraps the frame the host named")))
     (is (= [trace/Panel-bridge] (trace-delivered-by nil))
@@ -332,8 +332,8 @@
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-point
-                                   {:frame :my-app/cart :instance-id "right"})
-        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
+                                   {:frame :my-app/xray-side :instance-id "right"})
+        (is (= {:frame :my-app/xray-side} (second (captured-tree capture)))
             "and it composes with `:frame` rather than replacing it — the
              frame-provider still wraps the frame the host named")))
     (is (= [epoch-panel/Panel-bridge] (epoch-delivered-by nil))
@@ -399,8 +399,8 @@
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-machine-inspector!
-          :mount-point {:frame :my-app/cart :instance-id "right"})
-        (is (= {:frame :my-app/cart} (second (captured-tree capture)))
+          :mount-point {:frame :my-app/xray-side :instance-id "right"})
+        (is (= {:frame :my-app/xray-side} (second (captured-tree capture)))
             "and it composes with `:frame` rather than replacing it — the
              frame-provider still wraps the frame the host named")))))
 

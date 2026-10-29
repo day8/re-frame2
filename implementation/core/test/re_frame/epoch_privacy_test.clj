@@ -17,9 +17,11 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.image :as rf.image]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
             ;; Side-effect requires (mirrors epoch_test.clj):
             [re-frame.machines]))
 
@@ -60,6 +62,31 @@
       (rf/dispatch-sync [event-id] {:frame :test/main}))
     (is (= [false true true]
            (mapv :rf.epoch/sensitive? (rf.epoch/epoch-history :test/main))))))
+
+(deftest rollup-signals-answer-apart
+  (testing "`sensitive-trace?` reads only the cascade's stamped events and
+            `sensitive-db?` only the declared leaves; the rollup is their OR, so
+            a plain tick after the secret lands in app-db is db-only"
+    (rf/make-frame {:id :test/main})
+    (install-sensitive-paths! [[:auth :password]])
+    (rf/reg-event :unrelated (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
+    (rf/reg-event :secret-op (fn [{:keys [db]} _]
+                               (rf.trace/emit! :rf.sub :rf.sub/run
+                                               {:rf.sub/id      :secret-sub
+                                                :rf.sub/query-v [:secret-sub]
+                                                :frame          :test/main
+                                                :sensitive?     true})
+                               {:db db}))
+    (rf/reg-event :seed      (fn [_ _] {:db {:auth {:password "old-secret"}}}))
+    (rf/reg-event :tick      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (doseq [event-id [:unrelated :secret-op :seed :tick]]
+      (rf/dispatch-sync [event-id] {:frame :test/main}))
+    (is (= [[false false false] [true false true] [false true true] [false true true]]
+           (mapv (fn [r]
+                   [(rf.epoch.assembly/sensitive-trace? (:trace-events r))
+                    (rf.epoch.assembly/sensitive-db? :test/main (:db-before r) (:db-after r))
+                    (:rf.epoch/sensitive? r)])
+                 (rf.epoch/epoch-history :test/main))))))
 
 ;; The structured :effects rows carry :args — the RAW fx-handler argument, not
 ;; rooted at the frame's app-db, so no classification can prove it safe.

@@ -162,6 +162,7 @@
     - Interceptors — lens"
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.substrate :as substrate]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -251,7 +252,7 @@
      [:button {:data-testid "rf-xray-static-icon-close"
                :title       "Close (Ctrl+Shift+C)"
                :aria-label  "Close Xray"
-               :on-click    #(dispatch [:rf.xray/close-shell])
+               :on-click    #(dispatch [(defaults/close-event-for %)])
                :style       icon-style}
       "✕"]]))
 

@@ -155,9 +155,9 @@
 ;; both sides of the one diff must take the same policy or every large path
 ;; reads as changed.
 ;;
-;; The `epoch/redact-history` ingest gate does not make this redundant: it
-;; drops a record whole on its `:rf.epoch/sensitive?` rollup, and this projects
-;; the values a surviving record carries. A declared-sensitive leaf that
+;; The `epoch/assoc-history` ingest gate does not make this redundant: it
+;; withholds a record whose cascade is sensitive, and this projects the
+;; classified app-db values a kept record still holds. A declared-sensitive leaf that
 ;; changed reads as unchanged (both sides are `:rf/redacted`); the path and
 ;; its redaction chip stay on screen, and the App-DB tab's redacted-modified
 ;; count is where the suppressed change surfaces (tools/xray/spec/004 §Count
@@ -251,8 +251,8 @@
   ;; asks about — see `:rf.xray.epoch/parent-epoch-index` below.
 
   (rf/reg-sub :rf.xray/focused-epoch-record
-    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
-    (fn [[focus epoch-history] _query]
+    {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history] [:rf.xray/epoch-withheld]]}
+    (fn [[focus epoch-history withheld] _query]
       (let [focus-epoch-id    (:epoch-id focus)
             ;; The pinned `:dispatch-id` is what separates
             ;; "focus unset, show the head" from "the operator pinned an
@@ -267,7 +267,8 @@
                                                        epoch-history)]
         {:status   (focus/resolve-focus-status focus-epoch-id
                                                focus-dispatch-id
-                                               epoch-history)
+                                               epoch-history
+                                               withheld)
          :epoch-id (or focus-epoch-id (:epoch-id record))
          :record   record})))
 

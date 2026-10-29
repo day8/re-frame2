@@ -319,14 +319,29 @@
      (catch #?(:clj Exception :cljs :default) _ false))))
 
 (defn xray-frame-seated?
-  "True iff an image-loaded frame is already registered under `frame-id` (its
-  one-registry record carries a resolved generation) — the idempotency probe
+  "True iff `frame-id` names a live frame running XRAY'S OWN image — its resolved
+  generation was assembled from an image carrying `xray-image-id`. The probe
   `seat-xray-frame!` reads to skip a redundant re-seat (re-open, hot-reload,
-  repeated testbed mount). Under EP-0024 a duplicate `:id` is idempotent
-  replacement (no fail-loud gate), so this is a benign skip-optimisation
-  rather than a guard against a throw. Pure read."
+  repeated testbed mount). A frame image-loaded on any other image is not
+  seated, however live it is. Pure read."
   [frame-id]
-  (some? (rf.live-frame/live-frame frame-id)))
+  (boolean
+    (some #(= xray-image-id (:id %))
+          (:rf.gen/images (rf.frame/frame-generation frame-id)))))
+
+(defn- foreign-frame?
+  "True when `frame-id` already names a frame Xray must not seat: one that is
+  not Xray-seated and either runs an image of its own or already holds app
+  state. Seating replaces a frame's image with Xray's, so seating a host's app
+  frame would leave its own events unhandled and write Xray's first-mount state
+  into its app-db. Xray's reserved `:rf/xray` id is never foreign, and a bare
+  frame with an empty app-db is an id made for Xray to seat."
+  [frame-id]
+  (and (not= frame-id :rf/xray)
+       (some? (rf.frame/frame frame-id))
+       (not (xray-frame-seated? frame-id))
+       (or (some? (rf.frame/frame-generation frame-id))
+           (seq (rf/app-db-value frame-id)))))
 
 (defn seat-xray-frame!
   "SEAT a running Xray frame in its OWN EP-0023 image-loaded frame — the TRUE
@@ -380,9 +395,24 @@
       form `make-frame`'s 2-arity takes — does not depend on what the live store
       carries).
 
+  ## Refusal
+
+  `frame-id` is Xray's OWN frame, never the host frame Xray inspects (that is
+  the target frame, Spec 008 §Own frame vs target frame). Seating a frame that
+  already runs another image or holds app state would re-image a host frame, so
+  that throws `:rf.xray/foreign-frame` instead (`foreign-frame?`).
+
   Returns the live frame OBJECT on a fresh seat, or nil on a re-seat skip."
   ([frame-id] (seat-xray-frame! frame-id ::live))
   ([frame-id pool]
+   (when (foreign-frame? frame-id)
+     (throw (ex-info (str "Xray refuses to seat " (pr-str frame-id) ": that frame "
+                          "already runs its own image or holds app state, and "
+                          "seating would replace its image with Xray's. `:frame` "
+                          "names Xray's own frame; inspect a host frame by making "
+                          "it the target frame (core/set-target-frame!).")
+                     {:rf.error/id :rf.xray/foreign-frame
+                      :frame       frame-id})))
    (let [already? (xray-frame-seated? frame-id)
          opts {:id frame-id :images [(xray-image)]}
          obj (when-not already?

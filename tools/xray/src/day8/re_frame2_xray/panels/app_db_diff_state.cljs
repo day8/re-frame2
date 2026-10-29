@@ -68,6 +68,7 @@
   Pure hiccup; reuses Xray's theme tokens so light/dark resolve."
   (:require [day8.re-frame2-xray.panels.app-db-diff-format :as f]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
             ;; The first-class edn-inspector widget owns the WHOLE
@@ -624,6 +625,7 @@
   (case status
     :epoch-evicted "This epoch has been evicted from the history buffer."
     :no-epoch      "The selected event settled no epoch."
+    :withheld      focus/withheld-copy
     nil))
 
 (defn state-body
@@ -637,7 +639,7 @@
 
   Pure hiccup; nil-safe (a nil model degrades to an empty TOP + no
   areas). A model whose `:status` names a focus with no value
-  (`:epoch-evicted`, `:no-epoch`) renders that status's placeholder line
+  (`:epoch-evicted`, `:no-epoch`, `:withheld`) renders that status's placeholder line
   instead of any section.
 
   The 2-arity takes `Panel`'s optional `:instance-id` and

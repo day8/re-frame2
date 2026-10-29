@@ -387,11 +387,13 @@
   string (typically a block re-declaring the `--rf-xray-*` custom
   properties the shell reads). Useful for editor-driven palette sync.
 
-  The CSS rides in a single dedicated `<style>` block appended LAST to
+  The CSS rides in a single dedicated `<style>` block kept LAST in
   `<head>` so its rules win on authoring order against the built-in
-  per-theme block. Idempotent: successive calls REPLACE the override in
-  place; a nil / blank string clears it and restores the built-in
-  palette. No-op outside a DOM (server render / JVM). Returns nil."
+  per-theme block — in the host page and in the pop-out, and whether the
+  call comes before or after Xray first paints. Idempotent: successive
+  calls REPLACE the override in place; a nil / blank string clears it and
+  restores the built-in palette. No-op outside a DOM (server render / JVM).
+  Returns nil."
   [css-string]
   (global-styles/set-host-theme-css! css-string)
   nil)

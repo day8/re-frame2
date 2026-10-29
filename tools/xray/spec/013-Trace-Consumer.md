@@ -203,7 +203,7 @@ the reveal → redact narrowing by clearing the rings wholesale.
 They are projected from the focused `:rf/epoch-record`'s
 `:trace-events` by the epoch-scoped `:rf.xray/trace-feed`, so the gate
 standing in front of those cells is the EPOCH path below
-(`epoch/redact-history`, which drops the whole record) — not this one.
+(`epoch/assoc-history`, which withholds the whole record) — not this one.
 The flat read reaches that panel at exactly one place: `:trace-buffer`
 becomes `:rf.xray/event-bundles`, which feeds the 3px lifecycle status
 stripe above the list — a colour, carrying no text. The split is owned
@@ -215,10 +215,10 @@ prints.
 It reads no trace events at all: it renders the focused
 `:rf/epoch-record`'s `:db-after` / `:db-before` plus the
 `:frame-state-*` runtime partition, so its gates are the EPOCH path
-below (`epoch/redact-history`, which drops the whole record) and the
-render-side `local-render/local-render-value` egress projection for
-the declared-sensitive app-db paths `redact-history` explicitly
-cannot see. It was listed above until rf2-mg4u3; the only route it
+below (`epoch/assoc-history`, which withholds a record whose cascade
+is sensitive) and the render-side `local-render/local-render-record-state`
+egress projection for the declared-sensitive app-db paths, which that
+gate deliberately leaves to it. It was listed above until rf2-mg4u3; the only route it
 ever had to a trace event was `(:trace-events epoch-record)` in the
 path-click walker rf2-y8doi.29 deleted — the EPOCH path, never this
 one.
@@ -249,26 +249,37 @@ rather than each carrying its own policy:
 2. **The read path** — `snapshot-from-rings` re-applies it to the merged
    per-frame + frameless vector (§Read-side gate above), because the
    framework's rings retain what the listener declined to push.
-3. **The epoch path** — `epoch/redact-history` gates every framework
+3. **The epoch path** — `epoch/assoc-history` gates every framework
    epoch record on its way into Xray's `:epoch-history` slot. The same
    trace events ride each `:rf/epoch-record`'s `:trace-events`, so a
    gate on the trace path alone would leave them readable there. **The
-   grain is the RECORD**, and two signals reach it: the record is
-   dropped whole when its `:rf.epoch/sensitive?` rollup is true, and
-   equally when the rollup is ABSENT but a suppressed event rides its
-   `:trace-events` — a synthetic history seed, or a record assembled
-   before the rollup shipped. Scrubbing the events and keeping such a
-   record is not enough, for the same reason the BUNDLE grain below
-   gives: `:sub-runs`, `:renders`, `:effects` and `:trigger-event` are
-   derived from those very events and `:db-before` / `:db-after` ride in
-   the same map, so the payload survives in a sibling slot while
-   `:trace-events` reads clean (rf2-vaont). A rollup-less record with no
-   suppressed event is untouched — this gate cannot see declared-
-   sensitive app-db values, which stay the render-side projections'
-   business. This path deliberately does NOT bump the counter —
-   `collect-trace!` already counted those events on their way past the
-   listener, and a second bump would double-count one cascade against
-   the `[● REDACTED N]` indicator.
+   grain is the RECORD**, and the signal is the TRACE-EVENT one: a
+   record is withheld whole when a suppressed event rides its own
+   `:trace-events` — the trace-event half of the framework rollup
+   (`re-frame.epoch.assembly/sensitive-trace?`). A record that has lost
+   `:trace-events` to the ring's keep-window falls back to the combined
+   `:rf.epoch/sensitive?` rollup, failing closed. Scrubbing the events
+   and keeping such a record is not enough, for the same reason the
+   BUNDLE grain below gives: `:sub-runs`, `:renders`, `:effects` and
+   `:trigger-event` are derived from those very events, so the payload
+   survives in a sibling slot while `:trace-events` reads clean.
+
+   The rollup's OTHER half — a classified `:sensitive` app-db path
+   holding a value — does not withhold a record. App-db holds a token
+   from login onward, so gating on it would withhold every later epoch,
+   a plain counter tick included, in exactly the apps that classify
+   their secrets. Those values stay on the record and the render-side
+   projections redact them, each epoch under the classification it was
+   recorded with (`panels.local-render/local-render-record-state`).
+
+   A withheld record leaves a stub: its `:dispatch-id` joins
+   `:epoch-withheld`, and a panel focused on that bundle reads
+   `:withheld` from the shared focus resolver and says the egress policy
+   withheld the epoch, rather than that the bundle settled none. This
+   path deliberately does NOT bump the counter — `collect-trace!`
+   already counted those events on their way past the listener, and a
+   second bump would double-count one cascade against the
+   `[● REDACTED N]` indicator.
 
 `trace-collector/bundles-for-frame` applies the same gate at BUNDLE
 grain — the per-frame event-bundle read the Fresco advisor and its

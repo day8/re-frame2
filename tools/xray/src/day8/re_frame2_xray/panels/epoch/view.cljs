@@ -73,6 +73,7 @@
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
             [day8.re-frame2-xray.panels.shared.view-highlight :as view-highlight]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget :as edn]
@@ -5851,6 +5852,7 @@
   (let [msg (case status
               :no-focus      "No event focused. Click an event in the list to inspect its pipeline."
               :no-epoch      "The selected event settled no epoch."
+              :withheld      focus/withheld-copy
               :epoch-evicted "The selected epoch was evicted from the history buffer. Pick a more recent event."
               :no-events     "The focused epoch has no recorded trace events."
               "No data available.")]

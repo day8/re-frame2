@@ -129,8 +129,8 @@
   (atom {:started? false :attempts 0}))
 
 (declare ensure-xray-frame!)
-;; `install-fx!` registers a handler that calls this later definition.
-(declare popout!)
+;; `install-fx!` registers handlers that call these later definitions.
+(declare popout! teardown-popout-state!)
 
 (defn mounted?
   "True when the Xray shell has been mounted at least once. The shell
@@ -1102,7 +1102,10 @@
     by the `✕` close button via `:rf.xray/close-shell`.
   - `:rf.xray.fx/popout-shell` — open the second-window
     pop-out (`popout!`); fired by the chrome `⛶` pop-out button via
-    `:rf.xray/popout-shell`. The event/fx bridge keeps `shell.cljs`
+    `:rf.xray/popout-shell`.
+  - `:rf.xray.fx/close-popout` — close the pop-out window
+    (`teardown-popout-state!`); fired by the pop-out's own `✕` via
+    `:rf.xray/close-popout`, so it never touches the opener's shell. The event/fx bridge keeps `shell.cljs`
     free of a direct `mount/popout!` call (which would form the
     mount→shell→…→mount require cycle), mirroring the close-shell
     bridge.
@@ -1117,6 +1120,9 @@
   (rf/reg-fx :rf.xray.fx/popout-shell
     (fn [_ctx _args]
       (popout!)))
+  (rf/reg-fx :rf.xray.fx/close-popout
+    (fn [_ctx _args]
+      (teardown-popout-state!)))
   nil)
 
 (defn- teardown-popout-state!
@@ -1151,6 +1157,8 @@
     (when unmount
       (try (unmount) (catch :default _ nil)))
     (when window
+      (try (settings-effects/detach-document! (.-document window))
+           (catch :default _ nil))
       (try
         (when-not (.-closed window)
           (.close window))
@@ -1636,18 +1644,11 @@
   [doc]
   (when (some? doc)
     (global-styles/install-into! doc)
-    ;; Mirror the persisted theme onto the pop-out `<html>` so the
-    ;; matching `.rf-xray-theme-*` palette block resolves (the injected
-    ;; `:root` block only carries the light default). Same class spelling
-    ;; `settings/effects/apply-theme!` writes on the opener.
-    (when-let [html (.-documentElement doc)]
-      (let [theme (or (config/get-setting :theme nil) :light)
-            klass (str settings-effects/theme-class-prefix (name theme))
-            cl    (.-classList html)]
-        (doseq [c [(str settings-effects/theme-class-prefix "dark")
-                   (str settings-effects/theme-class-prefix "light")]]
-          (try (.remove cl c) (catch :default _ nil)))
-        (try (.add cl klass) (catch :default _ nil)))))
+    ;; Attach the pop-out document to the settings effects, which apply
+    ;; the persisted theme, density, text size, motion and system-colour
+    ;; settings to it now and on every later change — the pop-out has its
+    ;; own `<html>`, which a write to the opener's never reaches.
+    (settings-effects/attach-document! doc))
   nil)
 
 (defn- remove-stale-popout-nodes!

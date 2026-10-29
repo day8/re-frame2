@@ -14,6 +14,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
@@ -472,6 +473,30 @@
                   keydown-dispose (assoc :keydown-dispose keydown-dispose))]
     (reset! @#'mount/popout-state state)
     state))
+
+(deftest popout-close-button-closes-only-the-popout
+  (testing "the `✕` inside the pop-out shell dispatches :rf.xray/close-popout,
+            which closes the pop-out window and leaves the opener's inline
+            shell visible (tools/xray/spec/011 §Pop-out)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]}      (mk-render-stub)
+              {:keys [window closed?]} (mk-stub-popout-window)
+              click-in (fn [popout?]
+                         (js-obj "currentTarget"
+                                 (js-obj "closest" (fn [_sel] (when popout? (js-obj))))))]
+          (is (= [:rf.xray/close-popout :rf.xray/close-shell]
+                 [(defaults/close-event-for (click-in true))
+                  (defaults/close-event-for (click-in false))]))
+          (with-redefs [rf.fresco/render! render-fn]
+            (mount/open!)
+            (seed-popout-state! {:window window :unmount-fn (fn [] nil)})
+            (rf/with-frame :rf/xray
+              (rf/dispatch-sync [(defaults/close-event-for (click-in true))]))
+            (is (= [nil true true nil]
+                   [@@#'mount/popout-state @closed? (mount/visible?)
+                    (:close-requested? (rf.frame/frame-app-db-value :rf/xray))])
+                "pop-out torn down, opener untouched")))))))
 
 (deftest teardown!-tolerates-already-closed-popout-window
   (with-stub-document

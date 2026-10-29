@@ -156,20 +156,30 @@
 
 (defn- mk-stub-document
   "The document surface `inject-style-node!` touches. Returns
-  `{:doc … :by-id <atom of id → appended node>}`."
+  `{:doc … :by-id <atom of id → appended node> :order <atom of head child
+  ids, in order>}`. Appending an already-attached node moves it to the end,
+  as the DOM does."
   []
   (let [by-id (atom {})
+        order (atom [])
         head  (js-obj "tagName" "HEAD")]
     (set! (.-appendChild head)
           (fn [node]
-            (swap! by-id assoc (.-id node) node)
+            (let [id (.-id node)]
+              (swap! by-id assoc id node)
+              (swap! order #(conj (into [] (remove #{id}) %) id))
+              (set! (.-remove node)
+                    (fn []
+                      (swap! by-id dissoc id)
+                      (swap! order #(into [] (remove #{id}) %)))))
             node))
     {:doc   (js-obj
              "head"          head
              "createElement" (fn [_tag] (mk-stub-style-node))
              "createTextNode" (fn [css] (js-obj "text" css))
              "getElementById" (fn [id] (get @by-id id)))
-     :by-id by-id}))
+     :by-id by-id
+     :order order}))
 
 (deftest install-into!-injects-the-full-stylesheet-set
   (testing "the pop-out path writes every Xray style block into an
@@ -178,8 +188,10 @@
     (let [{:keys [doc by-id]} (mk-stub-document)]
       (gs/install-into! doc)
       (is (= #{"rf-xray-fonts" "rf-xray-motion-keyframes" "rf-xray-react-flow-base"
-               "rf-xray-themes" "rf-xray-grain"}
+               "rf-xray-themes" "rf-xray-grain" "rf-xray-chrome"}
              (set (keys @by-id))))
+      (is (re-find #"::-webkit-scrollbar" (.-text (get @by-id "rf-xray-chrome")))
+          "the L2 slim-scrollbar rules reach every styled document, the pop-out's included")
       (is (re-find #":root\s*\{[^}]*--rf-xray-bg-0:"
                    (.-text (get @by-id "rf-xray-themes")))))))
 
@@ -194,4 +206,20 @@
             (fn [tag] (swap! create-ct inc) (orig tag)))
       (gs/install-into! doc)
       (gs/install-into! doc)
-      (is (= 5 @create-ct)))))
+      (is (= 6 @create-ct)))))
+
+(deftest host-theme-is-the-last-head-child-in-every-styled-document
+  (testing "a `load-theme!` override made BEFORE a document is styled still
+            ends up after the built-in blocks, so it wins on authoring order"
+    (let [{:keys [doc order by-id]} (mk-stub-document)]
+      (try
+        (gs/set-host-theme-css! ":root { --rf-xray-accent: hotpink; }")
+        (gs/install-into! doc)
+        (is (= "rf-xray-host-theme" (peek @order)))
+        (is (= ":root { --rf-xray-accent: hotpink; }"
+               (.-textContent (get @by-id "rf-xray-host-theme"))))
+        (testing "and clearing it removes the node"
+          (gs/set-host-theme-css! nil)
+          (gs/install-into! doc)
+          (is (nil? (get @by-id "rf-xray-host-theme"))))
+        (finally (gs/set-host-theme-css! nil))))))

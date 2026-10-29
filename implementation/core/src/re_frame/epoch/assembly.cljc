@@ -6,9 +6,10 @@
     1. `build-record`   — produces one record per dequeued event and delegates
                           capture-buffer walks to
                           `re-frame.epoch.capture`.
-    2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from raw
-                          signals (trace-event stamps + frame-declared
-                          sensitive paths).
+    2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from its two
+                          raw signals, each public on its own:
+                          `sensitive-trace?` (trace-event stamps) and
+                          `sensitive-db?` (frame-declared sensitive paths).
 
   The ring and listeners retain raw replay material; redaction happens at
   off-box egress inside `re-frame.epoch.tool-pair/project-record`.
@@ -118,10 +119,18 @@
 ;; time so listeners and the projection helper read the rollup
 ;; without re-walking the record. Production builds elide the entire
 ;; record-assembly path — the rollup is dev-only by construction.
+;;
+;; Each signal is also public on its own, because the two answer different
+;; questions: the trace-event signal says the CASCADE handled sensitive
+;; material, the app-db signal only that app-db HOLDS some. A consumer that
+;; gates on the cascade (Xray's epoch ingest, tools/xray/spec/013 §One policy,
+;; three ingress paths) reads `sensitive-trace?` and leaves held values to its
+;; per-path redaction.
 
-(defn- any-sensitive-event?
-  "True when any captured trace event carries a top-level `:sensitive?
-  true` stamp. The trace surface hoists this boolean from handler scope."
+(defn sensitive-trace?
+  "The trace-event signal: true when any of `events` carries a top-level
+  `:sensitive? true` stamp, which the trace surface hoists from handler scope.
+  `events` is a record's `:trace-events`."
   [events]
   (boolean (some rf.privacy/sensitive? events)))
 
@@ -154,27 +163,33 @@
   [db sensitive-paths]
   (boolean (seq (sensitive-leaves db sensitive-paths))))
 
+(defn sensitive-db?
+  "The app-db signal: true when a path `frame-id` classifies `:sensitive`
+  holds a non-nil leaf in `db-before` or `db-after`. The leaf check walks only
+  the subtrees a declaration can reach."
+  [frame-id db-before db-after]
+  (let [sensitive-paths (sensitive-paths-for frame-id)]
+    (boolean
+      (and (seq sensitive-paths)
+           (or (any-sensitive-leaf? db-before sensitive-paths)
+               (any-sensitive-leaf? db-after  sensitive-paths))))))
+
 (defn sensitive-rollup
   "Compute the record-level `:rf.epoch/sensitive?` rollup for the
-  assembled record. Returns `true` when the record's content overlaps
-  a sensitive area — either via a stamped trace event or via a
-  frame-declared sensitive path that holds a non-nil leaf in the
-  recorded db. Returns `false` otherwise (always a strict boolean —
-  consumers branch on `(true? ...)` / `(false? ...)`).
+  assembled record: `sensitive-trace?` OR `sensitive-db?`. Returns `true`
+  when the record's content overlaps a sensitive area — either via a stamped
+  trace event or via a frame-declared sensitive path that holds a non-nil
+  leaf in the recorded db. Returns `false` otherwise (always a strict
+  boolean — consumers branch on `(true? ...)` / `(false? ...)`).
 
-  Runs once per dequeued event. `sensitive-paths-for` reads
-  the frame's classification policy once; the leaf check walks only the
-  subtrees a declaration can reach; the trace-event check short-circuits at
-  the first stamped event. For the common case (no frame-declared sensitive
-  paths, no sensitive handlers in scope) the cost is one keys-of-empty
-  call plus one sequence-with-no-work walk."
+  Runs once per dequeued event. The trace-event check runs first and
+  short-circuits at the first stamped event; `sensitive-paths-for` then reads
+  the frame's classification policy once. For the common case (no
+  frame-declared sensitive paths, no sensitive handlers in scope) the cost is
+  one keys-of-empty call plus one sequence-with-no-work walk."
   [frame-id db-before db-after events]
-  (boolean
-    (or (any-sensitive-event? events)
-        (let [sensitive-paths (sensitive-paths-for frame-id)]
-          (and (seq sensitive-paths)
-               (or (any-sensitive-leaf? db-before sensitive-paths)
-                   (any-sensitive-leaf? db-after  sensitive-paths)))))))
+  (or (sensitive-trace? events)
+      (sensitive-db? frame-id db-before db-after)))
 
 ;; ---- redacted-modified-paths-count ----------------------------------------
 ;;

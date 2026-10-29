@@ -27,6 +27,7 @@
   panel that cares about time, not any one panel's private surface."
   (:require [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch.assembly :as rf.epoch.assembly]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]))
 
@@ -34,88 +35,75 @@
 ;;
 ;; The framework's per-frame epoch ring retains RAW records — redaction
 ;; happens at off-box egress (`epoch/assembly.cljc`: "the ring and
-;; listeners retain raw replay material"), which is right for the ring
-;; and wrong for Xray's app-db. Every record carries `:trace-events`
-;; verbatim, so a `:sensitive? true` cascade that `collect-trace!` and
-;; `snapshot-from-rings` both drop from `:trace-buffer` would still reach
-;; the Epoch panel, the Issues ribbon, the Reactive panel, the Machine
-;; Inspector and the Trace feed through THIS slot — they all read
+;; listeners retain raw replay material"). Every record carries
+;; `:trace-events` verbatim, so a `:sensitive? true` cascade that
+;; `collect-trace!` and `snapshot-from-rings` both drop from `:trace-buffer`
+;; would still reach the Epoch panel, the Issues ribbon, the Reactive panel,
+;; the Machine Inspector and the Trace feed through THIS slot — they all read
 ;; `:trace-events` off the focused record.
 ;;
-;; So the same Spec 009 §Privacy gate the trace side applies twice also
-;; guards the one seam every `:epoch-history` write passes through.
-;; TWO SIGNALS, ONE GRAIN — the record:
-;;
-;;   1. `:rf.epoch/sensitive?` — the framework's own record-level rollup
-;;      (`epoch/assembly.cljc/sensitive-rollup`), true when a stamped
-;;      trace event OR a frame-declared sensitive app-db path with a
-;;      non-nil leaf is in the record. Drop the WHOLE record: per the
-;;      Spec 009 rationale the envelope alone (`:event-id`, `:outcome`,
-;;      timings, `:db-*` shape) leaks, and a record is exactly the unit
-;;      the panels key on.
-;;   2. A `config/suppress-sensitive?` event in `:trace-events` — which
-;;      is what catches a record carrying NO rollup (synthetic history
-;;      seeded through `:rf.xray/sync-epoch-history`, or any record
-;;      assembled without it). Belt-and-braces against
-;;      the rollup's absence, not a second policy — and it drops the
-;;      record at the SAME grain rather than editing one slot of it
-;;      (the reasoning is in `redact-history`'s docstring).
+;; So the same Spec 009 §Privacy gate the trace side applies guards the one
+;; seam every `:epoch-history` write passes through, on the TRACE-EVENT
+;; signal: a record whose cascade carries a sensitive-stamped event is
+;; withheld whole. App-db values at classified-sensitive paths are NOT this
+;; gate's concern — holding a token in app-db does not make a later counter
+;; tick sensitive — so they stay on the record and the render-side
+;; projections redact them under the classification the record was recorded
+;; with (`panels.local-render/local-render-record-state`). The rule is
+;; tools/xray/spec/013 §One policy, three ingress paths.
 ;;
 ;; NO COUNTER BUMP. `config/note-suppressed!` counts what the LISTENER
 ;; dropped; the same events were already counted there on their way past
 ;; `collect-trace!`, so bumping here would double-count the `[● REDACTED
 ;; N]` indicator against one cascade.
 
-(defn redact-history
-  "Gate `records` — a framework per-frame epoch ring, oldest-first — on
-  its way into Xray's `:epoch-history` slot.
+(defn withheld?
+  "True when the ingest gate withholds `record` from Xray's `:epoch-history`.
 
-  Under a sensitive-revealing profile (`:rf.egress/local-raw`, the
-  trusted-local opt-in) this is the identity: every record passes
-  verbatim. Otherwise a record is dropped WHOLE when EITHER signal
-  fires — the framework's `:rf.epoch/sensitive?` rollup, or a
-  `config/suppress-sensitive?` event in its own `:trace-events`. That
-  is the same predicate `collect-trace!` and `snapshot-from-rings` gate
-  on, so the three ingress paths share ONE policy rather than three.
+  Never under a sensitive-revealing profile (`:rf.egress/local-raw`, the
+  trusted-local opt-in). Otherwise the record is withheld when its own
+  `:trace-events` carry a sensitive-stamped event — the trace-event signal of
+  the framework rollup (`re-frame.epoch.assembly/sensitive-trace?`). A record
+  that has lost `:trace-events` to the ring's keep-window cannot be read for
+  that signal, so it falls back to the combined `:rf.epoch/sensitive?` rollup
+  and fails closed.
 
   ## The grain is the RECORD, not the event
 
-  Answering the second signal at EVENT grain — keeping the record and
-  removing the offending events from `:trace-events` — would leave the
-  cascade standing in every sibling slot, because `build-record`
-  derives those slots from the very events being removed —
-  `:sub-runs`, `:renders` and `:effects` are projections of
-  `:trace-events`, `:trigger-event` is lifted out of the run-start's
-  event vector, and `:db-before` / `:db-after` / `:frame-state-*` ride
-  in the same map. The Reactive panel would still read `:sub-runs` and
-  `:renders`, the App-DB projection would still read `:db-after`, and
-  the scrubbed payload would still be on the record under another key.
-  An event-grain scrub moves the leak; it does not close it.
+  Removing only the offending events from `:trace-events` would leave the
+  cascade standing in every sibling slot, because `build-record` derives
+  those slots from the very events being removed — `:sub-runs`, `:renders`
+  and `:effects` are projections of `:trace-events`, and `:trigger-event` is
+  lifted out of the run-start's event vector. An event-grain scrub moves the
+  leak; it does not close it. `trace-collector/bundles-for-frame` answers the
+  same question for the BUNDLE read the same way."
+  [record]
+  (and (not (config/include-sensitive?))
+       (if (contains? record :trace-events)
+         (rf.epoch.assembly/sensitive-trace? (:trace-events record))
+         (true? (:rf.epoch/sensitive? record)))))
 
-  `trace-collector/bundles-for-frame` answers this same question for the
-  BUNDLE read, and the reasoning transfers unchanged: a
-  per-event scrub would have to reach every sibling slot to be honest,
-  and a slot added upstream would silently re-open the leak. A record is
-  the same shape, so it gets the same answer — one grain, not two.
-
-  This costs the rollup-less record that carried a sensitive event, and
-  that is the intended price: an absent rollup is not evidence of
-  innocence. A rollup-less record with NO sensitive event is untouched,
-  so an ordinary synthetic seed through `:rf.xray/sync-epoch-history`
-  still arrives verbatim — and the render-side projections remain the
-  only guard for the declared-sensitive app-db values such a record
-  carries, since this gate cannot see them.
-
-  Pure. Returns a vector — every caller writes the slot with one."
+(defn redact-history
+  "Gate `records` — a framework per-frame epoch ring, oldest-first — keeping
+  every record `withheld?` does not withhold. Pure. Returns a vector."
   [records]
-  (if (config/include-sensitive?)
-    (vec records)
-    (into []
-          (remove (fn [record]
-                    (or (boolean (:rf.epoch/sensitive? record))
-                        (boolean (some config/suppress-sensitive?
-                                       (:trace-events record))))))
-          records)))
+  (into [] (remove withheld?) records))
+
+(defn assoc-history
+  "Write `records` into `db` through the ingest gate: the kept records into
+  `:epoch-history`, and the `:dispatch-id`s of the withheld ones into
+  `:epoch-withheld`. Every `:epoch-history` writer goes through here.
+
+  The withheld ids are the stub a withheld record leaves: a panel focused on
+  a bundle whose epoch is in the set says the egress policy withheld it,
+  rather than that the bundle settled no epoch
+  (`panels.shared.focus-resolver/resolve-focus-status`). An id is all the
+  stub carries — the envelope itself is what the gate keeps off screen."
+  [db records]
+  (let [held? (group-by (comp boolean withheld?) records)]
+    (assoc db
+           :epoch-history  (vec (get held? false))
+           :epoch-withheld (into #{} (keep :dispatch-id) (get held? true)))))
 
 (defn install!
   "Install the cross-cutting epoch subs + events."
@@ -130,6 +118,12 @@
   (rf/reg-sub :rf.xray/epoch-history
     (fn [db _query]
       (get db :epoch-history [])))
+
+  ;; The `:dispatch-id`s of the records the ingest gate withheld from
+  ;; `:epoch-history` (`assoc-history`).
+  (rf/reg-sub :rf.xray/epoch-withheld
+    (fn [db _query]
+      (get db :epoch-withheld #{})))
 
   ;; Transient `reset-to-event` failure flash. Holds a short
   ;; message string when a `rf.epoch/restore-epoch!` rewind fails (epoch aged
@@ -193,7 +187,7 @@
   (rf/reg-event :rf.xray/set-target-frame
     (fn [{:keys [db]} [_ frame-id]]
       {:db (let [target (or frame-id defaults/default-target-frame)]
-        (cond-> (assoc db :epoch-history (redact-history (rf.epoch/epoch-history target)))
+        (cond-> (assoc-history db (rf.epoch/epoch-history target))
           (nil? frame-id)  (dissoc :target-frame)
           (nil? frame-id)  (update :focus (fnil dissoc {}) :frame)
           (some? frame-id) (assoc :target-frame frame-id)
@@ -258,10 +252,10 @@
           (-> db
               (assoc :target-frame frame-id)
               (assoc-in [:focus :frame] frame-id)
-              (assoc :epoch-history (redact-history (rf.epoch/epoch-history frame-id))))
+              (assoc-history (rf.epoch/epoch-history frame-id)))
 
           (= frame-id target)
-          (assoc db :epoch-history (redact-history (rf.epoch/epoch-history target)))
+          (assoc-history db (rf.epoch/epoch-history target))
 
           :else db))}))
 
@@ -307,9 +301,9 @@
   (rf/reg-event :rf.xray/sync-epoch-history
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ history]]
-      {:db (let [history    (redact-history history)
-            latest-id  (:epoch-id (peek history))]
-        (cond-> (assoc db :epoch-history history)
+      {:db (let [db        (assoc-history db history)
+            latest-id (:epoch-id (peek (:epoch-history db)))]
+        (cond-> db
           (some? latest-id) (assoc-in [:focus :epoch-id] latest-id)
           (nil? latest-id)  (update :focus (fnil dissoc {}) :epoch-id)))}))
 
