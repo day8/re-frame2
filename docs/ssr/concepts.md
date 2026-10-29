@@ -346,7 +346,7 @@ Each root reports only while it is hydrating: the window closes on its hydration
 A real init flow mixes work that is fine on the server (fetching over HTTP) with work that means nothing there (writing `localStorage`). You don't branch in handler bodies. The [effect](../core/glossary.md#effect) declares where it may run:
 
 ```clojure
-;; Adapted from examples/capabilities/ssr/ssr/core.cljc
+;; Adapted from examples/core/login/model.cljc
 (rf/reg-fx :auth.session/store
   {:doc       "Persist a session token in localStorage."
    :platforms #{:client}}              ;; server-side dispatches skip this

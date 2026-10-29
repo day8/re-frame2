@@ -26,7 +26,7 @@
     server-state rides `:rf/runtime-db` as a RESOURCE projection under
     `:rf.runtime/resources :entries`. Each entry is MAP-KEYED by its CEDN-1
     byte `key-id` — `(state/key-id [<scope> <resource-id> <canonical-params>])`,
-    the string `"v[k::rf.scope/global k::articles/list m{}]"` below — and
+    the string `"v[k::rf.scope/global k::resources-ssr.articles/list m{}]"` below — and
     carries the canonical scoped key vector `[<scope> <resource-id>
     <canonical-params>]` as its own `:resource/key`. Byte key-id = storage
     identity (what public reads look up under); `:resource/key` = the scoped
@@ -45,7 +45,7 @@
     and no request is issued.
 
     Freshness: this article list declares NO time-based staleness policy
-    (`:articles/list` omits `:stale-after-ms`), so its entry never ages out on
+    (`:resources-ssr.articles/list` omits `:stale-after-ms`), so its entry never ages out on
     a timer and the baked `:stale-at` is nil. That keeps this offline fixture
     deterministically fresh indefinitely — no rebased clock, no rotting
     absolute deadline — with explicit invalidation as the real freshness
@@ -57,9 +57,9 @@
     same string `handle-request` inlines. In a dev build the reg-view
     REGISTRATION boundary stamps two annotations on every registered view's root
     DOM element (Spec 006 §Source-coord annotation / §View tagging contract):
-    the `:app/root` view's `<div class="page">` root carries
-    `data-rf2-source-coord="app:root:261:1"` (its `<ns>:<sym>:<line>:<col>`
-    reg-view call site) and `data-rf-view=":app/root"`, so pair-shaped
+    the `:resources-ssr.app/root` view's `<div class="page">` root carries
+    `data-rf2-source-coord="resources-ssr.app:root:257:1"` (its `<ns>:<sym>:<line>:<col>`
+    reg-view call site) and `data-rf-view=":resources-ssr.app/root"`, so pair-shaped
     tooling can map the node back to its view. The client's dev render stamps
     the SAME two attributes, so this page hydrates as a clean ADOPTION rather
     than an attribute mismatch. That `<line>` is a SNAPSHOT of the call site:
@@ -68,7 +68,7 @@
     `re-frame.debug=false`) elides the annotations on both hosts, so prod markup
     is attribute-free.
   -->
-  <div id="app"><div class="page" data-rf2-source-coord="app:root:261:1" data-rf-view=":app/root"><h1>Recent articles</h1><ul data-testid="articles-list"><li data-testid="article-welcome">Welcome to re-frame2</li><li data-testid="article-resources">Server-state as resources</li></ul></div></div>
+  <div id="app"><div class="page" data-rf2-source-coord="resources-ssr.app:root:257:1" data-rf-view=":resources-ssr.app/root"><h1>Recent articles</h1><ul data-testid="articles-list"><li data-testid="article-welcome">Welcome to re-frame2</li><li data-testid="article-resources">Server-state as resources</li></ul></div></div>
   <script id="__rf_payload" type="application/edn">
 {:rf/version 1
  :rf/frame-id :rf/default
@@ -76,9 +76,9 @@
  :rf/runtime-db
  {:rf.runtime/resources
   {:entries
-   {"v[k::rf.scope/global k::articles/list m{}]"
-    {:resource/key   [:rf.scope/global :articles/list {}]
-     :resource/id    :articles/list
+   {"v[k::rf.scope/global k::resources-ssr.articles/list m{}]"
+    {:resource/key   [:rf.scope/global :resources-ssr.articles/list {}]
+     :resource/id    :resources-ssr.articles/list
      :status         :loaded
      :data           [{:slug "welcome"   :title "Welcome to re-frame2"}
                       {:slug "resources" :title "Server-state as resources"}]

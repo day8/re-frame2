@@ -28,10 +28,10 @@
     The #app subtree is the dev-build output of `ssr/render-to-string` — the
     same string `handle-request` inlines. In a dev build the reg-view REGISTRATION boundary stamps two
     annotations on every registered view's root DOM element (Spec 006
-    §Source-coord annotation / §View tagging contract): the `:app/root` view's
+    §Source-coord annotation / §View tagging contract): the `:ssr.app/root` view's
     `<div class="page">` root carries
-    `data-rf2-source-coord="app:root:252:1"` (its `<ns>:<sym>:<line>:<col>`
-    reg-view call site) and `data-rf-view=":app/root"`, so pair-shaped
+    `data-rf2-source-coord="ssr.app:root:235:1"` (its `<ns>:<sym>:<line>:<col>`
+    reg-view call site) and `data-rf-view=":ssr.app/root"`, so pair-shaped
     tooling can map the node back to its view. The client's dev render stamps
     the SAME two attributes, so this page hydrates as a clean ADOPTION rather
     than an attribute mismatch. That `<line>` is a SNAPSHOT of the call site:
@@ -46,7 +46,7 @@
     adopt. An attribute-only edit is not reported; React's development
     console.error is the only signal for it.
   -->
-  <div id="app"><div class="page" data-rf2-source-coord="app:root:252:1" data-rf-view=":app/root"><h1>Recent articles</h1><button class="toggle-bodies" data-testid="toggle-bodies">Hide bodies</button><ul data-testid="articles-list"><li><h3>Article A</h3><p class="body" data-testid="article-body">Body A</p></li><li><h3>Article B</h3><p class="body" data-testid="article-body">Body B</p></li></ul></div></div>
+  <div id="app"><div class="page" data-rf2-source-coord="ssr.app:root:235:1" data-rf-view=":ssr.app/root"><h1>Recent articles</h1><button class="toggle-bodies" data-testid="toggle-bodies">Hide bodies</button><ul data-testid="articles-list"><li><h3>Article A</h3><p class="body" data-testid="article-body">Body A</p></li><li><h3>Article B</h3><p class="body" data-testid="article-body">Body B</p></li></ul></div></div>
   <script id="__rf_payload" type="application/edn">
 {:rf/version 1
  :rf/app-db {:articles [{:id "a" :title "Article A" :body "Body A"}

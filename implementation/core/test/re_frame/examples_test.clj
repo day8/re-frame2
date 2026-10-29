@@ -10,9 +10,10 @@
   the production example source, so its ns-load registrations fire against the
   reset registrar.
 
-  Two deftests carry `^:requires-debug`: one asserts app-schema validation,
-  which runs only in a debug build, and one reads `:rf.ssr/hydration-mismatch`
-  off the dev trace."
+  Three deftests carry `^:requires-debug`: one asserts app-schema validation,
+  which runs only in a debug build, one reads `:rf.ssr/hydration-mismatch`
+  off the dev trace, and one compares the source coords the static
+  `index.html` pages bake with the ones a dev render stamps."
   (:require [clojure.set]
             [clojure.string]
             [clojure.edn :as edn]
@@ -151,7 +152,7 @@
 
 ;; ---- ssr: the server flow ------------------------------------------------------
 ;;
-;; per-request frame → :app/server-init → managed HTTP via a stub transport →
+;; per-request frame → :ssr.app/server-init → managed HTTP via a stub transport →
 ;; render to string → payload. JVM-only: the server render runs under
 ;; Clojure.
 
@@ -191,7 +192,7 @@
           f      (rf.http.stub-transport/with-transport (answering two-articles)
                    #(rf/make-frame {:id fid :doc "ssr-example per-request validation frame"
                                     :platform :server
-                                    :initial-events [[:app/server-init]]}))
+                                    :initial-events [[:ssr.app/server-init]]}))
           meta   (rf.schemas/app-schema-meta {:frame fid :path [:articles]})
           db     (rf/app-db-value f)
           bad-db (assoc db :articles "not-a-vector-of-articles")]
@@ -201,8 +202,8 @@
       ;; the bare [:vector …] schema accepts the loaded articles and refuses a
       ;; non-vector on the per-request frame
       (is (= [true false]
-             [(rf.schemas/validate-app-schema! db :app/server-init fid)
-              (rf.schemas/validate-app-schema! bad-db :app/server-init fid)]))
+             [(rf.schemas/validate-app-schema! db :ssr.app/server-init fid)
+              (rf.schemas/validate-app-schema! bad-db :ssr.app/server-init fid)]))
       (rf/destroy-frame! f))))
 
 ;; ---- ssr: the client hydration path ----------------------------------------------
@@ -334,6 +335,37 @@
                   (< elapsed 2000) leaked])
               (str "took " elapsed "ms")))))))
 
+;; ---- the static pages' baked source coords ---------------------------------------
+;;
+;; Each SSR example ships a hand-baked `index.html` whose root element carries
+;; the `data-rf2-source-coord` a dev render stamps: `<ns>:<name>:<line>:<col>`
+;; of the root view's `reg-view` call site (Spec 006 §Source-coord annotation).
+;; The client's dev render stamps the live value, so a baked one left behind
+;; when the `reg-view` moves turns a clean adoption into an attribute mismatch
+;; that only React's development console reports.
+
+(defn- source-coords
+  "Every `data-rf2-source-coord` value in `html`, in document order."
+  [html]
+  (mapv second (re-seq #"data-rf2-source-coord=\"([^\"]+)\"" html)))
+
+(deftest ^:requires-debug ssr-examples-static-pages-bake-the-current-source-coord
+  (testing "examples/capabilities/ssr — each static index.html bakes, on its root
+            element, the source coord a dev render of the root view stamps now"
+    (init-ssr!)
+    (doseq [[ns-sym view-id page] [['ssr.core :ssr.app/root "ssr/index.html"]
+                                   ['resources-ssr.core :resources-ssr.app/root "resources_ssr/index.html"]]]
+      (require ns-sym :reload)
+      (let [frame    (rf.frame/make-anon-frame-record! {:doc (str page " source-coord frame")})
+            rendered (first (source-coords (rf/with-frame frame
+                                             (rf.ssr/render-to-string ((rf/view view-id)) {}))))
+            app-div  (some->> (io/resource page) slurp
+                              (re-find #"<div id=\"app\">(.*?)</div></div>") first)]
+        (is (some? rendered) (str page ": the dev render stamps a source coord"))
+        (is (= rendered (some-> app-div source-coords first))
+            (str page ": the baked root coord is the live one"))
+        (rf/destroy-frame! frame)))))
+
 ;; ---- resources_ssr ---------------------------------------------------------------
 
 (def ^:private resources-ssr-articles
@@ -341,9 +373,9 @@
    {:slug "resources" :title "Server-state as resources"}])
 
 (def ^:private resources-ssr-key
-  "The example's one scoped resource key — `:articles/list` at global scope,
-  no params (Spec 016 §Resource identity)."
-  [:rf.scope/global :articles/list {}])
+  "The example's one scoped resource key — `:resources-ssr.articles/list` at
+  global scope, no params (Spec 016 §Resource identity)."
+  [:rf.scope/global :resources-ssr.articles/list {}])
 
 (defn- resources-ssr-entry
   "The example's ONE cache entry, read out of `frame`'s runtime-db."
@@ -359,7 +391,7 @@
 (defn- resources-ssr-html
   "Render the example's own root view through `frame` — the first client paint."
   [frame]
-  (rf/with-frame frame (rf.ssr/render-to-string ((rf/view :app/root)) {})))
+  (rf/with-frame frame (rf.ssr/render-to-string ((rf/view :resources-ssr.app/root)) {})))
 
 (defn- resources-ssr-static-payload
   "The `__rf_payload` EDN baked into the SHIPPED `index.html` (the
@@ -374,7 +406,7 @@
           edn/read-string))
 
 (defn- resource-status [frame]
-  (:status (rf.resources/resource-state {:resource :articles/list :scope :rf.scope/global :params {} :frame frame})))
+  (:status (rf.resources/resource-state {:resource :resources-ssr.articles/list :scope :rf.scope/global :params {} :frame frame})))
 
 (deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
   (testing "examples/capabilities/ssr/resources_ssr — under its :payload []
@@ -437,7 +469,7 @@
       (let [client-frame @(resolve 'resources-ssr.core/app-frame)]
         (rf/make-frame {:id client-frame :doc "resources-ssr static-payload client frame" :platform :client})
         (is (= payload (rf.ssr/hydrate! {:frame client-frame :payload payload})))
-        (let [state (rf.resources/resource-state {:resource :articles/list :scope :rf.scope/global
+        (let [state (rf.resources/resource-state {:resource :resources-ssr.articles/list :scope :rf.scope/global
                                         :params {} :frame client-frame})
               html  (resources-ssr-html client-frame)
               rdb   (:rf.db/runtime (rf/frame-state-value client-frame))]

@@ -438,7 +438,7 @@ no request coeffect. Instead of branching in handler bodies, declare where a
 capability may run:
 
 ```clojure
-;; cf. examples/capabilities/ssr/ssr/core.cljc
+;; cf. examples/core/login/model.cljc
 (rf/reg-fx :auth.session/store
   {:doc       "Persist a session token in localStorage."
    :platforms #{:client}}                 ;; the server render skips this, with a trace

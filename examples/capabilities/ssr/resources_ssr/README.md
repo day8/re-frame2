@@ -50,13 +50,13 @@ per-request, and the wire payload stays minimal.
   It's the same frame isolation that powers tests and stories — here it
   buys the privacy you most need when rendering many users' pages in one
   JVM. `handle-request` (`:clj`) mints the frame — its `:initial-events`
-  fire `:app/server-init` — renders, and tears the frame down in a
+  fire `:resources-ssr.app/server-init` — renders, and tears the frame down in a
   `finally` on every exit path — success or throw, no leak.
 
 - Block on the preload, so the render never sees a skeleton. A
   resource is normally async: ask for it, get a `:loading` view-model,
   fill in the data when the reply lands. That's wrong for SSR, where
-  there's no second render to fill anything in. So `:app/server-init`
+  there's no second render to fill anything in. So `:resources-ssr.app/server-init`
   [ensures](../../../../docs/resources/glossary.md#owner--cause) the page
   resource under an `[:ssr request-id nav-token]`
   [owner](../../../../docs/resources/glossary.md#owner--cause) with
@@ -155,7 +155,7 @@ The SSR-resource runtime is real: `handle-request` drives the actual
 server path, not a skeleton stand-in. The blocking poll, the per-entry
 payload projection, the client hydration reconcile, and the client
 acquisition all run end-to-end. Two limits on that worth stating plainly.
-`:articles/list` declares neither `:sensitive?` nor `:large?`, so the
+`:resources-ssr.articles/list` declares neither `:sensitive?` nor `:large?`, so the
 projection's redaction and omission branches are available to it but are
 never taken on this page. And hydration's refetch plan *classifies* what
 arrived without issuing anything — the request this page does or doesn't
@@ -164,15 +164,15 @@ contract for both is [Spec 016 §SSR and
 hydration](../../../../spec/016-Resources.md).
 
 The `index.html` next to this file carries a pre-baked hydration
-payload — a `:loaded` `:articles/list` entry — so the browser-side `run`
+payload — a `:loaded` `:resources-ssr.articles/list` entry — so the browser-side `run`
 runs without a Clojure server in the box. Like the live runtime, the entry
 is map-keyed by its CEDN-1 byte `key-id` (the storage identity public
 reads look up under) and carries the canonical scoped key
-`[:rf.scope/global :articles/list {}]` as its own `:resource/key` (the
+`[:rf.scope/global :resources-ssr.articles/list {}]` as its own `:resource/key` (the
 scoped resource fact the reverse indexes and refetch plan re-key from) —
 not under the scoped-key vector as a map key. It's an illustrative
 stand-in for what `handle-request` emits behind a real server, not a
-byte-exact capture. Because `:articles/list` declares no time-based
+byte-exact capture. Because `:resources-ssr.articles/list` declares no time-based
 staleness policy, the baked entry carries `:stale-at nil` and stays
 deterministically fresh — no rotting absolute deadline. So the client's
 `:resources-ssr.app/page-opened` `ensure` takes the fresh-skip path: it
