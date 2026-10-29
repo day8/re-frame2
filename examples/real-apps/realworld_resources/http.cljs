@@ -22,7 +22,7 @@
    - in-process demo backend (the default) — the frame's requests go out
      through `demo-transport` onto the shared in-process backend, so the app
      runs with no network at all and `api-base` is never actually contacted (it
-     matches on the path suffix).
+     routes on the path below the `/api` mount).
    - the official hosted API — point `api-base` at `https://api.realworld.show/api`
      and drop the `install-transport!` call. The frame-wide `:realworld/bearer-auth`
      interceptor (core.cljs) already attaches the token, so authenticated calls
@@ -49,10 +49,10 @@
   "Default API base URL — the current official hosted Conduit API. The resource
    and mutation `:request` fns build full URLs from this. In the default run mode
    it's effectively a knob you never turn: the demo backend answers every
-   request and matches on the path suffix, so the base is never contacted.
-   Drop the demo transport to run against the real hosted API, or set this to
-   `http://localhost:3000/api` for the local upstream reference backend. See the
-   README §Running against a real backend."
+   request and routes on the path below the `/api` mount, so the base is never
+   contacted. Drop the demo transport to run against the real hosted API, or
+   set this to `http://localhost:3000/api` for the local upstream reference
+   backend. See the README §Running against a real backend."
   "https://api.realworld.show/api")
 
 (defn full-url [path]

@@ -47,8 +47,8 @@
             ;; backend drops this require and that call.
             [re-frame.http.stub-transport :as rf.http.stub-transport]
             ;; SSR ships in its own artefact. Requiring it registers the
-            ;; `:rf/hydrate` handler that `ssr.cljc`'s client bootstrap
-            ;; dispatches.
+            ;; `:rf/hydrate` handler that `rf.ssr/hydrate!` dispatches on the
+            ;; client.
             [re-frame.ssr]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [realworld-shared.avatar :as avatar]

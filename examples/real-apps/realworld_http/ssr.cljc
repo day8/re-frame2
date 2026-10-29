@@ -19,10 +19,25 @@
   (:require [re-frame.ssr :as rf.ssr]))
 
 (def ssr-app-slice-keys
-  "The top-level app-db slices the SSR payload ships. Application data only —
-  the framework's own subsystem trees (routing, machines, elision) live in the
-  separate runtime-db partition, whose durable slices the framework ships under
-  :rf/runtime-db.
+  "The app-db slices the SSR payload ships: top-level keys, plus one path.
+  Application data only — the framework's own subsystem trees (routing,
+  machines, elision) live in the separate runtime-db partition, whose durable
+  slices the framework ships under :rf/runtime-db.
+
+  The auth slice ships only `[:auth :user]`, who is signed in. The rest of it
+  holds secrets: the bearer JWT at [:auth :token], and the login and register
+  drafts, whose passwords the frame classifies `:sensitive` (`:auth.forms`,
+  auth.cljs). A classified value ships REDACTED, and the payload's app-db
+  becomes the client's whole app-db, so shipping one would install the
+  `:rf/redacted` sentinel as the client's token, which the bearer interceptor
+  would send, or as a draft password, which a submit would send. Shipping the
+  token raw would be worse: a live credential in the page source, visible in
+  view-source, logged by proxies, possibly cached by a CDN. Leaving them out
+  costs nothing. The client reads its token back out of its own localStorage at
+  boot (`:auth/initialise` → `:auth.session/load` → `:auth/session-read`,
+  auth.cljs), and a draft password is client-originated, so the client re-seeds
+  it after hydration rather than taking it from the server (Spec 011
+  §`:rf/app-db` projection).
 
   Two deliberate absentees, since the hydrate policy is
   `:replace-frame-state` and an omission here is an absence on the client:
@@ -32,7 +47,7 @@
   the server's render — the server issues no mutations, so either would ship
   empty every time. profile.cljs's and favorites.cljs's writers are total
   against their absence for exactly this reason."
-  [:auth
+  [[:auth :user]
    :articles
    :article
    :comments
@@ -48,20 +63,5 @@
   frame value `make-frame` returns), before the server destroys it. This is
   what the server embeds and `rf.ssr/hydrate!` reads back on the client."
   [frame]
-  ;; No secrets in the SSR payload — full stop. The bearer JWT sits at
-  ;; [:auth :token], and baking it into server-rendered HTML would spill a live
-  ;; credential into the page source: visible in view-source, logged by
-  ;; proxies, possibly cached by a CDN. The frame classifies that path
-  ;; `:sensitive` (the `:auth` `reg-classification`, core.cljs), but a classification
-  ;; REDACTS: the payload would carry `:rf/redacted` in the token's place, and
-  ;; the payload's app-db becomes the client's whole app-db, so the client would
-  ;; boot holding a keyword where AuthSlice wants `[:maybe :string]` — and the
-  ;; bearer interceptor would send it. So the key is dropped outright. That
-  ;; costs nothing, because the client reads [:auth :token] back out of its own
-  ;; localStorage at boot (`:auth/initialise` → `:auth.session/load` →
-  ;; `:auth/session-read`, auth.cljs).
-  (let [payload (rf.ssr/hydration-payload frame {:payload ssr-app-slice-keys})]
-    (cond-> payload
-      (map? (get-in payload [:rf/app-db :auth]))
-      (update-in [:rf/app-db :auth] dissoc :token))))
+  (rf.ssr/hydration-payload frame {:payload ssr-app-slice-keys}))
 

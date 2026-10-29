@@ -193,8 +193,8 @@
 (defn fresh-state
   "A brand-new demo world, seeded and with nothing written to it yet.
 
-   THIS IS THE RESET BOUNDARY. Each app's `:rf.http/managed` override holds its
-   own `defonce`d atom of one of these, so the two demos never share a world;
+   THIS IS THE RESET BOUNDARY. Each app's stub transport steps its own
+   `defonce`d atom of one of these, so the two demos never share a world;
    a test that wants a clean slate takes a fresh one rather than undoing writes,
    and a fresh mount can reset by `(reset! the-atom (fresh-state))`."
   []
@@ -213,10 +213,17 @@
 ;; READING THE REQUEST
 ;; ============================================================================
 
-(defn- path-of
-  "The path half of `url` — everything before the `?`."
+(defn- api-path
+  "The endpoint `url` names: its path below the `/api` mount every Conduit
+   endpoint sits under, without the query, so
+   `https://api.realworld.show/api/articles/feed?limit=10` reads
+   `/articles/feed`. The routes below match this WHOLE path, never its ending:
+   a suffix match would take `/articles/user` for `/user`."
   [url]
-  (first (str/split url #"\?" 2)))
+  (let [path (first (str/split url #"\?" 2))]
+    (if-let [i (str/index-of path "/api/")]
+      (subs path (+ i (count "/api")))
+      path)))
 
 (defn- query-params
   "The query half of `url`, decoded into a keyword-keyed map. Values arrive
@@ -342,12 +349,17 @@
               not-empty)
       "untitled"))
 
+(def ^:private reserved-slugs
+  "Slugs the Conduit API itself owns: `GET /articles/feed` is the following
+   feed, so an article slugged `feed` could never be read at its own URL."
+  #{"feed"})
+
 (defn- free-slug
-  "`base`, or `base-2` / `base-3` / … if that slug is already taken. Saving the
-   same title twice gives you two articles rather than a 422, which is friendlier
-   for a demo, and the suffix is deterministic."
+  "`base`, or `base-2` / `base-3` / … if that slug is already taken or reserved.
+   Saving the same title twice gives you two articles rather than a 422, which
+   is friendlier for a demo, and the suffix is deterministic."
   [state base]
-  (if-not (find-article state base)
+  (if-not (or (reserved-slugs base) (find-article state base))
     base
     (loop [n 2]
       (let [candidate (str base "-" n)]
@@ -387,7 +399,7 @@
   [state args-map]
   (let [req    (:request args-map)
         url    (str (:url req))
-        path   (path-of url)
+        path   (api-path url)
         params (query-params url)
         method (or (:method req) :get)
         body   (:body req)
@@ -397,8 +409,7 @@
       ;; One user in this world, so any credentials log you in as them. Login
       ;; and register both issue the demo token, which is what `GET /user`
       ;; checks below.
-      (and (= method :post) (or (str/ends-with? path "/users/login")
-                                (str/ends-with? path "/users")))
+      (and (= method :post) (#{"/users/login" "/users"} path))
       [(update state :sessions conj (:token me)) (ok {:user me})]
 
       ;; GET /user — session restore. Succeeds only for a token THIS world
@@ -406,14 +417,14 @@
       ;; empty) and the saved JWT belongs to a previous page's world, so restore
       ;; fails and the demo opens logged out — predictably, and for a reason the
       ;; model states rather than a special case that hardcodes it.
-      (and (= method :get) (str/ends-with? path "/user"))
+      (and (= method :get) (= path "/user"))
       (if (contains? (:sessions state) (bearer-token req))
         [state (ok {:user me})]
         [state restore-failure])
 
       ;; PUT /user — settings. The submitted identity fields win; `:password` is
       ;; ignored (this world has no password to change).
-      (and (= method :put) (str/ends-with? path "/user"))
+      (and (= method :put) (= path "/user"))
       (let [submitted (:user body)
             changed   (into {} (remove (comp nil? val))
                             (select-keys submitted [:email :username :bio :image]))
@@ -426,17 +437,17 @@
       ;; --- article lists ---------------------------------------------------
       ;; The feed is the articles by the authors you follow — empty until you
       ;; follow someone, and genuinely populated once you do.
-      (and (= method :get) (str/ends-with? path "/articles/feed"))
+      (and (= method :get) (= path "/articles/feed"))
       [state (ok (paged state params
                         (filterv #(contains? (:following state) (:author %))
                                  (:articles state))))]
 
-      (and (= method :get) (str/ends-with? path "/articles"))
+      (and (= method :get) (= path "/articles"))
       [state (ok (paged state params (matching-articles state params)))]
 
       ;; POST /articles — create. The article is INSERTED, at the front, so the
       ;; navigation the editor performs on save finds it and page 1 shows it.
-      (and (= method :post) (str/ends-with? path "/articles"))
+      (and (= method :post) (= path "/articles"))
       (let [a       (:article body)
             state'  (update state :tick inc)
             now     (stamp (:tick state'))
@@ -452,8 +463,8 @@
         [state'' (ok {:article (article-wire state'' article)})])
 
       ;; --- one article -----------------------------------------------------
-      (re-find #"/articles/([^/]+)/comments/([^/]+)$" path)
-      (let [[_ slug id] (re-find #"/articles/([^/]+)/comments/([^/]+)$" path)
+      (re-find #"^/articles/([^/]+)/comments/([^/]+)$" path)
+      (let [[_ slug id] (re-find #"^/articles/([^/]+)/comments/([^/]+)$" path)
             existing    (get-in state [:comments slug])]
         (cond
           (not (find-article state slug))               [state (not-found "Article")]
@@ -463,8 +474,8 @@
                      (filterv #(not= id (str (:id %))) existing))
            (ok {})]))
 
-      (re-find #"/articles/([^/]+)/comments$" path)
-      (let [slug (second (re-find #"/articles/([^/]+)/comments$" path))]
+      (re-find #"^/articles/([^/]+)/comments$" path)
+      (let [slug (second (re-find #"^/articles/([^/]+)/comments$" path))]
         (cond
           (not (find-article state slug))
           [state (not-found "Article")]
@@ -486,15 +497,15 @@
           [state (ok {:comments (mapv #(comment-wire state %)
                                       (get-in state [:comments slug] []))})]))
 
-      (re-find #"/articles/([^/]+)/favorite$" path)
-      (let [slug (second (re-find #"/articles/([^/]+)/favorite$" path))]
+      (re-find #"^/articles/([^/]+)/favorite$" path)
+      (let [slug (second (re-find #"^/articles/([^/]+)/favorite$" path))]
         (if-not (find-article state slug)
           [state (not-found "Article")]
           (let [state' (update state :favorites (if (= method :post) conj disj) slug)]
             [state' (ok {:article (article-wire state' (find-article state' slug))})])))
 
-      (re-find #"/articles/([^/]+)$" path)
-      (let [slug (second (re-find #"/articles/([^/]+)$" path))
+      (re-find #"^/articles/([^/]+)$" path)
+      (let [slug (second (re-find #"^/articles/([^/]+)$" path))
             a    (find-article state slug)]
         (cond
           (nil? a) [state (not-found "Article")]
@@ -525,19 +536,19 @@
           :else [state (ok {:article (article-wire state a)})]))
 
       ;; --- profiles --------------------------------------------------------
-      (re-find #"/profiles/([^/]+)/follow$" path)
-      (let [username (second (re-find #"/profiles/([^/]+)/follow$" path))
+      (re-find #"^/profiles/([^/]+)/follow$" path)
+      (let [username (second (re-find #"^/profiles/([^/]+)/follow$" path))
             state'   (update state :following (if (= method :post) conj disj) username)]
         [state' (ok {:profile (profile-wire state' username)})])
 
-      (re-find #"/profiles/([^/]+)$" path)
-      (let [username (second (re-find #"/profiles/([^/]+)$" path))]
+      (re-find #"^/profiles/([^/]+)$" path)
+      (let [username (second (re-find #"^/profiles/([^/]+)$" path))]
         [state (ok {:profile (profile-wire state username)})])
 
       ;; --- tags ------------------------------------------------------------
       ;; Derived from the articles that are actually there, so a new article's
       ;; tags join the sidebar and a deleted article's leave it.
-      (and (= method :get) (str/ends-with? path "/tags"))
+      (and (= method :get) (= path "/tags"))
       [state (ok {:tags (into [] (distinct) (mapcat :tagList (:articles state)))})]
 
       ;; A route this demo does not implement fails loudly rather than handing
