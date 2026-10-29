@@ -73,8 +73,8 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
   `:human-decision` or `:runtime-blocker`. A verdict says what happens if the
   call is left inside a converted view, not what to do about it: the route
   says that, and the tier comes from the rule it routes to — an `r/atom` is a
-  runtime blocker routed to D-tier MIG-16. Every class routes before you open
-  a file:
+  runtime blocker routed to D-tier MIG-16. Every class on the roster routes
+  before you open a file:
 
   | Census `:class` | Route |
   |---|---|
@@ -92,7 +92,13 @@ it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
   | `:substrate-read-hook` (the adapter's `use-sub`/`use-frame`) | in a converted view, `h/sub` and intents; in a React island, `re-frame.fresco.native`'s hooks (MIG-17) |
   | `:substrate-test-harness` | test code — re-point it at the Fresco test kit (Step 5) |
   | `:reactive-graph-control`, `:substrate-view-seam` | no rule — read the census's recovery note and decide with the author |
-  | `:unresolved-reagent-require`, `:unresolved-alias` | no rule — the reporter could not bind this file's Reagent require, so it is partly blind there: read the file by hand, and do not count on Step 6 for its crossings |
+
+  Two more classes report what the reporter could not read, not a call:
+  `:unresolved-reagent-require` (an `ns` form naming a Reagent namespace the
+  reporter could not bind, such as a vendored copy) and `:unresolved-alias` (a
+  rostered call in such a file). No rule routes them: read that file by hand,
+  and do not count on Step 6 for its crossings, since the fixer is partly blind
+  there too.
 
   Every class the census emits carries a recovery note; read it beside the
   route.
