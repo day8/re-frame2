@@ -1238,11 +1238,12 @@
   ;; `:rf.xray/observed-frame` names the frame whose `:sensitive` policy
   ;; governs the record's `:db-before` / `:db-after`, and the 3-arity of
   ;; `project-feed-from-epoch` projects both through the SAME
-  ;; `local-render/local-render-value` the App-DB tab applies at
+  ;; `local-render/local-render-record-state` the App-DB tab applies at
   ;; `app_db_diff_subs/:rf.xray/app-db-state` before deriving the per-path
-  ;; diff. Without it this sub would hand `db-diff-row` the raw values and
-  ;; the panel would print a declared-sensitive slot the App-DB tab
-  ;; redacts for the identical record.
+  ;; diff, so a past epoch keeps the classification it was recorded with.
+  ;; Without it this sub would hand `db-diff-row` the raw values and the
+  ;; panel would print a declared-sensitive slot the App-DB tab redacts
+  ;; for the identical record.
   ;;
   ;; It is the seam the App-DB tab uses, which is the point: one
   ;; policy resolved once, so the two tabs cannot disagree about what a

@@ -7,8 +7,10 @@
                       :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :as rf.test-support
                       :refer-macros [with-trace-recorder!]])
+            [day8.re-frame2-xray.panels.epoch.projection :as epoch-proj]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -112,6 +114,72 @@
                   "the spawned actor's record carries a definition")
               (is (= (get defs spawn-child-type) (:definition rec))
                   "and it is the registered TYPE's spec"))))))))
+
+(def ^:private guarded-machine
+  {:initial :idle
+   :guards  {:never (fn [_] false)}
+   :states  {:idle {:on {:poke {:guard :never :target :busy}}}
+             :busy {}}})
+
+(defn- focused-records
+  "The focused-event records for epoch `record`, projected as the panel's
+  sub projects them: the record's own trace events, the registered-id
+  definitions and the record's actor types."
+  [record defs]
+  (h/project-focused-event-transitions
+    (:trace-events record) defs (epoch-proj/machine-actor-types record)))
+
+(deftest project-focused-event-attaches-definition-for-a-spawned-actors-no-op-and-birth
+  (testing "a SPAWNED actor's guard-blocked no-op and its birth carry no
+            snapshot, so each record resolves the definition through the type
+            the epoch's frame state maps the actor to. Producer-derived: the
+            machines runtime spawns the actor and blocks its event"
+    (with-real-runtime
+      (fn []
+        (rf/reg-machine :xray-spawned-noop/kid guarded-machine)
+        (rf/reg-machine :xray-spawned-noop/solo guarded-machine)
+        (rf/reg-machine :xray-spawned-noop/par
+          {:initial :idle
+           :states  {:idle    {:on {:start :running}}
+                     :running {:spawn {:machine-id :xray-spawned-noop/kid}}}})
+        (rf/dispatch-sync [:xray-spawned-noop/par [:start]])
+        (let [defs   (store-definitions [:xray-spawned-noop/kid :xray-spawned-noop/solo
+                                         :xray-spawned-noop/par])
+              kid    (some (fn [[id snap]]
+                             (when (= :xray-spawned-noop/kid
+                                      (get-in snap [:rf/runtime :machine-type]))
+                               id))
+                           (get-in (rf.frame/frame-runtime-db-value :rf/default)
+                                   [:rf.runtime/machines :snapshots]))
+              births (some (fn [record]
+                             (when (some #(and (= :rf.machine/started (:operation %))
+                                               (= kid (get-in % [:tags :machine-id])))
+                                         (:trace-events record))
+                               record))
+                           (rf.epoch/epoch-history :rf/default))
+              birth  (some #(when (and (= kid (:machine-id %)) (:start? %)) %)
+                           (focused-records births defs))
+              _      (rf/dispatch-sync [kid [:poke]])
+              no-op  (first (focused-records (last (rf.epoch/epoch-history :rf/default)) defs))]
+          (is (some? kid) "PRECONDITION: the parent spawned a child actor")
+          (is (some? birth) "PRECONDITION: an epoch records the actor's birth")
+          (is (= [kid true] [(:machine-id no-op) (:no-op? no-op)])
+              "PRECONDITION: the focused epoch's record is the actor's no-op")
+          (is (= (get defs :xray-spawned-noop/kid) (:definition no-op))
+              "the spawned actor's no-op carries its TYPE's definition")
+          (is (= (get defs :xray-spawned-noop/kid) (:definition birth))
+              "and so does its birth")
+          (is (nil? (:definition
+                      (first (h/project-focused-event-transitions
+                               (:trace-events (last (rf.epoch/epoch-history :rf/default)))
+                               defs))))
+              "CONTROL: without the actor types the no-op finds no definition")
+          (rf/dispatch-sync [:xray-spawned-noop/solo [:rf.machine/start]])
+          (rf/dispatch-sync [:xray-spawned-noop/solo [:poke]])
+          (is (= (get defs :xray-spawned-noop/solo)
+                 (:definition (first (focused-records
+                                       (last (rf.epoch/epoch-history :rf/default)) defs))))
+              "CONTROL: a singleton's no-op resolves through its registered id"))))))
 
 ;; ---- machine BIRTH (`:rf.machine/started`) ------------------------------
 ;;

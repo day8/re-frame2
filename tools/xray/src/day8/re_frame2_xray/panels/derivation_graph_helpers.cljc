@@ -76,6 +76,7 @@
             ;; implementation/ ns preserves the tools → implementation
             ;; dependency arrow (nothing in implementation/ requires Xray).
             [re-frame.derivation.egress :as rf.derivation.egress]
+            [re-frame.classification :as rf.classification]
             [day8.re-frame2-xray.panels.local-render :as local-render]))
 
 ;; ---------------------------------------------------------------------------
@@ -446,11 +447,25 @@
   [graph]
   (update graph :nodes update-vals summarize-node))
 
+(defn- live-sub-node?
+  "A live subscription cache entry carrying a value: a `:reg-sub` node whose
+  `:id` is its concrete query vector."
+  [node]
+  (and (= :reg-sub (get-in node [:source-form :kind]))
+       (vector? (:id node))
+       (contains? node :value)))
+
 (defn- project-node-values
   "`node` with its value-bearing fields projected for on-box render under
   `frame-id`. The route node's `:query` / `:params` take the route-slice arm,
   because a route's declaration is re-rooted onto the runtime-db route slice
-  and a bare walk can never match it; every other field walks as a value."
+  and a bare walk can never match it; every other field walks as a value.
+
+  A live sub node's `:value` is the sub's output, which the frame's app-db
+  classification cannot see, so it first takes the sub registration's own
+  `:sensitive` / `:large` paths through `rf.classification/project-sub-value`
+  — the projection its `:rf.sub/run` trace carries and the off-box
+  `project-graph` applies."
   [node-id node frame-id]
   (if (or (= :rf/route node-id) (= :route-fact (:refinement node)))
     (local-render/local-render-route-slice node frame-id)
@@ -458,7 +473,9 @@
               (if (contains? n k)
                 (update n k local-render/local-render-value frame-id)
                 n))
-            node
+            (cond-> node
+              (live-sub-node? node)
+              (update :value rf.classification/project-sub-value (:id node) frame-id))
             value-bearing-node-keys)))
 
 (defn project-live-values

@@ -2,10 +2,19 @@
   "Pure-data tests for the managed-fx wire-boundary helpers: the per-surface
   adapters, in-bundle HTTP attribution, the event-bundle walker, override
   provenance and the view's formatters. The cross-buffer HTTP join is pinned on
-  producer captures in `managed_fx_http_join_cljs_test`."
+  producer captures in `managed_fx_http_join_cljs_test`; the machine-invoke
+  spawn pairing is pinned here on a bundle the machines runtime records."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test    :refer-macros [are deftest is testing]])
-            [day8.re-frame2-xray.panels.managed-fx-helpers :as h]))
+            #?(:clj  [re-frame.test-support :as rf.test-support
+                      :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support
+                      :refer-macros [with-trace-recorder!]])
+            [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
+            [re-frame.core :as rf]
+            [re-frame.machines]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.projection :as rf.trace.projection]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -201,6 +210,62 @@
     (is (= [:machine-invoke :ok :inv-1 {:invoke-id :inv-1 :machine-id :auth/main :state :idle}]
            ((juxt :surface :status :correlation-id :res)
             (h/machine-invoke-adapter (fx-handled :rf.machine/spawn args) [spawn]))))))
+
+(def ^:private spawn-child
+  {:initial :running
+   :states  {:running {:on {:go :done}}
+             :done    {:final? true}}})
+
+(defn- spawn-bundle-records
+  "Register two child types and a parent entering `forking-state` on
+  `[:start]`, run that event on a fresh runtime, and return its bundle's
+  spawned-ids in trace order beside each machine-invoke record as
+  `[fx-id res-type res-spawned-id]`."
+  [forking-state]
+  (let [out (atom nil)]
+    ((rf.test-support/make-reset-runtime-fixture
+       {:adapter rf.substrate.plain-atom/adapter})
+     (fn []
+       (rf/reg-machine :mfx-spawn/ca spawn-child)
+       (rf/reg-machine :mfx-spawn/cb spawn-child)
+       (rf/reg-machine :mfx-spawn/parent
+         {:initial :idle
+          :states  {:idle    {:on {:start :forking}}
+                    :forking forking-state}})
+       (with-trace-recorder! [traces]
+         (rf/dispatch-sync [:mfx-spawn/parent [:start]])
+         (let [bundle (some #(when (= [:mfx-spawn/parent [:start]] (:event %)) %)
+                            (rf.trace.projection/group-by-event @traces))]
+           (reset! out
+                   {:spawned (->> @traces
+                                  (filter #(= :rf.machine.lifecycle/spawned (:operation %)))
+                                  (mapv #(get-in % [:tags :spawned-id])))
+                    :records (mapv (juxt :fx-id
+                                         #(get-in % [:res :machine-id])
+                                         #(get-in % [:res :spawned-id]))
+                                   (h/event-bundle->managed-fx-records bundle))})))))
+    @out))
+
+(deftest machine-invoke-records-each-carry-their-own-spawn
+  (testing "a `:spawn-all` of two children runs one `:rf.machine/spawn` per
+            child in one bundle; each record's RESPONSE is the actor its own
+            effect spawned, and `spawn-all-init` spawned none"
+    (let [{:keys [spawned records]}
+          (spawn-bundle-records
+            {:spawn-all {:children        [{:id :a :machine-id :mfx-spawn/ca}
+                                           {:id :b :machine-id :mfx-spawn/cb}]
+                         :join            :all
+                         :on-all-complete [:all-done]}
+             :on        {:all-done :idle}})]
+      (is (= 2 (count spawned)) "PRECONDITION: the bundle spawned both children")
+      (is (= [[:rf.machine/spawn-all-init nil nil]
+              [:rf.machine/spawn :mfx-spawn/ca (first spawned)]
+              [:rf.machine/spawn :mfx-spawn/cb (second spawned)]]
+             records))))
+  (testing "CONTROL — a single `:spawn` pairs with the bundle's one spawned row"
+    (let [{:keys [spawned records]}
+          (spawn-bundle-records {:spawn {:machine-id :mfx-spawn/ca}})]
+      (is (= [[:rf.machine/spawn :mfx-spawn/ca (first spawned)]] records)))))
 
 (deftest machine-destroy-terminal-projection-is-successful-non-cancelled
   (testing "a handled destroy plus a real `:rf.machine/destroyed` terminal is a

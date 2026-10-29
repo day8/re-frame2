@@ -57,6 +57,51 @@
       (is (str/includes? (str preview) "posts")
           (str "the undeclared sibling must preview raw: " preview)))))
 
+(defn- live-sub-node
+  "A live sub node in the shape `re-frame.subs.tooling` composes it: its
+  concrete query vector as `:id`, the sub's output as `:value`."
+  [sub-id value]
+  {:id          [sub-id]
+   :kind        :derivation
+   :rf/family   :subs
+   :source-form {:kind :reg-sub :id sub-id}
+   :value       value})
+
+(defn- sub-preview
+  "The `:value` preview the panel would render for sub node `node-id`."
+  [tab-data node-id]
+  (some (fn [[id node]] (when (= node-id id) (get-in node [:summaries :value :preview])))
+        (get-in tab-data [:by-family :subs])))
+
+(deftest live-sub-value-takes-its-own-sensitive-declaration-on-box
+  (testing "a live sub whose registration declares `:sensitive [[:token]]`
+            previews its token as :rf/redacted and its undeclared field raw;
+            an undeclared sibling sub previews in full"
+    (rf/reg-sub :graph-on-box/secret-sub {:sensitive [[:token]]} (fn [_ _] nil))
+    (rf/reg-sub :graph-on-box/plain-sub (fn [_ _] nil))
+    (let [value     {:token secret :public "visible"}
+          secret-id [:sub [:graph-on-box/secret-sub]]
+          plain-id  [:sub [:graph-on-box/plain-sub]]
+          graph     {:mode  :live
+                     :frame :rf/default
+                     :nodes {secret-id (live-sub-node :graph-on-box/secret-sub value)
+                             plain-id  (live-sub-node :graph-on-box/plain-sub value)}
+                     :edges []}
+          projected (h/project-live-values graph)
+          tab-data  (h/tab-data graph)]
+      (is (= {:token :rf/redacted :public "visible"}
+             (get-in projected [:nodes secret-id :value]))
+          "the declared path is redacted and the undeclared one kept")
+      (is (= [:graph-on-box/secret-sub] (get-in projected [:nodes secret-id :id]))
+          "the node's query-vector identity stays raw")
+      (is (not (str/includes? (str (sub-preview tab-data secret-id)) secret))
+          (str "the declared-sensitive token reached the on-box preview: "
+               (sub-preview tab-data secret-id)))
+      (is (= value (get-in projected [:nodes plain-id :value]))
+          "CONTROL: the undeclared sibling sub keeps its whole value")
+      (is (str/includes? (str (sub-preview tab-data plain-id)) secret)
+          "CONTROL: and its preview shows it"))))
+
 (deftest live-graph-fails-closed-without-a-frame
   (testing "a live graph whose frame is nil redacts every value whole rather
             than preview it raw"

@@ -46,7 +46,8 @@
             [re-frame.routing]                      ;; load routing so reg-route + navigate materialize a live route slice
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]))
+            [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]
+            [day8.re-frame2-xray.panels.image-view-reads :as image-reads]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -93,6 +94,23 @@
     (let [{:keys [mode by-family]} (read-xray [:rf.xray/derivation-graph-tab-data])]
       (is (= :static mode) "tab-data carries the default static mode")
       (is (contains? by-family :subs) "subs family is grouped"))))
+
+(deftest static-mode-in-xrays-own-image-lists-the-hosts-subs
+  (testing "seated in its OWN image-loaded frame, as `mount` seats it, Xray's
+            static graph lists the host's subs — the image Xray's own subs
+            resolve through excludes this namespace, so the host sub appears
+            only if the composer reads the host's registrations"
+    (registry/register-xray-handlers!)
+    (register-host-subs!)
+    (image-reads/seat-xray-frame! :rf.xray/graph-seat)
+    (let [sub-ids (->> (:nodes (rf/subscribe-once [:rf.xray/derivation-graph]
+                                                  {:frame :rf.xray/graph-seat}))
+                       keys
+                       (filter #(= :sub (first %)))
+                       (map second)
+                       set)]
+      (is (contains? sub-ids :cart/total)
+          (str "the static graph omits the host's sub: " (pr-str (sort sub-ids)))))))
 
 ;; ---- (2)+(3) the machine family + precise selector targeting ------------
 

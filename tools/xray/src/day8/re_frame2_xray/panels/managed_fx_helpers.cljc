@@ -1038,18 +1038,29 @@
   and initial `:data`; the surface events carry the
   spawn/transition/destroy lifecycle. The `:rf.machine.lifecycle/spawned`
   trace carries the TYPE (`:machine-id`), the instance address
-  (`:spawned-id`), and the declarative invocation path (`:invoke-id`)."
-  [fx-ev event-bundle-other]
-  (let [surface-events (surface-events-for event-bundle-other :machine-invoke)
-        args           (fx-args-of fx-ev)
-        spawned        (some #(when (= (:operation %) :rf.machine.lifecycle/spawned) %)
-                             surface-events)
-        rec            (common-record :machine-invoke fx-ev surface-events)]
-    (assoc rec
-           :req args
-           :wire (wire-timing fx-ev surface-events)
-           :res (when spawned (select-keys (:tags spawned)
-                                            [:invoke-id :machine-id :spawned-id :state])))))
+  (`:spawned-id`), and the declarative invocation path (`:invoke-id`), and
+  is the record's `:res`.
+
+  One bundle can run several machine-invoke effects — a `:spawn-all` runs
+  one `:rf.machine/spawn` per child — so the walker pairs each record with
+  the spawned row ITS OWN effect emitted and passes it as `opts`
+  `:spawned`. A record whose effect spawned nothing (`spawn-all-init`, a
+  destroy) has no `:res`. The 2-arity assumes this is the bundle's only
+  machine-invoke effect, and takes the bundle's spawned row."
+  ([fx-ev event-bundle-other]
+   (machine-invoke-adapter
+     fx-ev event-bundle-other
+     {:spawned (some #(when (= (:operation %) :rf.machine.lifecycle/spawned) %)
+                     (surface-events-for event-bundle-other :machine-invoke))}))
+  ([fx-ev event-bundle-other {:keys [spawned]}]
+   (let [surface-events (surface-events-for event-bundle-other :machine-invoke)
+         args           (fx-args-of fx-ev)
+         rec            (common-record :machine-invoke fx-ev surface-events)]
+     (assoc rec
+            :req args
+            :wire (wire-timing fx-ev surface-events)
+            :res (when spawned (select-keys (:tags spawned)
+                                             [:invoke-id :machine-id :spawned-id :state]))))))
 
 (defn ssr-fx-adapter
   "SSR `:rf.server/*` adapter. The fx-args carry the response-shape
@@ -1076,29 +1087,30 @@
 
 ;; ---- event-bundle walker ----------------------------------------------------
 
-(defn- pair-issued-rows
-  "Pair each HTTP effect row with the bundle's `:rf.http/issued` row it
-  caused: `{<fx-row :id> -> <issued row>}`.
+(defn- pair-caused-rows
+  "Pair each of one surface's effect rows with the bundle's `op` row it
+  caused: `{<fx-row :id> -> <op row>}`. HTTP pairs `:rf.http/issued`, the
+  machine surface `:rf.machine.lifecycle/spawned`.
 
   Paired by POSITION over the monotonic trace `:id`, never by `:time`: the
-  issued row is emitted inside the fx handler and `re-frame.fx` emits
-  `:rf.fx/handled` after the handler returns, so an effect's issued row
-  lies strictly between the PREVIOUS HTTP effect row and its own. Reading
-  the window rather than zipping ordinals keeps an HTTP effect that
-  issued nothing — an overridden or skipped effect, a
-  `:rf.http/managed-abort`, a capture that lacks the issued row —
-  from shifting every later pairing by one. An effect with no issued row
-  in its window pairs to nothing and stays an unjoined `:issued`."
-  [http-fx other]
-  (let [issued (sort-by :id (filterv #(= :rf.http/issued (:operation %)) (or other [])))
-        fx     (sort-by :id http-fx)]
+  `op` row is emitted inside the fx handler and `re-frame.fx` emits
+  `:rf.fx/handled` after the handler returns, so an effect's row lies
+  strictly between the PREVIOUS effect row of the same surface and its
+  own. Reading the window rather than zipping ordinals keeps an effect that
+  emitted nothing — an overridden or skipped effect, a
+  `:rf.http/managed-abort`, a machine destroy, a capture that lacks the
+  row — from shifting every later pairing by one. An effect with no `op`
+  row in its window pairs to nothing."
+  [surface-fx op other]
+  (let [caused (sort-by :id (filterv #(= op (:operation %)) (or other [])))
+        fx     (sort-by :id surface-fx)]
     (loop [fx fx, lo nil, acc {}]
       (if-let [f (first fx)]
         (let [hi  (:id f)
               hit (when (number? hi)
                     (last (filter #(let [i (:id %)]
                                      (and (number? i) (< i hi) (or (nil? lo) (> i lo))))
-                                  issued)))]
+                                  caused)))]
           (recur (rest fx) hi (if hit (assoc acc hi hit) acc)))
         acc))))
 
@@ -1112,7 +1124,7 @@
   function fires and `:rf.fx/handled` after it returns, so the pair lies
   in one window — after the previous non-override effect row, before the
   handled row — read by POSITION over the monotonic trace `:id`, never by
-  `:time` (the discipline `pair-issued-rows` uses). The override row's
+  `:time` (the discipline `pair-caused-rows` uses). The override row's
   `:rf.fx/from` must name the handled row's `:rf.fx/id`. A keyword
   redirect needs no pairing: its handled row carries `:rf.fx/from`."
   [effects]
@@ -1166,8 +1178,10 @@
   When `join-context` is supplied (`http-join-context` — built ONCE per
   recompute over the whole trace buffer and the event-bundles) each HTTP
   record is paired with its own `:rf.http/issued` row
-  (`pair-issued-rows`) and takes its outcome from the cross-buffer join;
-  without it an HTTP record says only `:issued`.
+  (`pair-caused-rows`) and takes its outcome from the cross-buffer join;
+  without it an HTTP record says only `:issued`. Each machine-invoke
+  record is paired the same way with its own
+  `:rf.machine.lifecycle/spawned` row, its `:res`.
 
   When `paths-by-dispatch-id` is supplied the record's `:paths-touched`
   is filled with the app-db diff paths that changed during this
@@ -1199,18 +1213,25 @@
          ;; to a record that carries no `:request-id` is a fact about the
          ;; BUNDLE, so only this walker can answer it.
          http-fx-count (count http-fx)
-         issued->fx    (pair-issued-rows http-fx other)]
+         issued->fx    (pair-caused-rows http-fx :rf.http/issued other)
+         spawned->fx   (pair-caused-rows
+                         (filterv #(= :machine-invoke (classify-fx-id (record-fx-id %))) fx-events)
+                         :rf.machine.lifecycle/spawned
+                         other)]
      (vec
        (for [fx-ev fx-events
              :let  [surface (classify-fx-id (record-fx-id fx-ev))
                     adapter (get surface->adapter surface)]
              :when adapter]
-         (-> (if (= surface :http)
+         (-> (case surface
+               :http
                (http-adapter fx-ev other
                              (merge {:sole-http-fx? (= 1 http-fx-count)
                                      :issued        (get issued->fx (:id fx-ev))}
                                     (select-keys join-context
                                                  [:terminal-index :reply-index])))
+               :machine-invoke
+               (machine-invoke-adapter fx-ev other {:spawned (get spawned->fx (:id fx-ev))})
                (adapter fx-ev other))
              (assoc :paths-touched path-touched)))))))
 
