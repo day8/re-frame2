@@ -173,7 +173,7 @@ The producers are **scattered, not co-located**: the `:async-flow` declaration l
                [:app/boot :wizard/setup])}))   ;; the consumers the producer census found
 ```
 
-Each consumer tags the states that await the event and keeps a run token and a guard on it. Here `:wizard/setup`, which can be restarted:
+Each consumer tags the states that await the event and keeps a run token and a guard on it. Here `:wizard/setup`, which can be restarted from any state, so it declares its start once, on the root `:on`:
 
 ```clojure
 (rf/reg-machine :wizard/setup
@@ -181,14 +181,14 @@ Each consumer tags the states that await the event and keeps a run token and a g
    :guards  {:this-run? (fn [{:keys [data event]}] (= (:run data) (:run (peek event))))}
    :actions {:begin-run   (fn [{:keys [event]}] {:data {:run (:run (peek event))}})
              :take-config (fn [{:keys [event]}] {:data {:config (second event)}})}
+   :on      {:wizard/begin {:target :awaiting-config :action :begin-run}}   ;; start or restart, from every state
    :states
-   {:idle            {:on {:wizard/begin {:target :awaiting-config :action :begin-run}}}
+   {:idle            {}
     :awaiting-config {:tags #{:awaits/config}
                       :on   {:config-loaded {:guard :this-run? :target :editing :action :take-config}
-                             :wizard/begin  {:target :awaiting-config :action :begin-run}
                              :wizard/cancel :cancelled}}
     :editing         {:on {:wizard/cancel :cancelled}}
-    :cancelled       {:on {:wizard/begin {:target :awaiting-config :action :begin-run}}}}})  ;; terminal, not :final?
+    :cancelled       {}}})  ;; terminal, not :final?
 
 ;; Each start or restart carries a fresh token, minted where the run is started:
 (rf/dispatch [:wizard/setup [:wizard/begin {:run (random-uuid)}]])

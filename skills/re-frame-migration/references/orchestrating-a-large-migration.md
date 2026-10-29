@@ -139,7 +139,7 @@ shadow-cljs stops at the first namespace it cannot resolve (`The required namesp
         :when (re-find #"\.clj[sc]$" (str f))
         :let [form (with-open [rdr (io/reader f)]
                      (binding [r/*read-eval* false r/*default-data-reader-fn* (fn [_ v] v)]
-                       (r/read {:read-cond :allow :features #{:cljs}} (rt/push-back-reader rdr))))]
+                       (r/read {:eof nil :read-cond :allow :features #{:cljs}} (rt/push-back-reader rdr))))]
         :when (and (seq? form) (= 'ns (first form)))
         [k & specs] (filter seq? form)
         :when (exts k)
@@ -149,7 +149,7 @@ shadow-cljs stops at the first namespace it cannot resolve (`The required namesp
   (println (str f) "->" lib))
 ```
 
-Run it on the build's own classpath: `clojure -M:<the build's aliases> check_requires.clj src test` under deps.edn, or `java -cp "<classpath>" clojure.main check_requires.clj src test` with the classpath `clojure -Spath`, `lein classpath` or `npx shadow-cljs classpath` prints. It reads each file's `:cljs` branch with tools.reader, which ClojureScript brings onto the classpath, and skips `goog.*` and npm string requires. It sees namespaces, not vars: a `:refer` of a var a namespace no longer has, such as the removed `console`, still surfaces one compile at a time.
+Run it on the build's own classpath: `clojure -M:<the build's aliases> check_requires.clj src test` under deps.edn, or `java -cp "<classpath>" clojure.main check_requires.clj src test` with the classpath `clojure -Spath`, `lein classpath` or `npx shadow-cljs classpath` prints. It reads each file's `:cljs` branch with tools.reader, which ClojureScript brings onto the classpath, and skips `goog.*` and npm string requires. An empty or comment-only file reads as no form and is skipped; a file the reader cannot parse stops the scan with the reader's error. It sees namespaces, not vars: a `:refer` of a var a namespace no longer has, such as the removed `console`, still surfaces one compile at a time.
 
 **Narrow a test build with `--config-merge`.** The `:browser-test`, `:node-test` and `:karma` targets compile the namespaces matching `:ns-regexp` (default `"-test$"`) minus the set `:exclude`, unless the build lists `:namespaces`. `shadow-cljs compile <build> --config-merge <file>` deep-merges the file's map into the build's config, where a string replaces, a set unions and a vector appends. So `{:exclude #{app.broken-test}}` or `{:ns-regexp "^app[.](core|other)-test$"}` drops a failing test namespace and compiles the rest, though `:entries` cannot be swapped the same way ([`xray-replaces-10x.md` §3a](xray-replaces-10x.md#3a-compile-the-devtools-wiring-mid-sweep)). It sees past a missing namespace only by dropping every test namespace that reaches it, so it suits a failure in a test or fixture namespace; for a source namespace many tests reach, use the classpath check. Pass the EDN as a file, and write a literal dot as `[.]`, because EDN strings reject `\.`. Read the log, not the exit code: an unreadable or missing file is an option error, which prints the usage and exits 0.
 
