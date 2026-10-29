@@ -9,11 +9,9 @@
  * runner (run-story-feature-load-tests.cjs).
  */
 
-const { spawnSync } = require('child_process');
-const fs = require('fs');
 const path = require('path');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
-const { cleanStageDirs } = require('./examples-staging.cjs');
+const { prepareTestbeds } = require('./examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -27,11 +25,6 @@ const RUNNER = path.resolve(__dirname, 'run-story-feature-load-tests.cjs');
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
-// compileAll() runs the shared shadow-cljs launcher shell-free under
-// process.execPath — never npx/npx.cmd/cmd.exe (the Windows command-hijack
-// accident class) — so the compile takes the machine-wide build lane and the
-// launcher owns the compiler's process tree; matches story-build.cjs.
-const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 const cleanup = createHarnessCleanup();
@@ -50,56 +43,12 @@ const TESTBEDS = [
   },
 ];
 
-// Clean-stage boundary: remove + recreate each testbed's output
-// dir BEFORE shadow-cljs compiles into it, so every served file is produced
-// from the current source this run — no stale file from a previous run can
-// satisfy a browser request the current testbed does not produce. Cleans
-// only these two dirs (not the shared OUT_ROOT); the helper path-guards every
-// target to live strictly under OUT_ROOT.
-function cleanTestbedOutDirs() {
-  cleanStageDirs(TESTBEDS.map((t) => t.outDir), OUT_ROOT);
-}
-
-function compileAll() {
-  const builds = TESTBEDS.map((t) => t.build);
-  // The shared launcher under THIS node binary, shell-free. The compiler's
-  // stdout is captured and surfaced only on failure (or under
-  // RF2_VERBOSE_TESTS) — this gate's quiet-on-success posture. stderr passes
-  // through, so the launcher's `waiting for build lane` line shows while it
-  // waits rather than after.
-  const args = [SHADOW_CLI, 'compile', ...builds];
-  const result = spawnSync(process.execPath, args, {
-    cwd: IMPL_ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
-  const output = `${result.stdout || ''}${result.stderr || ''}`;
-  if (process.env.RF2_VERBOSE_TESTS === '1' || result.status !== 0) {
-    process.stdout.write(output);
-  }
-  if (result.status !== 0) {
-    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
-    throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
-  }
-}
-
-function stageHtml() {
-  for (const testbed of TESTBEDS) {
-    if (!fs.existsSync(testbed.outDir)) {
-      throw new Error(`Build output dir missing: ${testbed.outDir}`);
-    }
-    if (!fs.existsSync(testbed.htmlSrc)) {
-      throw new Error(`HTML source missing: ${testbed.htmlSrc}`);
-    }
-    fs.copyFileSync(testbed.htmlSrc, path.join(testbed.outDir, 'index.html'));
-  }
-}
-
 async function main() {
+  prepareTestbeds(TESTBEDS, { outRoot: OUT_ROOT, quiet: !VERBOSE });
+  // Resolved after the compile, so a dev-http server a `watch` starts while
+  // this run waits on the build lane cannot take the port between the probe
+  // and the serve.
   const port = await resolveStoryFeatureLoadPort({ env: process.env, repoRoot: REPO_ROOT });
-  cleanTestbedOutDirs();
-  compileAll();
-  stageHtml();
 
   // Serve implementation/out/examples on loopback. The shared harness owns
   // the http-server spawn, teardown tracking, early-exit abort, bounded

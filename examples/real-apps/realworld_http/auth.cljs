@@ -621,16 +621,11 @@
                [:auth :register-form :draft :password]]})
 
 (rf/reg-event :auth.login-form/initialise
-  {:doc "Seed the login-form slice."}
+  {:doc "Seed the login-form draft. The submission lifecycle is the
+         `:auth/flow` machine's, so the slice is only the draft and its
+         touched fields."}
   (fn [{:keys [db]} _]
-    {:db (assoc-in db [:auth :login-form]
-              {:draft             login-form-defaults
-               :submitted         nil
-               :status            :idle
-               :errors            {}
-               :touched           #{}
-               :submit-attempted? false
-               :submit-error      nil})}))
+    {:db (assoc-in db [:auth :login-form] {:draft login-form-defaults :touched #{}})}))
 
 (rf/reg-event :auth.login-form/edit-field
   {:doc    "Controlled-input edit for a NON-SECRET login field (email). A
@@ -665,7 +660,7 @@
 
 (rf/reg-event :auth.login-form/submit
   {:doc "Submit the login form. This is the credential-owning handoff point:
-         it reads the validated draft, issues the (sensitive) managed-HTTP
+         it reads the draft, issues the (sensitive) managed-HTTP
          login request itself, blanks the password (secret-field hygiene, the
          draft's classification already covers the observable shadow), and
          nudges the :auth/flow machine with a bare, credential-free :auth/login
@@ -674,10 +669,7 @@
          the machine's namespace note above."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :login-form :draft])]
-      {:db (-> db
-               (assoc-in [:auth :login-form :submit-attempted?] true)
-               (assoc-in [:auth :login-form :status] :submitting)
-               (assoc-in [:auth :login-form :draft :password] ""))
+      {:db (assoc-in db [:auth :login-form :draft :password] "")
        :fx [[:dispatch [:auth/flow [:auth/login]]]
             [:rf.http/managed
              (rh/request {:method     :post
@@ -689,16 +681,10 @@
                           :on-failure [:auth/flow [:auth/failure]]})]]})))
 
 (rf/reg-event :auth.register-form/initialise
-  {:doc "Seed the register-form slice."}
+  {:doc "Seed the register-form draft — the draft and its touched fields, as
+         the login form's."}
   (fn [{:keys [db]} _]
-    {:db (assoc-in db [:auth :register-form]
-              {:draft             register-form-defaults
-               :submitted         nil
-               :status            :idle
-               :errors            {}
-               :touched           #{}
-               :submit-attempted? false
-               :submit-error      nil})}))
+    {:db (assoc-in db [:auth :register-form] {:draft register-form-defaults :touched #{}})}))
 
 (rf/reg-event :auth.register-form/edit-field
   {:doc "Controlled-input edit for a NON-SECRET register field (username,
@@ -731,10 +717,7 @@
          both successes store the session and bounce the same way."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :register-form :draft])]
-      {:db (-> db
-               (assoc-in [:auth :register-form :submit-attempted?] true)
-               (assoc-in [:auth :register-form :status] :submitting)
-               (assoc-in [:auth :register-form :draft :password] ""))
+      {:db (assoc-in db [:auth :register-form :draft :password] "")
        :fx [[:dispatch [:auth/flow [:auth/register]]]
             [:rf.http/managed
              (rh/request {:method     :post
@@ -804,17 +787,6 @@
   {:sensitive [[:draft :password]]}
   (fn [db _] (get-in db [:auth :login-form])))
 
-(rf/reg-sub :auth.login-form/field-error
-  {:doc "The validation error for one login-form field — or nil while we're
-         keeping quiet. The rule of politeness: don't nag about a field until
-         the user has either touched it or hit submit at least once. See the
-         forms how-to: ../../../docs/core/how-to/build-a-form.md"
-   :inputs [[:auth.login-form/slice]]}
-  (fn [[form] [_ field]]
-    (when (or (:submit-attempted? form)
-              (contains? (:touched form) field))
-      (get-in form [:errors field]))))
-
 (rf/reg-sub :auth.register-form/draft
   {:sensitive [[:password]]}
   (fn [db _] (get-in db [:auth :register-form :draft])))
@@ -822,17 +794,6 @@
 (rf/reg-sub :auth.register-form/slice
   {:sensitive [[:draft :password]]}
   (fn [db _] (get-in db [:auth :register-form])))
-
-(rf/reg-sub :auth.register-form/field-error
-  {:doc "The validation error for one register-form field, or nil while we
-         hold our tongue. Same rule as the login form: stay quiet until the
-         field is touched or the user has tried to submit. See the forms
-         how-to: ../../../docs/core/how-to/build-a-form.md"
-   :inputs [[:auth.register-form/slice]]}
-  (fn [[form] [_ field]]
-    (when (or (:submit-attempted? form)
-              (contains? (:touched form) field))
-      (get-in form [:errors field]))))
 
 ;; ============================================================================
 ;; VIEWS

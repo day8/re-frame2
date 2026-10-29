@@ -42,7 +42,6 @@ const { pageExemptions } = require('../../examples/scripts/examples-asset-manife
 // A vendored-CSS page (both assets html-linked), keyed to a synthetic page.
 const SYNTHETIC_MANIFEST = [
   {
-    build: 'examples/synth-todomvc',
     page: 'examples/reagent/todomvc/index.html',
     reason: 'synthetic: vendored TodoMVC CSS instead of the shared stylesheet',
     assetExemptions: ['_shared/css/style.css'],
@@ -336,6 +335,36 @@ it('TEETH: required shared refs that exist ONLY inside an HTML comment are repor
     errors.map((e) => (e.match(/missing required shared asset reference '([^']+)'/) || [])[1]).sort(),
     ['_shared/css/style.css', '_shared/img/favicon.svg', '_shared/img/og.png'],
     errors.join(' | '),
+  );
+});
+
+// A required asset counts only where the page LOADS it as that kind of asset:
+// the stylesheet as a stylesheet link, the favicon as an icon link, the card as
+// the og:image. Removing the link outright is the control.
+it('TEETH: a required asset the page mentions but does not load as its kind is reported missing', () => {
+  const STYLE_LINK = '<link rel="stylesheet" href="_shared/css/style.css">';
+  const ICON_LINK = '<link rel="icon" href="_shared/img/favicon.svg">';
+  const missing = (html) =>
+    scanPage(fullIo({ [PAGE]: html }), PAGE).errors
+      .map((e) => (e.match(/missing required shared asset reference '([^']+)'/) || [])[1])
+      .filter(Boolean);
+  assert.deepStrictEqual(
+    [
+      GOOD_HTML,
+      GOOD_HTML.replace(STYLE_LINK, ''),
+      GOOD_HTML.replace(STYLE_LINK, '<link rel="styleshet" href="_shared/css/style.css">'),
+      GOOD_HTML.replace(STYLE_LINK, '<link rel="preload" href="_shared/css/style.css">'),
+      GOOD_HTML.replace(STYLE_LINK, '<a href="_shared/css/style.css">styles</a>'),
+      GOOD_HTML.replace(ICON_LINK, '<link rel="stylesheet" href="_shared/img/favicon.svg">'),
+    ].map(missing),
+    [
+      [],
+      ['_shared/css/style.css'],
+      ['_shared/css/style.css'],
+      ['_shared/css/style.css'],
+      ['_shared/css/style.css'],
+      ['_shared/img/favicon.svg'],
+    ],
   );
 });
 

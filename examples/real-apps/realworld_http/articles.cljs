@@ -385,6 +385,15 @@
               (when (contains? tags tag) render))
             render-priority))))
 
+(rf/reg-sub :articles.home/error
+  {:doc "The ACTIVE feed's latest failure message, off the home machine's
+         `:data`. Both feeds' failures write it and a feed switch clears it, so
+         it never shows the other feed's stale error the way a read of either
+         slice's `:error` can."
+   :inputs [[:rf/machine :realworld/articles-home]]}
+  (fn sub-articles-home-error [[snap] _]
+    (get-in snap [:data :error])))
+
 (rf/reg-sub :articles.home/active-articles
   {:doc "Whichever article list the home view should be showing right now. The
          `:feed` region's active state decides which app-db slice to pull from
@@ -502,10 +511,9 @@
 
 (reg-view ^{:doc "The :error view — the fetch didn't make it."}
           articles-error []
-  (let [err @(subscribe [:articles/error])
-        feed-err @(subscribe [:feed/error])]
+  (let [err @(subscribe [:articles.home/error])]
     [:div.article-preview.error
-     (str "Couldn't load articles: " (or err feed-err))]))
+     (str "Couldn't load articles: " err)]))
 
 (reg-view ^{:doc "The :empty / :nothing view — no articles to show. Renders the
                   official `.article-preview.empty-feed-message` marker that

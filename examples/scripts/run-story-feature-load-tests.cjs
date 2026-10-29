@@ -7,34 +7,37 @@
  * phase, URL, active variant, active mode, and browser console/page
  * errors. See docs/quiet-tests.md.
  *
- * The serving orchestrator injects STORY_FEATURE_LOAD_BASE_URL. A direct run
- * defaults to 127.0.0.1:8031; STORY_FEATURE_LOAD_TIMEOUT_MS controls each
- * navigation/spec timeout, and STORY_FEATURE_LOAD_SPEC filters spec basenames.
+ * The serving orchestrator (`npm run test:story-feature-load`) compiles and
+ * serves the testbeds and injects STORY_FEATURE_LOAD_BASE_URL, which this
+ * runner requires: no fixed port is guaranteed to serve them.
+ * STORY_FEATURE_LOAD_TIMEOUT_MS controls each navigation/spec timeout, and
+ * STORY_FEATURE_LOAD_SPEC filters spec basenames.
  * Every selected module must export a string `url` and a `run(page)` function
  * (`name` and `context(page)` are optional diagnostic metadata).
  */
 
 const path = require('path');
 
+const BASE_URL = process.env.STORY_FEATURE_LOAD_BASE_URL;
+if (!BASE_URL) {
+  throw new Error(
+    'STORY_FEATURE_LOAD_BASE_URL is unset. Run this gate through ' +
+      '`npm run test:story-feature-load`, which compiles and serves the Story ' +
+      'testbeds and sets it.',
+  );
+}
+
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 const { withTimeout } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
-const BASE_URL = process.env.STORY_FEATURE_LOAD_BASE_URL || 'http://127.0.0.1:8031';
 const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '300000', 10);
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
 /*
- * There is no console-noise filter: every console error trips the gate
- * unfiltered, because a filter would only mask a regression.
- *
- * In particular there is no `_jsx*`-prop filter. The framework injects no
- * `_jsxFileName` / `_jsxLineNumber` props onto DOM elements (DevTools reads
- * `__source` off React.createElement's third arg, not element props, so such
- * props would buy nothing), and the `data-rf2-source-coord` DOM attribute
- * gives pair tools what they need — so React's "does not recognize the
- * `_jsxFileName` prop" warning has no source to fire from.
+ * Every console error trips the gate unfiltered: a noise filter would only
+ * mask a regression.
  */
 
 const ALL_SPEC_FILES = [

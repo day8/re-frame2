@@ -1,8 +1,12 @@
 /*
  * Worktree-aware port resolver for the Story feature-load and play-script
  * gates. The deterministic hash of the worktree path derives a stable port
- * preference so parallel worktrees (rf2-* worker checkouts) normally start
- * from different ports instead of all contending for 8031.
+ * preference in 8200-8499, so parallel worktrees normally start from
+ * different ports. That band and the forward scan beyond it (to 8699) sit
+ * clear of every fixed dev/test port — the :dev-http bands, the examples
+ * orchestrator, the bench drivers, the shadow-cljs UI — and are registered in
+ * the OWNED-RANGE PORT MAP in implementation/scripts/dev-testbed.cjs, so a
+ * `watch` started beside a gate never wants the port the gate is serving on.
  * Honours STORY_FEATURE_LOAD_PORT if set; otherwise scans forward from
  * the derived preference until an unused port is found.
  *
@@ -17,14 +21,14 @@
 
 const {
   MAX_PORT_ATTEMPTS,
-  canListen,
   findAvailablePort: findAvailablePortShared,
+  isPortFree,
   makeParseExplicitPort,
   portError,
 } = require('./port-resolver.cjs');
 
-const DEFAULT_BASE_PORT = 8031;
-const DERIVED_PORT_SPAN = 2000;
+const DEFAULT_BASE_PORT = 8200;
+const DERIVED_PORT_SPAN = 300;
 
 function hashString(s) {
   let h = 2166136261;
@@ -59,7 +63,7 @@ function findAvailablePort(startPort, opts = {}) {
 async function resolveStoryFeatureLoadPort({ env = process.env, repoRoot = process.cwd() } = {}) {
   const explicit = parseExplicitPort(env.STORY_FEATURE_LOAD_PORT);
   if (explicit != null) {
-    if (!(await canListen(explicit))) {
+    if (!(await isPortFree(explicit))) {
       throw portError(
         `STORY_FEATURE_LOAD_PORT=${explicit} is already in use. ` +
           `Choose a unique port for this worktree.`,
@@ -74,7 +78,6 @@ module.exports = {
   DEFAULT_BASE_PORT,
   DERIVED_PORT_SPAN,
   MAX_PORT_ATTEMPTS,
-  canListen,
   findAvailablePort,
   hashString,
   parseExplicitPort,

@@ -371,7 +371,22 @@
       (fn [f lowered]
         (visit! f "/" "/?page=2")
         (settle-ok! f (:on-success (req-by-id @lowered :articles/load)) (articles-of "page-two"))
-        (is (= [:some ["page-two"]] (home f)))))))
+        (is (= [:some ["page-two"]] (home f))))))
+
+  (testing "the error banner names the ACTIVE feed's failure: Your Feed failing after the
+            global list failed shows Your Feed's message, not the global one still in its
+            slice"
+    (with-held-fx
+      (fn [f lowered]
+        (visit! f "/")
+        (settle-fail! f (:on-failure (req-by-id @lowered :articles/load)))
+        (visit! f "/?feed=following")
+        (rf/dispatch-sync (conj (:on-failure (req-by-id @lowered :feed/load))
+                                {:status :error :error {:kind :rf.http/http-4xx :http-status 404}})
+                          {:frame f})
+        (is (= [:error "Request rejected (status 404)." "Server error (status 500)."]
+               [(sub f [:articles.home/render]) (sub f [:articles.home/error])
+                (sub f [:articles/error])]))))))
 
 (deftest realworld-tags
   (testing "a tags load fills the sidebar's list"
@@ -553,6 +568,25 @@
   (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
   (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f}))
 
+(defn- settle-save-ok!
+  "Answer the captured settings PUT `save` with `user`, echoing its request id
+   under `:correlation` as the managed-HTTP reply does."
+  [f save user]
+  (rf/dispatch-sync (conj (:on-success save)
+                          {:status      :ok
+                           :value       {:user user}
+                           :correlation {:request-id (:request-id save)}})
+                    {:frame f}))
+
+(defn- settle-save-fail!
+  [f save]
+  (rf/dispatch-sync (conj (:on-failure save)
+                          {:status      :error
+                           :error       {:kind :rf.http/http-4xx :http-status 422
+                                         :body {:errors {:username ["has already been taken"]}}}
+                           :correlation {:request-id (:request-id save)}})
+                    {:frame f}))
+
 (deftest realworld-settings
   (testing "a save lands the machine in :correct, folds the server's user into the
             session and persists its fresh token"
@@ -575,19 +609,42 @@
             the next edit returns the form to :neutral"
     (with-held-fx
       (fn [f lowered]
-        (settle-fail! f (:on-failure (park-settings-save! f lowered "alice" :bio "Doomed bio")))
+        (settle-save-fail! f (park-settings-save! f lowered "alice" :bio "Doomed bio"))
         (is (= [:incorrect true nil]
                [(:state (settings-form f)) (some? (sub f [:settings/submit-error]))
                 (get-in (rf/app-db-value f) [:auth :user :bio])]))
         (rf/dispatch-sync [:settings/edit-field :bio "Better bio"] {:frame f})
         (is (= [:neutral nil] [(:state (settings-form f)) (sub f [:settings/submit-error])])))))
 
+  (testing "every save carries a request id no earlier save carried, and both reply
+            targets stay one element long so the success reply's token stays
+            path-redactable"
+    (with-held-fx
+      (fn [f lowered]
+        (let [first-save  (park-settings-save! f lowered "alice" :bio "One")
+              _           (log-out! f)
+              second-save (park-settings-save! f lowered "alice" :bio "Two")]
+          (is (= [[:settings/save 1] [:settings/save 2]
+                  [:settings/submit-success] [:settings/submit-error]]
+                 [(:request-id first-save) (:request-id second-save)
+                  (:on-success second-save) (:on-failure second-save)]))))))
+
+  (testing "a reply that echoes no request id, or one no save is waiting on, is refused"
+    (with-held-fx
+      (fn [f lowered]
+        (let [save (park-settings-save! f lowered "alice" :bio "New bio")]
+          (settle-ok! f (:on-success save) {:user (wire-user "alice" "jwt-2" "New bio")})
+          (settle-save-ok! f (assoc save :request-id [:settings/save 99])
+                           (wire-user "alice" "jwt-3" "New bio"))
+          (is (= [["alice" "jwt-1"] :submitting]
+                 [(session f) (:state (settings-form f))]))))))
+
   (testing "a save answered after logout restores nothing, and settles and scrubs the form"
     (with-held-fx
       (fn [f lowered]
         (let [save (park-settings-save! f lowered "alice" :bio "New bio")]
           (rf/dispatch-sync [:auth/clear-session] {:frame f})
-          (settle-ok! f (:on-success save) {:user (wire-user "alice" "jwt-2" "New bio")})
+          (settle-save-ok! f save (wire-user "alice" "jwt-2" "New bio"))
           (is (= [[nil nil] :neutral ""]
                  [(session f) (:state (settings-form f))
                   (get-in (settings-form f) [:data :draft :bio])]))))))
@@ -598,7 +655,7 @@
         (let [save (park-settings-save! f lowered "alice" :bio "New bio")]
           (rf/dispatch-sync [:auth/clear-session] {:frame f})
           (rf/dispatch-sync [:auth/store-session (wire-user "bob" "bob-jwt" nil)] {:frame f})
-          (settle-ok! f (:on-success save) {:user (wire-user "alice" "jwt-2" "New bio")})
+          (settle-save-ok! f save (wire-user "alice" "jwt-2" "New bio"))
           (is (= ["bob" "bob-jwt"] (session f)))))))
 
   (testing "with the next account's own save in flight, a previous account's success
@@ -609,12 +666,13 @@
         (let [alice (park-settings-save! f lowered "alice" :bio "New bio")
               _     (log-out! f)
               bob   (park-settings-save! f lowered "bob" :bio "New bio")]
-          (settle-ok! f (:on-success alice) {:user (wire-user "alice" "alice-jwt-2" "Alice bio")})
+          (settle-save-ok! f alice (wire-user "alice" "alice-jwt-2" "Alice bio"))
           (let [form (settings-form f)]
-            (is (= [["bob" "jwt-1"] :submitting "New bio" {:owner "bob" :username "bob"}]
+            (is (= [["bob" "jwt-1"] :submitting "New bio"
+                    {:owner "bob" :request-id (:request-id bob)}]
                    [(session f) (:state form) (get-in form [:data :draft :bio])
                     (get-in form [:data :pending])])))
-          (settle-ok! f (:on-success bob) {:user (wire-user "bob" "bob-jwt-2" "Bob bio")})
+          (settle-save-ok! f bob (wire-user "bob" "bob-jwt-2" "Bob bio"))
           (is (= [["bob" "bob-jwt-2"] "Bob bio" :correct]
                  [(session f) (get-in (rf/app-db-value f) [:auth :user :bio])
                   (:state (settings-form f))]))))))
@@ -626,38 +684,50 @@
         (let [alice (park-settings-save! f lowered "alice" :bio "New bio")
               _     (log-out! f)
               bob   (park-settings-save! f lowered "bob" :bio "New bio")]
-          (settle-fail! f (:on-failure alice))
+          (settle-save-fail! f alice)
           (let [form (settings-form f)]
             (is (= [["bob" "jwt-1"] :submitting nil "New bio"]
                    [(session f) (:state form) (get-in form [:data :submit-error])
                     (get-in form [:data :draft :bio])])))
-          (settle-fail! f (:on-failure bob))
+          (settle-save-fail! f bob)
           (is (= [:incorrect true]
                  [(:state (settings-form f)) (some? (sub f [:settings/submit-error]))]))))))
 
-  (testing "a rename to a name another unanswered save claims leaves that account's
-            success ambiguous, so it is refused; once both requests have answered the
-            ledger drains, and a later save by that account lands"
+  (testing "two overlapping saves by one account: the older save's reply leaves the
+            newer save pending, and the newer save's reply lands"
     (with-held-fx
       (fn [f lowered]
-        (let [alice  (park-settings-save! f lowered "alice" :bio "New bio")
-              _      (log-out! f)
-              bob    (park-settings-save! f lowered "bob" :username "alice")
-              ledger #(let [db (rf/app-db-value f)]
-                        [(:settings.saves-in-flight db) (:settings.saves-answered db 0)])]
-          (is (= 2 (count (first (ledger)))))
-          (settle-ok! f (:on-success alice) {:user (wire-user "alice" "alice-jwt-2" "Alice bio")})
+        (let [older (park-settings-save! f lowered "alice" :bio "First bio")
+              _     (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
+              newer (park-settings-save! f lowered "alice" :bio "Second bio")]
+          (settle-save-ok! f older (wire-user "alice" "alice-jwt-2" "First bio"))
           (let [form (settings-form f)]
-            (is (= [["bob" "jwt-1"] :submitting "alice" {:owner "bob" :username "alice"}
-                    :realworld.user/settings]
+            (is (= [["alice" "jwt-1"] :submitting "Second bio"]
+                   [(session f) (:state form) (get-in form [:data :draft :bio])])))
+          (settle-save-ok! f newer (wire-user "alice" "alice-jwt-3" "Second bio"))
+          (is (= [["alice" "alice-jwt-3"] "Second bio" :correct]
+                 [(session f) (get-in (rf/app-db-value f) [:auth :user :bio])
+                  (:state (settings-form f))]))))))
+
+  (testing "a previous account's success that names the account the current save
+            requests is still refused, because its id is not the awaited one; the
+            rename's own rejection banners it, and a later save by that account lands"
+    (with-held-fx
+      (fn [f lowered]
+        (let [alice (park-settings-save! f lowered "alice" :bio "New bio")
+              _     (log-out! f)
+              bob   (park-settings-save! f lowered "bob" :username "alice")]
+          (settle-save-ok! f alice (wire-user "alice" "alice-jwt-2" "Alice bio"))
+          (let [form (settings-form f)]
+            (is (= [["bob" "jwt-1"] :submitting "alice" :realworld.user/settings]
                    [(session f) (:state form) (get-in form [:data :draft :username])
-                    (get-in form [:data :pending]) (sub f [:rf.route/id])])))
-          (settle-fail! f (:on-failure bob))
-          (is (= [:incorrect ["bob" "jwt-1"] [[] 0]]
-                 [(:state (settings-form f)) (session f) (ledger)]))
+                    (sub f [:rf.route/id])])))
+          (settle-save-fail! f bob)
+          (is (= [:incorrect ["bob" "jwt-1"]]
+                 [(:state (settings-form f)) (session f)]))
           (log-out! f)
-          (settle-ok! f (:on-success (park-settings-save! f lowered "alice" :bio "New bio"))
-                      {:user (wire-user "alice" "alice-jwt-3" "Alice bio 2")})
+          (settle-save-ok! f (park-settings-save! f lowered "alice" :bio "New bio")
+                           (wire-user "alice" "alice-jwt-3" "Alice bio 2"))
           (is (= [["alice" "alice-jwt-3"] :correct :realworld.profile/show]
                  [(session f) (:state (settings-form f)) (sub f [:rf.route/id])]))))))
 
@@ -667,8 +737,8 @@
       (fn [f lowered]
         (park-settings-save! f lowered "alice" :bio "New bio")
         (log-out! f)
-        (settle-ok! f (:on-success (park-settings-save! f lowered "bob" :username "robert"))
-                    {:user (wire-user "robert" "bob-jwt-2" "Bob bio")})
+        (settle-save-ok! f (park-settings-save! f lowered "bob" :username "robert")
+                         (wire-user "robert" "bob-jwt-2" "Bob bio"))
         (is (= [["robert" "bob-jwt-2"] :correct :realworld.profile/show]
                [(session f) (:state (settings-form f)) (sub f [:rf.route/id])]))))))
 
@@ -1106,6 +1176,27 @@
           (let [banner (:following (sub f [:profile/data]))]
             (settle-fail! f (:on-failure (req-by-method+url @lowered :post "/profiles/alice/follow")))
             (is (= [#{} banner] [(follow-pending f) (:following (sub f [:profile/data]))]))))))))
+
+(deftest realworld-profile-list-loading
+  (testing "once the banner lands, a list still in flight reads as loading rather than
+            empty — on the first visit, and on the first switch to Favorited"
+    (with-held-fx
+      (fn [f lowered]
+        (visit! f "/profile/alice")
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "alice"]))
+                    {:profile (full-profile "alice" false)})
+        (is (= [:loaded true []]
+               [(sub f [:profile/render]) (sub f [:profile/current-loading?])
+                (sub f [:profile/current-articles])]))
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile.articles/load "alice"]))
+                    (articles-of))
+        (is (false? (sub f [:profile/current-loading?])))
+        (visit! f "/profile/alice/favorites")
+        (is (true? (sub f [:profile/current-loading?])))
+        (settle-ok! f (:on-success (req-by-id @lowered [:profile.favorites/load "alice"]))
+                    (articles-of "fav"))
+        (is (= [false 1]
+               [(sub f [:profile/current-loading?]) (count (sub f [:profile/current-articles]))]))))))
 
 (defn- backend-comments
   [slug]

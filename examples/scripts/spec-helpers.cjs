@@ -27,37 +27,41 @@
  * an absent element otherwise uses the page default (potentially unbounded).
  */
 
-async function expectTextEquals(locator, expected, timeoutMs = 5000) {
+// Each condition matcher is `waitForValue` over a locator read, failing with a
+// matcher-shaped message. A read is handed what is left of the one assertion
+// budget, so a vanishing element cannot stretch an assertion past `timeoutMs`.
+function pollLocator(read, matches, timeoutMs, failure) {
   const start = Date.now();
-  let last = null;
-  while (Date.now() - start < timeoutMs) {
-    last = (await locator.textContent({ timeout: Math.max(1, timeoutMs - (Date.now() - start)) })) || '';
-    if (last.trim() === expected) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`expected text "${expected}" but got "${last}" within ${timeoutMs}ms`);
+  const remaining = () => Math.max(1, timeoutMs - (Date.now() - start));
+  return waitForValue(() => read(remaining()), matches, { timeoutMs, onTimeout: failure });
+}
+
+async function expectTextEquals(locator, expected, timeoutMs = 5000) {
+  await pollLocator(
+    async (timeout) => (await locator.textContent({ timeout })) || '',
+    (text) => text.trim() === expected,
+    timeoutMs,
+    (last) => new Error(`expected text "${expected}" but got "${last}" within ${timeoutMs}ms`),
+  );
 }
 
 async function expectTextContains(locator, expected, timeoutMs = 5000) {
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < timeoutMs) {
-    last = (await locator.textContent({ timeout: Math.max(1, timeoutMs - (Date.now() - start)) })) || '';
-    if (last.includes(expected)) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`expected text to contain "${expected}" but got "${last}" within ${timeoutMs}ms`);
+  await pollLocator(
+    async (timeout) => (await locator.textContent({ timeout })) || '',
+    (text) => text.includes(expected),
+    timeoutMs,
+    (last) =>
+      new Error(`expected text to contain "${expected}" but got "${last}" within ${timeoutMs}ms`),
+  );
 }
 
 async function expectInputValue(locator, expected, timeoutMs = 5000) {
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < timeoutMs) {
-    last = await locator.inputValue({ timeout: Math.max(1, timeoutMs - (Date.now() - start)) });
-    if (last === expected) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`expected input value "${expected}" but got "${last}" within ${timeoutMs}ms`);
+  await pollLocator(
+    (timeout) => locator.inputValue({ timeout }),
+    (value) => value === expected,
+    timeoutMs,
+    (last) => new Error(`expected input value "${expected}" but got "${last}" within ${timeoutMs}ms`),
+  );
 }
 
 async function expectVisible(locator, timeoutMs = 5000) {
@@ -65,28 +69,21 @@ async function expectVisible(locator, timeoutMs = 5000) {
 }
 
 async function expectAttribute(locator, attr, expected, timeoutMs = 5000) {
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < timeoutMs) {
-    last = await locator.getAttribute(attr, { timeout: Math.max(1, timeoutMs - (Date.now() - start)) });
-    if (last === expected) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(
-    `expected attribute ${attr}="${expected}" but got "${last}" within ${timeoutMs}ms`,
+  await pollLocator(
+    (timeout) => locator.getAttribute(attr, { timeout }),
+    (value) => value === expected,
+    timeoutMs,
+    (last) =>
+      new Error(`expected attribute ${attr}="${expected}" but got "${last}" within ${timeoutMs}ms`),
   );
 }
 
 async function expectCount(locator, expected, timeoutMs = 5000) {
-  const start = Date.now();
-  let last = null;
-  while (Date.now() - start < timeoutMs) {
-    last = await locator.count();
-    if (last === expected) return;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(
-    `expected count ${expected} but got ${last} within ${timeoutMs}ms`,
+  await pollLocator(
+    () => locator.count(),
+    (count) => count === expected,
+    timeoutMs,
+    (last) => new Error(`expected count ${expected} but got ${last} within ${timeoutMs}ms`),
   );
 }
 
@@ -102,12 +99,14 @@ async function expectCount(locator, expected, timeoutMs = 5000) {
  *   timeoutMs  (default 5000) — bail with throw if predicate never holds.
  *   description (default "value satisfying predicate") — context for the
  *     error message ("expected <description> within <timeout>ms, last=<value>").
+ *   onTimeout — `(last) => Error`, the error to throw instead of that one.
  */
 async function waitForValue(readFn, predicate, options = {}) {
   const {
     intervalMs = 50,
     timeoutMs = 5000,
     description = 'value satisfying predicate',
+    onTimeout,
   } = options;
   const start = Date.now();
   let last;
@@ -116,6 +115,7 @@ async function waitForValue(readFn, predicate, options = {}) {
     if (predicate(last)) return last;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
+  if (onTimeout) throw onTimeout(last);
   throw new Error(
     `waitForValue: expected ${description} within ${timeoutMs}ms (last=${JSON.stringify(last)})`,
   );

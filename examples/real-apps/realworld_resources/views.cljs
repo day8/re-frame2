@@ -522,6 +522,13 @@
 ;; ARTICLE DETAIL + COMMENTS
 ;; ============================================================================
 
+(reg-view ^{:doc "The article's markdown body, in a view of its own: a
+                  keystroke in the comment box re-renders the article page, and
+                  an unchanged `body` lets this view skip the markdown parse and
+                  sanitising walk."}
+          article-body [body]
+  [:div {:data-testid "article-body"} (md/render body)])
+
 (reg-view comment-card [{:keys [comment slug current-user]}]
   (let [mine?     (= (:username current-user) (get-in comment [:author :username]))
         del-state @(subscribe [:rf/mutation {:instance [:delete-comment slug (:id comment)]}])]
@@ -646,7 +653,7 @@
           [:div.container.page
            [:div.row.article-content
             [:div.col-md-12
-             [:div {:data-testid "article-body"} (md/render body)]
+             [article-body body]
              (into [:ul.tag-list] (for [tag tagList] ^{:key tag} [:li.tag-default.tag-pill.tag-outline tag]))]]
            [:hr]
            [:div.article-actions

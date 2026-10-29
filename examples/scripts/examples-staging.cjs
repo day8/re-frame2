@@ -7,9 +7,9 @@
  * lives here, one source of truth for "what lands in an example's output dir".
  *
  * The adapter-smoke orchestrator and the Story feature-load and play-script
- * runners also consume the path-guarded cleanStageDirs helper, but stage their
- * testbed-specific HTML themselves; they do not use the standalone-example
- * asset manifest.
+ * runners prepare their testbeds through `prepareTestbeds` below — clean,
+ * compile, stage the testbed's own host page — and do not use the
+ * standalone-example asset manifest.
  *
  * This module ALSO derives the standalone-example manifest (build id ->
  * output dir + source folder + index.html) directly from shadow-cljs.edn, so
@@ -20,9 +20,10 @@
 
 'use strict';
 
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { stagedAssetsByBuild } = require('./examples-asset-manifest.cjs');
+const { stagedAssetsByPage } = require('./examples-asset-manifest.cjs');
 const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 const {
   EdnReadError,
@@ -31,6 +32,8 @@ const {
   mapGetKeyword,
   shadowBuildEntries,
 } = require('../../implementation/scripts/lib/edn.cjs');
+
+const { SHADOW_CLI } = require('../../implementation/scripts/lib/shadow.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -93,13 +96,20 @@ function stageShared(outDir) {
 // single examples asset/exception manifest (examples-asset-manifest.cjs), the
 // shared owner the STATIC scanner (check-examples-assets.cjs) also consumes for
 // TodoMVC's shared-stylesheet exemption. `PER_EXAMPLE_ASSETS` is the staging
-// PROJECTION of that manifest: build id (the colon-stripped coord, as
-// listStandaloneExamples() returns) -> [{ from, src, dest }]. Each asset
+// PROJECTION of that manifest: the example's source index.html (REPO_ROOT-
+// relative, the key the scanner reads too) -> [{ from, src, dest }]. Each asset
 // declares WHERE its source lives (`src` = colocated under the example's source
 // folder; `node-modules` = under implementation/node_modules) and its
 // destination under the output dir. An example with no manifest entry stages
 // only index.html + _shared (the common case).
-const PER_EXAMPLE_ASSETS = stagedAssetsByBuild();
+const PER_EXAMPLE_ASSETS = stagedAssetsByPage();
+
+// An entry's manifest key: its source index.html, REPO_ROOT-relative and
+// forward-slashed. Keying by the page rather than the build id means a renamed
+// build stages exactly what it staged before.
+function pageKey(entry) {
+  return path.relative(REPO_ROOT, entry.htmlSrc).split(path.sep).join('/');
+}
 
 const NODE_MODULES_ROOT = path.join(IMPL_ROOT, 'node_modules');
 
@@ -119,7 +129,7 @@ function assetSourcePath(entry, asset) {
 // example with no declared assets. `perExampleAssets` defaults to the manifest
 // projection but is injectable so a test can drive a synthetic manifest.
 function stagePerExampleAssets(entry, { perExampleAssets = PER_EXAMPLE_ASSETS } = {}) {
-  const assets = perExampleAssets[entry.build];
+  const assets = perExampleAssets[pageKey(entry)];
   if (!assets) return;
   for (const asset of assets) {
     const srcPath = assetSourcePath(entry, asset);
@@ -129,7 +139,7 @@ function stagePerExampleAssets(entry, { perExampleAssets = PER_EXAMPLE_ASSETS } 
           ? ` Run \`npm install\` in ${IMPL_ROOT} to fetch it.`
           : '';
       throw new Error(
-        `stageExample: required asset for '${entry.build}' is missing: ${srcPath}.${hint}`,
+        `stageExample: required asset for '${pageKey(entry)}' is missing: ${srcPath}.${hint}`,
       );
     }
     const destPath = path.join(entry.outDir, asset.dest);
@@ -198,6 +208,41 @@ function cleanStageDirs(dirs, outRoot, { io = fs } = {}) {
     cleaned.push(target);
   }
   return cleaned;
+}
+
+// Prepare the testbeds a browser-gate orchestrator serves: clean each output
+// dir, compile every build, and stage each hand-written host page next to its
+// main.js. `testbeds` is [{ build, htmlSrc, outDir }]; each outDir must sit
+// under `outRoot` (cleanStageDirs enforces it).
+//
+// The compile is ONE shadow-cljs invocation for every build, so they share a
+// JVM, through the shared launcher under THIS node binary, shell-free: it takes
+// the machine-wide build lane and owns the compiler's process tree. `quiet`
+// captures the compiler's stdout and prints it only on failure; stderr always
+// passes through, so the launcher's `waiting for build lane` line shows while
+// it waits. Throws on a failed compile, or a missing output dir or host page.
+function prepareTestbeds(testbeds, { outRoot, quiet = false } = {}) {
+  cleanStageDirs(testbeds.map((t) => t.outDir), outRoot);
+  const builds = testbeds.map((t) => t.build);
+  const result = spawnSync(process.execPath, [SHADOW_CLI, 'compile', ...builds], {
+    cwd: IMPL_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', quiet ? 'pipe' : 'inherit', 'inherit'],
+  });
+  if (result.status !== 0) {
+    if (quiet) process.stdout.write(result.stdout || '');
+    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
+    throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
+  }
+  for (const testbed of testbeds) {
+    if (!fs.existsSync(testbed.outDir)) {
+      throw new Error(`Build output dir missing: ${testbed.outDir}`);
+    }
+    if (!fs.existsSync(testbed.htmlSrc)) {
+      throw new Error(`HTML source missing: ${testbed.htmlSrc}`);
+    }
+    fs.copyFileSync(testbed.htmlSrc, path.join(testbed.outDir, 'index.html'));
+  }
 }
 
 // Stage one example's hand-written index.html + the _shared tree + any declared
@@ -343,8 +388,9 @@ function folderForNs(ns) {
 // The set of standalone examples that are RUNNABLE by the dev server: a build
 // def whose init-fn namespace resolves to an examples/ source folder that
 // carries a hand-written index.html. Builds whose source lives outside
-// examples/ (there are none) or that lack a colocated index.html are skipped — the
-// dev server can only serve a page that exists.
+// examples/ — the Xray and Story testbeds under tools/, which `npm run dev`
+// serves from their own :dev-http — or that lack a colocated index.html are
+// skipped: the dev server can only serve a page that exists.
 //
 // Each returned entry: { build, outDir, htmlSrc, srcDir } — `outDir` is the
 // absolute output dir (IMPL_ROOT-relative `:output-dir`), `htmlSrc` the
@@ -382,6 +428,7 @@ module.exports = {
   stageExample,
   isStrictlyUnder,
   cleanStageDirs,
+  prepareTestbeds,
   readShadowEdn,
   parseExampleBuilds,
   buildNsIndex,

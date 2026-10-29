@@ -6,20 +6,17 @@
    story — the part every real app has to write for itself:
    - decide which slices are safe to ship in the hydration payload
    - keep the session's credential out of it
-   - offer a small client-side bootstrap for `:rf/hydrate`
 
    The projection itself is the framework's: `rf.ssr/hydration-payload` applies
    the allowlist, redacts what the frame classifies `:sensitive`, and ships only
    the durable runtime-db slices — the route and the machine snapshots — so the
-   client wakes up on the server's route with any machines still mid-flow.
-   Splitting it this way keeps the reusable SSR machinery in the generic
-   example, while this one shows where a larger app draws its own payload
-   boundary — which is to say, what it's willing to send down the wire."
-  (:require [re-frame.core :as rf]
-            ;; The payload builder. Requiring it also registers the
-            ;; `:rf/hydrate` handler that `hydrate-client!` dispatches.
-            [re-frame.ssr :as rf.ssr]
-            #?(:cljs [cljs.reader :as reader])))
+   client wakes up on the server's route with any machines still mid-flow. The
+   client half is the framework's too: `rf.ssr/hydrate!` reads the embedded
+   payload and installs it (Spec 011). Splitting it this way keeps the reusable
+   SSR machinery in the generic example, while this one shows where a larger
+   app draws its own payload boundary — which is to say, what it's willing to
+   send down the wire."
+  (:require [re-frame.ssr :as rf.ssr]))
 
 (def ssr-app-slice-keys
   "The top-level app-db slices the SSR payload ships. Application data only —
@@ -49,7 +46,7 @@
 (defn hydration-payload
   "Build the hydration payload for the settled SSR frame `frame` (its id, or the
   frame value `make-frame` returns), before the server destroys it. This is
-  what the server embeds and `hydrate-client!` reads back."
+  what the server embeds and `rf.ssr/hydrate!` reads back on the client."
   [frame]
   ;; No secrets in the SSR payload — full stop. The bearer JWT sits at
   ;; [:auth :token], and baking it into server-rendered HTML would spill a live
@@ -67,18 +64,4 @@
     (cond-> payload
       (map? (get-in payload [:rf/app-db :auth]))
       (update-in [:rf/app-db :auth] dissoc :token))))
-
-#?(:cljs
-   (defn read-server-payload []
-     (when-let [el (.getElementById js/document "__rf_payload")]
-       (reader/read-string (.-textContent el)))))
-
-#?(:cljs
-   ;; The caller names which frame to hydrate. Being explicit about it means a
-   ;; non-default or multi-frame client can hydrate exactly the right frame,
-   ;; just by passing its own frame-id.
-   (defn hydrate-client! [frame-id]
-     (when-let [payload (read-server-payload)]
-       (rf/dispatch-sync [:rf/hydrate payload] {:frame frame-id})
-       payload)))
 

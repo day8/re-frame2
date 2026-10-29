@@ -153,10 +153,10 @@
    `:data` holds the draft, the per-field validation state, the projected
    submit-error string, and `:pending` — the save the form is currently
    waiting on, or nil when none is. `:owner` is the username the submission was
-   issued under; `:username` is the account it NAMES (the submitted draft's
-   username, which is the new one on a rename). The two reply handlers ask
-   whether a reply is that save's before they ask whether its issuer is still
-   signed in (settings.cljs §SESSION OWNERSHIP)."
+   issued under; `:request-id` is the id the PUT carries, which its reply
+   echoes. The two reply handlers ask whether a reply is that save's before
+   they ask whether its issuer is still signed in (settings.cljs §SESSION
+   OWNERSHIP)."
   [:map
    [:draft        :map]
    [:submitted    [:maybe :map]]
@@ -165,32 +165,16 @@
    [:submit-error [:maybe :string]]
    [:loaded-at    [:maybe :int]]
    [:pending      [:maybe [:map
-                           [:owner    [:maybe :string]]
-                           [:username [:maybe :string]]]]]])
+                           [:owner      [:maybe :string]]
+                           [:request-id [:tuple [:= :settings/save] :int]]]]]])
 
-(def SettingsSavesInFlight
-  "`[:settings.saves-in-flight]` — one entry per settings PUT currently on the
-   wire, and each entry is THE ACCOUNT NAME THAT SAVE WILL REPORT BACK (the
-   submitted draft's username, which is the new one on a rename).
-
-   It is a vector rather than a set because DUPLICATES ARE THE WHOLE POINT: two
-   outstanding saves naming the same account is exactly the case in which a
-   success reply cannot say which of them produced it, and a set would collapse
-   that to one and report the reply as identified. The count is how many saves
-   are in flight; the entries are the names they have claimed.
-
-   An entry is dropped by the reply that IDENTIFIES it, and an ambiguous reply
-   identifies nothing — so an entry can briefly outlive the reply that actually
-   answered it. `[:settings.saves-answered]` counts those, and when the two
-   balance the wire is empty and this vector is cleared whole. Neither number
-   can therefore grow without bound.
-
-   Top-level, beside the slices rather than inside one, for the same reason the
-   resources twin's `:settings-save-owner` is: `:settings/load` rebuilds the
-   form on every route entry and logout resets the machine, and a record either
-   of those can move cannot answer a question about a request that outlived
-   them. See settings.cljs §SESSION OWNERSHIP."
-  [:vector [:maybe :string]])
+(def AuthFormSlice
+  "The login and register drafts. Their submission lifecycle lives on the
+   `:auth/flow` machine (the views read `:auth/submitting?` off it), so the
+   slice carries only the editable draft and the touched-field bookkeeping."
+  [:map
+   [:draft   :map]
+   [:touched [:set :keyword]]])
 
 (def FormSlice
   [:map
@@ -307,10 +291,9 @@
    [:profile.follow-pending]        [:maybe [:set :string]]
    ;; Its favourite-side twin — not a RequestSlice either, just the article
    ;; slugs with a favourite POST/DELETE in flight. Hydration omits it too, and
-   ;; nothing seeds it at boot (the `:settings.saves-in-flight` precedent below —
-   ;; a mutation's latch must not die with a screen or a session reset), and on
-   ;; an absent key a settle's `(update db :favorite-pending disj slug)` writes
-   ;; nil.
+   ;; nothing seeds it at boot (a mutation's latch must not die with a screen
+   ;; or a session reset), and on an absent key a settle's
+   ;; `(update db :favorite-pending disj slug)` writes nil.
    [:favorite-pending]              [:maybe [:set :string]]
    [:comments]                      RequestSlice
    ;; The DURABLE comment, not the wire one: the list holds the optimistic
@@ -319,19 +302,12 @@
    [:feed]                          RequestSlice
    [:feed :data]                    [:vector ws/Article]
    [:comment-form]                  FormSlice
-   [:auth :login-form]              FormSlice
-   [:auth :register-form]           FormSlice
+   [:auth :login-form]              AuthFormSlice
+   [:auth :register-form]           AuthFormSlice
    [:editor]                        EditorSlice
-   ;; Like `:profile.follow-pending`, not a slice — the settings saves still on
-   ;; the wire. Nothing writes it until the first submit, and a save that is
-   ;; still outstanding is deliberately NOT seeded away by `:settings/initialise`.
-   [:settings.saves-in-flight]      SettingsSavesInFlight
-   ;; The other half of that ledger: how many replies have been consumed
-   ;; WITHOUT retiring an entry, because more than one outstanding save claimed
-   ;; the account they named. When it reaches the ledger's length every listed
-   ;; save has answered, the wire is empty, and both are cleared — settings.cljs
-   ;; §SAVES ON THE WIRE has the arithmetic. Nothing writes it until a reply
-   ;; arrives ambiguous.
-   [:settings.saves-answered]       :int})
+   ;; Like `:profile.follow-pending`, not a slice — the count of settings saves
+   ;; issued, which numbers each save's request id (settings.cljs §SAVE IDS).
+   ;; Nothing writes it until the first submit, and nothing resets it.
+   [:settings.save-seq]             :int})
 
 (rf/reg-app-schemas app-db-schemas)

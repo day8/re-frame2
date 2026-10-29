@@ -19,14 +19,12 @@
  * Windows too. Never npx/npx.cmd under a shell.
  */
 
-const { spawnSync } = require('child_process');
-const fs = require('fs');
 const path = require('path');
-// The port resolver and the path-guarded stage cleaner are shared with the
-// example dev runner and the Story launchers, which is why they live in the
-// examples tree.
+// The port resolver and the testbed preparation are shared with the example
+// dev runner and the Story launchers, which is why they live in the examples
+// tree.
 const { resolveExamplesPort } = require('../../../examples/scripts/examples-port.cjs');
-const { cleanStageDirs } = require('../../../examples/scripts/examples-staging.cjs');
+const { prepareTestbeds } = require('../../../examples/scripts/examples-staging.cjs');
 const { parseFilterPatterns, selectEntries } = require('./adapter-smoke-filter.cjs');
 const {
   createHarnessCleanup,
@@ -59,9 +57,6 @@ const RUNNER = path.resolve(__dirname, 'run-adapter-smokes.cjs');
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
-// The shared launcher takes the machine-wide shadow-cljs build lane and owns
-// the compiler's process tree.
-const { SHADOW_CLI } = require('../../scripts/lib/shadow.cjs');
 const READY_TIMEOUT_MS = 30000;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
@@ -70,43 +65,17 @@ function selectedSmokes() {
   return selectEntries(FILTER_PATTERNS);
 }
 
-// Recreate each selected output dir before compiling into it, so nothing a
-// previous run left behind can answer a browser request. Only the selected
-// dirs are cleaned, so a narrow run leaves its siblings alone.
-function cleanSelectedOutDirs() {
-  const dirs = selectedSmokes().map((e) => e.outDir);
-  if (dirs.length > 0) cleanStageDirs(dirs, OUT_ROOT);
-}
-
-function compileAll() {
-  // One shadow-cljs invocation for every build shares the JVM warm-up.
-  const builds = selectedSmokes().map((e) => e.build);
-  if (builds.length === 0) {
+// Clean, compile and stage the selected smokes (examples-staging.cjs
+// prepareTestbeds). Only the selected output dirs are cleaned, so a narrow run
+// leaves its siblings alone.
+function prepareSelectedSmokes() {
+  const smokes = selectedSmokes();
+  if (smokes.length === 0) {
     throw new Error(
       `ADAPTER_SMOKE_FILTER='${FILTER}' matched zero builds; nothing to compile.`,
     );
   }
-  const args = [SHADOW_CLI, 'compile', ...builds];
-  const result = spawnSync(process.execPath, args, {
-    cwd: IMPL_ROOT,
-    stdio: 'inherit',
-  });
-  if (result.status !== 0) {
-    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
-    throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
-  }
-}
-
-function stageHtml() {
-  for (const ex of selectedSmokes()) {
-    if (!fs.existsSync(ex.outDir)) {
-      throw new Error(`Build output dir missing: ${ex.outDir}`);
-    }
-    if (!fs.existsSync(ex.htmlSrc)) {
-      throw new Error(`HTML source missing: ${ex.htmlSrc}`);
-    }
-    fs.copyFileSync(ex.htmlSrc, path.join(ex.outDir, 'index.html'));
-  }
+  prepareTestbeds(smokes, { outRoot: OUT_ROOT });
 }
 
 async function main() {
@@ -114,9 +83,7 @@ async function main() {
   // actionable message instead of after a slow build.
   const PORT = await resolveExamplesPort({ env: process.env });
 
-  cleanSelectedOutDirs();
-  compileAll();
-  stageHtml();
+  prepareSelectedSmokes();
 
   // Loopback only: the specs only hit localhost, and binding 127.0.0.1
   // sidesteps the Windows dual-stack EACCES surprise.
