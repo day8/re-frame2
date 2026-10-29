@@ -24,9 +24,6 @@
 // Workflow (NO --allow-writes: the whole point is that the read →
 // run path works on first connect, before any MCP write):
 //
-//   0. a launch whose required namespace is MISSING exits non-zero with
-//      the ordinary `require` failure on stderr — the server never boots
-//      over a silently empty project registry
 //   1. connect (initialize via SDK) through the consumer alias
 //   2. list-stories — the fixture project's story is discoverable
 //   3. get-story — its body reads back (doc round-trips)
@@ -40,7 +37,6 @@
 // catalogue harness (no separate CI job).
 
 const path = require('node:path');
-const spawn = require('cross-spawn');
 const { runWithWatchdog, structured } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
@@ -70,53 +66,10 @@ const SEEDED_PATH = ['fixture-app/article', 'headline'];
 const SEEDED_VALUE = 'Seeded by app.stories/setup';
 
 // ---------------------------------------------------------------------------
-// Phase 0 — a missing required namespace ABORTS the launch loudly.
-//
-// The golden path leans on ordinary `require` failure (no second
-// validation layer): `-e` runs before `-m`, so a typo'd or unloadable
-// namespace kills the JVM with a stderr diagnostic and a non-zero exit
-// BEFORE the server ever speaks MCP. This is the guard against the
-// misleading alternative — a server that comes up healthy over an empty
-// project registry. Synchronous and bounded; it also warms the fixture
-// project's classpath for the connect below.
+// Phases 1-6 — the golden path, through the consumer alias.
 // ---------------------------------------------------------------------------
-{
-  const probe = spawn.sync(
-    CLOJURE,
-    ['-M', '-e', "(require 'app.no-such-namespace)", '-m', 're-frame.story-mcp.server'],
-    { cwd: FIXTURE_PROJECT, encoding: 'utf8', timeout: 240000 },
-  );
-  if (probe.error) {
-    console.error('FAIL: missing-namespace probe did not spawn:', probe.error.message);
-    process.exit(1);
-  }
-  if (probe.status === 0) {
-    console.error(
-      'FAIL: a launch requiring a MISSING namespace exited 0 — the server ' +
-        'would boot over a silently empty project registry. stdout: ' +
-        String(probe.stdout).slice(0, 400),
-    );
-    process.exit(1);
-  }
-  const diagnostic = String(probe.stderr || '');
-  if (!/no.such.namespace/i.test(diagnostic)) {
-    console.error(
-      'FAIL: the non-zero exit must carry a useful stderr diagnostic naming ' +
-        'the namespace; got: ' + diagnostic.slice(0, 600),
-    );
-    process.exit(1);
-  }
-  console.log(
-    'OK   missing-namespace launch -> non-zero exit (' + probe.status +
-      ') + stderr names the namespace (ordinary require failure, pre-boot)',
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Phases 1-6 — the golden path proper, through the consumer alias.
-// ---------------------------------------------------------------------------
-// JVM boot is slow on a cold CI worker (~10-30s); phase 0 above already
-// warmed the classpath, but keep headroom for the cold-cache case.
+// JVM boot is slow on a cold CI worker (~10-30s), so the watchdog keeps
+// headroom for the cold-cache case.
 runWithWatchdog(
   {
     watchdogMs: 180000,

@@ -20,7 +20,8 @@
 
   `every-reader-conditional-arm-is-inspected` plants maps carrying both
   spellings and asserts that the detector remains live."
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
@@ -36,25 +37,30 @@
    [:rf.reply/completed-at :completed-at]])
 
 ;; ---------------------------------------------------------------------------
-;; The production emitter source files that stamp the additive `:rf.reply/*`
-;; reply-envelope vocabulary onto trace rows. Any file that emits a
-;; reply-envelope trace row belongs here so a re-introduced bare duplicate is
-;; swept. (Resource / mutation stale-suppression route through the shared
-;; `reply_handlers.cljc`; its callers pass the bespoke facts, so the caller
-;; files are covered too.)
+;; The production emitter source files: every `implementation/*/src` file
+;; that spells the `:rf.reply/*` reply-envelope vocabulary, found on disk so
+;; a new emitter — a builder writing `:rf.reply/work-id` into a map literal
+;; included — is swept without anyone remembering to list it.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private emitter-source-files
-  ["implementation/http/src/re_frame/http/registry.cljc"
-   "implementation/http/src/re_frame/http/transport.cljc"
-   "implementation/machines/src/re_frame/machines/lifecycle_fx/finalize.cljc"
-   "implementation/machines/src/re_frame/machines/lifecycle_fx/join.cljc"
-   "implementation/machines/src/re_frame/machines/lifecycle_fx/traces.cljc"
-   "implementation/machines/src/re_frame/machines/timer.cljc"
-   "implementation/machines/src/re_frame/machines/transition.cljc"
-   "implementation/resources/src/re_frame/resources/events.cljc"
-   "implementation/resources/src/re_frame/resources/mutation_events.cljc"
-   "implementation/resources/src/re_frame/resources/reply_handlers.cljc"])
+  (let [root (.toPath (io/file rf.mcp-conformance.fixtures/repo-root))]
+    (->> (.listFiles (io/file rf.mcp-conformance.fixtures/repo-root "implementation"))
+         (map #(io/file % "src"))
+         (filter #(.isDirectory ^java.io.File %))
+         (mapcat file-seq)
+         (filter #(re-find #"\.cljc?$" (.getName ^java.io.File %)))
+         (map #(str/replace (str (.relativize root (.toPath ^java.io.File %))) \\ \/))
+         (filter #(str/includes? (rf.mcp-conformance.fixtures/read-source %) ":rf.reply/"))
+         sort
+         vec)))
+
+(deftest the-emitter-sweep-finds-the-reply-builders
+  ;; A sweep that found nothing would pass the gate below vacuously.
+  (is (some #{"implementation/core/src/re_frame/reply.cljc"
+              "implementation/http/src/re_frame/http/reply.cljc"}
+            emitter-source-files)
+      (str "the on-disk emitter sweep missed the reply builders: " emitter-source-files)))
 
 ;; ---------------------------------------------------------------------------
 ;; Read a `.cljc` / `.clj` source file as a sequence of top-level forms.

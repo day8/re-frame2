@@ -56,13 +56,12 @@ const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
 
 // Required-field table for `:rf.mcp/overflow` (re-frame2-pair-mcp shape). Each
 // row pins one Malli `ReFrame2PairOverflowBody` field, the expected value
-// shape, and a description for the error message. Adding / removing a
-// row MUST stay in lockstep with the Malli schema in
-// `wire-vocab/test/.../wire_vocab_test.clj` (`ReFrame2PairOverflowBody`); the
-// cross-encoding grep gate (`js-assertOverflowBody-pins-every-re-frame2-pair-
-// overflow-required-field`) reads THIS data table by name (it slurps this
-// file — see `live-re-frame2-pair-overflow-js-rel`) so a drift in either
-// direction trips the JVM-side test. `int` means an INTEGER, as Malli's
+// shape, and a description for the error message. The rows MUST name
+// exactly the fields of the Malli schema `ReFrame2PairOverflowBody`
+// (`wire-vocab/test/.../wire_vocab/schemas.clj`): the JVM-side gate
+// `js-assertOverflowBody-pins-every-re-frame2-pair-overflow-required-field`
+// reads this table's row names and compares them with the schema's
+// fields, so a field added to or dropped from either side trips it. `int` means an INTEGER, as Malli's
 // `:int` does — `typeof === 'number'` would let 5000.5 through.
 const REQUIRED_FIELDS = [
   ['limit',       (v) => v === 'reached',          'enum :reached'],
