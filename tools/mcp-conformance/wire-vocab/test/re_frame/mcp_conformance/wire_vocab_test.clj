@@ -24,7 +24,8 @@
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
             [re-frame.mcp-conformance.wire-vocab.schemas
              :refer [Overflow DedupTable DiffFromBody ElisionMarker
-                     DroppedSensitive ElidedLarge canonical-markers]]
+                     DroppedSensitive ElidedLarge ReFrame2PairOverflowBody
+                     canonical-markers]]
             [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
 (deftest every-fixture-conforms-to-its-canonical-schema
@@ -208,35 +209,24 @@
 (def ^:private live-re-frame2-pair-overflow-js-rel
   "tools/mcp-conformance/lib/overflow-marker.cjs")
 
-(def ^:private re-frame2-pair-overflow-js-required-grep-markers
-  "`[malli-field js-substring]` pairs; the substring is the field's
-  `REQUIRED_FIELDS` row as the source spells it."
-  [[":limit :reached"
-    "['limit',       (v) => v === 'reached',          'enum :reached']"]
-   [":cap-tokens : int"
-    "['cap-tokens',  (v) => Number.isInteger(v),      'int']"]
-   [":token-count : int"
-    "['token-count', (v) => Number.isInteger(v),      'int']"]
-   [":tool : string|keyword"
-    "['tool',        (v) => typeof v === 'string',    'string|keyword']"]
-   [":hint : string|keyword"
-    "['hint',        (v) => typeof v === 'string',    'string|keyword']"]
-   ["token-count > cap-tokens invariant"
-    "body['token-count'] <= body['cap-tokens']"]])
+(defn- js-required-fields
+  "The field names `REQUIRED_FIELDS` in the JS source lists, one per
+  `['<field>', ...]` row."
+  [js-src]
+  (let [[_ table] (re-find #"(?s)const REQUIRED_FIELDS = \[(.*?)\];" js-src)]
+    (mapv second (re-seq #"\['([a-z-]+)'," (or table "")))))
 
 (deftest js-assertOverflowBody-pins-every-re-frame2-pair-overflow-required-field
-  (let [js-src (rf.mcp-conformance.fixtures/read-source live-re-frame2-pair-overflow-js-rel)]
-    (doseq [[field grep-pattern] re-frame2-pair-overflow-js-required-grep-markers]
-      (testing (str "JS assertOverflowBody pins field " field)
-        (is (str/includes? js-src grep-pattern)
-            (str "Field `" field
-                 "` (Malli `ReFrame2PairOverflowBody`) is not pinned by the "
-                 "JS `assertOverflowBody` in " live-re-frame2-pair-overflow-js-rel
-                 ". Looked for substring: " (pr-str grep-pattern)
-                 ".\nIf you tightened `ReFrame2PairOverflowBody`, mirror the "
-                 "change in the JS assertion; if you loosened it, "
-                 "remove the entry from "
-                 "`re-frame2-pair-overflow-js-required-grep-markers`."))))))
+  (let [js-src     (rf.mcp-conformance.fixtures/read-source live-re-frame2-pair-overflow-js-rel)
+        js-fields  (js-required-fields js-src)
+        schema-fields (mapv (comp name first) (drop 2 ReFrame2PairOverflowBody))]
+    (is (seq js-fields) "the REQUIRED_FIELDS table parsed; empty means its shape changed")
+    (is (= (sort schema-fields) (sort js-fields))
+        (str "`REQUIRED_FIELDS` in " live-re-frame2-pair-overflow-js-rel " must list exactly "
+             "the fields of Malli `ReFrame2PairOverflowBody`; mirror a schema change in the "
+             "JS table."))
+    (is (str/includes? js-src "body['token-count'] <= body['cap-tokens']")
+        "the token-count <= cap-tokens invariant, which the schema does not model, keeps its JS check")))
 
 ;; A marker story-mcp starts emitting must first be contracted for it in
 ;; `canonical-markers`, with a fixture and a source pin.
