@@ -24,6 +24,24 @@
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
+;; -- errors -------------------------------------------------------------------
+
+(defn- argument-error
+  "The `ex-info` a rejected argument throws. The message leads with the
+   `reason` sentence and trails the `[:rf.error/<id>]` token, because
+   `clojure -Tnew create` prints the message and never the ex-data. The
+   contract is the template's `spec/API.md` §Errors; the shape is Spec 009
+   §The thrown-error shape. Inlined rather than taken from core's
+   `re-frame.error`: this build-time tool is Clojure-only and does not
+   depend on the framework."
+  [id where reason data]
+  (ex-info (str reason " [" id "]")
+           (merge {:rf.error/id id
+                   :where       where
+                   :recovery    :fix-registration
+                   :reason      reason}
+                  data)))
+
 ;; -- substrates ---------------------------------------------------------------
 
 (def ^:private substrate-registry
@@ -49,27 +67,25 @@
                     (nil? raw)     default-substrate
                     (keyword? raw) raw
                     :else
-                    (throw (ex-info ":rf.error/template-substrate-must-be-keyword"
-                                    {:rf.error/id :rf.error/template-substrate-must-be-keyword
-                                     :where     'template/coerce-substrate
-                                     :recovery  :fix-registration
-                                     :reason    (str ":substrate must be a keyword (one of "
-                                                     (pr-str valid-substrates)
-                                                     "). Got "
-                                                     (.getName (class raw))
-                                                     ": " (pr-str raw))
-                                     :substrate raw
-                                     :valid     valid-substrates})))]
+                    (throw (argument-error
+                             :rf.error/template-substrate-must-be-keyword
+                             'template/coerce-substrate
+                             (str ":substrate must be a keyword (one of "
+                                  (pr-str valid-substrates)
+                                  "). Got "
+                                  (.getName (class raw))
+                                  ": " (pr-str raw))
+                             {:substrate raw
+                              :valid     valid-substrates})))]
     (when-not (valid-substrates substrate)
-      (throw (ex-info ":rf.error/template-substrate-must-be-one-of"
-                      {:rf.error/id :rf.error/template-substrate-must-be-one-of
-                       :where     'template/coerce-substrate
-                       :recovery  :fix-registration
-                       :reason    (str ":substrate must be one of "
-                                       (pr-str valid-substrates)
-                                       " (got " (pr-str substrate) ")")
-                       :substrate substrate
-                       :valid     valid-substrates})))
+      (throw (argument-error
+               :rf.error/template-substrate-must-be-one-of
+               'template/coerce-substrate
+               (str ":substrate must be one of "
+                    (pr-str valid-substrates)
+                    " (got " (pr-str substrate) ")")
+               {:substrate substrate
+                :valid     valid-substrates})))
     substrate))
 
 ;; -- argument gate ------------------------------------------------------------
@@ -100,16 +116,15 @@
   (let [known   (set/union deps-new-harness-keys template-keys)
         unknown (remove known (keys data))]
     (when (seq unknown)
-      (throw (ex-info ":rf.error/template-unknown-flag"
-                      {:rf.error/id :rf.error/template-unknown-flag
-                       :where    'template/gate-arg-keys!
-                       :recovery :fix-registration
-                       :reason   (str "Unknown template argument(s): "
-                                      (pr-str (vec unknown))
-                                      ". The template accepts "
-                                      (pr-str template-keys) " only.")
-                       :unknown  (vec unknown)
-                       :accepted template-keys})))))
+      (throw (argument-error
+               :rf.error/template-unknown-flag
+               'template/gate-arg-keys!
+               (str "Unknown template argument(s): "
+                    (pr-str (vec unknown))
+                    ". The template accepts "
+                    (pr-str template-keys) " only.")
+               {:unknown  (vec unknown)
+                :accepted template-keys})))))
 
 ;; -- name derivations ---------------------------------------------------------
 ;;
@@ -148,19 +163,18 @@
   [main]
   (let [candidate (string/lower-case (str main))]
     (when-not (npm-name-valid? candidate)
-      (throw (ex-info ":rf.error/template-npm-name-invalid"
-                      {:rf.error/id :rf.error/template-npm-name-invalid
-                       :where    'template/->npm-name
-                       :recovery :fix-registration
-                       :reason   (str "The artefact segment of :name, "
-                                      (pr-str (str main)) ", is not a valid "
-                                      "npm package name once lowercased ("
-                                      (pr-str candidate) "): use a-z, 0-9, "
-                                      "`-`, `_`, `.` or `~`, not starting "
-                                      "with `.` or `_`, at most "
-                                      npm-name-max-length " characters.")
-                       :main     (str main)
-                       :npm-name candidate})))
+      (throw (argument-error
+               :rf.error/template-npm-name-invalid
+               'template/->npm-name
+               (str "The artefact segment of :name, "
+                    (pr-str (str main)) ", is not a valid "
+                    "npm package name once lowercased ("
+                    (pr-str candidate) "): use a-z, 0-9, "
+                    "`-`, `_`, `.` or `~`, not starting "
+                    "with `.` or `_`, at most "
+                    npm-name-max-length " characters.")
+               {:main     (str main)
+                :npm-name candidate})))
     candidate))
 
 ;; -- data-fn ------------------------------------------------------------------

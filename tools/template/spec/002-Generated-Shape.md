@@ -199,7 +199,7 @@ the template's own additions.
 | Variable | Meaning | Example |
 |---|---|---|
 | `{{name}}` | Qualified raw symbol | `acme/my-app` |
-| `{{top}}` | Group portion | `acme` |
+| `{{top}}` | Group portion — except that a git-hosting qualifier (`io.github.`, `com.github.`, `io.gitlab.` and deps-new's other git services) contributes only its user, so `io.github.acme/my-app` gives `acme` | `acme` |
 | `{{main}}` | Artifact portion | `my-app` |
 | `{{top/ns}}` | Namespace-safe top | `acme` |
 | `{{main/ns}}` | Namespace-safe main | `my-app` |

@@ -63,12 +63,12 @@ Not for: adding re-frame2 to an existing non-trivial app (authoring), writing ap
 
 **Step 1 — normalise the supplied name to `group/artefact`.** A name carrying no `/` is **doubled**: `my-app` becomes `my-app/my-app`, so the namespace is `my-app.my-app` and the sources nest under `src/my_app/my_app/`. That is what the generator does, so reproduce it rather than inventing a group — and say so at hand-off, because a group-qualified name is the way to a single-segment namespace.
 
-**Step 2 — derive every identity-bearing field from that coordinate.**
+**Step 2 — derive every identity-bearing field from that coordinate.** A **git-hosting group contributes only its user** to the namespace and the paths: `io.github.acme/my-app` — likewise `com.github.`, `io.gitlab.` and deps-new's other git services — roots at `acme.my-app` under `src/acme/my_app/`, while the verbatim fields keep `io.github.acme/my-app`. That is deps-new's own `{{top}}` rule, and the generator inherits it.
 
 | Field | Derivation | `com.acme/my-cool-app` |
 |---|---|---|
-| Clojure namespace root | the whole coordinate, `/` → `.` and `_` → `-` | `com.acme.my-cool-app` |
-| Source and test dirs | the whole coordinate, `.` → `/` and `-` → `_` | `src/com/acme/my_cool_app/`, `test/com/acme/my_cool_app/` |
+| Clojure namespace root | the whole coordinate (a git-hosting group: its user), `/` → `.` and `_` → `-` | `com.acme.my-cool-app` |
+| Source and test dirs | the whole coordinate (a git-hosting group: its user), `.` → `/` and `-` → `_` | `src/com/acme/my_cool_app/`, `test/com/acme/my_cool_app/` |
 | `package.json` `"name"` | the **artefact** segment only, lowercased | `my-cool-app` |
 | Project directory | the **artefact** segment, verbatim | `my-cool-app/` |
 | `:init-fn` and the internal requires | `<namespace>.core/init`, `[<namespace>.events]`, … | `com.acme.my-cool-app.core/init` |
