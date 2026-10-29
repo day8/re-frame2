@@ -8,16 +8,15 @@
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.security.gen :as rf.security.gen]))
 
+;; Real DOM event-handler names, each drawn in a random casing by
+;; `gen-handler-casing`; `gen-unlisted-handler` below covers names on no list.
 (def ^:private canonical-handlers
   ["onclick" "onload" "onerror" "onmouseover" "onmouseout" "onsubmit"
    "onfocus" "onblur" "onkeydown" "onkeyup" "onkeypress" "onchange"
    "oninput" "onwheel" "onscroll" "ondrag" "ondrop" "onpaste" "oncopy"
    "oncut" "onbeforeunload" "onunload" "onhashchange" "onpopstate"
    "onmessage" "onanimationstart" "ontransitionend" "onpointerdown"
-   ;; Lower-case touch names rely on the allowlist, not the structural matcher.
    "ontouchstart" "ontouchmove" "ontouchend" "ontouchcancel"
-   ;; The lower-case oncommand spelling (WHATWG `command` event) likewise
-   ;; relies on the allowlist alone.
    "oncommand"])
 
 (defn- recase
@@ -50,44 +49,33 @@
         (str "a recased handler leaked as a live attribute: "
              (pr-str result)))))
 
-;; Canonical names exercise the allowlist. These generated custom names are not
-;; in it, so they independently exercise the camelCase/kebab structural matcher.
-(def ^:private structural-tail-letters
-  (vec "abcdefghijklmnopqrstuvwxyz"))
+;; The strip rule is react-dom's prefix test, not a roster: any grammar-valid
+;; name longer than two characters that starts `on` in either case (Spec 011
+;; §XSS at output boundaries). So these names are on no list — `on` in a
+;; random casing, an optional `-`, then 1-8 letters each in a random case —
+;; and the draws include all-lower-case vendor-style names such as `onbegin`.
+(def ^:private handler-tail-letters
+  (vec "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
-(defn- recase-on-prefix
-  "Vary only the on prefix so the structural discriminator survives."
-  [s [b0 b1]]
-  (str (if (= 1 b0) (str/upper-case (subs s 0 1)) (str/lower-case (subs s 0 1)))
-       (if (= 1 b1) (str/upper-case (subs s 1 2)) (str/lower-case (subs s 1 2)))
-       (subs s 2)))
-
-(def ^:private gen-custom-structural-handler
-  "Generate a non-allowlist camelCase or kebab handler."
+(def ^:private gen-unlisted-handler
+  "Generate an `on*` handler name on no list, with a hostile value."
   (rf.security.gen/gen-fmap
-    (fn [[form prefix-bits tail]]
-      (let [tail-str (apply str tail)
-            base     (case form
-                       :camel (str "on"
-                                   (str/upper-case (subs tail-str 0 1))
-                                   (subs tail-str 1))
-                       :kebab (str "on-" tail-str))]
-        [(keyword (recase-on-prefix base prefix-bits)) "alert(document.cookie)"]))
+    (fn [[prefix dash tail]]
+      [(keyword (str prefix dash (apply str tail))) "alert(document.cookie)"])
     (fn [rng]
-      (let [[form rng1] (rf.security.gen/rand-nth rng [:camel :kebab])
-            [pb0 rng2]  (rf.security.gen/rand-nth rng1 [0 1])
-            [pb1 rng3]  (rf.security.gen/rand-nth rng2 [0 1])
-            [tail rng4] ((rf.security.gen/gen-vec (rf.security.gen/gen-int 4 7)
-                                      (rf.security.gen/gen-elem structural-tail-letters))
-                         rng3)]
-        [[form [pb0 pb1] tail] rng4]))))
+      (let [[prefix rng1] (rf.security.gen/rand-nth rng ["on" "oN" "On" "ON"])
+            [dash rng2]   (rf.security.gen/rand-nth rng1 ["" "-"])
+            [tail rng3]   ((rf.security.gen/gen-vec (rf.security.gen/gen-int 1 9)
+                                                    (rf.security.gen/gen-elem handler-tail-letters))
+                           rng2)]
+        [[prefix dash tail] rng3]))))
 
-(deftest no-custom-structural-handler-serialises
+(deftest no-unlisted-handler-serialises
   (let [result (rf.security.gen/for-all
-                 gen-custom-structural-handler 600 5
+                 gen-unlisted-handler 600 5
                  (fn [[k v]] (= "" (rf.ssr.html-helpers/attr-string {k v}))))]
     (is (nil? result)
-        (str "a custom structural handler leaked as a live attribute: "
+        (str "an unlisted on* handler leaked as a live attribute: "
              (pr-str result)))))
 
 (def ^:private breakout-chars [\= \" \space \< \> \/ \tab \newline \'])
