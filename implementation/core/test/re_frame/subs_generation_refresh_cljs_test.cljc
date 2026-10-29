@@ -8,7 +8,8 @@
   `invalidate-subs-for-generation-change!` diffs the two generations and evicts
   the `:added` / `:changed` / `:removed` sub ids plus their declared-input
   dependent closure from THAT frame's cache; `:retained` entries keep their
-  identity and ref-counts.
+  identity and ref-counts. A frame with no generation refreshes a cached
+  parent when its missing input first registers instead.
 
   `.cljc`, posture-independent: runs under `clojure -M:test`, the production
   gate and `npm run test:cljs`."
@@ -72,16 +73,38 @@
       (install! :gen/pframe (image :gen/p2 5))
       (is (= [10 50] [before (read-sub :gen/pframe [:gen/parent])])))))
 
-(deftest first-registered-late-input-reaches-a-cached-parent
+(def ^:private this-ns-image
+  (rf.image/image {:id        :gen/this-ns
+                   :select-ns {:include ["re-frame.subs-generation-refresh-cljs-test"]}}))
+
+(deftest first-registered-late-input-reaches-a-cached-parent-through-the-generation-diff
   ;; A missing declared input resolves to a nil-yielding reaction and the miss
-  ;; is not cached, but the PARENT is. First-registering the input dirties the
-  ;; default-image frame's projection, and the `:added` sub must evict that
-  ;; parent.
+  ;; is not cached, but the PARENT is. On a frame made with `:images`,
+  ;; first-registering the input reprojects its generation, and the `:added`
+  ;; sub must evict that parent.
+  (rf/reg-sub :gen/parent-late {:inputs [[:gen/late]]} (fn [[x] _q] x))
+  (rf.live-frame/make-frame {:id :gen/iframe :images [this-ns-image]})
+  (let [before (read-sub :gen/iframe [:gen/parent-late])]
+    (rf/reg-sub :gen/late (fn [_db _q] 7))
+    (is (= [nil 7] [before (read-sub :gen/iframe [:gen/parent-late])]))))
+
+(deftest first-registered-late-input-reaches-a-cached-parent-on-a-live-store-frame
+  ;; A frame made without `:images` has no generation to diff, so the first
+  ;; registration itself evicts the parent.
   (rf/reg-sub :gen/parent-late {:inputs [[:gen/late]]} (fn [[x] _q] x))
   (rf.live-frame/make-frame {:id :gen/lframe})
   (let [before (read-sub :gen/lframe [:gen/parent-late])]
     (rf/reg-sub :gen/late (fn [_db _q] 7))
     (is (= [nil 7] [before (read-sub :gen/lframe [:gen/parent-late])]))))
+
+(deftest first-registered-late-input-reaches-a-cached-parent-on-the-fixture-frame
+  ;; The test fixture's :rf/default is seated without make-frame, so it carries
+  ;; neither a generation nor a live-store mark; it refreshes all the same.
+  (rf/reg-sub :gen/parent-late {:inputs [[:gen/late]]} (fn [[x] _q] x))
+  (rf.frame/ensure-default-frame!)
+  (let [before (read-sub :rf/default [:gen/parent-late])]
+    (rf/reg-sub :gen/late (fn [_db _q] 7))
+    (is (= [nil 7] [before (read-sub :rf/default [:gen/parent-late])]))))
 
 (deftest unchanged-entries-keep-identity-and-ref-counts
   ;; `:gen/stable` comes from ONE shared image value carried into both

@@ -376,6 +376,10 @@
          [(non-edn-id-reason #(rf.identity/canonical-bytes {sample-instant :a sample-tuple :b}))
           (non-edn-id-reason #(rf.identity/canonical {sample-instant :a sample-tuple :b}))])
       "a host instant and its tuple for one moment are a duplicate canonical key")
+  (is (= [:duplicate-canonical-set-element :duplicate-canonical-set-element]
+         [(non-edn-id-reason #(rf.identity/canonical-bytes #{sample-instant sample-tuple}))
+          (non-edn-id-reason #(rf.identity/canonical #{sample-instant sample-tuple}))])
+      "a host instant and its tuple for one moment are a duplicate canonical set element")
   #?(:cljs
      (is (= [:invalid-instant :invalid-instant]
             [(non-edn-id-reason #(rf.identity/canonical-bytes (js/Date. "not-a-date")))

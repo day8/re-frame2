@@ -206,6 +206,38 @@
           (rf.live-frame/flush-pending-reprojection!))
         (reset! rf.source-store/kind->id->ns->descriptor snapshot)))))
 
+(deftest reg-star-change-reaches-a-no-id-explicit-image-frame
+  ;; Spec 002 §Image resolution and composition re-assembles EVERY frame made
+  ;; with `:images` after a later registration. A no-id frame is outside the
+  ;; public frame-id space, not outside the store, so a same-namespace
+  ;; replacement and a new id both reach it.
+  (let [snapshot @rf.source-store/kind->id->ns->descriptor]
+    (try
+      (with-redefs [rf.interop/next-tick (fn [_f] nil)]
+        (rf.live-frame/flush-pending-reprojection!)
+        (rf.registrar/register! :event :noid/seed
+          {:rf.provenance/ns "noid.feature" :handler-fn ::seed-v1})
+        (let [frame    (rf.live-frame/make-frame
+                         {:images [(rf.image/image {:id :noid/img :select-ns {:include ["noid.feature"]}})]})
+              resolved #(:handler-fn (rf.image-assembly/resolve-descriptor
+                                       (rf.live-frame/frame-generation frame) :event %))]
+          (rf.live-frame/flush-pending-reprojection!)
+          (rf.registrar/register! :event :noid/seed
+            {:rf.provenance/ns "noid.feature" :handler-fn ::seed-v2})
+          (rf.registrar/register! :event :noid/added
+            {:rf.provenance/ns "noid.feature" :handler-fn ::added-v1})
+          (rf.live-frame/flush-pending-reprojection!)
+          (is (= [::seed-v2 ::added-v1] [(resolved :noid/seed) (resolved :noid/added)]))))
+      (finally
+        ;; forget the frame before draining, so no pending reproject
+        ;; re-assembles its image after its descriptors are unregistered
+        (with-redefs [rf.interop/next-tick (fn [_f] nil)]
+          (reset! rf.frame/frames {})
+          (rf.registrar/unregister! :event :noid/seed)
+          (rf.registrar/unregister! :event :noid/added)
+          (rf.live-frame/flush-pending-reprojection!))
+        (reset! rf.source-store/kind->id->ns->descriptor snapshot)))))
+
 (deftest reg-star-burst-coalesces-to-one-flush
   ;; a burst of reg-* over a live frame's namespace schedules at most ONE
   ;; deferred flush (only the false->true edge of the pending flag schedules),
@@ -402,7 +434,7 @@
 ;;
 ;; `deferred-flush!` isolates each frame's reprojection, so one failure neither
 ;; stops the sweep reaching the rest nor goes unreported
-;; (`:rf.error/reprojection-failed`). `rf.frame/image-loaded-frame-ids` is
+;; (`:rf.error/reprojection-failed`). `rf.frame/generation-frame-ids` is
 ;; fixed to put the bad frame FIRST: the real registry iterates a hash-set,
 ;; and an order with the good frame first would let an all-or-nothing sweep
 ;; pass too.
@@ -422,7 +454,7 @@
         ;; capture (never run) every scheduled tick, and fix the sweep order
         ;; for the whole case
         (with-redefs [rf.interop/next-tick (fn [f] (reset! tick f) nil)
-                      rf.frame/image-loaded-frame-ids
+                      rf.frame/generation-frame-ids
                       (fn [] [:rpf-bad/main :rpf-good/main])]
           (rf.live-frame/make-frame {:id :rpf-good/main
                                      :images [(rf.image/image {:id :rpf-good/img :select-ns {:include ["rpf-good.provenance.ns"]}})]})

@@ -66,6 +66,23 @@
     (is (= [nil] (mapv :frame (filterv #(= :rf.error/no-frame-context (:rf.error/id %)) @records)))
         "exactly one frameless record reached the always-on listener")))
 
+(deftest ambient-frame-refused-rides-the-always-on-error-axis-with-its-account
+  ;; nothing threw, so the payload's :reason and :recovery are the record's
+  ;; only account of what to write instead
+  (let [records (atom [])]
+    (rf.error-emit/register-error-listener! ::probe (fn [r] (swap! records conj r)))
+    (try
+      (try (rf.frame/call-with-ambient-frame-refused
+             {:substrate :probe
+              :recovery  :read-through-the-probe
+              :reason    "Use the probe's own reader."}
+             #(rf.frame/require-current-frame! :subscribe))
+           (catch clojure.lang.ExceptionInfo _ nil))
+      (finally (rf.error-emit/unregister-error-listener! ::probe)))
+    (let [refused (filterv #(= :rf.error/ambient-frame-refused (:rf.error/id %)) @records)]
+      (is (= [:read-through-the-probe] (mapv :recovery refused)))
+      (is (.contains ^String (str (:reason (first refused))) "Use the probe's own reader.")))))
+
 ;; The refusal tier: a substrate withdraws the AMBIENT find for an extent it
 ;; owns. On the JVM there is no React-context tier, so these rows pin the
 ;; runtime-independent half; the CLJS half is

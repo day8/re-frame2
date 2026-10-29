@@ -163,6 +163,26 @@
     (is (= 3 (rf.image-assembly/cache-size))
         "one live-store entry per composition, beside the explicit-pool entry")))
 
+(deftest the-cache-holds-at-most-its-limit
+  ;; an inline registration built per call around a fresh fn is a new key on
+  ;; every assemble, so only the bound stops those compositions accumulating:
+  ;; the oldest entry goes first, and the newest still hits
+  (record! "shop.cart" :event :cart/add ::add)
+  (let [limit        @#'rf.image-assembly/generation-cache-limit
+        app          (rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
+        mock         (fn [n] (rf.image/image {:id            :shop/mock
+                                              :registrations {:reg-event [[:shop/price (fn [_ _] {:price n})]]}}))
+        oldest       [app (mock -1)]
+        oldest-gen   (rf.image-assembly/assemble oldest)]
+    (dotimes [n limit]
+      (rf.image-assembly/assemble [app (mock n)]))
+    (let [newest [app (mock :newest)]
+          sealed (rf.image-assembly/assemble newest)]
+      (is (= [limit true false]
+             [(rf.image-assembly/cache-size)
+              (identical? sealed (rf.image-assembly/assemble newest))
+              (identical? oldest-gen (rf.image-assembly/assemble oldest))])))))
+
 (deftest explicit-pool-arity-hits-on-equal-pool
   ;; the supplied pool value is the key's pool leg
   (let [pool [{:rf.provenance/ns "a.core" :kind :event :id :a/e :handler-fn ::a}]

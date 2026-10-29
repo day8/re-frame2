@@ -24,7 +24,7 @@
                               stamp, and never uses it as a resolution floor.
                               A single-frame app, example, or test registers
                               and selects it EXPLICITLY like any other id.
-    :rf.frame/<gensym>       — anonymous instances from make-anon-frame-record!"
+    :rf.frame/<gensym>       — the record of a frame made without an :id."
   (:require [clojure.string]
             [re-frame.error :as rf.error]
             [re-frame.features :as rf.features]
@@ -998,7 +998,10 @@
   AND the dev-only trace surface, then return the payload — the same ladder
   `emit-no-frame-context!` rides, because the failure it prevents (a
   boundary that silently stops re-rendering) is exactly as invisible in
-  production as a frameless op is.
+  production as a frameless op is. The record carries the payload's own
+  `:reason` and `:recovery` for the reason its sibling's does: nothing threw,
+  so without them the always-on record holds no account of what to write
+  instead.
 
   This is the EMISSION half; `require-current-frame!` emits then throws."
   [payload]
@@ -1010,7 +1013,9 @@
       nil                                ;; no frame — the whole point is that none is legal here
       nil                                ;; no exception — an illegal operation, not a throw
       0                                  ;; elapsed-ms
-      (rf.interop/now-ms)))                 ;; time
+      (rf.interop/now-ms)                   ;; time
+      {:reason   (:reason payload)
+       :recovery (:recovery payload)}))
   (rf.trace/emit-error! :rf.error/ambient-frame-refused payload)
   payload)
 
@@ -1508,35 +1513,36 @@
               (map (fn [[_ f]] (:id f))))
         @frames))
 
-(defn- image-loaded-frame-record?
-  "True for a frame record that is image-loaded AND publicly enumerable: it
-  carries a resolved image `:generation`, is visible to the current actor, and
-  its id is a PUBLIC id (the reserved `:rf.frame/<gensym>` namespace — no-id /
-  direct frames — excluded). The selection predicate `image-loaded-frame-ids`
-  uses to pick the records it projects ids off. INTERNAL."
-  [id f]
-  (and (some? (:generation f))
-       (frame-record-visible-to-current-actor? id f)
-       (not= "rf.frame" (namespace (:id f)))))
+(defn ^:no-doc generation-frame-ids
+  "The ids of every registered, non-destroyed frame visible to the current
+  actor whose record carries a resolved image `:generation`, no-id frames
+  included. The reprojection sweep keeps exactly this set in step with the
+  registration store, because Spec 002 §Image resolution and composition
+  re-assembles EVERY frame made with `:images` after a later registration.
+  [[image-loaded-frame-ids]] is its public-id subset."
+  []
+  (into #{}
+        (comp (filter (fn [[id f]]
+                        (and (some? (:generation f))
+                             (frame-record-visible-to-current-actor? id f))))
+              (map (fn [[_ f]] (:id f))))
+        @frames))
 
 (defn image-loaded-frame-ids
   "Return the set of PUBLIC frame ids whose record currently carries a resolved
-  image GENERATION — the image-loaded frames the hot-reload reprojection path
-  enumerates (EP-0024). An image-loaded frame is a `frames`-registry record with
-  a non-nil `:generation` slot, so this is a filter over the ONE registry, not a
-  separate index.
+  image GENERATION — the image-loaded frames tooling enumerates (EP-0024). An
+  image-loaded frame is a `frames`-registry record with a non-nil `:generation`
+  slot, so this is a filter over the ONE registry, not a separate index.
 
-  EXCLUDES no-id (direct) frames — a frame created with no `:id` is keyed by a
-  private `:rf.frame/<gensym>` id; this enumeration keeps only PUBLIC ids and
-  drops the reserved `:rf.frame/` namespace so the reprojection / enumeration
-  path never touches a harness-local frame the spec says its owner reloads
-  explicitly (EP-0023 §Frame — direct frames bypass auto-reprojection). Excludes
-  destroyed frames."
+  EXCLUDES no-id frames: a frame created with no `:id` is keyed by a private
+  `:rf.frame/<gensym>` id outside the public frame-id space (Spec 002
+  §Per-instance frames — a direct local reference that bypasses the registry),
+  so an enumeration of live frames never lists it. Reprojection still keeps it
+  in step, through [[generation-frame-ids]]. Excludes destroyed frames."
   []
   (into #{}
-        (comp (filter (fn [[id f]] (image-loaded-frame-record? id f)))
-              (map (fn [[_ f]] (:id f))))
-        @frames))
+        (remove #(= "rf.frame" (namespace %)))
+        (generation-frame-ids)))
 
 ;; ---- the internal value-read frame resolver seam --------------------------
 ;;
@@ -3617,20 +3623,18 @@
               (recur)))))))))))
 
 (defn make-anon-frame-record!
-  "INTERNAL anonymous-instance creation (EP-0024): generate a
-  gensym'd id under `:rf.frame/`, register a configured record under it, and
-  return the gensym'd id. This is NOT a public constructor — the ONE public
-  constructor is `re-frame.live-frame/make-frame` (`rf/make-frame`), which
-  accepts both image-selection AND record-config opts and returns the frame
-  VALUE. This id-returning record helper is the internal no-`:id`
-  configured-record path the unified constructor and the test/SSR harnesses build
-  on. Per Spec 002 §Per-instance frames.
+  "TEST AND HARNESS helper: register a configured record under a fresh
+  [[anon-frame-id]] and return that id. The ONE public constructor is
+  `re-frame.live-frame/make-frame` (`rf/make-frame`), which returns a frame
+  VALUE and does not build on this.
 
-  The `-record!` suffix names exactly what it returns — an anonymous gensym-keyed
-  RECORD's id, not a frame value — so it never reads as the public
-  `re-frame.live-frame/make-frame` (the frame-VALUE constructor) at a call site."
+  A record seated here carries no `:generation` and no `:live-store?` mark, so
+  its frame resolves the registrar directly, where the latest registration of
+  an id wins: the test fixture's `:rf/default` resolution (Spec 002 §Image
+  resolution and composition), not a `make-frame` frame's. The `-record!`
+  suffix names what it returns — a record's id, not a frame value."
   [config]
-  (let [id (keyword "rf.frame" (str (gensym "")))]
+  (let [id (anon-frame-id)]
     (upsert-frame! id config)
     id))
 

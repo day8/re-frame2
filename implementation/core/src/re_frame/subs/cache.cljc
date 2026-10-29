@@ -353,6 +353,9 @@
     * `reg-sub` REPLACEMENT, or the hot-reload sweep DELETING a sub —
       `invalidate-sub-on-replace!` below, over every frame, with a
       one-element `sub-ids` (Spec 001 §Hot-reload semantics);
+    * a FIRST `reg-sub` of an id — `invalidate-parents-on-first-registration!`
+      below, over every frame with no generation, with a one-element
+      `sub-ids`;
     * a frame's resolved image GENERATION changing — `re-frame.live-frame`'s
       `invalidate-subs-for-generation-change!`, over the ONE frame that moved,
       with the `:sub` ids the two generations differ on (EP-0023 §Hot
@@ -413,6 +416,25 @@
 
 (defonce ^:private _hot-reload-hook
   (do (rf.registrar/add-replacement-hook! invalidate-sub-on-replace!)
+      :installed))
+
+(defn- invalidate-parents-on-first-registration!
+  "Refresh, on a FIRST registration of a `:sub`, every frame that resolves the
+  registration store directly rather than through a sealed generation: a frame
+  `make-frame` built without `:images`, the test fixture's `:rf/default`, and a
+  test-support anonymous record alike. A parent cached while this id was
+  unregistered holds a nil-yielding input reaction, and is reached through its
+  declared `:inputs` head. A frame carrying a generation refreshes from its
+  generation diff instead (`re-frame.live-frame`), once the reprojection this
+  same registration arms has run."
+  [{:keys [kind id was]}]
+  (when (and (= :sub kind) (nil? was))
+    (doseq [frame-id (rf.frame/frame-ids)
+            :when    (nil? (rf.frame/frame-generation frame-id))]
+      (invalidate-frame-subs! frame-id #{id}))))
+
+(defonce ^:private _first-registration-hook
+  (do (rf.registrar/add-registration-hook! invalidate-parents-on-first-registration!)
       :installed))
 
 (defn- clear-frame-sub-cache!

@@ -138,7 +138,8 @@
 
 (deftest direct-no-id-frame-bypasses-the-public-frame-id-space
   ;; keyed by a private :rf.frame/<gensym> runnable-id and excluded from
-  ;; live-frame-ids, so enumeration and auto-reprojection never touch it
+  ;; live-frame-ids, so public enumeration never lists it; reprojection still
+  ;; keeps it in step (live-frame-reload-cljs-test)
   (let [frame (rf.live-frame/make-frame {:images [(rf.image/image {:select-ns {:include ["examples.counter"]}})]}
                                         counter-pool)
         ids   (rf.live-frame/live-frame-ids)]

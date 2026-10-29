@@ -251,24 +251,6 @@
     (nth x 1)
     (reject! x :invalid-canonical-instant)))
 
-(defn- bad-number?
-  "A number outside the CEDN-1 numeric domain: floats, ratios, arbitrary-
-  precision decimals, NaN, and infinities. CEDN-1 admits only portable
-  integers in the safe range unless a future spec encodes a numeric class.
-  On CLJS a `js/Number` integer-valued double (`2.0`) reads as an integer
-  via `int?`/`integer?` so it is admitted iff it is integer-valued and in
-  range; a fractional or non-finite number is rejected."
-  [x]
-  #?(:clj
-     (or (float? x)        ; Double / Float
-         (ratio? x)
-         (decimal? x))
-     :cljs
-     ;; CLJS has one numeric type. `int?` is true for integer-valued
-     ;; doubles; reject non-integers and non-finite values.
-     (or (not (cljs.core/integer? x))
-         (not (js/isFinite x)))))
-
 ;; ---- well-formed text ----------------------------------------------------
 ;;
 ;; CEDN-1 is a UTF-8 token stream, and a UTF-16 surrogate that is not half of
@@ -451,8 +433,17 @@
 
 (defn- encode-set [s]
   ;; Sort elements by their canonical element encoding's bytes.
-  (let [sorted (sort compare-canonical-bytes (map encode s))]
-    (str "q#{" (str/join " " sorted) "}")))
+  ;;
+  ;; Duplicate canonical elements FAIL CLOSED, under the map-key rule and for
+  ;; its reason: two DISTINCT host elements can encode to the SAME bytes (a
+  ;; `java.util.Date` and a `java.time.Instant` for one millisecond, or a host
+  ;; instant and its tagged tuple), and `canonical` would collapse them into
+  ;; one element, so emitting both tokens would give the two surfaces two
+  ;; identities for one value.
+  (let [encoded (map encode s)]
+    (when-not (= (count s) (count (distinct encoded)))
+      (reject! s :duplicate-canonical-set-element))
+    (str "q#{" (str/join " " (sort compare-canonical-bytes encoded)) "}")))
 
 (defn- encode
   "Encode one EDN value to its CEDN-1 token string, or fail closed."
@@ -472,7 +463,7 @@
     ;; a malformed tuple fails closed rather than encoding as a plain vector.
     (tagged-instant-head? x) (str "t:" (tagged-instant-text x))
     (symbol? x)         (encode-symbol x)
-    (integer? x)        (if (and (not (bad-number? x)) (safe-integer? x))
+    (integer? x)        (if (safe-integer? x)
                           (str "i:" x)
                           (reject! x :integer-out-of-safe-range))
     (number? x)         (reject! x :non-integer-number)
@@ -525,6 +516,17 @@
                        {} m)]
     out))
 
+(defn- canonical-set
+  "Canonicalize a set's elements, failing closed when two DISTINCT source
+  elements canonicalize to ONE — the rule `canonical-map` applies to keys, and
+  the one `canonical-bytes` enforces on sets, so the two surfaces never
+  diverge."
+  [s]
+  (let [out (into #{} (map canonical) s)]
+    (when (< (count out) (count s))
+      (reject! s :duplicate-canonical-set-element))
+    out))
+
 (defn canonical
   "Return the canonical normalized EDN identity of `value` — the storage,
   attempt, trace, and replay identity (EP-0012 disposition 5: canonical
@@ -545,8 +547,8 @@
   collision. Fails closed with `:rf.error/non-edn-identity` for any
   out-of-domain value — the validation walk runs eagerly so a host handle
   buried anywhere in the structure is rejected, never host-stringified — and
-  for a map carrying DUPLICATE canonical keys (two distinct host keys whose
-  CEDN-1 bytes collide, e.g. a `java.util.Date` and a `java.time.Instant`, or a
+  for a map carrying DUPLICATE canonical keys or a set carrying DUPLICATE
+  canonical elements (two distinct host values whose CEDN-1 bytes collide, e.g. a `java.util.Date` and a `java.time.Instant`, or a
   host instant and its tagged tuple, for one millisecond).
 
   Present `nil` stays distinct from a missing key: `(canonical {:page nil})`
@@ -572,12 +574,12 @@
     ;; branch so a malformed tuple fails closed.
     (tagged-instant-head? value) [instant-marker (tagged-instant-text value)]
     (symbol? value)    (well-formed-text value)
-    (integer? value)   (if (and (not (bad-number? value)) (safe-integer? value))
+    (integer? value)   (if (safe-integer? value)
                          value
                          (reject! value :integer-out-of-safe-range))
     (number? value)    (reject! value :non-integer-number)
     (vector? value)    (mapv canonical value)
-    (set? value)       (into #{} (map canonical) value)
+    (set? value)       (canonical-set value)
     (map? value)       (canonical-map value)
     ;; `seq?` subsumes `list?` — one branch covers list-kind.
     (seq? value)       (apply list (map canonical value))
