@@ -79,27 +79,27 @@
 
 ;; ---- definition introspection -------------------------------------------
 
-(defn- all-state-nodes
-  "Depth-first seq of every state-node under `state-map` — each compound
-  state's children are flattened in after the parent. Pure: returns the
-  nodes themselves, so callers aggregate with ordinary transforms rather
-  than a side-effecting walk."
-  [state-map]
-  (mapcat (fn [[_state-id node]]
-            (cons node (all-state-nodes (:states node))))
-          state-map))
+(defn- declaring-nodes
+  "Depth-first seq of `node` followed by every node under it that can
+  declare `:on`: its nested `:states`, and a `:type :parallel` root's
+  `:regions` with their own state trees. Pure: returns the nodes
+  themselves, so callers aggregate with ordinary transforms."
+  [node]
+  (cons node (mapcat (comp declaring-nodes val)
+                     (concat (:states node) (:regions node)))))
 
 (defn event-id-suggestions
   "Return the distinct sorted event-ids declared anywhere in `definition`.
-  Walks every state-node's `:on` map and aggregates the keys. The
-  autocomplete in the sim event-picker is seeded from this set so the
-  user sees only events the machine actually responds to.
+  Aggregates the `:on` keys of the machine root, of every state-node, and
+  of a parallel machine's regions and their state-nodes. The autocomplete
+  in the sim event-picker is seeded from this set so the user sees only
+  events the machine actually responds to.
 
-  Returns `[]` when the definition is nil or has no `:states`."
+  Returns `[]` for a nil / non-map definition or one declaring no `:on`."
   [definition]
-  (if (or (nil? definition) (nil? (:states definition)))
+  (if-not (map? definition)
     []
-    (->> (all-state-nodes (:states definition))
+    (->> (declaring-nodes definition)
          (mapcat (comp keys :on))
          distinct
          (sort-by str)

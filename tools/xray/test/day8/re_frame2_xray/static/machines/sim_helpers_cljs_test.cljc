@@ -65,6 +65,9 @@
   (are [definition ids] (= ids (sim-h/event-id-suggestions definition))
     flat-definition         [:err :ok :reset :retry :start]
     hierarchical-definition [:ok :submit]
+    ;; a machine-root :on is an event the machine responds to
+    {:initial :idle :on {:abort :stopped} :states {:idle {:on {:go :stopped}} :stopped {}}}
+    [:abort :go]
     nil                     []))
 
 ;; ---- available-transitions ------------------------------------------------
@@ -111,6 +114,11 @@
            {:event :go     :target :busy      :action nil :guard? false :guard nil :decl-path [:net :idle]}}
          (set (sim-h/available-transitions parallel-on-definition
                                            (engine-seed parallel-on-definition))))))
+
+(deftest event-id-suggestions-walks-every-parallel-region
+  ;; A parallel root declares its states under `:regions`, with no top-level
+  ;; `:states`: the regions' state events and the root's `:on` fallback list.
+  (is (= [:abort :go :submit] (sim-h/event-id-suggestions parallel-on-definition))))
 
 (deftest available-transitions-lists-every-candidate-of-a-mixed-vector
   ;; One event declaring a vector of candidates lists a row EACH, the
