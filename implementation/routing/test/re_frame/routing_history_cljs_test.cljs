@@ -1,12 +1,13 @@
 (ns re-frame.routing-history-cljs-test
   "CLJS tests for routing's browser-history surface on the node test target:
-  the outbound `:rf.nav/push-url` / `:rf.nav/replace-url` fx and their
-  fail-closed wrapper, the popstate / hashchange listener a `:url-bound? true`
-  frame's lifecycle installs and removes, listener reconciliation when URL
-  ownership or the owner's strategy changes, the live-window open-redirect
-  classifier, URL restoration around a blocked popstate, and the
+  the outbound `:rf.nav/push-url` / `:rf.nav/replace-url` fx and how a
+  throwing history mutation is reported, the popstate / hashchange listener
+  a `:url-bound? true` frame's lifecycle installs and removes, listener
+  reconciliation when URL ownership or the owner's strategy changes, the
+  live-window open-redirect classifier, URL restoration around a blocked popstate, and the
   registration-time strategy preflight. The fx-failure and preflight tests
-  read the trace stream, which delivers in dev builds.
+  read the trace stream, which delivers in dev builds, and the fx-failure
+  test reads the always-on error channel too.
 
   Node has no `window`, so the shared `with-window-stub-fixture` installs a
   stub that records `pushState` / `replaceState` onto an in-memory entry
@@ -16,6 +17,7 @@
   restoration."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling :as rf.trace.tooling]
@@ -24,7 +26,8 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.routing-browser-test-support
-             :refer [*history-state* current-url with-window-stub-fixture]]))
+             :refer [*history-state* current-url with-window-stub-fixture]])
+  (:require-macros [re-frame.test-support :refer [with-emit-recorder!]]))
 
 (use-fixtures :each
   with-window-stub-fixture
@@ -317,12 +320,13 @@
           "continue commits /cart and moves the address bar there by replace"))))
 
 ;; =========================================================================
-;; A throwing pushState / replaceState fails closed to a structured trace
+;; A throwing pushState / replaceState is reported as an fx error
 ;; =========================================================================
 ;;
-;; Both history fx run the browser mutation through one shared try/catch, the
-;; second line of defence behind the sinks' `external-url?` gate: a browser
-;; throw becomes a `:rf.fx/<fx-id>-failed` trace and the drain survives.
+;; A browser throw from either history fx reaches the fx runner, the second
+;; line of defence behind the sinks' `external-url?` gate: the entry's one
+;; outcome is the always-on `:rf.error/fx-handler-exception`, and the drain
+;; survives.
 
 (defn- with-throwing-history-method!
   "Swap the stub history `method` (pushState or replaceState) for one that
@@ -338,18 +342,21 @@
       (finally
         (aset history method original)))))
 
-(defn- with-fx-failure-traces
-  "Run `thunk` and return the `:rf.fx/push-url-failed` /
-  `:rf.fx/replace-url-failed` trace tags it emitted, each carrying its
+(defn- with-history-fx-outcomes
+  "Run `thunk` and return the tags of every fx outcome trace it emitted for
+  `:rf.nav/push-url` or `:rf.nav/replace-url`, each carrying its
   `:operation`."
   [thunk]
   (let [captured (atom [])
-        cb-key   (keyword (gensym "fx-failure-"))]
+        cb-key   (keyword (gensym "fx-outcome-"))]
     (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
-        (when (#{:rf.fx/push-url-failed :rf.fx/replace-url-failed}
-                (:operation ev))
+        (when (and (#{:rf.fx/handled :rf.fx/skipped-on-platform
+                      :rf.error/fx-handler-exception}
+                    (:operation ev))
+                   (#{:rf.nav/push-url :rf.nav/replace-url}
+                    (get-in ev [:tags :rf.fx/id])))
           (swap! captured conj (assoc (:tags ev) :operation (:operation ev))))))
     (try
       (thunk)
@@ -357,21 +364,27 @@
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
-(deftest history-fx-throwing-browser-mutation-fails-closed-cljs
-  (testing "each history fx downgrades a throwing pushState / replaceState to one
-            :rf.fx/<fx>-failed trace; no exception escapes the drain"
+(deftest history-fx-throwing-browser-mutation-is-an-fx-error-cljs
+  (testing "each history fx's throwing pushState / replaceState reports one
+            outcome, the always-on :rf.error/fx-handler-exception, and no
+            :rf.fx/handled; no exception escapes the drain"
     (register-routes!)
     ;; The failed push still commits the slice on /cart (state first), so the
     ;; :replace? navigation after it routes through :rf.nav/replace-url.
-    (doseq [[method message event expected]
+    (doseq [[method message event fx-id url]
             [["pushState" "boom-push" [:rf.route/navigate {:url "/cart"}]
-              [:rf.fx/push-url-failed :rf.nav/push-url "/cart" "boom-push"]]
+              :rf.nav/push-url "/cart"]
              ["replaceState" "boom-replace" [:rf.route/navigate {:to :hist/checkout :replace? true}]
-              [:rf.fx/replace-url-failed :rf.nav/replace-url "/checkout" "boom-replace"]]]]
-      (is (= [expected]
-             (mapv (juxt :operation :rf.fx/id :url :error)
-                   (with-fx-failure-traces
-                     ;; A leaked throw errors the deftest.
-                     #(with-throwing-history-method! method message
-                        (fn [] (rf/dispatch-sync event))))))
-          method))))
+              :rf.nav/replace-url "/checkout"]]]
+      (with-emit-recorder! [errors {:pred #(= :rf.error/fx-handler-exception
+                                              (:rf.error/id %))}]
+        (is (= [[:rf.error/fx-handler-exception fx-id url message]]
+               (mapv (juxt :operation :rf.fx/id :rf.fx/args :exception-message)
+                     (with-history-fx-outcomes
+                       ;; A leaked throw errors the deftest.
+                       #(with-throwing-history-method! method message
+                          (fn [] (rf/dispatch-sync event))))))
+            method)
+        (is (= [[fx-id :rf/default]]
+               (mapv (juxt :failing-id :frame) @errors))
+            (str method " reaches the always-on error channel"))))))

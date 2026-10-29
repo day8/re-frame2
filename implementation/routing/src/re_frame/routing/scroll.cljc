@@ -37,8 +37,7 @@
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
             [re-frame.routing.registry :as rf.routing.registry]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.substrate.adapter :as rf.substrate.adapter]))
 
 (def scroll-positions-cap
   "Soft upper bound on tracked URLs in the per-frame scroll-positions cache.
@@ -243,8 +242,7 @@
   EP-0015: the args carry `{:url ...}` — a
   reconstructed route URL whose query/fragment are carrier-shaped values
   (`?token=…`, `#access_token=…`). The core fx trace surface records
-  `:rf.fx/args` verbatim onto `:rf.fx/handled` (and the JVM
-  `:rf.fx/skipped-on-platform` branch echoes `:url`), so the URL would
+  `:rf.fx/args` verbatim onto `:rf.fx/handled`, so the URL would
   otherwise reach the trace bus / Xray / MCP / epoch egress raw. The
   `:sensitive` path-mark declares `[:url]` so the marks chokepoint
   (`re-frame.classification/project-trace-event` via `re-frame.trace/build-event`)
@@ -288,10 +286,7 @@ egress to trace / epochs / SSR."})
              pos (or position
                      [(or (.-scrollX js/window) (.-pageXOffset js/window) 0)
                       (or (.-scrollY js/window) (.-pageYOffset js/window) 0)])]
-         (save-scroll-position! frame-id url pos)))
-     :clj
-     (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                  {:rf.fx/id :rf.nav/capture-scroll :url url})))
+         (save-scroll-position! frame-id url pos)))))
 
 (def scroll-fx-meta
   "Metadata for the `:rf.nav/scroll` fx registration.
@@ -409,7 +404,4 @@ emit no scroll effect: `:scroll false` on a route or a navigation does that."})
          :rf.error/fx-handler-exception 're-frame.routing.scroll
          (str "`:rf.nav/scroll` takes a `:strategy` of `:top` or `:restore`. To leave "
               "the page where it is, emit no scroll effect: `:scroll false` on a "
-              "route or a navigation does that.")))
-     :clj
-     (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                  {:rf.fx/id :rf.nav/scroll :strategy strategy})))
+              "route or a navigation does that.")))))
