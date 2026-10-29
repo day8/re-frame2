@@ -171,4 +171,3 @@ they're wrapped in `(shadow.cljs.devtools.api/cljs-eval <build-id> <form-str> {}
 which targets shadow-cljs's CLJS REPL bridge. The wrapper returns a
 string-encoded EDN map like `{:results ["..."] :ns user}`; we read
 the last `:results` entry as EDN to obtain the actual CLJS value.
-This mirrors `cljs-eval-value` in the bash-shim chain.

@@ -451,8 +451,8 @@ the envelope carries the context an agent needs to recover in one step
 | `:operation`        | The op that refused (`:dispatch`, `:dispatch-dry-run`, `:read-sub`, `:subs-sample`, `:sub-cache-info`, `:record`). |
 | `:event` / `:query` | The event-vector (dispatch) or query-vector (sub reads) the op was about to act on, when known. |
 | `:available-frames` | The registered **app** frames — the exact set the caller may pin or pass. |
-| `:selected-frame`   | The current session pin (nil = none) — whether a prior `select-frame!` is in effect. |
-| `:hint`             | The human sentence + the concrete fix (pass `frame`, or pin via `select-frame!` / `set-operating-frame`). |
+| `:selected-frame`   | The current session pin (nil = none) — whether a prior pin is in effect. |
+| `:hint`             | The human sentence + the concrete fix (pass `frame`, or pin one with `set-operating-frame`). |
 
 `:reason :ambiguous-frame` remains the SOLE machine discriminator (a
 bare-dialect reason); the additional slots are additive context. An
@@ -827,22 +827,23 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    policy names. It therefore covers `restore-epoch`, `dispatch-dry-run`
    (whose `:cascade-summary` is otherwise NOT walked, being a counts-only
    projection), AND `dispatch` itself (rf2-8fin7.3) — every tool whose
-   cascade-summary copies a dispatched `:trigger-event`. For `dispatch`
-   the signal is load-bearing: a FIRST-in-session sensitive dispatch
-   would otherwise run with the runtime still at its permissive
-   `{:allow-raw-state? true}` default, so the `:event-vector` redaction
-   would not fire and the raw event vector would ship off-box.
+   cascade-summary copies a dispatched `:trigger-event`. The runtime
+   starts, and restarts on every page reload, at the closed
+   `{:allow-raw-state? false}`, so an eval that reaches it before any
+   signal redacts rather than ships raw.
 2. Signal the preload runtime via
    `(re-frame2-pair.runtime/configure-raw-state! {:allow-raw-state? false})`
-   once per build per server lifetime. The runtime's `app-db-reset!`
+   before every state-emitting eval (the posture resets on every page
+   reload, so it is never cached as delivered). The runtime's `app-db-reset!`
    then wraps both `:previous` and `:next` slots in the `tap>` payload
    through `re-frame.core/project-egress` — the same redaction the
    wire path applies — so any registered tap consumer sees the
    pre-redacted shape rather than the raw state.
 
-   This signal is issued by every tool that taps / egresses app-db,
-   between the preload probe and the first state-emitting eval — the
-   read surfaces, `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
+   This signal is issued by every tool that taps / egresses app-db or
+   rendered content, between the preload probe and the first
+   state-emitting eval — the read surfaces (`read-dom` and `read-ui`
+   included), `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
    AND `dispatch` (rf2-z7roa / rf2-6nks4 / rf2-8fin7.3). `replace-app-db` in
    particular MUST issue it before its `app-db-reset!` call so the FIRST
    reset of a `--allow-writes` session cannot tap raw app-db ahead of
@@ -1812,8 +1813,10 @@ page is empty and says so instead of blaming the window or the filter:
             :hint          "… Re-call with max-tokens 0 (no cap) or at least N …"}}
 ```
 
-Its `:next-cursor` resumes from the position the call read after, and is
-nil on a first page, which is re-called with the same arguments.
+Its `:next-cursor` resumes from the position the call read after. On a
+first `trace-window` page there is no such position, so the cursor
+carries only the window (`:until-ms`, `:ms`): passed back, it re-reads
+the same window, which a plain re-call would recompute from the clock.
 The cursor's payload (base64-encoded EDN; subject to change behind the
 opaque boundary) carries the last-emitted epoch-id plus sticky window
 fields (`:ms`, `:until-ms`, `:frame`) so subsequent pages see the same
@@ -3199,9 +3202,10 @@ omitted `timeout-ms` uses the documented 30000 default.
 **Privacy** (rf2-8fin7.2): the `:app-db` / `:sub` values returned in the
 `:sample` (on hold) and `:last-sample` (on timeout) slots are walked by
 `re-frame.core/project-egress` server-side — same off-box posture as
-`snapshot` / `get-path` / `record`. The predicate itself evaluates over
-the **unwalked** values, so elision never changes whether the watch trips
-— only what the returned sample shows. `elision` (size axis) is honoured
+`snapshot` / `get-path` / `record`. The predicate tests the samples
+after that projection, so a value at a classified path compares as its
+marker and does not trip the watch: aim the predicate at an unclassified
+value, or lift the axis that hides it. `elision` (size axis) is honoured
 on every launch; `include-sensitive` is honoured only under
 `--allow-sensitive-reads`, otherwise forced `false`.
 
@@ -3486,7 +3490,7 @@ On a miss:
 - `{:ok? false :reason :missing-id}` — `id` arg absent or blank.
 - `{:ok? false :reason :invalid-id-edn :id <raw> :hint "..."}` — `id` failed `cljs.reader/read-string`.
 - `{:ok? false :reason :frame-unsupported-for-machine :frame <f> :kind :machine :hint "..."}` — `frame` given with `kind=machine` (machines are not in the image generation resolver).
-- `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw (including the facade's `:rf.error/frame-no-generation` when `frame` names no frame that carries an image or resolves the store live, and `:rf.error/ambiguous-registration` when a frame made without `:images` refuses the id because more than one namespace registers it).
+- `{:ok? false :reason :rf.error/eval-cljs-threw :message "..."}` — runtime threw (including the facade's `:rf.error/frame-no-generation` when `frame` names no frame that carries an image or resolves the store live, and `:rf.error/ambiguous-registration` when a frame made without `:images` refuses the id because more than one namespace registers it).
 
 **Composite-key subs**: pass the vector form as a string —
 `{:kind "sub" :id "[:rf/composite [:items :by-id 42]]"}`.

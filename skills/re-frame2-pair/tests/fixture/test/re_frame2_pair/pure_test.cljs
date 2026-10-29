@@ -28,7 +28,7 @@
             :event [:cart/apply-coupon "SPRING25"]}
            (dissoc env :hint))
         "extra context rides through beside the refusal")
-    (is (re-find #"select-frame!" (:hint env)) "hint names the fix")))
+    (is (re-find #"set-operating-frame" (:hint env)) "hint names the fix")))
 
 (deftest nearest-ids-ranks-by-edit-distance
   (let [known [:cart/items :cart/total :checkout/step :user/name :current-user]]

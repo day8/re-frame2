@@ -62,6 +62,31 @@
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
+(def ^:private keyword-valued-pred-keys
+  "The `pred` keys `epoch-matches?` compares against keywords with `=`."
+  #{:event-id :effects :sub-ran :origin :frame})
+
+(defn- parse-pred-arg
+  "The `pred` arg as the map `epoch-matches?` reads. An EDN string reads as
+  EDN, as watch-until's does. A JSON object carries no keywords, so a
+  string under a keyword-valued key mints one (colon-tolerant, id grammar
+  only — `\":cart/checkout\"` is `:cart/checkout`), and `:touches-path`
+  parses as a path; every other value rides as sent."
+  [p]
+  (cond
+    (map? p)    p
+    (string? p) (let [v (args/read-edn-text (args/edn-text p))] (when (map? v) v))
+    (object? p) (let [m (reduce-kv
+                          (fn [m k v]
+                            (assoc m k (if (and (contains? keyword-valued-pred-keys k) (string? v))
+                                         (or (args/->id-keyword v) v)
+                                         v)))
+                          {} (js->clj p :keywordize-keys true))]
+                  (cond-> m
+                    (contains? m :touches-path)
+                    (assoc :touches-path (args/parse-path-arg (wire/arg p :touches-path)))))
+    :else       nil))
+
 (defn watch-epochs-tool [conn raw-args]
   (let [build-id  (wire/arg-build conn raw-args)
         ;; Colon-tolerant `:frame` coercion (the shared
@@ -107,7 +132,7 @@
         mode      (args/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
-        pred-arg  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
+        pred-arg  (parse-pred-arg (wire/arg raw-args :pred))
         cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))
         ;; `pred`'s keys are minted into keywords by
         ;; `:keywordize-keys` and PRINTED into the poll form; a key without

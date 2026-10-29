@@ -7,6 +7,8 @@
   (`:no-events-since-id`, pinned in `epoch_frame_test`), and a `:pred`
   that excluded everything since the id (`:pred-excludes-history`)."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [cljs.reader]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.watch-epochs :as we]))
@@ -55,6 +57,37 @@
                         (select-keys (:advisory (tu/extract-edn result))
                                      [:reason :epochs-in-history :epochs-since-id])))
                  (done))))))
+
+(deftest json-pred-reaches-the-runtime-as-keywords-and-a-path
+  ;; JSON has no keywords, and `epoch-matches?` compares ids with `=`, so a
+  ;; pred sent as JSON must arrive naming keywords or it never matches.
+  (async done
+    (let [forms (atom [])
+          orig  nrepl/cljs-eval-value
+          run   (fn [form]
+                  (swap! forms conj form)
+                  (js/Promise.resolve (when (str/includes? form "__re_frame2_pair_runtime") true)))
+          stub  (fn ([_ _ form] (run form)) ([_ _ form _] (run form)))
+          quoted-pred (fn []
+                        (let [form   (some #(when (str/includes? % "epoch-matches?") %) @forms)
+                              marker "epoch-matches? (quote "]
+                          (cljs.reader/read-string
+                            (subs form (+ (str/index-of form marker) (count marker))))))]
+      (set! nrepl/cljs-eval-value stub)
+      (-> (we/watch-epochs-tool nil (tu/args->js {:pred #js {:event-id     ":cart/checkout"
+                                                             :effects      "http"
+                                                             :touches-path #js [":cart" ":items"]
+                                                             :timing-ms    ">100"}}))
+          (.then (fn [_]
+                   (is (= {:event-id :cart/checkout :effects :http
+                           :touches-path [:cart :items] :timing-ms ">100"}
+                          (quoted-pred)))
+                   (reset! forms [])
+                   (we/watch-epochs-tool nil (tu/args->js {:pred "{:event-id :cart/checkout}"}))))
+          (.then (fn [_]
+                   (is (= {:event-id :cart/checkout} (quoted-pred)) "an EDN-string pred reads as EDN")))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e)))))
+          (.then (fn [_] (tu/restore-eval! stub orig) (done)))))))
 
 (deftest non-empty-matches-no-advisory
   (async done

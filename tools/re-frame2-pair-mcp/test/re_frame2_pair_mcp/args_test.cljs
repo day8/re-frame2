@@ -5,6 +5,16 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.tools.args :as args]))
 
+(deftest edn-string-args-take-a-json-number-and-refuse-other-json
+  ;; These args are EDN text; a JSON number is the text it prints as, and
+  ;; an array or object is refused with the arg's own reason, never thrown on.
+  (is (= [:ok 7] (args/read-edn-arg 7 :missing :invalid)))
+  (is (= [:err :invalid] (args/read-edn-arg #js [7] :missing :invalid)))
+  (is (= [:err :missing] (args/read-edn-arg "  " :missing :invalid)))
+  (is (= :invalid-event-edn
+         (:reason (second (args/parse-event-arg #js [":cart/checkout"] "usage")))))
+  (is (= :invalid-cofx (:reason (second (args/parse-cofx-arg #js {:a 1}))))))
+
 (defn- args-js
   "A JS args object from a CLJS map — the MCP wire ships string keys."
   [m]

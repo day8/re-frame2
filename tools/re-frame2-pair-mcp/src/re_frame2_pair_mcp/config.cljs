@@ -29,10 +29,11 @@
 
   ## Accepted values
 
-  Same vocabulary as the underlying `editor-uri/editor-uri`:
-  `:vscode` / `:cursor` / `:windsurf` / `:zed` / `:idea` plus the
-  `{:custom \"<uri-template>\"}` form. Unknown keywords fall through
-  to `:vscode` per the editor-uri ns's accommodating policy."
+  `vscode` / `cursor` / `windsurf` / `zed` / `idea`, the editor keywords
+  of the underlying `editor-uri/editor-uri`; its `{:custom
+  \"<uri-template>\"}` form is not expressible in an env var. Unknown
+  names fall through to `:vscode` per the editor-uri ns's accommodating
+  policy."
   (:require [applied-science.js-interop :as j]))
 
 (def ^:private env-editor
@@ -46,9 +47,8 @@
 (defonce
   ^{:doc "Atom holding re-frame2-pair-mcp's 'Open in editor' preference. Default
          `:vscode` (overridable via `RE_FRAME2_PAIR_MCP_EDITOR` at
-         server start). Accepts the keywords `:vscode` / `:cursor` /
-         `:windsurf` / `:zed` / `:idea` plus the
-         `{:custom \"<uri-template>\"}` form (see
+         server start). Holds one of the keywords `:vscode` / `:cursor` /
+         `:windsurf` / `:zed` / `:idea` (see
          `re-frame.source-coords.editor-uri/editor-uri`)."}
   editor
   (atom (or env-editor :vscode)))

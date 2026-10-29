@@ -18,7 +18,7 @@
   pair, the result is cached on the conn-atom (`:probed-builds`)
   for the lifetime of the socket. Subsequent `runtime-preloaded?`
   calls for the same build short-circuit without an nREPL round-trip.
-  The cache is cleared by `nrepl/close!` (operator-initiated teardown)
+  The cache is cleared by `nrepl/close!` (a changed or vanished port file, or shutdown)
   and is reborn empty whenever `server.cljs/ensure-connection!` builds a
   fresh conn for a new shadow port. It is deliberately PRESERVED across a
   transient same-port socket reopen — the `__re_frame2_pair_runtime`
@@ -871,7 +871,7 @@
 ;;
 ;; `read-dom` and `read-ui` both route a single
 ;; `(re-frame2-pair.runtime/<dom-read|ui-read> {...})` form through
-;; `eval-after-runtime!`. The runtime fn ALWAYS returns a map (its own
+;; `eval-after-runtime-signalled!`. The runtime fn ALWAYS returns a map (its own
 ;; `{:ok? ...}` envelope, or a structured no-document / bad-selector
 ;; error). A nil / non-map value reaching the `on-value` callback therefore
 ;; means the eval came back BLANK — `cljs-eval-value` reads a blank shadow
@@ -887,6 +887,20 @@
 ;; Only the per-tool `:reason`, `:hint`, and any extra error slots
 ;; (read-dom echoes `:selector`) differ — those ride in as args.
 ;; ---------------------------------------------------------------------------
+
+(defn blank-eval-envelope
+  "The `:ok? false` envelope for an eval that came back blank: no runtime
+  answered (a closed tab, or the reconnect window after a page reload), so
+  the outcome is unknown and, for a write, it may or may not have landed.
+  Never to be read as an answer — an empty list, a refused write, a
+  reload that landed."
+  [tool build-id]
+  {:ok?    false
+   :reason :blank-eval-result
+   :build  build-id
+   :hint   (str tool "'s eval came back blank: no runtime answered, so the outcome is "
+                "unknown. Confirm the runtime with discover-app (:liveness :fresh); for a "
+                "write, read the epoch history (trace-window) before retrying it.")})
 
 (defn map-result-or-blank
   "Build the `on-value` callback for a tool whose runtime fn always

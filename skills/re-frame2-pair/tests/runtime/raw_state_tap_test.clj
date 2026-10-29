@@ -1,9 +1,9 @@
 ;;;; tests/runtime/raw_state_tap_test.clj — the raw-state gate on tap>
 ;;;; payloads. The MCP server's `signal-runtime!` calls
-;;;; `configure-raw-state!` once per build; with the gate OFF,
-;;;; `app-db-reset!`'s tap> payload is projected through
-;;;; `rf/project-egress` at the on-box redacted boundary. A bare REPL session
-;;;; (no MCP server attached) defaults to verbatim payloads.
+;;;; `configure-raw-state!` before every state-emitting eval; with the gate
+;;;; OFF, `app-db-reset!`'s tap> payload is projected through
+;;;; `rf/project-egress` at the on-box redacted boundary. The runtime starts
+;;;; gated, so an eval that reaches it before any signal fails closed.
 ;;;;
 ;;;; Run: bb tests/runtime/raw_state_tap_test.clj
 
@@ -21,9 +21,9 @@
   (let [elide (top-form 'defn- 'maybe-elide-for-tap)]
     (is (rt/mentions? :allow-raw-state? (top-form 'defn 'configure-raw-state!))
         "configure-raw-state! (called by the MCP server) must accept :allow-raw-state?")
-    (is (rt/form-contains? #(and (map? %) (= true (:allow-raw-state? %)))
+    (is (rt/form-contains? #(and (map? %) (= false (:allow-raw-state? %)))
                            (top-form 'defonce 'raw-state-config))
-        "raw-state-config defaults to {:allow-raw-state? true} for a bare REPL session")
+        "raw-state-config defaults to {:allow-raw-state? false}: unsignalled reads fail closed")
     (is (rt/calls? 'rf/project-egress elide)
         "maybe-elide-for-tap projects through rf/project-egress when the gate is OFF")
     (is (str/includes? (pr-str elide) ":rf.egress/local-redacted")

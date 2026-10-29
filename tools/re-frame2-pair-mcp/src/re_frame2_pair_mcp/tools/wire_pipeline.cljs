@@ -148,7 +148,7 @@
 
     slice-app-db (path-slice or full)
       → diff-encode-epochs
-      → dedup-epochs
+      → dedup-epochs (a `:full` epochs slice only)
       → summarise other slices
       → count elision markers over what ships
 
@@ -157,11 +157,7 @@
 
   `:elided-large` counts the markers ENCOUNTERED in the response
   payload (Spec 009 §Indicator field), so it is counted AFTER the path
-  slice and the summary pass, both of which remove markers. The eval
-  form's app-side `:elided-count` is taken
-  over the whole walked state — every frame's full `:app-db`, every
-  `:sub-cache` entry, every epoch — so it is NOT used here: it would
-  report markers a summary or a path-sliced read never contains."
+  slice and the summary pass, both of which remove markers."
   [snapshot {:keys [mode dedup? path slice-mode slice-modes]}]
   (let [app-db-mode           (pipeline/resolve-slice-mode :app-db slice-modes slice-mode)
         [sliced path-status]  (pipeline/slice-app-db-in-snapshot snapshot path app-db-mode)
@@ -175,7 +171,13 @@
         capped                (pipeline/cap-full-epochs-in-snapshot
                                 sliced slice-modes slice-mode pipeline/full-epochs-cap)
         diff-encoded          (pipeline/diff-encode-epochs-in-snapshot capped mode)
-        deduped               (pipeline/dedup-epochs-in-snapshot diff-encoded dedup?)
+        ;; Dedup only an `:epochs` slice that ships whole: a summarised
+        ;; slice must describe the record vector, not the dedup wrapper.
+        deduped               (pipeline/dedup-epochs-in-snapshot
+                                diff-encoded
+                                (and dedup?
+                                     (= :full (pipeline/resolve-slice-mode
+                                                :epochs slice-modes slice-mode))))
         {summarised  :snapshot
          other-modes :resolved-modes} (pipeline/summarise-other-slices-in-snapshot
                                         deduped slice-modes slice-mode)

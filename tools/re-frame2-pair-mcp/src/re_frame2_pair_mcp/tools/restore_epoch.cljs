@@ -104,11 +104,15 @@
                 ;; envelope on success carrying `:ok? :restored? :epoch-id
                 ;; :frame :cascade-summary :unreplayable-effects`. Failure
                 ;; surfaces as a bare `false`, which we turn into a clean
-                ;; reject envelope here.
+                ;; reject envelope here; nil is a blank eval, whose outcome
+                ;; is unknown.
                 (let [result
                       (cond
                         (map? v)
                         v
+
+                        (nil? v)
+                        (probe/blank-eval-envelope "restore-epoch" build-id)
 
                         v
                         {:ok?       true

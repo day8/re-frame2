@@ -109,8 +109,9 @@
 
   Refuses when BOTH hold:
     1. The read is WHOLESALE — `path` is `[]` (explicit root), or `path`
-       is nil AND the global `mode` is `:full` (full unsliced slice). A
-       nil path with the default `:summary` mode yields a tiny marker, so
+       is nil AND the app-db slice resolves to `:full`, by the global
+       `mode` or by its `slice-modes` entry, which wins over it. A nil
+       path with the app-db slice in `:summary` yields a tiny marker, so
        it is NOT wholesale and is allowed.
     2. A reserved tool frame is IN SCOPE — `frames` is `:all` (sweeps in
        every reserved frame), or `frames` is an explicit vector naming at
@@ -122,23 +123,25 @@
 
   `frames` is the parsed frames arg (`:app` / `:all` / a keyword vector);
   `path` is the parsed path arg (`nil` / `[]` / a key vector); `mode` is
-  the parsed global mode (`:summary` / `:full`)."
-  [frames path mode]
-  (let [wholesale? (or (root-path? path)
-                       (and (nil? path) (= :full mode)))]
-    (when wholesale?
-      (cond
-        (= :all frames)
-        (wire/err-text (refusal "all frames (frames \"all\")" ":rf/xray"))
+  the parsed global mode (`:summary` / `:full`); `slice-modes` is the
+  parsed per-slice `modes` map."
+  ([frames path mode] (snapshot-refusal frames path mode nil))
+  ([frames path mode slice-modes]
+   (let [wholesale? (or (root-path? path)
+                        (and (nil? path) (= :full (get slice-modes :app-db mode))))]
+     (when wholesale?
+       (cond
+         (= :all frames)
+         (wire/err-text (refusal "all frames (frames \"all\")" ":rf/xray"))
 
-        (and (sequential? frames) (some reserved-tool-frame? frames))
-        (let [reserved (filterv reserved-tool-frame? frames)
-              one      (first reserved)]
-          (wire/err-text
-            (refusal (pr-str (if (= 1 (count reserved)) one reserved))
-                     (pr-str one))))
+         (and (sequential? frames) (some reserved-tool-frame? frames))
+         (let [reserved (filterv reserved-tool-frame? frames)
+               one      (first reserved)]
+           (wire/err-text
+             (refusal (pr-str (if (= 1 (count reserved)) one reserved))
+                      (pr-str one))))
 
-        :else nil))))
+         :else nil)))))
 
 (defn get-path-refusal
   "Refusal result for a wholesale `get-path` read that targets a reserved

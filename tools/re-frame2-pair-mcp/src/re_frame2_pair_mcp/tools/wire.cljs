@@ -290,8 +290,8 @@
        by `discover-app` after a successful preload probe AND
        by `stick-build!` after an explicit `:build` on any non-discover
        tool call. Removes the friction of repeating
-       `build: foo` on every tool call. Cache resets on nREPL reconnect
-       (same lifecycle as `:probed-builds`).
+       `build: foo` on every tool call. Lifecycle: `nrepl/make-conn`'s
+       `:resolved-build-id`.
     3. `SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
 
   `arg-build` is a PURE READ — it never writes the cache. The

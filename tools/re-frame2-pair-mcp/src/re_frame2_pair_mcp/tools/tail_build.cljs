@@ -67,6 +67,7 @@
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
+            [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def ^:private default-wait-ms
@@ -141,6 +142,90 @@
   (or (= baseline (pr-str v))
       (= baseline (str v))))
 
+(defn- changed?
+  "True when sample `v` shows the reload landed. A nil sample is no answer
+  — the eval comes back blank while a reloading page has no runtime — so
+  it never counts as a change; probe a form that is non-nil after the edit."
+  [baseline v]
+  (and (some? v) (not (matches-baseline? baseline v))))
+
+(defn- sample-until-changed
+  "Sample `probe` until it leaves the pre-edit `baseline` or `wait-ms`
+  elapses, polling every `poll-ms`. Resolves to the tool's envelope."
+  [conn build-id probe baseline wait-ms poll-ms]
+  (let [start (js/Date.now)]
+    (-> (nrepl/cljs-eval-value conn build-id probe)
+        (.then
+          (fn [first-sample]
+            (if (changed? baseline first-sample)
+              ;; The reload landed BEFORE our first sample — the fast
+              ;; ordering. The pre-edit baseline is what makes this
+              ;; recognizable as success rather than a stuck value.
+              (js/Promise.resolve
+                (wire/ok-text {:ok?           true
+                               :t             (js/Date.now)
+                               :soft?         false
+                               :probe-values  {:baseline baseline
+                                               :initial  first-sample
+                                               :final    first-sample}}))
+              (js/Promise.
+                (fn [resolve _]
+                  ;; `latest` carries the most-recent probe value we
+                  ;; saw — initialised to the first sample and
+                  ;; overwritten on every successful poll. On timeout
+                  ;; we hand the whole comparison back to the operator
+                  ;; under :probe-values.
+                  (let [latest (volatile! first-sample)]
+                    (letfn [(poll []
+                              (js/setTimeout
+                                (fn []
+                                  (let [elapsed (- (js/Date.now) start)]
+                                    (if (>= elapsed wait-ms)
+                                      ;; A timed-out probe
+                                      ;; wait is `:ok? false` — a
+                                      ;; known-tool failure per
+                                      ;; spec/003's universal isError
+                                      ;; rule, not a success carrying
+                                      ;; bad news.
+                                      (resolve
+                                        (wire/err-text
+                                          {:ok?           false
+                                           :reason        :timed-out
+                                           :timed-out?    true
+                                           :probe-values  {:baseline baseline
+                                                           :initial  first-sample
+                                                           :final    @latest}
+                                           :note          timeout-note}))
+                                      (-> (nrepl/cljs-eval-value conn build-id probe)
+                                          (.then
+                                            (fn [now]
+                                              (vreset! latest now)
+                                              (if (changed? baseline now)
+                                                (resolve
+                                                  (wire/ok-text
+                                                    {:ok?           true
+                                                     :t             (js/Date.now)
+                                                     :soft?         false
+                                                     :probe-values  {:baseline baseline
+                                                                     :initial  first-sample
+                                                                     :final    now}}))
+                                                (poll))))
+                                          (.catch (fn [_] (poll)))))))
+                                poll-ms))]
+                      (poll))))))))
+        (.catch
+          (fn [err]
+            ;; Initial probe-eval threw — surface as :probe-errored
+            ;; (distinct from :timed-out, which means "polled but
+            ;; never left the baseline"). With probe-error included
+            ;; the operator gets the underlying exception verbatim.
+            ;; `:ok? false` MUST ride as err-text per
+            ;; spec/003's universal isError rule.
+            (wire/err-text {:ok?         false
+                            :reason      :probe-errored
+                            :probe-error (.-message err)
+                            :note        probe-errored-note}))))))
+
 (defn tail-build-tool [conn args]
   (let [build-id (wire/arg-build conn args)
         ;; Validate `:wait-ms` as a positive-millisecond
@@ -201,75 +286,8 @@
                         :note   missing-baseline-note}))
 
       :else
-      (let [start (js/Date.now)]
-        (-> (nrepl/cljs-eval-value conn build-id probe)
-            (.then
-              (fn [first-sample]
-                (if-not (matches-baseline? baseline first-sample)
-                  ;; The reload landed BEFORE our first sample — the fast
-                  ;; ordering. The pre-edit baseline is what makes this
-                  ;; recognizable as success rather than a stuck value.
-                  (js/Promise.resolve
-                    (wire/ok-text {:ok?           true
-                                   :t             (js/Date.now)
-                                   :soft?         false
-                                   :probe-values  {:baseline baseline
-                                                   :initial  first-sample
-                                                   :final    first-sample}}))
-                  (js/Promise.
-                    (fn [resolve _]
-                      ;; `latest` carries the most-recent probe value we
-                      ;; saw — initialised to the first sample and
-                      ;; overwritten on every successful poll. On timeout
-                      ;; we hand the whole comparison back to the operator
-                      ;; under :probe-values.
-                      (let [latest (volatile! first-sample)]
-                        (letfn [(poll []
-                                  (js/setTimeout
-                                    (fn []
-                                      (let [elapsed (- (js/Date.now) start)]
-                                        (if (>= elapsed wait-ms)
-                                          ;; A timed-out probe
-                                          ;; wait is `:ok? false` — a
-                                          ;; known-tool failure per
-                                          ;; spec/003's universal isError
-                                          ;; rule, not a success carrying
-                                          ;; bad news.
-                                          (resolve
-                                            (wire/err-text
-                                              {:ok?           false
-                                               :reason        :timed-out
-                                               :timed-out?    true
-                                               :probe-values  {:baseline baseline
-                                                               :initial  first-sample
-                                                               :final    @latest}
-                                               :note          timeout-note}))
-                                          (-> (nrepl/cljs-eval-value conn build-id probe)
-                                              (.then
-                                                (fn [now]
-                                                  (vreset! latest now)
-                                                  (if-not (matches-baseline? baseline now)
-                                                    (resolve
-                                                      (wire/ok-text
-                                                        {:ok?           true
-                                                         :t             (js/Date.now)
-                                                         :soft?         false
-                                                         :probe-values  {:baseline baseline
-                                                                         :initial  first-sample
-                                                                         :final    now}}))
-                                                    (poll))))
-                                              (.catch (fn [_] (poll)))))))
-                                    poll-ms))]
-                          (poll))))))))
-            (.catch
-              (fn [err]
-                ;; Initial probe-eval threw — surface as :probe-errored
-                ;; (distinct from :timed-out, which means "polled but
-                ;; never left the baseline"). With probe-error included
-                ;; the operator gets the underlying exception verbatim.
-                ;; `:ok? false` MUST ride as err-text per
-                ;; spec/003's universal isError rule.
-                (wire/err-text {:ok?         false
-                                :reason      :probe-errored
-                                :probe-error (.-message err)
-                                :note        probe-errored-note}))))))))
+      (-> (probe/ensure-runtime! conn build-id)
+          ;; With no runtime connected every sample is a blank eval,
+          ;; which must not read as the reload landing.
+          (.then (fn [_] (sample-until-changed conn build-id probe baseline wait-ms poll-ms))
+                 (fn [err] (probe/err->result :tail-build-failed err)))))))

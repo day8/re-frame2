@@ -80,7 +80,7 @@
         got* (atom nil)
         full (frame-buf {"id" "id-2" "value" "7"})
         mid  (js/Math.floor (/ (.-length full) 2))]
-    (swap! conn assoc :pending {"id-2" #(reset! got* %)})
+    (swap! conn assoc :pending {"id-2" {:on-frame #(reset! got* %)}})
     (nrepl/attach-handlers! conn (fake-socket cbs*))
     (emit-data! cbs* (.slice full 0 mid))
     (is (nil? @got*) "a partial frame does not dispatch")
@@ -92,8 +92,8 @@
   (let [cbs* (atom {})
         conn (nrepl/make-conn 0 "127.0.0.1")
         got* (atom {})]
-    (swap! conn assoc :pending {"a" #(swap! got* assoc "a" (j/get % "value"))
-                                "b" #(swap! got* assoc "b" (j/get % "value"))})
+    (swap! conn assoc :pending {"a" {:on-frame #(swap! got* assoc "a" (j/get % "value"))}
+                                "b" {:on-frame #(swap! got* assoc "b" (j/get % "value"))}})
     (nrepl/attach-handlers! conn (fake-socket cbs*))
     (emit-data! cbs* (js/Buffer.concat #js [(frame-buf {"id" "a" "value" "1"})
                                             (frame-buf {"id" "b" "value" "2"})]))
@@ -108,13 +108,15 @@
     (is (zero? (.-length (:buf @conn))) "the frame is consumed and dropped")))
 
 (deftest close!-resets-probe-cache-and-pending
-  ;; Operator teardown clears every session cache, so a later connect never
-  ;; carries a stale build into what may be a different shadow build.
-  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+  ;; Teardown clears every session cache, so a later connect never carries
+  ;; a stale build into what may be a different shadow build, and fails the
+  ;; op still waiting rather than leave it to time out.
+  (let [conn   (nrepl/make-conn 0 "127.0.0.1")
+        failed (atom nil)]
     (swap! conn assoc
            :socket            #js {:end (fn [] nil)}
            :closed?           false
-           :pending           {"id-1" identity}
+           :pending           {"id-1" {:on-frame identity :fail! #(reset! failed %)}}
            :probed-builds     #{:app}
            :resolved-build-id :app
            :build-alias       {:a :app})
@@ -122,7 +124,26 @@
     (is (= {:socket nil :closed? true :pending {}
             :probed-builds #{} :resolved-build-id nil :build-alias {}}
            (select-keys @conn [:socket :closed? :pending
-                               :probed-builds :resolved-build-id :build-alias])))))
+                               :probed-builds :resolved-build-id :build-alias])))
+    (is (= :rf.error/pair-mcp-nrepl-connection-closed (:reason (ex-data @failed))))))
+
+(deftest socket-close-fails-in-flight-ops-at-once
+  ;; A closed socket answers none of the ops waiting on it, so each rejects
+  ;; as closed at once instead of waiting out its deadline as a timeout.
+  (async done
+    (let [cbs* (atom {})
+          conn (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc :socket (j/lit {:write (fn [_] nil)}) :closed? false)
+      (nrepl/attach-handlers! conn (fake-socket cbs*))
+      (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"} {:timeout-ms 2000})]
+        (js/queueMicrotask (fn [] ((get @cbs* "close") nil)))
+        (-> p
+            (.then (fn [_] (is false "an op on a closed socket must reject"))
+                   (fn [err]
+                     (is (= :rf.error/pair-mcp-nrepl-connection-closed (:reason (ex-data err)))
+                         (.-message err))
+                     (is (= {} (:pending @conn)) "the failed op does not leak")))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `send-op!`. Each test pre-seeds a live socket so `connect!` takes its fast
@@ -157,7 +178,7 @@
                    (done))))
       (js/queueMicrotask
         (fn []
-          (let [on-frame (-> @conn :pending vals first)]
+          (let [on-frame (-> @conn :pending vals first :on-frame)]
             (doseq [frame [#js {"out" "hel"} #js {"out" "lo"} #js {"err" "oops"}
                            #js {"value" "42"} #js {"ex" "boom"} #js {"status" #js ["done"]}]]
               (on-frame frame))))))))

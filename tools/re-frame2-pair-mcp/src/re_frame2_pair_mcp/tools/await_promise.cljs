@@ -114,6 +114,10 @@
 
     - `{:status :pending}`               — promise hasn't settled yet
     - `{:status :resolved :value v}`     — value is the post-pr-str EDN
+    - `{:status :resolved :printed s}`   — the printed value does not read
+      back in the browser (`#object[...]`: a fetch Response, a DOM node, a
+      class instance), so `settled-read` reads it here, where an unknown
+      tag stays inert data
     - `{:status :rejected :rejection s}` — s is pr-str of the rejection
     - `{:status :missing}`               — mailbox slot is gone (a wire-
       shape regression; surfaced rather than silently retried)
@@ -130,9 +134,10 @@
     "    (= \"pending\" (aget entry# \"status\"))"
     "    {:status :pending}"
     "    (= \"resolved\" (aget entry# \"status\"))"
-    "    (let [v# (cljs.reader/read-string (aget entry# \"value\"))]"
+    "    (let [s# (aget entry# \"value\")]"
     "      (js-delete mailbox# " (pr-str mailbox-id) ")"
-    "      {:status :resolved :value v#})"
+    "      (try {:status :resolved :value (cljs.reader/read-string s#)}"
+    "           (catch :default _# {:status :resolved :printed s#})))"
     "    (= \"rejected\" (aget entry# \"status\"))"
     "    (let [s# (aget entry# \"rejection\")]"
     "      (js-delete mailbox# " (pr-str mailbox-id) ")"
@@ -149,6 +154,14 @@
     "(when-let [mailbox# (.-__rf2pair_await__ js/globalThis)]"
     "  (js-delete mailbox# " (pr-str mailbox-id) ")"
     "  nil)"))
+
+(defn- settled-read
+  "A settled mailbox read, with a value the browser could not read back
+  (`:printed`) read here instead."
+  [r]
+  (if (contains? r :printed)
+    (-> r (dissoc :printed) (assoc :value (nrepl/read-edn-safe (:printed r))))
+    r))
 
 (defn poll-mailbox!
   "Poll the mailbox at `mailbox-poll-ms` cadence until status is non-
@@ -174,7 +187,7 @@
                           (.then (fn [r]
                                    (if (and (map? r) (= :pending (:status r)))
                                      (js/setTimeout poll mailbox-poll-ms)
-                                     (resolve (if (map? r) r {:status :missing})))))
+                                     (resolve (if (map? r) (settled-read r) {:status :missing})))))
                           (.catch (fn [_]
                                     ;; Transient read failure — keep polling
                                     ;; until timeout. Reading the mailbox is

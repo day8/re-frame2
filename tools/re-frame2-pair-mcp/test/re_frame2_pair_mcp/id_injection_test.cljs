@@ -17,8 +17,8 @@
   see a build at all.
 
   A caller-supplied `cursor` is EDN data by the same argument: its frame
-  must be a keyword with the id grammar, and its epoch id and predicate
-  ride quoted."
+  must be a keyword with the id grammar, its window bounds integers, and
+  its epoch id and predicate ride quoted."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.cache :as cache]
@@ -303,6 +303,32 @@
                    (is (= :rf.mcp/cursor-stale (:reason (tu/extract-edn result))))
                    (is (not-any? #(str/includes? % "pwned3x7nj") @forms)
                        "the forged frame never reached a form")))
+          (.catch fail!)
+          (.then (fn [_] (done)))))))
+
+(deftest cursor-window-bounds-must-be-integers
+  ;; trace-window prints `:until-ms` (and the cutoff derived from `:ms`)
+  ;; into its window filter as numbers, so a decoded cursor carrying any
+  ;; other value is stale, never spliced — and so is a non-integer `ms` arg.
+  (async done
+    (let [forms (atom [])
+          until (cursor/encode-cursor {:v 1 :after-id 1 :frame :rf/default :until-ms forged-call})
+          ms    (cursor/encode-cursor {:v 1 :after-id 1 :frame :rf/default :ms forged-call})]
+      (capture-cljs! forms)
+      (-> (trace-window/trace-window-tool nil (tu/args->js {:cursor until}))
+          (.then (fn [result]
+                   (is (= :rf.mcp/cursor-stale (:reason (tu/extract-edn result)))
+                       "a forged :until-ms is stale")
+                   (trace-window/trace-window-tool nil (tu/args->js {:cursor ms}))))
+          (.then (fn [result]
+                   (is (= :rf.mcp/cursor-stale (:reason (tu/extract-edn result)))
+                       "a forged :ms is stale")
+                   (trace-window/trace-window-tool nil (tu/args->js {:ms "(js/pwned3x7nj)"}))))
+          (.then (fn [result]
+                   (is (= :invalid-numeric-arg (:reason (tu/extract-edn result)))
+                       "a non-integer ms arg is refused")
+                   (is (not-any? #(str/includes? % "pwned3x7nj") @forms)
+                       "no forged window bound reached a form")))
           (.catch fail!)
           (.then (fn [_] (done)))))))
 

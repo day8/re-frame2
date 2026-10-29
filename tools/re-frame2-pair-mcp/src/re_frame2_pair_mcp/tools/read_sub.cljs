@@ -60,18 +60,16 @@
   The hint repeats the documented usage shape so an agent that
   fat-fingers the call gets a corrective example without a round-trip."
   [sub-str]
-  (let [trimmed (some-> sub-str str/trim)]
+  (let [text (args/edn-text sub-str)]
     (cond
-      (or (nil? trimmed) (str/blank? trimmed))
+      (nil? text)
       [:err {:ok? false :reason :missing-sub
              :hint "usage: read-sub {sub '[:sub/id args...]' [frame :foo]}"}]
 
       :else
-      (let [parsed (try
-                     (cljs.reader/read-string trimmed)
-                     (catch :default _ ::reader-fail))]
+      (let [parsed (args/read-edn-text text)]
         (cond
-          (= ::reader-fail parsed)
+          (= ::args/unreadable parsed)
           [:err {:ok? false :reason :invalid-sub-edn
                  :sub sub-str
                  :hint "sub must be an EDN-readable vector, e.g. \"[:current-user]\""}]

@@ -3,9 +3,12 @@
   What the `--allow-sensitive-reads` gate does to each tool is pinned by
   the conformance corpus's `:raw-state/*` fixtures."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.server :as server]
             [re-frame2-pair-mcp.nrepl :as nrepl]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.read-dom :as read-dom]
+            [re-frame2-pair-mcp.tools.read-ui :as read-ui]))
 
 ;; Restore the stubbed eval here rather than in a per-test `.finally`, which
 ;; fires after `done` and can clobber a neighbour namespace's stub mid-eval.
@@ -96,9 +99,10 @@
     (is (true? (:eval-allowed? (server/parse-launch-flags argv))))))
 
 ;; ---------------------------------------------------------------------------
-;; signal-runtime!. The runtime's raw-state posture resets to permissive on
-;; every page reload, so the signal is sent before EVERY state-emitting eval;
-;; only a concurrent in-flight configure for the same build is shared.
+;; signal-runtime!. The runtime's raw-state posture resets to its closed
+;; default on every page reload, so the signal is sent before EVERY
+;; state-emitting eval; only a concurrent in-flight configure for the same
+;; build is shared.
 ;; ---------------------------------------------------------------------------
 
 (deftest signal-runtime-reconfigures-each-call
@@ -113,6 +117,31 @@
           (.then (fn [_] (is (= 3 @calls) "no permanent per-build skip")))
           ;; Upstream of the single `done`, so a rejection reports rather than hangs.
           (.catch (fn [e] (is false (str "signal-runtime! must not reject: " (.-message e)))))
+          (.then (fn [_] (done)))))))
+
+(deftest rendered-content-reads-signal-the-posture-first
+  ;; The runtime redacts rendered DOM by the signalled posture, so read-dom
+  ;; and read-ui signal it before each read rather than read under whatever
+  ;; posture the runtime happens to hold.
+  (async done
+    (let [forms   (atom [])
+          respond (fn [form]
+                    (swap! forms conj form)
+                    (js/Promise.resolve
+                      (if (str/includes? form "__re_frame2_pair_runtime") true {:ok? true})))
+          index   (fn [needle]
+                    (first (keep-indexed (fn [i f] (when (str/includes? f needle) i)) @forms)))
+          signalled-first? (fn [read-fn]
+                             (let [s (index "configure-raw-state!") r (index read-fn)]
+                               (boolean (and s r (< s r)))))]
+      (set! nrepl/cljs-eval-value (fn ([_ _ form] (respond form)) ([_ _ form _] (respond form))))
+      (-> (read-dom/read-dom-tool nil #js {:selector "body"})
+          (.then (fn [_]
+                   (is (signalled-first? "dom-read") "read-dom signals before it reads")
+                   (reset! forms [])
+                   (read-ui/read-ui-tool nil #js {:selector "body"})))
+          (.then (fn [_] (is (signalled-first? "ui-read") "read-ui signals before it reads")))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e)))))
           (.then (fn [_] (done)))))))
 
 (deftest signal-runtime-dedups-concurrent-in-flight

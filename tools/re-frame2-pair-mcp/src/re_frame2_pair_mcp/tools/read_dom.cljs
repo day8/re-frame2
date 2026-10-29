@@ -38,8 +38,10 @@
   (`re-frame2-pair.runtime`): read-dom emits
   `(re-frame2-pair.runtime/dom-read {...})` and read-ui emits
   `(re-frame2-pair.runtime/ui-read {...})`, via the SAME `eval-form` DSL
-  (`tools.eval-form`) and the SAME single-eval prelude
-  (`probe/eval-after-runtime!`). The per-node projection (tag + capped
+  (`tools.eval-form`) and the SAME signalled single-eval prelude
+  (`probe/eval-after-runtime-signalled!`): the runtime redacts rendered
+  content by the posture the server signals, and holds the off-box
+  posture until it hears one. The per-node projection (tag + capped
   text + attribute map) lives ONCE, in the runtime's `node->content`.
 
   Routing both planes through the runtime fn keeps a single core for both
@@ -240,7 +242,7 @@
         ;; `ok-text` never sees `nil` and emits the `null` structuredContent
         ;; the SDK rejects). read-ui carries the identical projection. The
         ;; per-tool blank `:reason` / `:hint` / `:selector` echo ride in here.
-        (probe/eval-after-runtime!
+        (probe/eval-after-runtime-signalled!
           conn build-id form :read-dom-failed
           (probe/map-result-or-blank
             build-id :rf.error/read-dom-blank-result

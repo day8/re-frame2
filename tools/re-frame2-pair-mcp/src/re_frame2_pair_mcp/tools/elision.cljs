@@ -124,19 +124,21 @@
   second place the §10 table could drift.
 
   The `:elision` MCP arg composes on top as the EP-0015 §10 explicit
-  override: when `include-large?` is true it overlays
-  `:rf.egress/include-large? true`, so a caller turning elision off keeps
-  large content even under the off-box-tool floor. The override wins over
-  the profile (projection.cljc §`resolve-elision-opts`).
+  override, which wins over the profile floor (projection.cljc
+  §`resolve-elision-opts`). Under `:rf.egress/off-box-tool` the floor
+  elides large, so the overlay rides only when `include-large?` is true.
+  `:rf.egress/local-raw`'s floor passes large too, so under it the overlay
+  always rides, `false` included: the two axes stay independent and only
+  both opt-ins together ship the fully raw value (spec/003 §read-sub).
 
   Knobs:
 
   - `include-large?`      — when true, overlay `:rf.egress/include-large?
                             true` so the walk passes large slots through
                             unmodified; when false (the default for
-                            elision-enabled call sites) the profile floor
-                            stands and the `:rf.size/large-elided` marker
-                            is substituted.
+                            elision-enabled call sites) the
+                            `:rf.size/large-elided` marker is substituted,
+                            under either profile.
   - `include-sensitive?`  — when true, the surface is the trusted-local
                             `:rf.egress/local-raw` boundary (declared-
                             sensitive slots pass through unmodified); when
@@ -157,8 +159,8 @@
   [include-large? include-sensitive?]
   (pr-str (cond-> {:rf.egress/profile
                    (rf.mcp-base.egress/mcp-tool-profile include-sensitive?)}
-            include-large?
-            (assoc rf.mcp-base.vocab/include-large-opt true))))
+            (or include-large? include-sensitive?)
+            (assoc rf.mcp-base.vocab/include-large-opt (boolean include-large?)))))
 
 (defn project-sub-value-src
   "CLJS source for a fn that projects ONE sub-cache entry's `:value` slot

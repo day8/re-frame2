@@ -31,9 +31,10 @@
 
   5. `tools/call` (subsequent): when discovery found a port file,
      re-read that exact file before each app-facing call. If its port
-     changes, close the stale socket and replace the connection. Env-var
-     and cwd-only discovery have no stable file to re-read and keep the
-     active endpoint until connection state is explicitly invalidated.
+     changes, close the stale socket and replace the connection. The cwd
+     scan caches its winning file like the other file-backed branches;
+     only env-var discovery has no file to re-read, and keeps its
+     endpoint.
 
   6. stdin EOF: the MCP host owns process lifecycle — when it closes
      stdin, Node reaches EOF and `shutdown!` retires the session: it
@@ -123,7 +124,7 @@
        :discovered?    <bool>}             ;; have we run discovery yet?
 
   Resetting `:discovered? false` triggers a full re-discovery on the
-  next tool call — used by the operator-initiated re-attach branch.
+  next tool call — used when the cached port file vanishes.
 
   While `:discovered?` is false, every tool call re-runs the cascade, so
   a recoverable failure (shadow not up at the first call) self-heals on a
@@ -215,10 +216,9 @@
   when the user cancels/declines or the client doesn't support
   `elicitation/create`.
 
-  The MCP elicitation form is keyed by integer index — the user picks a
-  numbered project; we map back to the candidate. A simpler enum field
-  works because shadow-project absolute paths can be long and unwieldy
-  inside a select widget."
+  The form is one enum field whose options are the candidates' labels
+  (`<project-home> (port N)`); the chosen label maps back to its
+  candidate by string equality."
   [candidates]
   (let [labels   (mapv (fn [c] (str (:project-home c) " (port " (:port c) ")"))
                        candidates)
@@ -413,8 +413,7 @@
   `:build-alias`). The transport-layer `nrepl/connect!` deliberately
   does NOT clear those caches on a same-port reopen — that would wipe a
   valid sticky build on a transient socket hiccup — so this layer (which
-  actually observes the port change) owns the invalidation, alongside
-  operator `close!`.
+  actually observes the port change) owns the invalidation.
 
   ## Discovery failure is RETRIED, never sticky
 

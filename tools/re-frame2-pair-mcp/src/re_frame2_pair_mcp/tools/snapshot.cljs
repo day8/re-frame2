@@ -66,13 +66,11 @@
         ;; the walker's opt of the same shape via
         ;; `egress-opts-edn`'s two-arity form. Off-box defaults apply.
         ;;
-        ;; The eval form returns `{:value <snap> :elided-count N}`; the
-        ;; `:elided-count` key is what marks the response as this shape
-        ;; (see `new-shape?` below). The count itself is NOT the
-        ;; envelope's `:elided-large`: it is taken over the WHOLE walked
-        ;; state, and the pipeline's path slice and summary pass then
-        ;; remove markers, so the wire pipeline counts what it ships
-        ;; instead.
+        ;; The eval form returns `{:value <snap> :tool-frames-excluded
+        ;; [...]}`; the `:tool-frames-excluded` key is what marks the
+        ;; response as this shape (see `new-shape?` below). The envelope's
+        ;; `:elided-large` is counted by the wire pipeline over what it
+        ;; ships, after the path slice and summary pass remove markers.
         ;; `egress-opts-edn` takes the walker-aligned
         ;; `include-large?` polarity directly (no in-helper inversion).
         ;; MCP arg `elision` true = emit markers = `:rf.egress/include-large?` false,
@@ -88,8 +86,8 @@
         ;; overlay (large passes, sensitive redacts to `:rf/redacted`).
         ;; Only the deliberate BOTH-axes opt-in names
         ;; `:rf.egress/local-raw`, under which the projection is the
-        ;; identity. The `:epochs` projection + `:machines` redaction
-        ;; already gate on the sensitive axis (`incl?`) and are unaffected.
+        ;; identity. The `:epochs` projection and the `:machines` slice
+        ;; gate on the sensitive axis (`incl?`); see below.
         egress-opts-form  (elision/egress-opts-edn (not elision?) incl?)
         ;; The `:epochs` slice ships whole `:rf/epoch-record`s
         ;; (each carrying `:db-before` / `:db-after` app-db snapshots),
@@ -137,7 +135,9 @@
         ;; projection uses). Gate OFF ⇒ `incl?` false ⇒ redact-runtime-db?
         ;; true ⇒ `:machines` egresses as `:rf/redacted`; gate ON +
         ;; `:include-sensitive true` ⇒ the live runtime-db snapshots ship
-        ;; (the operator's deliberate opt-in to runtime-db diagnostics).
+        ;; (the operator's deliberate opt-in to runtime-db diagnostics),
+        ;; still projected under the same opts as `:app-db` so the size
+        ;; axis (`elision`) holds for them too.
         redact-runtime-db? (not incl?)
         ;; The `walked` reduction always fires: the `:app-db` /
         ;; `:sub-cache` slices route through the door on EVERY read,
@@ -201,7 +201,8 @@
                                (if redact-runtime-db?
                                  (str " fmap (if (contains? fmap :machines)"
                                       "        (assoc fmap :machines :rf/redacted) fmap)")
-                                 "")
+                                 (str " fmap (if (contains? fmap :machines)"
+                                      "        (update fmap :machines f) fmap)"))
                                "] fmap)")
         ;; When the resolved scope is the DEFAULT `:app`
         ;; (reserved `:rf/*` tool frames excluded), piggyback the list of
@@ -230,28 +231,27 @@
                                      " {} snap)"))]
                      (ef/rt-raw
                        (str "{:value walked"
-                            " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                            "                              (tree-seq coll? seq walked)))"
                             " :tool-frames-excluded " tool-frames-form "}"))))]
-    ;; Server-side backstop: refuse a WHOLESALE (`path: []`
-    ;; or `mode :full` + no path) read of a reserved `:rf/*` tool frame
+    ;; Server-side backstop: refuse a WHOLESALE (`path: []`, or no path
+    ;; with the app-db slice resolving to `:full` by `mode` or `modes`)
+    ;; read of a reserved `:rf/*` tool frame
     ;; (esp. `:rf/xray`) BEFORE the eval round-trip. The skill steers
     ;; away from this; the guard enforces it so a stray full
     ;; read can't blow the context window. Sliced reads + the default
     ;; `:app` scope (reserved frames already excluded) pass through.
-    (if-let [refused (guard/snapshot-refusal frames path slice-mode)]
+    (if-let [refused (guard/snapshot-refusal frames path slice-mode slice-modes)]
       (js/Promise.resolve refused)
       (probe/eval-after-runtime-signalled!
         conn build-id form :snapshot-failed
         (fn [resp]
                  ;; Eval-form shape: `{:value <snap>
-                 ;; :elided-count N}`. Defensively fall back to the
-                 ;; bare-snap shape — a degraded runtime / stubbed
+                 ;; :tool-frames-excluded [...]}`. Defensively fall back
+                 ;; to the bare-snap shape — a degraded runtime / stubbed
                  ;; eval might return the raw per-frame map.
-                 ;; Recognised via the `:elided-count` marker key,
+                 ;; Recognised via the `:tool-frames-excluded` marker key,
                  ;; not via `(map? resp)`, because the bare snapshot
                  ;; IS itself a map (`{<frame-id> {...}}`).
-                 (let [new-shape?    (and (map? resp) (contains? resp :elided-count))
+                 (let [new-shape?    (and (map? resp) (contains? resp :tool-frames-excluded))
                        snap-value    (if new-shape? (:value resp) resp)
                        ;; The eval form piggybacks the reserved
                        ;; `:rf/*` tool frames the `:app` default dropped (an

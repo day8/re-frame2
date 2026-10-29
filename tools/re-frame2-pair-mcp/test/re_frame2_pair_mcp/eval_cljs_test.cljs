@@ -163,6 +163,26 @@
                         (read-edn r)))
                  (done))))))
 
+(deftest await-unreadable-value-resolves-as-inert-data
+  ;; A Promise resolving to a value that prints as `#object[...]` settles at
+  ;; once; the browser cannot read that print back, so the server reads it,
+  ;; keeping the unknown tag as inert data rather than polling to a timeout.
+  (async done
+    (-> (with-runtime! {:respond (fn [form]
+                                   (cond
+                                     (await-wrap-form? form)    {:rf.mcp/await-mailbox "await-test-4"}
+                                     (mailbox-read-form? form) {:status :resolved :printed "#object[Response]"}))}
+          #(eval-cljs/eval-cljs-tool (fresh-conn)
+                                     #js {:form       "(js/fetch \"/x\")"
+                                          :await      true
+                                          :timeout-ms 5000
+                                          :build      "app"}))
+        (.then (fn [r]
+                 (is (not (err? r)) "a settled await is a value, not a timeout")
+                 (is (str/includes? (tu/extract-text r) ":value #object [Response]")
+                     "the unknown tag rides as inert data")
+                 (done))))))
+
 (deftest await-bad-sentinel-surfaces-structured
   ;; An unrecognised sentinel means the await wrapper itself regressed.
   (async done

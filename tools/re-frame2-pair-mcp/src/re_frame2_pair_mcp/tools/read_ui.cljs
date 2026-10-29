@@ -41,8 +41,10 @@
   (`re-frame2-pair.runtime`): read-ui emits
   `(re-frame2-pair.runtime/ui-read {...})` and read-dom emits
   `(re-frame2-pair.runtime/dom-read {...})`, via the SAME `eval-form` DSL
-  (`tools.eval-form`) and the SAME single-eval prelude
-  (`probe/eval-after-runtime!`). The per-node projection (tag + capped
+  (`tools.eval-form`) and the SAME signalled single-eval prelude
+  (`probe/eval-after-runtime-signalled!`): the runtime redacts rendered
+  content by the posture the server signals, and holds the off-box
+  posture until it hears one. The per-node projection (tag + capped
   text + attribute map) lives ONCE, in the runtime's `node->content`; the
   view plane layers entity-resolution + privacy elision ON TOP of it. A
   fix or a regression-guard on the shared form covers BOTH ops, so
@@ -221,7 +223,7 @@
           ;; `ok-text` never sees `nil` and emits the `null`
           ;; structuredContent the SDK rejects. read-dom carries the
           ;; identical projection.
-          (probe/eval-after-runtime!
+          (probe/eval-after-runtime-signalled!
             conn build-id (read-ui-form vid pt selector max-text frame)
             :rf.error/read-ui-failed
             (probe/map-result-or-blank

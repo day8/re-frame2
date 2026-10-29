@@ -18,8 +18,9 @@
      (see `runtime/configure-raw-state!`). This is one tiny idempotent
      nREPL round-trip issued before every state-emitting tool eval —
      re-signalled rather than cached-as-delivered, because the runtime's
-     posture resets to its permissive default on every page/runtime
-     reload (see `signal-runtime!`).
+     posture resets to its default on every page/runtime reload (see
+     `signal-runtime!`). That default is the off-box posture, so an eval
+     that reaches the runtime unsignalled fails closed.
 
   When `--allow-sensitive-reads` is ON, the per-call arg wins.
 
@@ -112,7 +113,7 @@
 ;; per-runtime flag controlling whether `app-db-reset!` taps raw values or
 ;; redacts via `project-egress`. The MCP server pushes its boot-gate
 ;; state into the runtime before every state-emitting eval — the
-;; per-runtime flag resets to its permissive default on every page/runtime
+;; per-runtime flag resets to its closed default on every page/runtime
 ;; reload, so the posture is re-signalled rather than cached as delivered.
 
 (defonce ^:private runtime-signalling
@@ -136,16 +137,14 @@
   per build
 
   The runtime's `raw-state-config` atom defaults to `:allow-raw-state?
-  true` (the bare-CLJS-REPL posture) and is RE-MINTED on every full page
+  false` (the off-box posture) and is RE-MINTED on every full page
   reload / CLJS heap reset — a fresh preload evaluation re-`defonce`s it
-  back to the permissive default, and re-mints `session-id` too. Caching
-  the signal as DELIVERED once per `build-id` per server lifetime would
-  leave the build-id in the resolved set after a reload, so
-  `signal-runtime!` would no-op, the freshly-recreated runtime would stay
-  at its permissive default, and the next state-emitting tool (snapshot /
-  get-path / replace-app-db / restore-epoch /
-  dispatch-dry-run / record / watch-until) could tap RAW prev/next app-db
-  through `tap>` even with `--allow-sensitive-reads` OFF.
+  back to that default, and re-mints `session-id` too. Caching the
+  signal as DELIVERED once per `build-id` per server lifetime would leave
+  the build-id in the resolved set after a reload, so `signal-runtime!`
+  would no-op and a server launched with `--allow-sensitive-reads` would
+  read redacted values from then on; it would also leave a posture
+  another session signalled in place.
 
   The server can't cheaply know the current `session-id` without a
   round-trip, and `configure-raw-state!` is idempotent + tiny (one
@@ -158,9 +157,10 @@
   the posture landing) — but once that Promise resolves the next call
   reconfigures afresh rather than skipping.
 
-  Failure (a runtime without `configure-raw-state!`) is swallowed
-  silently — the wire-side enforcement still holds, so a degraded runtime
-  just means `tap>` consumers see raw values.
+  Failure (a runtime without `configure-raw-state!`, a dropped eval) is
+  swallowed: the runtime keeps the posture it already holds, which after
+  a reload is its closed default, so a failed signal can withhold an
+  opted-in raw read but not ship a redacted one raw.
 
   Called between `ensure-runtime!` and the first state-emitting eval in
   each tool body that taps / egresses app-db. Returns a Promise resolving
@@ -186,7 +186,7 @@
                       (.catch (fn [_]
                                 ;; Degraded runtime — no
                                 ;; `configure-raw-state!`. Swallow; the
-                                ;; wire-side gate still enforces.
+                                ;; runtime keeps its current posture.
                                 (finish!))))]
       (swap! runtime-signalling assoc build-id p)
       p)))

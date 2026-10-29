@@ -58,7 +58,11 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 (defn trace-window-tool [conn raw-args]
-  (let [ms        (or (wire/arg raw-args :ms) 1000)
+  (let [;; `ms` and the cursor's window bounds print into the filter form
+        ;; as numbers, so each is validated as an integer before it gets
+        ;; there; a non-integer is refused, never spliced.
+        ms-r      (args/parse-positive-int-arg "ms" (wire/arg raw-args :ms))
+        ms        (or (second ms-r) 1000)
         build-id  (wire/arg-build conn raw-args)
         ;; Coerce `:frame` via the colon-tolerant
         ;; `->frame-keyword` (the shared `fresh-keyword` path), not a
@@ -97,9 +101,15 @@
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
         cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]
-    (if (= cursor-in ::cursor/malformed)
+    (cond
+      (= :err (first ms-r))
+      (js/Promise.resolve (wire/err-text (second ms-r)))
+
+      (= cursor-in ::cursor/malformed)
       (js/Promise.resolve
         (cursor/cursor-stale-result "trace-window" {:requested-id nil}))
+
+      :else
       (let [after-id  (:after-id cursor-in)
             ;; Sticky window upper-bound: encoded on the first call so
             ;; subsequent pages see the SAME window the first call did.
@@ -219,8 +229,13 @@
                                 {elided :elided shown :count} indicators
                                 next-id     (cursor/page-continuation-id
                                               raw-epochs k after-id (:next-id v))
+                                ;; A cut page always gets a cursor, even
+                                ;; page 1 cut to zero records with no
+                                ;; position to resume from: it carries the
+                                ;; window, which a plain re-call would
+                                ;; recompute from the clock.
                                 next-cursor (cursor/encode-cursor
-                                              (when (some? next-id)
+                                              (when (or (some? next-id) cut?)
                                                 {:v        1
                                                  :after-id next-id
                                                  :ms       window-ms

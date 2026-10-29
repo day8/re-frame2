@@ -618,6 +618,28 @@
               m)))
         {} as-clj))))
 
+(defn edn-text
+  "The text an EDN-string MCP arg carries: a string trimmed, a JSON number
+  printed (`epoch-id: 7` names the id 7), nil for nil or blank. Any other
+  JSON value — an array, an object, a boolean — is `::not-text`: these
+  args are EDN TEXT, so the caller refuses it with its own unreadable-arg
+  reason rather than throw on it."
+  [raw]
+  (let [t (cond (string? raw) (str/trim raw)
+                (number? raw) (pr-str raw)
+                (nil? raw)    nil
+                :else         ::not-text)]
+    (when-not (and (string? t) (str/blank? t)) t)))
+
+(defn read-edn-text
+  "Read `edn-text`'s non-nil result as EDN, or `::unreadable` when it is
+  `::not-text` or does not read."
+  [text]
+  (if (= ::not-text text)
+    ::unreadable
+    (try (cljs.reader/read-string text)
+         (catch :default _ ::unreadable))))
+
 (defn read-edn-arg
   "Read a single-value EDN MCP arg into the `[:ok parsed]` / `[:err reason]`
   shape the write/introspection tools branch on.
@@ -635,12 +657,11 @@
   `parse-event-arg` below rather than here, so this single-value reader
   stays minimal."
   [raw missing invalid]
-  (let [trimmed (some-> raw str/trim)]
-    (if (or (nil? trimmed) (str/blank? trimmed))
+  (let [text (edn-text raw)]
+    (if (nil? text)
       [:err missing]
-      (let [parsed (try (cljs.reader/read-string trimmed)
-                        (catch :default _ ::reader-fail))]
-        (if (= ::reader-fail parsed)
+      (let [parsed (read-edn-text text)]
+        (if (= ::unreadable parsed)
           [:err invalid]
           [:ok parsed])))))
 
@@ -680,17 +701,16 @@
   matrix is pinned in `args-test`; the tool suites keep only the narrow
   integration assertions (distinct hint + no-eval-on-error)."
   [event-str missing-hint]
-  (let [trimmed (some-> event-str str/trim)]
+  (let [text (edn-text event-str)]
     (cond
-      (or (nil? trimmed) (str/blank? trimmed))
+      (nil? text)
       [:err {:ok? false :reason :missing-event
              :hint missing-hint}]
 
       :else
-      (let [parsed (try (cljs.reader/read-string trimmed)
-                        (catch :default _ ::reader-fail))]
+      (let [parsed (read-edn-text text)]
         (cond
-          (= ::reader-fail parsed)
+          (= ::unreadable parsed)
           [:err {:ok? false :reason :invalid-event-edn
                  :event event-str
                  :hint "event must be an EDN-readable vector, e.g. \"[:cart/checkout]\""}]
@@ -874,16 +894,15 @@
   deeper gate; this is the cheap wire-shape check so an obvious typo gets a
   corrective hint without a round-trip."
   [raw]
-  (let [trimmed (some-> raw str/trim)]
+  (let [text (edn-text raw)]
     (cond
-      (or (nil? trimmed) (str/blank? trimmed))
+      (nil? text)
       [:ok nil]
 
       :else
-      (let [parsed (try (cljs.reader/read-string trimmed)
-                        (catch :default _ ::reader-fail))]
+      (let [parsed (read-edn-text text)]
         (cond
-          (= ::reader-fail parsed)
+          (= ::unreadable parsed)
           [:err {:ok?    false
                  :reason :invalid-cofx
                  :given  raw

@@ -1116,7 +1116,7 @@
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
-                                   :elided-count 0}]]
+                                   :tool-frames-excluded []}]]
     :fixture/eval-form-must-contain
     [":rf.egress/profile :rf.egress/off-box-tool"]
     :fixture/eval-form-must-not-contain
@@ -1132,7 +1132,7 @@
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
-                                   :elided-count 0}]]
+                                   :tool-frames-excluded []}]]
     :fixture/eval-form-must-contain
     [":rf.egress/profile :rf.egress/local-raw"]
     :fixture/expect
@@ -1145,7 +1145,7 @@
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
-                                   :elided-count 0}]]
+                                   :tool-frames-excluded []}]]
     :fixture/eval-form-must-contain
     ["re-frame.core/project-egress"
      ":rf.egress/profile :rf.egress/off-box-tool"
@@ -1208,7 +1208,7 @@
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
-                                   :elided-count 0}]]
+                                   :tool-frames-excluded []}]]
     :fixture/eval-form-must-contain
     ["re-frame.core/project-egress"
      ":rf.egress/profile :rf.egress/off-box-tool"
@@ -1227,7 +1227,7 @@
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
-                                   :elided-count 0}]]
+                                   :tool-frames-excluded []}]]
     :fixture/eval-form-must-contain
     ["re-frame.core/project-egress"
      ":rf.egress/profile :rf.egress/local-raw"]
@@ -1273,7 +1273,7 @@
     [["__re_frame2_pair_runtime"  true]
      ["configure-raw-state!"      nil]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}
-                                   :elided-count 0}]]
+                                   :tool-frames-excluded []}]]
     :fixture/eval-form-must-contain
     ["configure-raw-state!"
      ":allow-raw-state? false"]
