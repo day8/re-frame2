@@ -77,9 +77,10 @@
 ;; ---- pure: status-glyph map ----------------------------------------------
 
 (deftest status-glyph-shape
-  ;; spec/004 §Canonical assertion-strip publishes these four; `✖` keeps an
-  ;; errored row distinguishable from a failed one on the shared red band.
-  (is (= {:pass "✓" :fail "✗" :skip "⊘" :error "✖"}
+  ;; spec/004 §Canonical assertion-strip publishes these five; `✖` keeps an
+  ;; errored row distinguishable from a failed one on the shared red band,
+  ;; and a refusal takes the tool-wide `:cannot-run` glyph.
+  (is (= {:pass "✓" :fail "✗" :skip "⊘" :error "✖" :cannot-run "⊘"}
          rf.story.ui.assertion-strip/status-glyph)))
 
 ;; ---- hiccup walkers ------------------------------------------------------

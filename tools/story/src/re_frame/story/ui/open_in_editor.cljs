@@ -165,12 +165,23 @@
       (string? unwrapped) (parse-file-line unwrapped)
       :else               nil)))
 
+(defn- control-character?
+  "True iff `v`, printed, carries a C0 control character or DEL — a tab,
+  CR, LF or the like. No editor path, line or column contains one, and a
+  browser strips or re-encodes them before the editor sees the URI, so a
+  coord or URI carrying one is refused rather than opening some other
+  file."
+  [v]
+  (boolean (re-find #"[\x00-\x1F\x7F]" (str v))))
+
 (defn resolve-uri
   "Pure-data: source-coord → launchable URI string, or nil. Returns nil
-  when the coord lacks `:file` or when `rf.source-coords.editor-uri/editor-uri` returns
+  when the coord lacks `:file`, when `rf.source-coords.editor-uri/editor-uri` returns
   nil (a forbidden scheme — `javascript:` / `data:` /
-  `vbscript:`). There is no positive allowlist: any
-  non-dangerous scheme (built-in or unknown custom) passes through.
+  `vbscript:`), or when the URI carries a control character
+  (`control-character?`) from the coord's path, line or column. There is
+  no positive allowlist: any non-dangerous scheme (built-in or unknown
+  custom) passes through.
 
   Threads the configured project-root through
   `rf.source-coords.editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
@@ -189,7 +200,9 @@
     (let [opts {:project-root (rf.story.config/get-project-root)}]
       ;; `editor-uri` already denylist-gates the resolved URI inline at
       ;; build time, returning nil on a forbidden scheme.
-      (rf.source-coords.editor-uri/editor-uri (rf.story.config/get-editor) source-coord opts))))
+      (let [uri (rf.source-coords.editor-uri/editor-uri (rf.story.config/get-editor) source-coord opts)]
+        (when-not (control-character? uri)
+          uri)))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
@@ -244,7 +257,8 @@
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
   must fire here too. A URI on a forbidden scheme (`javascript:` /
   `data:` / `vbscript:`, read the way a browser reads a scheme — see
-  `forbidden-scheme?`) is a click-time no-op. There is no positive allowlist:
+  `forbidden-scheme?`) is a click-time no-op, and so is one carrying a
+  control character (`control-character?`). There is no positive allowlist:
   unknown custom non-dangerous schemes navigate as the developer
   intended (the spec mandates a rejection list, not an allowlist).
 
@@ -259,7 +273,9 @@
   tests stub the navigation without mutating `js/window.location`
   (which is non-configurable in modern browsers)."
   [uri]
-  (when (and uri (not (rf.source-coords.editor-uri/forbidden-scheme? uri)))
+  (when (and uri
+             (not (rf.source-coords.editor-uri/forbidden-scheme? uri))
+             (not (control-character? uri)))
     (js/console.log "[rf.story/open-in-editor] navigating to:" uri)
     (@navigator uri)
     nil))
@@ -285,12 +301,15 @@
   classpath-relative `:file` at runtime); the URI fallback resolves the
   coord through `resolve-uri` (project-root prefix + the
   build-time scheme denylist). When the coord cannot produce a usable
-  URI either, the fallback is a harmless no-op. Returns nothing."
+  URI either, the fallback is a harmless no-op. A coord whose path, line
+  or column carries a control character (`control-character?`) reaches
+  neither. Returns nothing."
   [source-coord]
-  (rf.source-coords.open-endpoint/open-coord!
-    source-coord
-    (rf.story.config/get-editor)
-    (fn [] (open! (resolve-uri source-coord))))
+  (when-not (some control-character? ((juxt :file :line :column) source-coord))
+    (rf.source-coords.open-endpoint/open-coord!
+      source-coord
+      (rf.story.config/get-editor)
+      (fn [] (open! (resolve-uri source-coord)))))
   nil)
 
 ;; ---- public: the open-in-editor chip ------------------------------------
