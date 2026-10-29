@@ -303,10 +303,23 @@
 ;; A mutation instance keeps the raw values (success-path `:invalidates` /
 ;; `:patches` / `:populates` read them); only egress redacts.
 
+(def mutation-instance-value-slots
+  "The value-bearing slots of a mutation instance, which a coarse claim
+  covers because it claims the whole instance: the submitted params and
+  scope, the result, the error, whose body routinely echoes a submitted
+  value, and the patch summary, whose targets the write's own fns derived.
+  `:affected-keys` is absent because each key follows its own resource's
+  claim. The one list every site lowering the claim reads: this runtime-db
+  classification and the mutation read-sub egress. Spec 016 §Mutations
+  (first public-beta gate)."
+  [:params :scope :result :error :patch-summary])
+
 (defn- mutation-instance-declaration-paths
   "The absolute `{:sensitive [paths] :large [paths]}` one mutation instance
   contributes: params paths under its `:params`, scope paths under `:scope`,
-  data paths under `:result`."
+  data paths under `:result`, and a coarse `:sensitive?` / `:large?` claim
+  as each of the instance's `mutation-instance-value-slots`, a sensitive
+  claim winning."
   [key-id spec]
   (let [s            (split-projection-paths spec :sensitive)
         l            (split-projection-paths spec :large)
@@ -320,35 +333,28 @@
                          (into params-pre p)))
         ->abs        (fn [axis]
                        (into (mapv #(into result-pre %) (:data axis))
-                             (mapv ->key-abs (:params axis))))]
-    {:sensitive (->abs s)
-     :large     (->abs l)}))
+                             (mapv ->key-abs (:params axis))))
+        whole        (mapv #(conj inst-prefix %) mutation-instance-value-slots)
+        sensitive?   (true? (:sensitive? spec))]
+    {:sensitive (cond-> (->abs s)
+                  sensitive? (into whole))
+     :large     (cond-> (->abs l)
+                  (and (true? (:large? spec)) (not sensitive?)) (into whole))}))
 
 (defn- collect
-  "Each `kind` registration whose spec, under `spec-key`, declares either
-  axis — `{id {:sensitive … :large …}}`, through the bound frame view."
+  "Each `kind` registration whose spec, under `spec-key`, declares a
+  classification path or makes the coarse `:sensitive?` / `:large?` claim —
+  `{id {:sensitive … :large … :sensitive? … :large? …}}`, through the bound
+  frame view. Projection applies the coarse claims at every egress boundary,
+  runtime-db included. Spec 016 §Resource registration spec"
   [kind spec-key]
   (into {}
         (keep (fn [[id desc]]
                 (let [spec (get desc spec-key)]
-                  (when (or (seq (:sensitive spec)) (seq (:large spec)))
-                    [id (select-keys spec [:sensitive :large])]))))
-        (rf.registrar/registrations kind)))
-
-(defn- collect-resources
-  "Each resource registration that declares a classification path or claims
-  `:sensitive?` / `:large?` — `{id {:sensitive … :large … :sensitive? …
-  :large? …}}`, through the bound frame view. Spec 016 §Resource
-  registration spec: projection applies the coarse claims at every egress
-  boundary, runtime-db included."
-  []
-  (into {}
-        (keep (fn [[id desc]]
-                (let [spec (get desc :rf/resource)]
                   (when (or (seq (:sensitive spec)) (seq (:large spec))
                             (true? (:sensitive? spec)) (true? (:large? spec)))
                     [id (select-keys spec [:sensitive :large :sensitive? :large?])]))))
-        (rf.registrar/registrations :resource)))
+        (rf.registrar/registrations kind)))
 
 (defn runtime-classification
   "The `:resources/runtime-classification` hook for the
@@ -358,7 +364,7 @@
   `:resource/key`, and that resource's declaration is re-rooted onto the
   entry's `:data`, a coarse claim onto each of its value slots
   (`instance-declaration-paths`). Pure."
-  ([] (collect-resources))
+  ([] (collect :resource :rf/resource))
   ([resources decls]
    (reduce-kv (fn [acc key-id entry]
                 (if-let [decl (get decls (second (:resource/key entry)))]
@@ -373,8 +379,8 @@
   declaration, keyed by mutation id. Apply, `[mutations decls]`: every
   instance under `mutations` (the root's value) names its mutation by
   `:mutation/id`, and that mutation's declaration is re-rooted onto the
-  instance's `:params`, `:scope` and `:result`
-  (`mutation-instance-declaration-paths`). Pure."
+  instance's `:params`, `:scope` and `:result`, a coarse claim onto each of
+  its value slots (`mutation-instance-declaration-paths`). Pure."
   ([] (collect :mutation :rf/mutation))
   ([mutations decls]
    (reduce-kv (fn [acc key-id inst]

@@ -7,7 +7,7 @@
   while a read sub returns the bare projection — the entry's data and error
   channels, the instance's result, the scoped keys they sit under. So the
   sub's trace is classified from the owner spec, re-rooted onto the sub's
-  value, a resource's coarse claim covering every entry value slot the value
+  value, a coarse claim covering every entry or instance value slot the value
   carries, and a prior value stays redacted after an evict or a clear has
   removed the instance and its claims.
 
@@ -25,6 +25,7 @@
    [re-frame.fx :as rf.fx]
    [re-frame.interop :as rf.interop]
    [re-frame.privacy :as rf.privacy]
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    ;; load-bearing side-effecting requires: the facade registers the
    ;; :rf.resource/* + :rf.mutation/* events and subs and publishes the
    ;; read-sub egress projector; schemas binds the shared walker hooks.
@@ -221,3 +222,54 @@
           "the sensitive resource's error body arrives redacted on the view and the focused read")
       (is (= [error error true] (:off-box plain))
           "control: an undeclared resource's error body rides raw"))))
+
+(defn- failed-write
+  "Register mutation `id` under `spec`, hold its `:rf/mutation` and
+  `:rf.mutation/error` reads, and fail one write of the echoed value with
+  `error`. Returns `{:live <in-process reads> :frame <the instance's error
+  projected through the frame classification> :off-box [view-error error-sub
+  carries-echo?]}`, the off-box half read off the failure's sub runs."
+  [id spec error]
+  (rf/reg-mutation id
+    (merge {:params-schema [:map [:email :string]]} spec)
+    (fn [_ _] {:request {:method :post :url "/signup"}}))
+  (let [state-q [:rf/mutation {:instance id}]
+        error-q [:rf.mutation/error {:instance id}]
+        read!   (hold [state-q error-q])
+        _       (read!)
+        window  (capture-traces
+                  (fn []
+                    (rf/dispatch-sync [:rf.mutation/execute
+                                       {:mutation id :params {:email echoed} :instance id}])
+                    (fail! error)
+                    (read!)))
+        live    (read!)
+        inst    (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        (rf.resources.mutation-runtime/instance-path id))]
+    {:live    [(get-in live [state-q :error]) (get live error-q)]
+     :frame   (:error (rf.elision/elide-wire-value
+                        inst {:frame :rf/default
+                              :path  [:rf.runtime/mutations
+                                      (rf.resources.mutation-runtime/instance-key-id id)]}))
+     :off-box (when rf.interop/debug-enabled?
+                [(get-in (last-run-tags state-q window) [:rf.sub/value :error])
+                 (:rf.sub/value (last-run-tags error-q window))
+                 (carries? echoed (sub-runs window))])}))
+
+(deftest a-coarse-mutations-error-body-is-redacted-through-the-frame-and-off-box
+  ;; A mutation's coarse claim covers the whole instance, as a resource's
+  ;; covers its entry, so the error body echoing the submitted value redacts
+  ;; with the rest.
+  (let [error  {:kind        :rf.http/http-4xx
+                :http-status 422
+                :body        {:email [(str echoed " is already registered")]}}
+        secret (failed-write :signup/secret-write {:sensitive? true} error)
+        plain  (failed-write :signup/plain-write {} error)]
+    (is (= [error error] (:live secret) (:live plain)) "the in-process reads stay raw")
+    (is (= [redacted error] [(:frame secret) (:frame plain)])
+        "the frame classification claims the sensitive instance's error slot, and only that one")
+    (when rf.interop/debug-enabled?
+      (is (= [redacted redacted false] (:off-box secret))
+          "the sensitive mutation's error body arrives redacted on the view and the focused read")
+      (is (= [error error true] (:off-box plain))
+          "control: an undeclared mutation's error body rides raw"))))
