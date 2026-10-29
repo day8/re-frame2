@@ -896,11 +896,10 @@
     (nil? el)         ""
     (string? el)      (rf.ssr.html-helpers/escape-html el)
     ;; Canonicalise the numeric print form so the emitted HTML is
-    ;; byte-identical across runtimes: a
-    ;; whole-valued double renders `9` (not the JVM `9.0`), agreeing with
-    ;; CLJS. `canonical-number` uses `pr-str`, which coincides with `str`
-    ;; for numbers (no quoting), so ordinary integers/decimals are
-    ;; unchanged.
+    ;; byte-identical across runtimes: a whole-valued double renders `9`
+    ;; (not the JVM `9.0`), agreeing with CLJS, and a JVM-only BigDecimal
+    ;; or BigInt renders its plain digits (`19.99`, `42`), never the
+    ;; reader's `19.99M` / `42N`.
     (number? el)      (rf.ssr.hash/canonical-number el)
     (boolean? el)     ""
     ;; A keyword or symbol CHILD is spelled by its `name` — no leading

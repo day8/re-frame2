@@ -76,3 +76,27 @@
   (testing "in text and in a style value alike"
     (is (= "<div style=\"width:12500000.5px\">0.0005</div>"
            (rf.ssr.emit/render-to-string [:div {:style {:width 12500000.5}} 0.0005] {})))))
+
+(deftest jvm-only-numbers-render-their-exact-digits
+  (testing "a BigDecimal renders its exact digits and a BigInt its plain
+            digits, never the reader's M / N suffix; a double and a long are
+            the controls"
+    (doseq [[n expected] [[19.99M "19.99"]
+                          [10.50M "10.50"]
+                          [1E+3M "1000"]
+                          [42N "42"]
+                          [19.99 "19.99"]
+                          [42 "42"]]]
+      (is (= (str "<span>" expected "</span>")
+             (rf.ssr.emit/render-to-string [:span n] {}))
+          (pr-str n))))
+  (testing "in every position a number reaches: an attribute, a style value,
+            and the option match that decides `selected`"
+    (is (= "<input value=\"19.99\">"
+           (rf.ssr.emit/render-to-string [:input {:value 19.99M}] {})))
+    (is (= "<div data-price=\"19.99\">x</div>"
+           (rf.ssr.emit/render-to-string [:div {:data-price 19.99M} "x"] {})))
+    (is (= "<div style=\"width:10.5px\">x</div>"
+           (rf.ssr.emit/render-to-string [:div {:style {:width 10.5M}} "x"] {})))
+    (is (= "<select><option value=\"2\" selected>two</option></select>"
+           (rf.ssr.emit/render-to-string [:select {:value 2N} [:option {:value 2} "two"]] {})))))
