@@ -497,7 +497,7 @@
 ;; with no sensitive declaration passes through unchanged.
 ;; ---------------------------------------------------------------------------
 
-(defn- redact-at
+(defn redact-at
   "Project `v` through `rf/project-egress` as if it lives at
   `path` in `frame-id`'s app-db, so sensitive sub-paths (or a sensitive
   root path) substitute `:rf/redacted`. A nil frame-id projects under no
