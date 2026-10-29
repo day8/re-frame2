@@ -422,18 +422,26 @@
   and (2) every `:always` target that hop COULD settle onto, returned as a
   vector of absolute paths. A target is resolved from the node the `:always`
   was DECLARED on (`prefix`), since a bare-keyword `:target` is a sibling of
-  the declaring state. `by-entry` is the `index-named-entries` map. The
-  per-hop helper `always-diet-for-state` drives to a fixed point."
+  the declaring state. A hop runs the lifecycle cascade too, so the diet also
+  takes the `:entry` of every node entered descending each target's `:initial`
+  chain and — over-approximating the exited suffix, as the active path does —
+  the `:exit` of every node on `path`. `by-entry` is the `index-named-entries`
+  map. The per-hop helper `always-diet-for-state` drives to a fixed point."
   [by-entry states path diet]
-  (let [targets (transient [])]
+  (let [targets (transient [])
+        hop?    (volatile! false)]
     (doseq [i (range (count path))]
       (let [prefix (subvec (vec path) 0 (inc i))
             node   (node-at states prefix)]
         (doseq [e (always-entries node)]
+          (vreset! hop? true)
           (doseq [d (entry-diet by-entry :guards  (:guard e))]  (conj! diet d))
           (doseq [d (entry-diet by-entry :actions (:action e))] (conj! diet d))
           (when-let [tgt (resolve-target-path prefix (:target e))]
+            (lifecycle-diet-along-path by-entry states (initial-descent-path states tgt) :entry diet)
             (conj! targets tgt)))))
+    (when @hop?
+      (lifecycle-diet-along-path by-entry states path :exit diet))
     (persistent! targets)))
 
 (defn- always-diet-for-state

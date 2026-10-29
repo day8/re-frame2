@@ -83,3 +83,24 @@
                  :b region-b}}
       {:state {:a :idle :b :x}}
       [:rf.machine.timer/after-elapsed 1000 1 []])))
+
+;; An `:always` hop runs the lifecycle cascade as a transition does, so a named
+;; `:entry` on the state it reaches and a named `:exit` on the state it leaves
+;; are ensured with the hop's guard and action.
+(deftest an-always-hop-ensures-the-entry-it-reaches-and-the-exit-it-leaves
+  (rf/reg-cofx :test/hop-gen {:recordable? true} (fn [] 42))
+  (let [stamp* {:stamp (stamp :v :test/hop-gen)}]
+    (rf/reg-machine :lifecycle/hop-entry
+      {:initial :a :data {} :actions stamp*
+       :states  {:a {:on {:go :b}}
+                 :b {:always {:target :c}}
+                 :c {:entry :stamp}}})
+    (rf/reg-machine :lifecycle/hop-exit
+      {:initial :a :data {} :actions stamp*
+       :states  {:a {:on {:go :b}}
+                 :b {:exit :stamp :always {:target :c}}
+                 :c {}}})
+    (rf/dispatch-sync [:lifecycle/hop-entry [:go]])
+    (rf/dispatch-sync [:lifecycle/hop-exit [:go]])
+    (is (= [{:v 42} {:v 42}]
+           (mapv rf.machines.test-support/machine-data [:lifecycle/hop-entry :lifecycle/hop-exit])))))

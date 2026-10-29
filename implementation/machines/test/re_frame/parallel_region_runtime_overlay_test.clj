@@ -1,9 +1,11 @@
 (ns re-frame.parallel-region-runtime-overlay-test
   "`region-machine` caches each region's synthetic spec at registration; every
   region step overlays the LIVE parent's `:rf/platform` / `:rf/frame` /
-  `:rf/cofx` onto it, so region logic never runs against stale cached values."
+  `:rf/cofx` onto it, so region logic never runs against stale cached values,
+  and a definition derived from a cached one never runs its stale region specs."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.result :as rf.machines.result]
             [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (defn- transition [machine event]
@@ -46,3 +48,21 @@
     (rf.machines.parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
     (transition installed [:go])
     (is (= [{:has? false :cofx nil}] @seen))))
+
+(deftest a-derived-definition-runs-its-own-guards-not-the-cached-region-spec
+  ;; `assoc-in` keeps metadata, so the derived definition shares the cache atom
+  ;; the registered one primed.
+  (let [registered (rf.machines.parallel/install-region-cache
+                     {:type    :parallel
+                      :data    {}
+                      :guards  {:g (fn [_] false)}
+                      :regions {:a {:initial :x
+                                    :states  {:x {:on {:go {:target :y :guard :g}}}
+                                              :y {}}}}})
+        state      (fn [machine] (:state (rf.machines.result/snap (transition machine [:go]))))
+        primed     (state registered)
+        derived    (assoc-in registered [:guards :g] (fn [_] true))]
+    (is (= [{:a :x} {:a :y} {:a :x}]
+           [primed (state derived) (state registered)])
+        "the derived definition moves on its own passing guard, and the
+         registered one still declines")))

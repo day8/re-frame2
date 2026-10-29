@@ -186,3 +186,28 @@
   (rf/dispatch-sync [:rf2-w84jv-h/parent [:rf.machine.spawn/spawned]])
   (rf/dispatch-sync [(spawned-id-for :rf2-w84jv-h/parent [:loader :working]) [:boom]])
   (is (= {:loader :handled :other :idle} (:state (snapshot :rf2-w84jv-h/parent)))))
+
+(deftest parallel-region-explicit-on-spawn-done-is-region-scoped
+  ;; The success twin declines a foreign region the same way: :loader's own
+  ;; explicit :on takes the completion and :other's decoy never moves.
+  (rf/reg-machine :rf2-pd9/child
+    {:initial :running
+     :states  {:running {:on {:ok :done}}
+               :done    {:final? true}}})
+  (rf/reg-machine :rf2-pd9/parent
+    {:type    :parallel
+     :data    {}
+     :regions {:loader {:initial :working
+                        :states  {:working {:spawn {:machine-id :rf2-pd9/child}
+                                            :on    {:rf.machine.spawn/done
+                                                    {:target :handled
+                                                     ;; The explicit arm also sees the
+                                                     ;; region-RELATIVE invoke-id.
+                                                     :guard  (fn [{ev :event}] (= [:working] (nth ev 1)))}}}
+                                  :handled {}}}
+               :other  {:initial :idle
+                        :states  {:idle {:on {:rf.machine.spawn/done :bad}}
+                                  :bad  {}}}}})
+  (rf/dispatch-sync [:rf2-pd9/parent [:rf.machine.spawn/spawned]])
+  (rf/dispatch-sync [(spawned-id-for :rf2-pd9/parent [:loader :working]) [:ok]])
+  (is (= {:loader :handled :other :idle} (:state (snapshot :rf2-pd9/parent)))))

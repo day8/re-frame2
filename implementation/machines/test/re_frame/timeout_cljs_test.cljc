@@ -18,7 +18,9 @@
   ;; delays `:after` admits resolve to nil.
   (let [rows [[5000 5000] [1 1] [0 nil] [1.5 nil]
               ["PT5S" 5000] ["PT1H30M" 5400000] ["PT0.5S" 500] ["P1D" 86400000] ["pt5s" 5000]
-              ["P" nil] ["5s" nil] [(fn [_] 5000) nil]]]
+              ["P" nil] ["5s" nil] [(fn [_] 5000) nil]
+              ;; A component past a JVM long ms count is malformed, not a host throw.
+              #?@(:clj [["P999999999999D" nil] ["P99999999999999999999D" nil]])]]
     (is (= rows (mapv (fn [[d _]] [d (rf.machines.timeout/resolve-duration-ms d)]) rows)))))
 
 (defn- reg-error-id [machine]
