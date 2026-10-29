@@ -31,6 +31,7 @@
   reachable (it's pure data → data) but the side-effecty seams
   collapse."
   (:require [re-frame.core                        :as rf]
+            [re-frame.story.assertions            :as rf.story.assertions]
             [re-frame.story.async                 :as rf.story.async]
             [re-frame.story.config                :as rf.story.config]
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
@@ -106,17 +107,26 @@
 (defn build-export
   "Build the canonical export tuple for the dialog. `opts` accepts the
   full surface of `play-export/recording->script-body` plus an
-  optional `:variant-id` for the rendered `(reg-variant ...)` form.
+  optional `:variant-id` for the rendered `(reg-variant ...)` form and the
+  recorded `:frame-id`.
+
+  The auto-assert block prints values read from the live app-db, so they
+  pass through the frame's local-redacted classification
+  (`rf.story.assertions/redact-at`) unless the frame is revealed to
+  `:rf.egress/local-raw` — the same decision the recorder's DOM and
+  dispatch rails make (Conventions.md §Privacy).
 
   Returns `{:spec <play-script map> :rendered <variant-form string>}`.
   The `:rendered` slot is what the dialog displays + the clipboard
   receives."
-  [events {:keys [variant-id extends alias name auto-run?
-                  auto-assert? final-db seed-db max-auto-assertions]
-           :as   opts}]
+  [events {:keys [variant-id extends alias name auto-run? frame-id
+                  auto-assert? final-db seed-db max-auto-assertions]}]
   (let [spec     (rf.story.recorder.play-export/recording->script-body
                    events
                    (cond-> {}
+                     (not (rf.story.config/include-sensitive? frame-id))
+                     (assoc :project-value
+                            (fn [path v] (rf.story.assertions/redact-at frame-id path v)))
                      (some? name)                (assoc :name name)
                      (some? auto-run?)           (assoc :auto-run? auto-run?)
                      (some? auto-assert?)        (assoc :auto-assert? auto-assert?)

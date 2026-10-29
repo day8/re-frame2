@@ -103,9 +103,10 @@
   50)
 
 (def ^:const redacted-event-id
-  "The framework sentinel id the recorder uses to replace sensitive
-  event payloads. Translator drops these from the generated script +
-  adds a comment in the output."
+  "The framework sentinel the recorder records in place of a `:sensitive?`
+  dispatch. The export cannot replay it, so it drops the step and marks the
+  gap with a comment (`redacted-dispatch-hint`) for the author to re-add by
+  hand."
   :rf/redacted)
 
 ;; ---------------------------------------------------------------------------
@@ -285,6 +286,10 @@
   is never shorter than the marker's `:ms`, the delay the timer was
   scheduled with, rounded up.
 
+  A dropped redacted dispatch leaves its position in the steps' metadata,
+  `::redacted-before` (a set of step indices), so the rendered script can
+  mark the gap.
+
   Options:
     :wait-threshold-ms  default `default-wait-threshold-ms` (50ms).
                         Pass 0 to emit a wait between every pair of
@@ -301,9 +306,10 @@
    (loop [remaining (seq entries)
           last-t    nil
           covered-t nil
-          out       (transient [])]
+          out       (transient [])
+          redacted  #{}]
      (if (empty? remaining)
-       (persistent! out)
+       (with-meta (persistent! out) {::redacted-before redacted})
        (let [entry  (first remaining)
              step   (entry->step entry)
              this-t (:t entry)]
@@ -333,7 +339,8 @@
                     (if wait? (+ covered-t w) (or covered-t this-t))
                     (if wait?
                       (conj! out [:wait w])
-                      out)))
+                      out)
+                    redacted))
 
            ;; Skip entries that don't yield a step (e.g. redacted).
            ;; Leave `last-t` pointing at the most recent TRANSLATED
@@ -341,7 +348,8 @@
            ;; measures the gap to the last visible step rather than
            ;; the dropped intermediate.
            (nil? step)
-           (recur (rest remaining) last-t covered-t out)
+           (recur (rest remaining) last-t covered-t out
+                  (if (redacted? (:event entry)) (conj redacted (count out)) redacted))
 
            :else
            (let [gap (when (and (some? last-t) (some? this-t))
@@ -352,7 +360,8 @@
              (recur (rest remaining)
                     (or this-t last-t)
                     (if w (+ covered-t gap) (or covered-t this-t))
-                    out))))))))
+                    out
+                    redacted))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: auto-assert derivation
@@ -409,18 +418,34 @@
                           assertions (diff-based).
     :max-auto-assertions  cap on the number of generated steps
                           (default 5).
+    :project-value        optional `(fn [path value] -> value)` — the
+                          egress projection the expected values pass
+                          through before they are printed (the frame's
+                          local-redacted classification). A path whose value
+                          projects to `:rf/redacted` asserts that sentinel,
+                          which replays as a pass; a path redacted only
+                          below its root is dropped, since a nested
+                          sentinel would not.
 
   Steps are emitted in the order the keys appear in `final-db`. Story's
   own `:rf.story/*` bookkeeping keys are skipped in both branches.
   Returns `[]` when `final-db` isn't map-like."
-  [final-db {:keys [seed-db max-auto-assertions]
+  [final-db {:keys [seed-db max-auto-assertions project-value]
              :or   {max-auto-assertions default-max-auto-assertions}}]
-  (let [paths (or (and seed-db (changed-top-paths seed-db final-db))
-                  (top-paths final-db))]
+  (let [paths   (or (and seed-db (changed-top-paths seed-db final-db))
+                    (top-paths final-db))
+        project (or project-value (fn [_ v] v))]
     (->> paths
          (remove story-bookkeeping-path?)
+         (keep (fn [p]
+                 (let [v  (get-in final-db p)
+                       v' (project p v)]
+                   (cond
+                     (= v' v)            [:assert-db p v]
+                     (= v' :rf/redacted) [:assert-db p :rf/redacted]
+                     :else               nil))))
          (take max-auto-assertions)
-         (mapv (fn [p] [:assert-db p (get-in final-db p)])))))
+         vec)))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: top-level translator
@@ -449,6 +474,8 @@
                          When supplied, only paths whose value changed
                          produce assertions.
       :max-auto-assertions  cap on the auto-assert block (default 5).
+      :project-value     optional — the auto-assert block's egress
+                         projection (see `auto-assert-steps`).
       :auto-run?         bool — `:auto-run?` field on the play-script
                          map. Defaults to true (matches the runner's
                          default-auto-run? — on-mount replay is the
@@ -476,7 +503,7 @@
   ([events]
    (recording->script-body events {}))
   ([events {:keys [name auto-assert? final-db seed-db max-auto-assertions
-                   auto-run? wait-threshold-ms cofx]
+                   project-value auto-run? wait-threshold-ms cofx]
             :or   {auto-assert?         false
                    auto-run?            true
                    max-auto-assertions  default-max-auto-assertions
@@ -487,11 +514,13 @@
          assert-steps   (if auto-assert?
                           (auto-assert-steps final-db
                                              {:seed-db             seed-db
-                                              :max-auto-assertions max-auto-assertions})
+                                              :max-auto-assertions max-auto-assertions
+                                              :project-value       project-value})
                           [])
          script         (vec (concat dispatch-steps assert-steps))
-         base           {:script    script
-                         :auto-run? (boolean auto-run?)}]
+         base           (with-meta {:script    script
+                                    :auto-run? (boolean auto-run?)}
+                                   (select-keys (meta dispatch-steps) [::redacted-before]))]
      (cond-> base
        (and (string? name) (seq name)) (assoc :name name)))))
 
@@ -525,6 +554,9 @@
       (str ";; TODO harden selector: " (pr-str selector)
            " is positional; give the element a data-test hook"))))
 
+(def ^:private redacted-dispatch-hint
+  ";; a :sensitive? dispatch was redacted here; re-add it by hand")
+
 (defn- render-script-vec
   "Render the `:script` vector as multi-line EDN aligned under the
   opening `[`. Returns a string of the form
@@ -533,19 +565,24 @@
                 [:wait 100]]
 
   A step on a positional selector is preceded by a `;; TODO harden
-  selector` comment line (`positional-step-hint`). When `script` is empty,
-  returns `\"[]\"`."
-  [script]
-  (let [sep (rf.story.predicates/indent-after indent-prefix)]
-    (if (seq script)
-      (str "["
-           (str/join sep
-                     (map (fn [step]
-                            (if-let [hint (positional-step-hint step)]
-                              (str hint sep (pr-str step))
-                              (pr-str step)))
-                          script))
-           "]")
+  selector` comment line (`positional-step-hint`), and each index in
+  `redacted-before` by `redacted-dispatch-hint` (an index equal to the
+  script's length marks its end). When `script` is empty and nothing was
+  redacted, returns `\"[]\"`."
+  [script redacted-before]
+  (let [sep   (rf.story.predicates/indent-after indent-prefix)
+        lines (concat
+                (map-indexed (fn [i step]
+                               (cond->> (if-let [hint (positional-step-hint step)]
+                                          (str hint sep (pr-str step))
+                                          (pr-str step))
+                                 (contains? redacted-before i)
+                                 (str redacted-dispatch-hint sep)))
+                             script)
+                (when (contains? redacted-before (count script))
+                  [(str redacted-dispatch-hint sep)]))]
+    (if (seq lines)
+      (str "[" (str/join sep lines) "]")
       "[]")))
 
 (defn render-script-body
@@ -555,11 +592,13 @@
 
   The rendered form is `read-string`-able and round-trips back to the
   same map via `rf.story.play.runner/parse-spec`."
-  [{:keys [script name auto-run?] :as _spec}]
+  [{:keys [script name auto-run?] :as spec}]
   (let [body-keys (cond-> []
                     name             (conj [":name      " (pr-str name)])
                     true             (conj [":auto-run? " (pr-str (boolean auto-run?))])
-                    true             (conj [":script    " (render-script-vec script)]))
+                    true             (conj [":script    " (render-script-vec
+                                                            script
+                                                            (::redacted-before (meta spec) #{}))]))
         body-str  (->> body-keys
                        (map (fn [[k v]] (str k v)))
                        (str/join "\n  "))]

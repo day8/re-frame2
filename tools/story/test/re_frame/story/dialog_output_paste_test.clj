@@ -216,6 +216,7 @@
               (:entries recording)
               {:variant-id   :story.paste/asserted-script
                :extends      :story.paste/asserted
+               :frame-id     :story.paste/asserted
                :auto-run?    true
                :auto-assert? true
                :final-db     final-db
@@ -227,6 +228,47 @@
             "the one path the recording changed, and nothing else")
         (paste! rendered)
         (is (= :pass (:status (run-result :story.paste/asserted-script)))))
+      (finally
+        (rf.story.recorder/remove-trace-listener!)
+        (rf.story.recorder/clear!)))))
+
+(deftest recorder-export-auto-assert-redacts-classified-paths
+  (testing "the auto-assert block prints values through the recorded frame's
+            classification: a wholly sensitive path asserts the sentinel, a
+            path redacted only below its root is dropped, and the pasted form
+            still runs green"
+    (rf/reg-event :paste/login
+      (fn [{:keys [db]} _]
+        {:db (assoc db
+                    :auth    {:token "tok-SECRET"}
+                    :login   {:password "hunter2" :user "ada"}
+                    :submits 1)}))
+    (rf.story/reg-variant :story.paste/classified
+      {:extends   :story.paste/source
+       :sensitive {:app-db [[:auth] [:login :password]]}})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.paste/classified) 5000)
+    (rf.story.recorder/install-trace-listener!)
+    (try
+      (rf.story.recorder/start-recording! :story.paste/classified)
+      (rf/dispatch-sync [:paste/login] {:frame :story.paste/classified})
+      (rf.story.recorder/stop-recording!)
+      (let [recording (rf.story.recorder/current-state)
+            {:keys [spec rendered]}
+            (rf.story.recorder.play-export-events/build-export
+              (:entries recording)
+              {:variant-id   :story.paste/classified-script
+               :extends      :story.paste/classified
+               :frame-id     :story.paste/classified
+               :auto-run?    true
+               :auto-assert? true
+               :final-db     (rf.story.recorder.play-export-events/snapshot-frame-db
+                               :story.paste/classified)
+               :seed-db      (:seed-db recording)})]
+        (is (= [[:assert-db [:auth] :rf/redacted] [:assert-db [:submits] 1]]
+               (filterv #(= :assert-db (first %)) (:script spec))))
+        (is (not (re-find #"hunter2|tok-SECRET" rendered)))
+        (paste! rendered)
+        (is (= :pass (:status (run-result :story.paste/classified-script)))))
       (finally
         (rf.story.recorder/remove-trace-listener!)
         (rf.story.recorder/clear!)))))

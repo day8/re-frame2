@@ -4,6 +4,7 @@
   its rendered hiccup are CLJS-only."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core                              :as rf]
             [re-frame.story.recorder                    :as rf.story.recorder]
             [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
             #?(:cljs [re-frame.story.ui.recorder-export-dialog :as rf.story.ui.recorder-export-dialog])))
@@ -89,13 +90,17 @@
 #?(:cljs
    (deftest dialog-auto-assert-diffs-against-the-recording-seed
      ;; given the recording's seed db, the default auto-assert pins only
-     ;; what the recording changed
+     ;; what the recording changed. The source frame is live, as a recorded
+     ;; one is: the values print through its classification, and a frame
+     ;; that is not live redacts them all.
+     (rf/make-frame {:id :story.x/source})
      (rf.story.ui.recorder-export-dialog/open-dialog!
        {:source-id :story.x/source
         :events    [[:counter/inc]]
         :seed-db   {:static-a 1 :static-b 2 :n 0}
         :final-db  {:static-a 1 :static-b 2 :n 1}})
      (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
+       (rf/destroy-frame! :story.x/source)
        (is (str/includes? flat "[:assert-db [:n] 1]")
            "the changed path is asserted")
        (is (not (str/includes? flat ":static-"))

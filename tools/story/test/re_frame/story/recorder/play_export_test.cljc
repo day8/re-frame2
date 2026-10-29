@@ -250,6 +250,22 @@
 
 ;; ---- a positional selector carries the harden hint ------
 
+(deftest a-dropped-redacted-dispatch-is-marked-where-it-was
+  (let [spec  (rf.story.recorder.play-export/recording->script-body
+                [[:a/x] [:rf/redacted] [:a/y] [:rf/redacted]] {})
+        form  (rf.story.recorder.play-export/render-variant-form spec {:variant-id :story.x/r})
+        lines (mapv str/trim (str/split-lines form))
+        hint? #(str/starts-with? % ";; a :sensitive? dispatch was redacted here")]
+    (is (= [[:dispatch [:a/x]] [:dispatch [:a/y]]] (:script spec)))
+    (is (= [:a/x :hint :a/y :hint]
+           (keep #(cond (hint? %)                     :hint
+                        (str/includes? % "[:a/x]") :a/x
+                        (str/includes? % "[:a/y]") :a/y)
+                 lines))
+        "one hint at each gap, the trailing one after the last step")
+    (is (= (:script spec) (:script (:script (nth (edn/read-string form) 2))))
+        "the hint is a comment: the form still reads back to the same script")))
+
 (deftest positional-selector-steps-carry-the-harden-hint
   (let [input-sel  (rf.story.recorder.selector/pick-selector
                      {:tag "input" :attrs {} :index-of-type 1})

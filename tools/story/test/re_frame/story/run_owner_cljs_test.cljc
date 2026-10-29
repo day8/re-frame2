@@ -272,6 +272,7 @@
                                 [[:fresh/submit] [:fresh/submit]]
                                 {:variant-id   :story.fresh/recorded
                                  :extends      vid
+                                 :frame-id     vid
                                  :auto-run?    true
                                  :auto-assert? true
                                  :final-db     (rf/app-db-value vid)})

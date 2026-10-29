@@ -148,6 +148,7 @@
       src
       (cond-> {:variant-id variant-id
                :extends    source-id
+               :frame-id   source-id
                :auto-run?  true}
         (and (string? name) (seq name)) (assoc :name name)
         auto-assert?                     (assoc :auto-assert? true
