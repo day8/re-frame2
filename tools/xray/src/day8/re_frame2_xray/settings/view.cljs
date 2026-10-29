@@ -875,21 +875,32 @@
 (defn- numeric-field
   "Hiccup for a numeric setting input + label + hint. `:html-for` ↔
   `:id` associates label with input so clicking the label focuses the
-  input AND screen readers announce them paired."
+  input AND screen readers announce them paired.
+
+  The value commits on blur or Enter, never per keystroke: the events
+  knob resizes every trace ring at once, so typing 100 over 50 would
+  otherwise commit 1 first and drop all but one retained event. The
+  input is uncontrolled, keyed on the committed value, so an outside
+  change (a reset, a host `configure!`) still re-seeds it."
   [{:keys [testid label value default on-commit min hint]}]
+  (let [commit! (fn [^js e]
+                  (let [n (js/parseInt (.. e -target -value) 10)]
+                    (when-not (js/isNaN n)
+                      (on-commit n))))]
   [:div {:style (field-style)}
    [:label {:html-for testid
             :style    (label-style)} label]
-   [:input {:data-testid testid
-            :id          testid
-            :type        "number"
-            :min         (str (or min 0))
-            :step        "1"
-            :value       (str (or value default))
-            :on-change   (fn [^js e]
-                           (let [n (js/parseInt (.. e -target -value) 10)]
-                             (when-not (js/isNaN n)
-                               (on-commit n))))
+   [:input {:key           (str (or value default))
+            :data-testid   testid
+            :id            testid
+            :type          "number"
+            :min           (str (or min 0))
+            :step          "1"
+            :default-value (str (or value default))
+            :on-blur       commit!
+            :on-key-down   (fn [^js e]
+                             (when (= "Enter" (.-key e))
+                               (commit! e)))
             :style       {:width        "140px"
                           :padding      "4px 8px"
                           :background   (:bg-2 tokens)
@@ -898,7 +909,7 @@
                           :border-radius "4px"
                           :font-family  mono-stack}}]
    (when hint
-     [:p {:style (hint-style)} hint])])
+     [:p {:style (hint-style)} hint])]))
 
 (defn- danger-button-style []
   {:background       (:red-deep tokens)

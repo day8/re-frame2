@@ -56,6 +56,19 @@
 
 ;; ---- the regression ------------------------------------------------------
 
+(defn- queue-depth [frame-id]
+  (count (:queue @(:router (rf.frame/frame frame-id)))))
+
+(deftest the-drain-reaches-every-own-frame
+  (testing "a second shell seated on its own frame gets the ingest too, so
+            its `:epoch-history` keeps updating after the first-mount seed"
+    (seat-xray!)
+    (mount/ensure-seated! :xray-cell-2)
+    (install/note-epoch-recorded! :app/main)
+    (is (= #{:app/main} (install/drain-epoch-frames!)))
+    (is (= [1 1] [(queue-depth :rf/xray) (queue-depth :xray-cell-2)])
+        "one `:rf.xray/epoch-recorded` per own frame")))
+
 (deftest the-drain-dispatches-once-per-distinct-frame
   (testing "40 epochs per frame recorded between two drains enqueue ONE
             `:rf.xray/epoch-recorded` per frame, not one per record.

@@ -377,9 +377,15 @@
   (setup-xray-runtime!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/editor-hint-show]))
-  (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
-    (handle-keydown event)
-    (is (= [true true] [@prevented @stopped]) "an open toast consumes Esc")))
+  (with-redefs [mount/visible? (constantly true)]
+    (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
+      (handle-keydown event)
+      (is (= [true true] [@prevented @stopped]) "an open toast consumes Esc")))
+  (with-redefs [mount/visible? (constantly false)]
+    (let [{:keys [event prevented stopped]} (mk-keydown-event "Escape")]
+      (handle-keydown event)
+      (is (= [false false] [@prevented @stopped])
+          "with the shell hidden there is no toast on screen, so Esc stays the host's"))))
 
 (deftest esc-falls-through-when-hint-closed
   (setup-xray-runtime!)
@@ -467,7 +473,7 @@
   The activatable-target exemption is scoped to Space, so the roster
   keys need the same shell-inside target shape as Space to assert they
   are NOT exempted. `key` defaults to Space."
-  [{:keys [tag role key code shift?]
+  [{:keys [tag role key code shift? in-modal?]
     :or   {key " " code "Space" shift? false}}]
   (let [prevented  (atom false)
         stopped    (atom false)
@@ -475,8 +481,9 @@
         target     (js-obj "tagName"      tag
                            "getAttribute" (fn [attr] (when (= attr "role") role))
                            "closest"      (fn [sel]
-                                            (when (re-find #"rf-xray-shell" sel)
-                                              shell-node)))
+                                            (cond
+                                              (re-find #"rf-xray-shell" sel) shell-node
+                                              (and in-modal? (re-find #"aria-modal" sel)) shell-node)))
         event      (js-obj "key"             key
                            "code"            code
                            "target"          target
@@ -539,12 +546,25 @@
   (with-redefs [mount/visible? (constantly true)]
     (doseq [target-spec [{:tag "BUTTON"}
                          {:tag "SUMMARY"}
-                         {:tag "DIV" :role "button"}]]
+                         {:tag "DIV" :role "button"}
+                         {:tag "DIV" :role "separator"}]]
       (let [before (count (xray-queued-events))
             {:keys [event prevented]} (mk-shell-target-key-event target-spec)]
         (handle-keydown event)
         (is (= [false []] [@prevented (vec (drop before (xray-queued-events)))])
             (str "Space on a focused " target-spec " is left to the control"))))))
+
+(deftest spine-keys-yield-inside-any-modal-dialog
+  (testing "a dialog carrying aria-modal (the mute manager, the filter edit
+            popup, the EDN popup, the cancellation cascade) owns j / k, so
+            they do not step the feed underneath it"
+    (setup-xray-runtime!)
+    (with-redefs [mount/visible? (constantly true)]
+      (let [before (count (xray-queued-events))
+            {:keys [event prevented]}
+            (mk-shell-target-key-event {:tag "DIV" :key "j" :code "KeyJ" :in-modal? true})]
+        (handle-keydown event)
+        (is (= [false []] [@prevented (vec (drop before (xray-queued-events)))]))))))
 
 ;; ---- (10) the pop-out document's own listener ----------------------------
 ;;

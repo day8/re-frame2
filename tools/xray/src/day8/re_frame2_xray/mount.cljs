@@ -524,7 +524,8 @@
   ([] (ensure-seated! shell/default-frame-id))
   ([frame-id]
    (when (rf.substrate.adapter/current-adapter)
-     (image-reads/seat-xray-frame! frame-id))
+     (image-reads/seat-xray-frame! frame-id)
+     (defaults/note-instance-frame! frame-id))
    nil))
 
 (defn ensure-xray-frame!
@@ -683,6 +684,7 @@
    ;; generation) so the inspector still sees the inspected app's registrar,
    ;; not its own image's — see spec/API.md §Public registrar query API.
    (image-reads/seat-xray-frame! frame-id)
+   (defaults/note-instance-frame! frame-id)
    ;; Run the hook fan-out only on the FIRST call for this
    ;; `frame-id`. `seat-xray-frame!` above stays unconditional (its own
    ;; `xray-frame-seated?` check makes a re-seat a cheap no-op); it's
@@ -701,6 +703,7 @@
   Test-only — never call from production code."
   []
   (reset! seeded-frame-ids #{})
+  (defaults/forget-instance-frames!)
   nil)
 
 ;; ---- first-mount hook registrations -------------------------------------

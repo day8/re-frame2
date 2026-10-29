@@ -70,11 +70,15 @@
 
   ## Cost
 
-  Editscript's A* is O(|a||b|) in the worst case (per the library's
-  README); the per-epoch one-diff cadence is well within Xray's dev-tool
-  budget (millisecond range for typical app-dbs). For pathologically
-  large structures the calling code can short-circuit via
-  `identical?` BEFORE invoking this engine."
+  Editscript's A* finds the cheapest script but its cost grows with the
+  number of changed elements times the length of the vectors holding
+  them: 200 changed vector elements take seconds where `:quick` takes
+  tens of milliseconds. So the engine diffs with `:quick` first and
+  re-runs A* only when that script is small (`a-star-edit-budget`
+  edits) — every few-path change keeps the A* script, and a refetch that
+  touches every row of a list stays fast. For identical inputs the
+  calling code can short-circuit via `identical?` BEFORE invoking this
+  engine."
   (:require [clojure.set :as set]
             [editscript.core :as es]
             [editscript.edit :as ee]))
@@ -318,12 +322,23 @@
       (or (replacement-edits path (before-value path) (value-at after path))
           [edit]))))
 
+(def ^:private a-star-edit-budget
+  "The largest `:quick` script the engine re-diffs with A* (see §Cost in
+  the ns docstring). Small enough that A* stays in the tens of
+  milliseconds on a long vector of changed maps."
+  16)
+
 (defn- raw-editscript
-  "Return Editscript A* edits for `(before, after)` as a vector of
-  3-tuples `[path op value?]`, exactly as Editscript emits them. Pure."
+  "Return Editscript edits for `(before, after)` as a vector of 3-tuples
+  `[path op value?]`, exactly as Editscript emits them: the A* script when
+  the `:quick` script has at most `a-star-edit-budget` edits, else the
+  `:quick` script. Pure."
   [before after]
   (try
-    (ee/get-edits (es/diff before after {:algo :a-star}))
+    (let [quick (ee/get-edits (es/diff before after {:algo :quick}))]
+      (if (<= (count quick) a-star-edit-budget)
+        (ee/get-edits (es/diff before after {:algo :a-star}))
+        quick))
     (catch #?(:clj Exception :cljs js/Error) _e
       ;; Editscript can throw on certain pathological inputs
       ;; (e.g. comparing maps with unreadable keys); fall

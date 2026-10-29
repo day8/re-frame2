@@ -242,26 +242,34 @@
 
   (`<a href>` links activate on Enter, which is not a spine key, so
   they are unaffected — the concrete victims are `<button>` /
-  `<summary>` / `[role=button]`.)"
+  `<summary>` / `[role=button]`, and the `[role=separator]` resize
+  handles, whose own Enter / Space resets the width (spec/007 §Resize
+  handles).)"
   [^js event]
   (when-let [^js target (.-target event)]
-    (let [tag (some-> target .-tagName .toUpperCase)]
+    (let [tag  (some-> target .-tagName .toUpperCase)
+          role (some-> target (.getAttribute "role"))]
       (or (= tag "BUTTON")
           (= tag "SUMMARY")
-          (= "button" (some-> target (.getAttribute "role")))))))
+          (= "button" role)
+          (= "separator" role)))))
 
 (defn- target-inside-modal?
   "True when `event.target` is a DOM node inside one of Xray's modal
-  surfaces (Settings popup, command palette) — identified by the
-  `data-rf-xray-mode` attribute set to a known modal value on the
-  dialog root. Used to suppress the bare-letter spine bindings
-  (`s`, `,`, etc.) while a modal owns the keyboard, so those keys
-  can carry their modal-only inner meaning instead of re-toggling
-  the parent modal or firing the spine event-bundle."
+  surfaces — any dialog carrying `aria-modal=\"true\"`, which every
+  `theme.a11y/dialog-attrs` dialog does (Settings, the palette, the mute
+  manager, the filter edit popup, the EDN popup, the cancellation
+  cascade), plus the Settings / palette `data-rf-xray-mode` markers. Used
+  to suppress the bare-letter spine bindings (`j`, `k`, `s`, `,`, etc.)
+  while a modal owns the keyboard, so those keys can carry their
+  modal-only inner meaning instead of stepping the feed underneath or
+  stacking Settings on top."
   [^js event]
   (when-let [target (.-target event)]
     (when (and target (.-closest target))
-      (let [hit (.closest target "[data-rf-xray-mode=\"settings\"], [data-rf-xray-mode=\"palette\"]")]
+      (let [hit (.closest target (str "[aria-modal=\"true\"], "
+                                      "[data-rf-xray-mode=\"settings\"], "
+                                      "[data-rf-xray-mode=\"palette\"]"))]
         (boolean hit)))))
 
 (defn- spine-key-id
@@ -447,9 +455,11 @@
     ;; toast). The shell-level global listener is the reachable Esc path.
     ;; Gated on the toast actually being open so Esc falls through to the
     ;; host (and to other Esc consumers) whenever the toast is closed —
-    ;; the listener only consumes the key it acts on. Dispatched on the
-    ;; `:rf/xray` shell frame where the hint state lives.
-    (and (escape-key? event) (editor-hint-open?))
+    ;; the listener only consumes the key it acts on — and on this
+    ;; surface's shell being on screen, since a hidden shell shows no toast
+    ;; to dismiss. Dispatched on the `:rf/xray` shell frame where the hint
+    ;; state lives.
+    (and (escape-key? event) (shell-visible?) (editor-hint-open?))
     (do (.preventDefault event)
         (.stopPropagation event)
         (rf/dispatch [:rf.xray/editor-hint-dismiss]
@@ -487,10 +497,9 @@
     ;; Also gate on "not inside a modal". The Settings
     ;; popup and command palette each carry bare letters of their own
     ;; (the Settings inner-tab mnemonics its `tabs` vector declares,
-    ;; fuzzy-typing in the palette) that must NOT also drive the
-    ;; spine. The modal markers are read via
-    ;; `target-inside-modal?` which closest-walks the event target
-    ;; for `data-rf-xray-mode="settings"|"palette"`.
+    ;; fuzzy-typing in the palette), and no modal wants the feed stepped
+    ;; underneath it. `target-inside-modal?` closest-walks the event
+    ;; target for any `aria-modal` dialog.
     :else
     (when (and (shell-visible?)
                (target-inside-xray? event)
