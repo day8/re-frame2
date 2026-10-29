@@ -4,9 +4,15 @@
   entry before its handler runs, and on `:client` a handler that returns is
   `:rf.fx/handled` — a non-owner frame's no-op and the JVM's missing `window`
   included. Per Spec 012 §Trace events and Spec 011 §`:platforms` metadata on
-  `reg-fx`."
+  `reg-fx`.
+
+  The outcomes are read off the trace bus, which `trace/emit!` gates on
+  `rf.interop/debug-enabled?`, so each assertion sits inside a
+  `(when rf.interop/debug-enabled? …)` arm and the
+  `clojure -M:test:prod-gate` lane runs the dispatches without them."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as rf.interop]
             [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -43,9 +49,10 @@
   (testing "the JVM default frame is :server, so the fx runner skips each
             :client-only entry and its handler never runs"
     (doseq [[fx-id :as fx] nav-fx]
-      (is (= [[:warning :rf.fx/skipped-on-platform]]
-             (outcomes :rf/default fx))
-          (str fx-id " reports one outcome: the platform skip")))))
+      (let [seen (outcomes :rf/default fx)]
+        (when rf.interop/debug-enabled?
+          (is (= [[:warning :rf.fx/skipped-on-platform]] seen)
+              (str fx-id " reports one outcome: the platform skip")))))))
 
 (deftest nav-fx-on-a-client-frame-report-handled-once
   (testing "a :client frame on the JVM runs each handler, which has no window
@@ -55,6 +62,7 @@
     (rf/make-frame {:id :nav-fx-outcome/story :platform :client})
     (doseq [frame-id      [:rf/default :nav-fx-outcome/story]
             [fx-id :as fx] nav-fx]
-      (is (= [[:rf.fx :rf.fx/handled]]
-             (outcomes frame-id fx))
-          (str fx-id " on " frame-id " reports one outcome: handled")))))
+      (let [seen (outcomes frame-id fx)]
+        (when rf.interop/debug-enabled?
+          (is (= [[:rf.fx :rf.fx/handled]] seen)
+              (str fx-id " on " frame-id " reports one outcome: handled")))))))
