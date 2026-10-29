@@ -46,7 +46,7 @@ spell out the shape to look for.
 
 ## Convention: example mount-isolation — defer DOM mount to `mount!`
 
-How an example *boots and mounts* — `boot!` installs the adapter, `mount!`
+How an example *boots and mounts* — `run` installs the adapter, `mount!`
 creates the frame via the `frame-root` ensure component, the `defonce`
 client-root handle plus `^:dev/after-load` give hot reload — is the canonical
 app-startup shape, covered in
@@ -76,7 +76,7 @@ registries (handlers, subs, machines, schemas, …) across all of them. Two exam
 that both register `:login` would fight over the same slot. So each example
 **prefixes every id with its own stem**:
 
-- `realworld.core` registers `:auth/login`, `:articles/load`, `:comments/submit`, …
+- `ssr.core` registers `:ssr.app/server-init`, `:ssr.articles/loaded`, …
 - `nine-states.core` registers `:nine-states.app/initialise`, `:new-todo/submit`, …
 
 Each `*-cljs-test` wrapper installs a `test-support/make-reset-runtime-fixture`
@@ -84,17 +84,16 @@ per-test fixture, so every test runs against a fresh frame — but the
 *registrations* are shared across the bundle, and prefix discipline is what keeps
 them from colliding.
 
-### Two deliberate id-shares
+### The deliberate id-share
 
 Some sibling examples register the **same** ids on purpose, because the
 id-identity *is* the demonstration — byte-for-byte identical dataflow proving
-parity across a boundary. This is the blessed parity exception; each
-example's own README links here for the canonical statement.
+parity across a boundary. This is the blessed parity exception.
 
 #### The cross-view-layer Reagent/UIx/Fresco id share
 
-The Reagent and UIx **counter** pair shares its event, sub, fx,
-machine, and schema ids, proving one dataflow across two reactive substrates.
+The Reagent and UIx **counter** pair shares its event and sub ids, proving one
+dataflow across two reactive substrates.
 Each counter carries its own copy of that dataflow, deliberately kept in step —
 extracting three one-line registrations would cost the smallest-app lesson more
 than the sharing saves.
@@ -105,8 +104,7 @@ copies of the `:auth.login/*` dataflow, the three login examples — Reagent
 and Fresco ([`substrates/fresco/login`](substrates/fresco/login/)) — all `:require`
 **one** substrate-free model namespace,
 [`login.model`](core/login/model.cljc) — the single owner of every shared
-`auth.login` schema, fx, machine, event, and sub (rf2-ppbvav, extended to the
-Fresco arm by rf2-fmns2). So the ids aren't
+`auth.login` schema, fx, machine, event, and sub. So the ids aren't
 merely *shared*, they're registered from *one source*; each `core.cljs` adds only
 its view-layer-specific views + mount. That removes the drift risk of duplication
 outright — there is no second copy to diverge.
@@ -129,9 +127,9 @@ silently.
 1. **Mount in `mount!`, not at ns-load** — per the convention above.
 2. **Prefix every registered id** with the example's folder stem.
 3. **A wrapper test ns** at
-   `implementation/adapters/<substrate>/test/re_frame/<example>_cljs_test.cljs`
-   (the `-cljs-test` suffix is how the `:node-test` build picks it up, via its
-   `cljs-test$` regex). It `:require`s the example's production `core` ns — so its
+   `implementation/integration/test/re_frame/<example>_cljs_test.cljs`
+   (the `-test` suffix is how the `:node-test` build picks it up: its selector
+   takes every `-test` namespace bar the nightly and prod-mode suffixes). It `:require`s the example's production `core` ns — so its
    handlers, subs, views, and machines register at ns-load — and drives them with
    fixtures and stub transports defined in the wrapper itself. It runs headlessly on
    Node under `test:cljs`, so it must not mount the DOM. The example source stays
@@ -140,7 +138,7 @@ silently.
 If a wrapper genuinely needs a live React root (a real `react-dom/client` mount),
 give it the `-dom-cljs-test` suffix instead — `:browser-test`'s `-dom-cljs-test$`
 regex then runs it under `test:browser` in Chromium, and `:node-test`'s broader
-`cljs-test$` still matches it too. The example wrappers don't need this; they assert
+`-test$` selector still matches it too. The example wrappers don't need this; they assert
 against app-db and subs directly.
 
 A standalone `:examples/*` build needs no test wiring at all to get compile
