@@ -2,14 +2,16 @@
   "A resource's projection-relative classification applies at egress to the
   entries a runtime-db holds (Spec 015 §Subsystem projection-relative
   classification): the `:resources/runtime-classification` hook re-roots each
-  entry's resource declaration onto its absolute `:data` path, so an entry is
-  classified exactly while it is present."
+  entry's resource declaration onto its absolute `:data` path, and a coarse
+  claim onto each of its value slots, so an entry is classified exactly while
+  it is present."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
+   [re-frame.privacy :as rf.privacy]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources]
    [re-frame.schemas]
@@ -33,10 +35,9 @@
 (defn- runtime-db-with [entries]
   {rf.resources.state/resources-key {:entries (into {}
                                        (map (fn [[sk e]]
-                                              [(rf.resources.state/key-id sk) (assoc (rf.resources.state/empty-entry (second sk) sk)
-                                                                        :status :loaded
-                                                                        :resource/key sk
-                                                                        :data (:data e))]))
+                                              [(rf.resources.state/key-id sk) (merge (rf.resources.state/empty-entry (second sk) sk)
+                                                                        {:status :loaded :resource/key sk}
+                                                                        e)]))
                                        entries)}})
 
 (defn- claims
@@ -78,21 +79,57 @@
     (evict-all!)
     (is (not (contains? (live-sensitive) abs-ssn)) "the evicted entry's claim goes with it, with no drop step")))
 
-(deftest a-coarse-claim-is-claimed-as-the-entrys-whole-data
-  ;; The coarse root-prop claims apply at every egress boundary, runtime-db
-  ;; included, so `:sensitive? true` protects at least what a path does.
+(def ^:private value-slots
+  [:data :error :refresh-error :page-error :next-page-param :page-params])
+
+(deftest a-coarse-claim-is-claimed-at-every-value-slot-of-the-entry
+  ;; The coarse root-prop claims the whole entry at every egress boundary,
+  ;; runtime-db included, so `:sensitive? true` protects at least what a path
+  ;; does, and the error channels and cursors beside `:data` with it.
   (reg! :profile/coarse {:sensitive? true})
   (reg! :profile/bulky {:large? true})
   (reg! :profile/both {:sensitive? true :large? true})
-  (let [k-of    (fn [id] (rf.resources.state/scoped-resource-key :rf.scope/global id {:slug "x"}))
-        data-at (fn [id] [:rf.runtime/resources :entries (rf.resources.state/key-id (k-of id)) :data])]
-    (is (= {:sensitive-declarations {(data-at :profile/coarse) resource-owner
-                                     (data-at :profile/both)   resource-owner}
-            :declarations           {(data-at :profile/bulky) resource-owner}}
+  (let [k-of     (fn [id] (rf.resources.state/scoped-resource-key :rf.scope/global id {:slug "x"}))
+        slots-at (fn [id]
+                   (into {}
+                         (map (fn [slot]
+                                [[:rf.runtime/resources :entries (rf.resources.state/key-id (k-of id)) slot]
+                                 resource-owner]))
+                         value-slots))]
+    (is (= {:sensitive-declarations (merge (slots-at :profile/coarse) (slots-at :profile/both))
+            :declarations           (slots-at :profile/bulky)}
            (claims (runtime-db-with {(k-of :profile/coarse) {:data {:ssn "x"}}
                                      (k-of :profile/bulky)  {:data {:bytes "y"}}
                                      (k-of :profile/both)   {:data {:ssn "z"}}})))
-        "each claims its entry's whole :data, a sensitive claim winning over a large one")))
+        "each claims every value slot of its entry, a sensitive claim winning over a large one")))
+
+(deftest a-coarse-sensitive-claim-redacts-the-entrys-error-body-and-cursor
+  ;; An egress walk of the held entry at its absolute path — what an MCP
+  ;; runtime-db read or a panel does — reads the frame's classification.
+  (reg! :feed/secret {:sensitive? true})
+  (reg! :feed/plain {})
+  (let [k-of    (fn [id] (rf.resources.state/scoped-resource-key :rf.scope/global id {:slug "x"}))
+        slots   {:data            [{:ssn "123-45-6789"}]
+                 ;; A 4xx body echoing the value the user submitted.
+                 :error           {:kind        :rf.http/http-4xx
+                                   :http-status 422
+                                   :body        {:email ["alice@example.com is already registered"]}}
+                 :refresh-error   {:kind :rf.http/http-4xx :http-status 409 :body {:pin "4321"}}
+                 :page-error      {:kind :rf.http/http-4xx :http-status 400 :body {:q "alice"}}
+                 :next-page-param {:cursor "tok-alice-7f3a"}
+                 :page-params     [nil {:cursor "tok-alice-0b11"}]}
+        rdb     (runtime-db-with {(k-of :feed/secret) slots
+                                  (k-of :feed/plain)  slots})
+        project (fn [id]
+                  (let [path (rf.resources.state/entry-path-by-id (rf.resources.state/key-id (k-of id)))]
+                    (select-keys (rf/project-egress (get-in rdb path) {:frame :rf/default :path path})
+                                 (keys slots))))]
+    (hold! rdb)
+    (is (= (zipmap (keys slots) (repeat rf.privacy/redacted-sentinel))
+           (project :feed/secret))
+        "the error body and the cursor redact beside :data")
+    (is (= slots (project :feed/plain))
+        "control: an undeclared resource's slots ride raw")))
 
 (deftest a-resource-that-declares-nothing-claims-nothing
   (reg! :plain/card {})
