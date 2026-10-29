@@ -64,6 +64,13 @@
         (str tool " must say " needle)))
   (is (str/includes? knob-description "honoured on every launch")))
 
+(deftest get-path-says-a-machines-marker-path-reads-the-gated-runtime-db
+  ;; A snapshot `:machines` marker's `:path` is a runtime-db coordinate, so
+  ;; an AI following it needs to know get-path reads it, and under what gate.
+  (doseq [needle [":rf.runtime/* key" ":machines marker's :path" "runtime-db"
+                  "reads :rf/redacted unless `include-sensitive true`"]]
+    (is (str/includes? (description-by-name "get-path") needle) needle)))
+
 (deftest marker-path-is-described-as-live
   ;; Following a marker out of a past epoch with get-path returns TODAY's value.
   (doseq [tool ["get-path" "trace-window" "watch-epochs"]]

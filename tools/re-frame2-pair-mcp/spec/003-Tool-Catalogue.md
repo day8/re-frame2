@@ -175,6 +175,17 @@ value, not that epoch's. To read a past elided value, use `eval-cljs`
 against the retained record, e.g.
 `(if-let [r (re-frame2-pair.runtime/epoch-by-id 7 :my/app)] (get-in r [:db-after :doc :body]) {:epoch-unavailable 7})`,
 and use `:db-before` when the marker came from that side.
+
+A `snapshot` `:machines` marker's `:path` is a runtime-db coordinate,
+rooted at `:rf.runtime/machines`, because each machine's `:large`
+declaration is rooted at its snapshot there. `get-path` reads a path
+rooted at any reserved `:rf.runtime/*` key from the frame's runtime-db
+partition rather than app-db, so the same follow-the-`:path` rule
+reaches it, singular and batch. The partition is gated as the
+`:machines` slice is: the value crosses `re-frame.core/project-egress`
+only under `include-sensitive true` (honoured only under
+`--allow-sensitive-reads`), and reads `:rf/redacted` otherwise.
+
 Markers fire BEFORE the
 path-slicing / diff-encode / dedup / wire-cap pipeline, so
 cap measures post-elision bytes — a single declared-large
@@ -2448,7 +2459,9 @@ instead (rf2-qef58);
 
 ## get-path
 
-Read a single value at `path` from a frame's `app-db`. Minimal
+Read a single value at `path` from a frame's `app-db` — or, for a path
+rooted at a reserved `:rf.runtime/*` key, from its runtime-db, gated as
+§Universal: size-elision on `:app-db` slots describes. Minimal
 primitive for targeted reads — the agent already knows the path.
 Server-side `(get-in db path)`; only the addressed subtree crosses
 the wire (rf2-tygdv).

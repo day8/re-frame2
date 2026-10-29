@@ -13,6 +13,7 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.elision :as elision]
+            [re-frame2-pair-mcp.tools.get-path :as gp]
             [re-frame2-pair-mcp.tools.list-subscriptions :as ls]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.record :as record]
@@ -268,4 +269,44 @@
         {:signals "[{:app-db [:auth :token]}]" :pred #js {:signal 0 :changed true}
          :include-sensitive true}
         [":rf.egress/profile :rf.egress/local-raw"]]]
+      done)))
+
+;; ---------------------------------------------------------------------------
+;; get-path on a runtime-db coordinate. A `snapshot` `:machines` marker's
+;; `:path` is rooted at `:rf.runtime/machines`, which app-db never holds, so
+;; following it reads the runtime-db partition — under the same gate as the
+;; slice the marker came from: projected with the sensitive opt-in, and
+;; `:rf/redacted` without it.
+;; ---------------------------------------------------------------------------
+
+(def ^:private machine-marker-path "[:rf.runtime/machines :snapshots :door :data :blob]")
+(def ^:private runtime-db-read "(:rf.db/runtime (re-frame.core/frame-state-value fid))")
+(def ^:private app-db-read "(re-frame2-pair.runtime/snapshot fid)")
+(def ^:private get-path-canned {:ok? true :exists? true :path [] :value nil :elided-count 0})
+(def ^:private batch-canned {:ok? true :results {} :elided-count 0})
+
+(deftest get-path-follows-a-machines-marker-path-into-the-gated-runtime-db
+  (async done
+    (check-forms
+      [["marker path, gate on + include-sensitive" true gp/get-path-tool get-path-canned
+        {:path machine-marker-path :include-sensitive true :elision false}
+        [runtime-db-read "(re-frame.core/project-egress v" ":rf.egress/profile :rf.egress/local-raw"]
+        [app-db-read ":rf/redacted"]]
+       ["marker path, gate off" false gp/get-path-tool get-path-canned
+        {:path machine-marker-path :include-sensitive true}
+        [runtime-db-read "elided-v :rf/redacted"]
+        [app-db-read "project-egress"]]
+       ["control: an app-db path reads app-db" true gp/get-path-tool get-path-canned
+        {:path "[:cart :items]" :include-sensitive true}
+        [app-db-read "(re-frame.core/project-egress v"]
+        [runtime-db-read]]
+       ["batch naming both partitions, gate off" false gp/get-path-tool batch-canned
+        {:paths (str "[[:cart] " machine-marker-path "]")}
+        [app-db-read runtime-db-read
+         "(get-in (if (contains? rt-paths p) rt db) p missing)"
+         "(if (contains? rt-paths p) :rf/redacted (re-frame.core/project-egress raw-v"]]
+       ["control: an app-db-only batch binds no runtime-db" false gp/get-path-tool batch-canned
+        {:paths "[[:cart] [:user :id]]"}
+        ["(get-in db p missing)"]
+        [runtime-db-read "rt-paths"]]]
       done)))

@@ -33,6 +33,16 @@
   the wire-vocab surface to one tool — the agent that knows `get-path`
   knows the batch form for free.
 
+  ## Runtime-db coordinates
+
+  A path rooted at a reserved `:rf.runtime/*` child (Conventions
+  §Reserved runtime-db keys) reads the frame's runtime-db partition
+  instead of app-db. That is the coordinate a `snapshot` `:machines`
+  marker's `:path` names, because machine declarations are rooted there,
+  so re-calling `get-path` on a marker's `:path` follows every marker the
+  same way. The partition is gated as that slice is: its value reads
+  `:rf/redacted` unless `include-sensitive` is honoured.
+
   Post-eval shrink pipeline lives in
   `re-frame2-pair-mcp.tools.wire-pipeline`. The eval form ran
   `re-frame.core/project-egress` server-side already; the
@@ -77,21 +87,44 @@
 (defn- with-resolved-frame [frame inner-src]
   (fr/with-resolved-frame :get-path frame inner-src))
 
-(defn- single-path-form
-  "Eval form for the singular `:path` read. Calls `snapshot` (full db for
-  the frame) then `get-in` with a missing sentinel, so `path-not-found`
-  is distinguishable from a path that legitimately points at nil. The
-  deepest-valid-prefix loop is inlined so a stale runtime (no helper)
-  still answers correctly. Elision + server-side marker count ride on
-  the `:value` / `:elided-count` slots.
+(defn- runtime-db-path?
+  "True when `path` starts at a reserved `:rf.runtime/*` child, and so
+  addresses the frame's runtime-db partition — see the namespace
+  docstring's §Runtime-db coordinates."
+  [path]
+  (let [k (first path)]
+    (and (keyword? k) (= "rf.runtime" (namespace k)))))
 
-  The door fires UNCONDITIONALLY; the profile named in
-  `egress-opts` decides what it does. Under `:rf.egress/local-raw` (the
+(def ^:private runtime-db-call
+  "The resolved frame's runtime-db partition, as eval-form IR."
+  (ef/rt-raw (str "(:rf.db/runtime (re-frame.core/frame-state-value " resolved-frame-sym "))")))
+
+(defn- runtime-db-egress-src
+  "`project-call-src` for a value read out of runtime-db. The partition
+  is redacted off-box by default (Spec 011 §Off-box redaction), so it
+  crosses the door only under the sensitive opt-in, exactly as
+  `snapshot`'s `:machines` slice does, and reads `:rf/redacted`
+  otherwise."
+  [incl? value-sym path-src frame-edn egress-opts]
+  (if incl?
+    (project-call-src value-sym path-src frame-edn egress-opts)
+    ":rf/redacted"))
+
+(defn- single-path-form
+  "Eval form for the singular `:path` read. Reads `db-call` (the frame's
+  app-db, or its runtime-db for a `runtime-db-path?`) then `get-in` with
+  a missing sentinel, so `path-not-found` is distinguishable from a path
+  that legitimately points at nil. The deepest-valid-prefix loop is
+  inlined so a stale runtime (no helper) still answers correctly.
+  `elide-call` projects the read value; it and the server-side marker
+  count ride on the `:value` / `:elided-count` slots.
+
+  The door fires UNCONDITIONALLY on an app-db read; the profile named in
+  the egress opts decides what it does. Under `:rf.egress/local-raw` (the
   deliberate full-raw opt-in) the projection is the identity, so the
   marker count is naturally zero."
-  [snapshot-call path frame-edn egress-opts]
-  (let [elide-call (project-call-src "v" "path" frame-edn egress-opts)
-        count-expr (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
+  [db-call path elide-call]
+  (let [count-expr (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
                         "               (tree-seq coll? seq elided-v)))")]
     (ef/emit
       (ef/rt-let
@@ -99,7 +132,7 @@
         ;; QUOTED literal data. Printed unquoted, a list segment is a call
         ;; and a symbol a name lookup, so `get-in` would read a DIFFERENT
         ;; key from the one requested and answer `:ok? true` about it.
-        ['db       snapshot-call
+        ['db       db-call
          'path     (ef/rt-quote path)
          'missing  (ef/rt-raw "#js {}")
          'v        (ef/rt-raw "(get-in db path missing)")
@@ -132,24 +165,37 @@
   drill-down via singular `get-path` lands on the right slot.
 
   See `single-path-form`: the door fires unconditionally and the named
-  profile decides the floor."
-  [snapshot-call paths frame-edn egress-opts]
-  (let [elide-call (project-call-src "raw-v" "p" frame-edn egress-opts)]
+  profile decides the floor. A batch naming a `runtime-db-path?` also
+  binds the runtime-db partition and the set of such paths, and reads
+  each of those through `runtime-db-egress-src`; an app-db-only batch
+  binds neither."
+  [snapshot-call paths frame-edn egress-opts incl?]
+  (let [rt-paths   (into #{} (filter runtime-db-path?) paths)
+        rt?        (boolean (seq rt-paths))
+        elide-call (project-call-src "raw-v" "p" frame-edn egress-opts)
+        value-src  (if rt?
+                     (str "(if (contains? rt-paths p) "
+                          (runtime-db-egress-src incl? "raw-v" "p" frame-edn egress-opts)
+                          " " elide-call ")")
+                     elide-call)
+        source-src (if rt? "(if (contains? rt-paths p) rt db)" "db")]
     (ef/emit
       (ef/rt-let
-        ['db      snapshot-call
-         'missing (ef/rt-raw "#js {}")
-         'results (ef/rt-raw
-                    (str "(reduce"
-                         "  (fn [acc p]"
-                         "    (let [raw-v (get-in db p missing)]"
-                         "      (if (identical? raw-v missing)"
-                         "        (assoc acc p {:exists? false :value nil})"
-                         "        (assoc acc p {:exists? true :value " elide-call "}))))"
-                         ;; The caller's paths collection is
-                         ;; EXTERNAL EDN and rides as QUOTED literal data,
-                         ;; exactly as the singular `path` binding does.
-                         "  {} " (ef/emit (ef/rt-quote (vec paths))) ")"))]
+        (into ['db snapshot-call]
+              (concat
+                (when rt? ['rt runtime-db-call 'rt-paths (ef/rt-quote rt-paths)])
+                ['missing (ef/rt-raw "#js {}")
+                 'results (ef/rt-raw
+                            (str "(reduce"
+                                 "  (fn [acc p]"
+                                 "    (let [raw-v (get-in " source-src " p missing)]"
+                                 "      (if (identical? raw-v missing)"
+                                 "        (assoc acc p {:exists? false :value nil})"
+                                 "        (assoc acc p {:exists? true :value " value-src "}))))"
+                                 ;; The caller's paths collection is
+                                 ;; EXTERNAL EDN and rides as QUOTED literal data,
+                                 ;; exactly as the singular `path` binding does.
+                                 "  {} " (ef/emit (ef/rt-quote (vec paths))) ")"))]))
         (ef/rt-raw
           (str "{:ok? true :results results"
                " :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
@@ -281,7 +327,7 @@
         (run-eval
           (with-resolved-frame
             frame
-            (batch-paths-form snapshot-call paths frame-edn egress-opts))
+            (batch-paths-form snapshot-call paths frame-edn egress-opts incl?))
           :results
           ;; Mirror the singular arm and attach `:results` / `:elision`
           ;; only on a hit. An `:ambiguous-frame` refusal dressed with
@@ -306,7 +352,11 @@
       (run-eval
         (with-resolved-frame
           frame
-          (single-path-form snapshot-call path frame-edn egress-opts))
+          (if (runtime-db-path? path)
+            (single-path-form runtime-db-call path
+                              (runtime-db-egress-src incl? "v" "path" frame-edn egress-opts))
+            (single-path-form snapshot-call path
+                              (project-call-src "v" "path" frame-edn egress-opts))))
         (fn [envelope] (when (:ok? envelope) (:value envelope)))
         (fn [envelope' value]
           (let [ok? (:ok? envelope')]
