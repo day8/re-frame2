@@ -212,10 +212,9 @@
 ;;
 ;; A green tally is also not enough on its own: a fixture that never calls
 ;; its thunk executes nothing and still reports 0 failures, 0 errors. So a
-;; run must also have EXECUTED its floor of tests — `RF2_MIN_TESTS` for the
-;; whole suite, one for a `--test=` run — which `execute-cli` records in
-;; `executed-test-floor` before it starts the run. This is the count the JVM
-;; runner's `:summary` floor reads.
+;; run must also have EXECUTED its floor of one test, which `execute-cli`
+;; records in `executed-test-floor`, with which run it started, before it
+;; starts the run. This is the count the JVM runner's `:summary` floor reads.
 
 (def ^:private executed-test-floor
   "`{:floor n :source label}`: the fewest tests this run must execute to exit
@@ -278,49 +277,21 @@
   [test-selectors]
   (rf.test-quiet.shadow-node-cli/select-matching-test-vars test-selectors (env/get-test-vars)))
 
-(def ^:private min-tests-env-var
-  "Environment variable naming this lane's test-count floor. ONE name across
-  every whole-suite lane — the JVM runner (`re-frame.test-quiet.runner`) and
-  the browser runner (`implementation/scripts/run-browser-tests.cjs`) read
-  the same variable. Because it is one name, scope it to the lane you are
-  running: a value calibrated for this ~380-file build will red a focused
-  build such as `:node-test-security`."
-  "RF2_MIN_TESTS")
-
-(defn- resolve-min-tests
-  "`cli/parse-min-tests` over the live `process.env`, or `::cli/invalid`."
-  []
-  (rf.test-quiet.shadow-node-cli/parse-min-tests
-    (when (exists? js/process)
-      (unchecked-get js/process.env min-tests-env-var))))
-
 (defn- reject-below-test-floor!
-  "The whole-suite counterpart to the `--test=` unmatched-selector guard: a
-  build whose `:ns-regexp` selected fewer than `min-tests` test vars must not
-  report a 0-test success. Returns true (and prints + exits nonzero) when the
-  run must be refused, false when it may proceed.
+  "The whole-suite counterpart to the `--test=` unmatched-selector guard:
+  `shadow.build.test-util/find-test-namespaces` returns `[]` when a build's
+  `:ns-regexp` matches nothing and says nothing about it, so a build that
+  selected no test var must not report a 0-test success. Returns true (and
+  prints + exits 1) when the run must be refused, false when it may proceed.
 
   This discovery check runs BEFORE `run-all-tests`, because the count is
   already known and a configuration error should not first pretend to run a
   suite. It cannot see a test that is discovered but never executed, so the
   `:end-run-tests` reporter checks the same floor again against the tests
-  that ran. Exit 2 marks a malformed floor (configuration), 1 an under-floor
-  lane (red)."
-  [min-tests discovered-test-count]
-  (cond
-    (= ::rf.test-quiet.shadow-node-cli/invalid min-tests)
-    (do (println (str "ERROR: " min-tests-env-var " is not a non-negative"
-                      " integer."))
-        (println (str "  " min-tests-env-var " is the minimum number of tests"
-                      " this build must run; leave it unset for the default"
-                      " of " rf.test-quiet.shadow-node-cli/default-min-tests "."))
-        (js/process.exit 2)
-        true)
-
-    (< discovered-test-count min-tests)
-    (do (println (str "ERROR: this build discovered " discovered-test-count
-                      " test var(s), below the floor of " min-tests
-                      " (" min-tests-env-var ")."))
+  that ran."
+  [discovered-test-count]
+  (if (zero? discovered-test-count)
+    (do (println "ERROR: this build discovered 0 test var(s), below the floor of 1.")
         (println (str "  A build whose :ns-regexp selects no tests is a"
                       " configuration error, not a pass: a renamed test file,"
                       " a one-character suffix drift, or a dropped"
@@ -328,8 +299,7 @@
                       "."))
         (js/process.exit 1)
         true)
-
-    :else false))
+    false))
 
 (defn execute-cli
   [{:keys [help list unknown-args] test-selectors :test-syms :as _cli-options}]
@@ -383,14 +353,10 @@
       ;; Whole-suite path. `run-all-tests` over an empty test-var set reports
       ;; a 0-test success exactly as `run-test-vars` does, so it gets the same
       ;; guard as the `--test=` branch above.
-      (let [min-tests (resolve-min-tests)]
-        (when-not (reject-below-test-floor! min-tests
-                                            (count (env/get-test-vars)))
-          (reset! executed-test-floor
-                  {:floor  min-tests
-                   :source (str "the whole suite (" min-tests-env-var ")")})
-          (seed-failure-exit!)
-          (st/run-all-tests test-environment nil))))))
+      (when-not (reject-below-test-floor! (count (env/get-test-vars)))
+        (reset! executed-test-floor {:floor 1 :source "the whole suite"})
+        (seed-failure-exit!)
+        (st/run-all-tests test-environment nil)))))
 
 (defn- print-run-output-synchronously!
   "Route this run's `println` output (the FAIL and ERROR blocks, the

@@ -38,14 +38,6 @@
            '[my.ns gone.ns my.ns/a-test my.ns/c-test missing.ns/x]
            [(fake-var 'my.ns 'a-test) (fake-var 'my.ns 'b-test)]))))
 
-(deftest min-tests-floor-resolution
-  (is (= [1 1 0 3000
-          :re-frame.test-quiet.shadow-node-cli/invalid
-          :re-frame.test-quiet.shadow-node-cli/invalid
-          :re-frame.test-quiet.shadow-node-cli/invalid]
-         (mapv rf.test-quiet.shadow-node-cli/parse-min-tests
-               [nil "   " "0" " 3000 " "1O" "-1" "1.5"]))))
-
 (def ^:private node-child-process (js/require "child_process"))
 
 (def ^:private spawn-timeout-env-var

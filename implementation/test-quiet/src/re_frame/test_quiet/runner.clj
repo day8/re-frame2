@@ -65,21 +65,20 @@
   neither the outer verdict nor the JVM.
 
   The exit code is 0 on green and 1 on red — a failure, an error, or a
-  lane claim below that the run did not prove. A malformed `RF2_MIN_TESTS`
-  exits 2 before anything runs, and a CLI error exits 1 from cognitect.
+  lane claim below that the run did not prove. A CLI error exits 1 from
+  cognitect.
 
   ## What a lane claims, and what it must therefore prove
 
   Which proof a lane owes depends on what it claims:
 
-   - a SUITE lane claims coverage, so it must prove it RAN: fewer than
-     `RF2_MIN_TESTS` tests executed (default 1) is red, however clean the
-     tally.  `run-tests` over an empty namespace set reports `Ran 0 tests
+   - a SUITE lane claims coverage, so it must prove it RAN: executing no
+     test is red, however clean the tally.  `run-tests` over an empty namespace set reports `Ran 0 tests
      containing 0 assertions. / 0 failures, 0 errors.`, so a discovery set
      that silently collapses to nothing — a `-r`/`-n` selector matching no
      namespace, a `:test` alias missing its `:extra-paths [\"test\"]`, a
      renamed test file — would otherwise be indistinguishable from a green
-     suite.  See `parse-min-tests`.
+     suite.  See `lane-claim-complaint`.
    - a PROBE lane claims only that its deps and classpath RESOLVE, so zero
      tests is its correct outcome and the coverage floor must not apply.
      Such a lane says so explicitly by passing `--probe` in its `:test`
@@ -260,40 +259,11 @@
 ;; rather than widening it to lanes that claim something else (see the ns
 ;; docstring, and `probe-flag`).
 ;;
-;; The DEFAULT floor is 1 rather than a per-artefact calibrated number.
-;; That is deliberate: 1 is the bound that can never go stale (no SUITE lane
-;; will ever legitimately ship zero tests), while ~20 hand-maintained
-;; per-artefact numbers would have to be re-ratcheted on ordinary churn and
-;; buy detection only for a PARTIAL collapse, which this failure class does
-;; not produce in practice.  `RF2_MIN_TESTS` is there for a caller that
-;; does want a calibrated bound on a specific lane.
-
-(def ^:private min-tests-env-var
-  "Environment variable naming this lane's test-count floor.  Shared with
-  the CLJS node runner (`re-frame.test-quiet.shadow-node`) and the browser
-  runner (`implementation/scripts/run-browser-tests.cjs`) so the floor has
-  ONE name across every whole-suite lane.  Because it is one name, scope it
-  to the lane you are running — a value calibrated for the ~380-file node
-  build will red a single-artefact JVM suite."
-  "RF2_MIN_TESTS")
-
-(def ^:private default-min-tests
-  "Floor applied when `RF2_MIN_TESTS` is unset." 1)
-
-(defn- parse-min-tests
-  "Resolve the test-count floor from `raw` (an `RF2_MIN_TESTS` value, or
-  nil/blank when unset).  Returns the floor as a long, or `::invalid` when
-  `raw` is present but not a non-negative integer.
-
-  A malformed floor is `::invalid` rather than a silent fall back to the
-  default: `RF2_MIN_TESTS=1O` (letter O) quietly disabling the very gate
-  that catches silent non-execution would be this bug wearing a hat."
-  [raw]
-  (if (or (nil? raw) (str/blank? raw))
-    default-min-tests
-    (let [n (try (Long/parseLong (str/trim raw))
-                 (catch NumberFormatException _ nil))]
-      (if (and n (not (neg? n))) n ::invalid))))
+;; The floor is 1 rather than a per-artefact calibrated number.  1 is the
+;; bound that can never go stale (no SUITE lane will ever legitimately ship
+;; zero tests), while ~20 hand-maintained per-artefact numbers would have to
+;; be re-ratcheted on ordinary churn and buy detection only for a PARTIAL
+;; collapse, which this failure class does not produce in practice.
 
 (def ^:private probe-flag
   "The one flag this wrapper owns, stripped before args reach cognitect.
@@ -317,24 +287,6 @@
   [{:probe? (boolean (some #{probe-flag} args))}
    (remove #{probe-flag} args)])
 
-(defn- resolve-min-tests!
-  "`parse-min-tests` over the live environment, exiting 2 (a configuration
-  error, distinct from cognitect's 1 = red) on a malformed value."
-  []
-  (let [raw    (System/getenv min-tests-env-var)
-        parsed (parse-min-tests raw)]
-    (if (= ::invalid parsed)
-      (do (binding [*out* *err*]
-            (println (str "ERROR: " min-tests-env-var "=" (pr-str raw)
-                          " is not a non-negative integer."))
-            (println (str "  " min-tests-env-var
-                          " is the minimum number of tests this run must"
-                          " execute; leave it unset for the default of "
-                          default-min-tests "."))
-            (flush))
-          (System/exit 2))
-      parsed)))
-
 ;; ----------------------------------------------------------------------
 ;; What the lane will DISCOVER — a file the runner cannot see is not a
 ;; file that passed.
@@ -356,8 +308,8 @@
 ;; `0 failures, 0 errors.` and exits 0.  Exit code zero, honestly earned,
 ;; over a suite missing a whole file.
 ;;
-;; NOTHING ELSE SEES IT, and that is not for want of guards.  `RF2_MIN_TESTS`
-;; above is a COLLAPSE detector: one file's handful of tests sits far inside
+;; NOTHING ELSE SEES IT, and that is not for want of guards.  The test-count
+;; floor above is a COLLAPSE detector: one file's handful of tests sits far inside
 ;; the headroom any growing lane must leave itself.
 ;; `scripts/check_test_lane_bijection.py` matches the `(ns ` line with a
 ;; regex, so it matches the APPEARANCE of a declaration rather than the
@@ -602,8 +554,8 @@
   `require` loads whichever the classpath resolves and treats the rest as
   already loaded, and `run-tests` is then handed the same symbol twice:
   one file runs twice while the other never runs at all.  The tally goes
-  UP, not down, so neither the summary nor the `RF2_MIN_TESTS` floor can
-  see the substitution."
+  UP, not down, so neither the summary nor the test-count floor can see
+  the substitution."
   [files]
   (for [[declared group] (group-by :declared files)
         :when            (next group)
@@ -676,7 +628,7 @@
                       " loaded, then `run-tests` gets the\n"
                       "    symbol twice: one file runs twice, the other never"
                       " runs, and the tally goes UP - so\n"
-                      "    neither the summary nor the RF2_MIN_TESTS floor can"
+                      "    neither the summary nor the test-count floor can"
                       " see the substitution.\n\n"
                       "Either way the suite still prints `0 failures, 0 errors.`"
                       " and exits 0. Fix the file, or\n"
@@ -870,11 +822,10 @@
   read first: an uncallable fixture zeroes its whole namespace, so a lane
   zeroed that way would otherwise be reported as the discovery problem it
   does not have.  Then the lane's claim: a probe lane must have executed no
-  test, and a suite lane at least `min-tests` (see the ns docstring and
-  `parse-min-tests`).  ASCII only: this text goes through the
+  test, and a suite lane at least one (see the ns docstring).  ASCII only: this text goes through the
   platform-default stderr encoding, where an em dash renders as a
   replacement character on a Windows console."
-  [{:keys [probe? min-tests]} summary namespaces]
+  [{:keys [probe?]} summary namespaces]
   (let [test-count (or (:test summary) 0)
         uncallable (uncallable-fixtures namespaces)]
     (cond
@@ -893,10 +844,8 @@
              " `:main-opts`\n"
              "so the test-count floor applies to it.\n"))
 
-      (< test-count min-tests)
-      (str "this run executed " test-count
-           " test(s), below the floor of " min-tests
-           " (" min-tests-env-var ").\n"
+      (zero? test-count)
+      (str "this run executed 0 test(s), below the floor of 1.\n"
            "A suite lane that discovered no tests is a"
            " configuration error: a `-r`/`-n` selector matching"
            " nothing, a `:test` alias\n"
@@ -982,12 +931,10 @@
       (System/exit (if (or red? complaint) 1 0)))))
 
 (defn -main [& args]
-  (let [;; This lane's claim, resolved before anything is rebound so a
-        ;; malformed floor is a plain stderr diagnostic + exit 2, not a
-        ;; buffered one. `--probe` is ours and is stripped from what
+  (let [;; This lane's claim. `--probe` is ours and is stripped from what
         ;; cognitect sees.
         [{:keys [probe?]} forwarded-args] (split-runner-args args)
-        lane-claim {:probe? probe? :min-tests (resolve-min-tests!)}
+        lane-claim {:probe? probe?}
         ;; And what this lane will DISCOVER, before a single test runs: a
         ;; file the reader cannot read is invisible to discovery, so no
         ;; later check has anything left to notice.
