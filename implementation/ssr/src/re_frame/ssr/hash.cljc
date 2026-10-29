@@ -74,10 +74,18 @@
       converted. `-0.0` prints `\"0\"`, as `String(-0)` does;
     - a `Ratio` prints as its IEEE-double form (mirroring a CLJS view that
       computed the same value by division);
-    - every other number keeps its default `pr-str` form — integers already
-      agree across runtimes, NaN and the infinities print `##NaN` / `##Inf`
-      on both hosts, and `pr-str`/`str` coincide for numbers (no quoting),
-      so the emitter reuses this for HTML.
+    - a `BigDecimal` prints its exact digits by `.toPlainString` — never
+      scientific notation, and the scale's trailing zeros kept, so `19.99M`
+      is `\"19.99\"` and `10.50M` is `\"10.50\"` — and a `BigInt` its plain
+      decimal digits, `42N` as `\"42\"`. Their `pr-str` forms carry the
+      reader's `M` / `N` suffix, which is not page text. Both types are
+      JVM-only and the hydration payload refuses them
+      (`re-frame.ssr.wire/portable-number?`), so no client renders or digests
+      the server's value in another representation. The one divergence is a
+      `.cljc` literal: CLJS reads `10.50M` as the double `10.5`;
+    - every other number keeps its default `pr-str` form, which carries no
+      suffix: integers agree across runtimes, and NaN and the infinities
+      print `##NaN` / `##Inf` on both hosts.
 
   Residual: a subnormal double (magnitude below about 2.2e-308) can differ in
   its last digit, where the JDK picks the closer of two short candidates and
@@ -96,6 +104,12 @@
            ;; `str` is `Float/toString` for a float, so a float keeps the
            ;; short digits it prints with rather than its widened double's.
            :else (js-decimal-string (java.math.BigDecimal. (str number)))))
+
+       (decimal? number)
+       (.toPlainString ^java.math.BigDecimal number)
+
+       (instance? clojure.lang.BigInt number)
+       (str number)
 
        :else (pr-str number))
      :cljs
