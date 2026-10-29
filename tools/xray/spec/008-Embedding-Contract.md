@@ -258,7 +258,7 @@ Story.
 | Command field | Canonical Xray write | Owner |
 |---|---|---|
 | `:frame`       | `:rf.xray/select-frame <frame-id>` | [`007-UX-IA.md`](./007-UX-IA.md) §Frame slot contract |
-| `:panel`       | `:rf.xray/select-tab <tab-id>`     | spine tab slot |
+| `:panel`       | `:rf.xray/set-mode :dynamic`, then `:rf.xray/select-tab <tab-id>` | spine tab slot |
 | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
 | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | [`018-Event-Spine.md`](./018-Event-Spine.md) §6 |
 
@@ -270,10 +270,18 @@ interaction ([`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 §10.5). A command still carrying `:path` is ignored like any unknown
 key — `focus!` stays permissive.
 
+A `:panel` names a Dynamic tab, and the Static surface hides every one of
+them, so **a `focus!` that names a `:panel` switches the shell to Dynamic
+mode first**, the way Xray's own Static jump buttons do. `{:ok? true}`
+then means the host can see what it asked for: a host has no other way to
+flip the mode, because it never names Xray's frame. **A `focus!` without
+`:panel` leaves the mode alone**, so a host that only pins an epoch never
+moves the operator (§Second consumer below).
+
 Dispatch order is **frame-first** so the per-frame epoch ring re-seeds
 (`:rf.xray/set-frame` clears the pinned dispatch-id + re-seeds
 `:epoch-history`) before any epoch / cascade pin resolves; then the
-spine pin, then the tab. When BOTH `:dispatch-id` and
+spine pin, then the mode and the tab. When BOTH `:dispatch-id` and
 `:epoch-id` are supplied the cascade pin wins (it carries the frame and
 the spine derives the settling epoch from it); `:epoch-id` alone is the
 lighter selector for callers that only have an epoch.
@@ -314,8 +322,9 @@ establishes are normative for any host doing post-step focus-pinning:
   `:frame` + `:epoch-id` and **omits `:panel`** — so every per-epoch
   panel (App-db per-epoch-delta, the edn-inspector widget, Views,
   Routing, Machine Inspector) pivots onto the step's record while the
-  operator's chosen L4 tab is preserved. Sending `:panel :epoch` would
-  yank the operator off the tab they are watching; a focus-pinning host
+  operator's chosen L4 tab and mode are preserved. Sending `:panel :epoch`
+  would yank the operator off the tab they are watching, and out of Static
+  mode; a focus-pinning host
   that wants to follow a stream of events without hijacking the tab
   drops `:panel`.
 - **Pin the HEAD to stay LIVE.** Focusing the latest (head) epoch each

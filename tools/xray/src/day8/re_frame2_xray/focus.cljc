@@ -12,9 +12,16 @@
   | Command field | Canonical Xray write | Owner ns |
   |---|---|---|
   | `:frame`       | `:rf.xray/select-frame <frame-id>` | `frame_switcher.cljs` |
-  | `:panel`       | `:rf.xray/select-tab <tab-id>`     | `registry.cljs` |
+  | `:panel`       | `:rf.xray/set-mode :dynamic`, then `:rf.xray/select-tab <tab-id>` | `registry.cljs` |
   | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | `spine.cljs` |
   | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | `spine.cljs` |
+
+  A `:panel` names a Dynamic tab, and the Static surface hides every one
+  of them, so `:panel` switches the shell to Dynamic mode before selecting
+  the tab — the host has no other way to see what it asked for, because
+  it never names Xray's frame. A command without `:panel` leaves the mode
+  alone, which is what lets a host pin an epoch without moving the
+  operator. Spec 008 §Field → canonical write surface.
 
   There is no `:path` field: zoom into a node is the path interaction. A
   command carrying `:path` is IGNORED like any other unknown key —
@@ -43,7 +50,7 @@
 
   Every field is optional. An empty command (`{}`) is a well-formed
   no-op focus (returns `:ok? true` with `:applied []`). A command with
-  only `:panel` just flips the tab. This keeps narrative beats terse —
+  only `:panel` just switches to that tab, in Dynamic mode. This keeps narrative beats terse —
   a beat that only cares about \"show me the trace\" sends
   `{:panel :trace}`.
 
@@ -70,7 +77,7 @@
   lands; `:rf.xray/set-frame` clears the pinned `:dispatch-id` and
   re-seeds `:epoch-history`, so a later `:focus-epoch` resolves against
   the correct frame's ring), THEN `:dispatch-id` / `:epoch-id` (the
-  spine pin), THEN `:panel` (the tab).
+  spine pin), THEN `:panel` (Dynamic mode, then the tab).
   Reversing frame and epoch would let the epoch pin resolve against the
   wrong frame's ring.
 
@@ -83,7 +90,7 @@
   `:rf.xray/focus-after-frame`. `:applied` still reports the
   canonical events above, in their order."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.defaults :as defaults]
+            #?(:cljs [day8.re-frame2-xray.defaults :as defaults])
             [day8.re-frame2-xray.panel-registry :as panel-registry]))
 
 ;; ---------------------------------------------------------------------------
@@ -109,7 +116,7 @@
 ;; read from. It is repeated here as a static `.cljc`/JVM-runnable def
 ;; because the registry atom is populated at CLJS install time and this
 ;; namespace is JVM-portable (the pure `focus-command->dispatches`
-;; translator runs under the JVM test corpus with no runtime). The
+;; translator needs no runtime). The
 ;; CLJS `focus!` validation (`apply-focus!`) guards against the LIVE
 ;; registry directly so it can never drift; `valid-panels` is the
 ;; published/JVM-testable shadow of that set, and a registry-driven
@@ -194,7 +201,10 @@
        event-bundle pin wins — it carries the frame and the spine resolves
        the settling epoch from it; an explicit `:epoch-id` is the
        lighter selector for callers that only have the epoch.)
-    4. `[:rf.xray/select-tab <panel>]` — when `:panel` present. The
+    4. `[:rf.xray/set-mode :dynamic]` — when `:panel` present, so a
+       shell left in Static mode shows the Dynamic tab the next step
+       selects. Without `:panel` the mode is left alone.
+    5. `[:rf.xray/select-tab <panel>]` — when `:panel` present. The
        panel id is normalised through `panel-aliases` first
        (`:routes` → `:routing`) so a host-friendly display-noun alias
        lands the real live tab, not the unknown-tab stub.
@@ -214,7 +224,8 @@
     (and (some? epoch-id)
          (nil? dispatch-id))
     (conj [:rf.xray/focus-epoch epoch-id])
-    (some? panel)       (conj [:rf.xray/select-tab (normalize-panel panel)])))
+    (some? panel)       (conj [:rf.xray/set-mode :dynamic]
+                              [:rf.xray/select-tab (normalize-panel panel)])))
 
 ;; ---------------------------------------------------------------------------
 ;; The one sequencing event
