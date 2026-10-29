@@ -22,6 +22,7 @@ const {
   resolveServePort,
   startLocalHttpServer,
   waitForHttpReady,
+  withTimeout,
 } = require('./lib/local-browser-harness.cjs');
 const {
   SCENARIOS,
@@ -203,17 +204,6 @@ function stageSurfaces() {
       fs.copyFileSync(src, dest);
     }
   }
-}
-
-// Settle with `promise`, or reject once `ms` passes, whichever comes first.
-function withTimeout(promise, ms, label) {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
 }
 
 // Log a teardown step that failed or timed out, and carry on: teardown's job

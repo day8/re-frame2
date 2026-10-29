@@ -180,6 +180,7 @@ const playwright = require('playwright');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
+  withTimeout,
 } = require('./lib/local-browser-harness.cjs');
 const { SHADOW_CLI } = require('./lib/shadow.cjs');
 
@@ -1480,16 +1481,6 @@ function pollUntil(predicate, ms, makeError) {
     }, 100);
     if (tick.unref) tick.unref();
   });
-}
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), ms);
-    }),
-  ]);
 }
 
 // ---------------------------------------------------------------------------

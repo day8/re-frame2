@@ -20,6 +20,7 @@ const {
   startLocalHttpServer,
   waitForHttpReady,
   waitForOwnedHttpReady,
+  withTimeout,
 } = require('./lib/local-browser-harness.cjs');
 
 const tests = [];
@@ -515,6 +516,18 @@ test('startLocalHttpServer throws loudly when the staging root is missing or is 
   } finally {
     rmTmp(dir);
   }
+});
+
+test('withTimeout settles with the promise, or rejects naming the label once the time passes', async () => {
+  assert.equal(await withTimeout(Promise.resolve('done'), 1000, 'fast'), 'done');
+  await assert.rejects(
+    withTimeout(Promise.reject(new Error('own failure')), 1000, 'failing'),
+    /own failure/,
+  );
+  await assert.rejects(
+    withTimeout(new Promise(() => {}), 20, 'browser.close'),
+    /^Error: browser\.close timed out after 20ms$/,
+  );
 });
 
 (async () => {

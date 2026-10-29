@@ -55,17 +55,7 @@ const { isVerboseTests } = require(path.join(
   'browser-test-report.cjs',
 ));
 const VERBOSE_TESTS = isVerboseTests();
-
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Spec '${label}' timed out after ${ms}ms`)),
-      ms,
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
+const { withTimeout } = require(path.join(IMPL_ROOT, 'scripts', 'lib', 'local-browser-harness.cjs'));
 
 (async () => {
   const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS);
@@ -149,7 +139,7 @@ function withTimeout(promise, ms, label) {
     let failure = null;
     try {
       await page.goto(fullUrl, { waitUntil: 'load', timeout: TIMEOUT_MS });
-      await withTimeout(spec.run(page), TIMEOUT_MS, label);
+      await withTimeout(spec.run(page), TIMEOUT_MS, `Spec '${label}'`);
       if (pageErrored) {
         throw new Error(`Page emitted an uncaught error: ${pageErrored.message}`);
       }
