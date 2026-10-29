@@ -786,11 +786,10 @@
   - A PREPARED `:spawn-all` child is excluded. An ADMITTED child ALWAYS
     installs — the authoritative preflight is the sole verdict, and a second
     per-child reject here would strand a live join naming a child that never
-    appears (a dead join).
-    The WITHIN-BATCH aliasing case is already rejected atomically by that
-    preflight (`spawn-all-address-collisions`); a prepared child colliding with
-    a live actor OUTSIDE its batch is left alone and belongs to the counter
-    re-homing, not here.
+    appears (a dead join). That preflight rejects the whole batch atomically
+    both for WITHIN-BATCH aliasing (`spawn-all-address-collisions`) and for a
+    generated address a live actor OUTSIDE the batch holds
+    (`occupied-generated-children`), so an admitted child never lands on one.
   - A nil `spawned-id` is excluded: the cascade gate already refuses that spawn.
 
   Occupancy is `lifecycle-fx.destroy/occupant-actor-live?` — the SAME probe the
@@ -805,9 +804,86 @@
          (not (contains? args :fixed-actor-id))
          (rf.machines.lifecycle-fx.destroy/occupant-actor-live? frame-id spawned-id))))
 
+(defn- generated-collision-reason
+  "The dev-trace prose for a generated-address collision — built only under
+  the dev gate, since the always-on record carries structural tags alone."
+  [machine-id spawned-id whole-invoke?]
+  (rf.error/human-message
+    :rf.error/machine-spawn-all-duplicate-id
+    (str "Cannot spawn machine " machine-id " at the generated "
+         "actor address " spawned-id ": a LIVE actor already "
+         "occupies it, and installing there would destroy that "
+         "actor with no :exit, no teardown and no trace — so the "
+         (if whole-invoke? "whole :spawn-all invoke" "spawn")
+         " is rejected fail-closed. The generated "
+         "<type>#<n> counter is per-spawning-snapshot while the "
+         "address space is per-frame, so a respawned parent, or "
+         "a second parent spawning the same machine TYPE, can "
+         "re-mint an address that is still held. The recovery "
+         "depends on which of those shapes this is. Two DISTINCT "
+         "parent types minting one child type: give each spawn a "
+         "distinct :id-prefix. A parent colliding with its OWN "
+         "live orphan: destroy the orphan first, or give the "
+         "spawn a distinct :fixed-actor-id. But TWO LIVE "
+         "INSTANCES OF ONE PARENT TYPE cannot be separated by "
+         "either key — both are static literals on the one spec "
+         "the instances share, and a shared :fixed-actor-id "
+         "makes the second instance REPLACE the first's child — "
+         "so spawn the child by emitting [:rf.machine/spawn "
+         "{:machine-id " machine-id " :id-prefix "
+         "<unused-prefix>}] from an action instead, which "
+         "allocates on the frame-wide counter. That counter is "
+         "a SEPARATE stream, not a higher one: it sequences its "
+         "own spawns #1, #2, ... but declarative spawns do not "
+         "advance it and it does not skip an occupied address, "
+         "so the BARE form re-mints " spawned-id " and is "
+         "refused again on every retry. Name an :id-prefix no "
+         "declarative spawn uses, so the hand-emitted spawn "
+         "allocates into an EMPTY address namespace.")))
+
+(defn- report-generated-address-collision!
+  "Report that the GENERATED address `spawned-id` of spawn `args` is already
+  held by a live actor: `:rf.error/machine-spawn-all-duplicate-id` on the
+  always-on record and on the dev trace. Shared by the single-`:spawn` reject
+  (`reject-generated-address-collision!`) and the `:spawn-all` preflight,
+  which rejects the whole batch.
+
+  ALWAYS-ON, like `reject-unregistered-spawn!`: whether an address is occupied
+  depends on the runtime population, so production is where this happens, and
+  a parent left waiting on a child that was never born must be visible to an
+  off-box shipper. The record is STRUCTURAL only — the machine TYPE, the
+  occupied address, the spawning parent and invoke path, never the spawn
+  `args` / `:data`. The prose `:reason` rides the dev trace and is built only
+  under the dev gate."
+  [frame-id args spawned-id]
+  (let [machine-id    (:machine-id args)
+        parent-id     (:rf/parent-id args)
+        whole-invoke? (contains? args :rf/spawn-all-id)
+        invoke-id     (if whole-invoke? (:rf/spawn-all-id args) (:rf/invoke-id args))]
+    (when-let [dispatch-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
+      (dispatch-record! {:rf.error/id :rf.error/machine-spawn-all-duplicate-id
+                         :frame       frame-id
+                         :machine-id  machine-id
+                         :failing-id  spawned-id
+                         :parent-id   parent-id
+                         :invoke-id   invoke-id
+                         :recovery    :no-recovery
+                         :time        (rf.interop/now-ms)}))
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
+                            {:machine-id machine-id
+                             :failing-id spawned-id
+                             :parent-id  parent-id
+                             :invoke-id  invoke-id
+                             :frame      frame-id
+                             :recovery   :no-recovery
+                             :reason     (generated-collision-reason
+                                           machine-id spawned-id whole-invoke?)}))
+    nil))
+
 (defn- reject-generated-address-collision!
   "REJECT a spawn whose GENERATED address is already held by a live
-  actor, and emit `:rf.error/machine-spawn-all-duplicate-id`. Returns nil, so
+  actor, and report it (`report-generated-address-collision!`). Returns nil, so
   the caller's cascade gate suppresses the whole spawn — no snapshot, no
   spawn-order entry, no `:rf.machine.spawn/spawned`, no `:start` dispatch —
   exactly as the schema-reject and unregistered-TYPE paths do. The rejecting
@@ -823,12 +899,10 @@
   than a sibling in the same invoke. A distinct id would give one failure two
   names.
 
-  DIAGNOSTIC channel (Spec 009), matching `reject-address-collision!`: the
-  fail-closed reject itself runs in production — the spawn does not install
-  either way — while the observability trace rides the dev-only surface DCE'd
-  under `goog.DEBUG=false`. STRUCTURAL context ONLY: the machine TYPE, the
-  occupied address, the spawning parent and invoke path. Never the spawn `args`
-  / `:data`, which may hold application PII.
+  ALWAYS-ON plus dev trace, through `report-generated-address-collision!`.
+  STRUCTURAL context ONLY: the machine TYPE, the occupied address, the
+  spawning parent and invoke path. Never the spawn `args` / `:data`, which may
+  hold application PII.
 
   `:recovery` is `:no-recovery` — the runtime cannot pick a different address
   without breaking the deterministic `<type>#<n>` sequencing
@@ -868,49 +942,8 @@
   destroys a live actor — and an escape that works only from an EMPTY address
   namespace must say so, or the author retries it forever."
   [frame-id args spawned-id]
-  (let [machine-id (:machine-id args)
-        parent-id  (:rf/parent-id args)
-        reason     (rf.error/human-message
-                     :rf.error/machine-spawn-all-duplicate-id
-                     (str "Cannot spawn machine " machine-id " at the generated "
-                          "actor address " spawned-id ": a LIVE actor already "
-                          "occupies it, and installing there would destroy that "
-                          "actor with no :exit, no teardown and no trace — so the "
-                          "spawn is rejected fail-closed. The generated "
-                          "<type>#<n> counter is per-spawning-snapshot while the "
-                          "address space is per-frame, so a respawned parent, or "
-                          "a second parent spawning the same machine TYPE, can "
-                          "re-mint an address that is still held. The recovery "
-                          "depends on which of those shapes this is. Two DISTINCT "
-                          "parent types minting one child type: give each spawn a "
-                          "distinct :id-prefix. A parent colliding with its OWN "
-                          "live orphan: destroy the orphan first, or give the "
-                          "spawn a distinct :fixed-actor-id. But TWO LIVE "
-                          "INSTANCES OF ONE PARENT TYPE cannot be separated by "
-                          "either key — both are static literals on the one spec "
-                          "the instances share, and a shared :fixed-actor-id "
-                          "makes the second instance REPLACE the first's child — "
-                          "so spawn the child by emitting [:rf.machine/spawn "
-                          "{:machine-id " machine-id " :id-prefix "
-                          "<unused-prefix>}] from an action instead, which "
-                          "allocates on the frame-wide counter. That counter is "
-                          "a SEPARATE stream, not a higher one: it sequences its "
-                          "own spawns #1, #2, ... but declarative spawns do not "
-                          "advance it and it does not skip an occupied address, "
-                          "so the BARE form re-mints " spawned-id " and is "
-                          "refused again on every retry. Name an :id-prefix no "
-                          "declarative spawn uses, so the hand-emitted spawn "
-                          "allocates into an EMPTY address namespace."))]
-    (clear-rejected-mirror! frame-id args)
-    (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
-                       {:machine-id machine-id
-                        :failing-id spawned-id
-                        :parent-id  parent-id
-                        :invoke-id  (:rf/invoke-id args)
-                        :frame      frame-id
-                        :recovery   :no-recovery
-                        :reason     reason})
-    nil))
+  (clear-rejected-mirror! frame-id args)
+  (report-generated-address-collision! frame-id args spawned-id))
 
 (defn- install-base-after-replacing-occupant!
   "The occupied-`:fixed-actor-id` step. Returns the `runtime-db`
@@ -1325,6 +1358,23 @@
                 (map (fn [addr] [addr (mapv second (get by-addr addr))])))
           addressed)))
 
+(defn- occupied-generated-children
+  "The `:spawn-all` child args whose GENERATED `<type>#<n>` address a live
+  actor outside the batch already holds — the batch-level peer of
+  `generated-address-collision?`. Two parents spawning one child type mint
+  the same addresses, and an admitted child always installs, so without this
+  the second batch would silently overwrite the first parent's live child.
+  A `:fixed-actor-id` child is excluded: an occupied fixed address is a clean
+  replacement. Reads runtime-db only, so it runs before any child is
+  prepared. Returns the offending args in declaration order."
+  [frame-id child-args]
+  (filterv (fn [args]
+             (let [addr (pre-allocated-actor-id args)]
+               (and (some? addr)
+                    (not (contains? args :fixed-actor-id))
+                    (rf.machines.lifecycle-fx.destroy/occupant-actor-live? frame-id addr))))
+           child-args))
+
 (defn- write-spawned-slot!
   "Write `value` into the frame's join slot at
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`, bound to A's RAW
@@ -1448,6 +1498,9 @@
       straight off the args (`pre-allocated-actor-id`), so it needs no TYPE
       resolution, no snapshot, and no application validator — and an
       already-aliased batch must not pay for, nor be pre-empted by, any of them.
+      A GENERATED address that a live actor outside the batch already holds
+      (`occupied-generated-children`) is the same overwrite across the batch
+      boundary, and is decided next, from runtime-db alone.
    1. **Unregistered child TYPE**. A
       never-running spec-less child would never reach a `:final?` state,
       blocking an `:all` join FOREVER (`join.cljc`
@@ -1572,13 +1625,27 @@
         ;; ALREADY known structurally invalid, so the structural fault would not
         ;; fail first. Only a structurally unique batch earns registry
         ;; resolution, snapshot building or schema validation.
-        collisions (spawn-all-address-collisions child-args)]
-    (if (seq collisions)
+        collisions (spawn-all-address-collisions child-args)
+        ;; A generated address a live actor outside the batch holds is the
+        ;; same overwrite across the batch boundary; it too is decided from
+        ;; runtime-db alone, before any child is prepared.
+        occupied   (when (empty? collisions)
+                     (occupied-generated-children frame-id child-args))]
+    (cond
+      (seq collisions)
       ;; Structural reject — nothing was prepared, so this is the ONLY
       ;; diagnostic the invoke fans. Atomic via the same childless sentinel
       ;; every reject seeds.
       (do (reject-address-collision! frame-id parent-id invoke-id collisions)
           (seed-reject-sentinel! frame-id owner-token parent-id invoke-id))
+
+      (seq occupied)
+      ;; One report per occupied address, then the same atomic reject.
+      (do (doseq [args occupied]
+            (report-generated-address-collision! frame-id args (pre-allocated-actor-id args)))
+          (seed-reject-sentinel! frame-id owner-token parent-id invoke-id))
+
+      :else
       (let [prepared       (mapv #(prepare-spawn-all-child % join-state) child-args)
             unregistered   (mapv :args (filterv :unregistered? prepared))
             schema-invalid (filterv :schema-reject? prepared)]

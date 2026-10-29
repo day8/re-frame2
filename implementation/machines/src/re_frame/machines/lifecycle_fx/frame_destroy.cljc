@@ -15,10 +15,9 @@
        across every destroy trigger including frame destroy).
     4. Apply the unified runtime-db teardown projection — dissoc
        `[:rf.runtime/machines :snapshots <id>]` and prune
-       `[:rf.runtime/machines :spawned]` slots.
-    5. Clear any stale registrar entry; normal spawned actors have no
-       per-instance registration.
-    6. Emit `:rf.machine.lifecycle/destroyed` with
+       `[:rf.runtime/machines :spawned]` slots. The registrar is not
+       touched: spawned actors have no per-instance registration.
+    5. Emit `:rf.machine.lifecycle/destroyed` with
        `:reason :parent-frame-destroyed` per actor — the contract
        observable in `frame_lifecycle_test/destroy-frame-cascade-
        emits-per-active-machine`.
@@ -199,16 +198,14 @@
          cascade D6.
       b. Spawned actors (durably sequenced OR unsequenced): run the full
          single-actor destroy — exit-cascade → http-abort →
-         timer cancel → unified teardown projection →
-         registrar cleanup.
+         timer cancel → unified teardown projection.
       c. Singletons (registered via `reg-machine`, snapshot present but no
          `[:rf/runtime :machine-type]`): run the `:exit` cascade + HTTP abort, but
          DO NOT unregister the handler — a `reg-machine` registration is a
          shared load-time DEFINITION whose lifetime is the registrar's,
          never any one actor's or frame's (Spec 005 §Liveness is derived
-         from runtime-db). The SPAWNED branch (b) preserves
-         definitions too, so no destroy path deletes one; this branch is
-         about the `:exit` / abort work a straggler still owes."
+         from runtime-db). No destroy path touches the registrar; this
+         branch is about the `:exit` / abort work a straggler still owes."
   [frame-id]
   (when frame-id
     (let [runtime-db   (frame-runtime-db frame-id)

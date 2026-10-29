@@ -1279,6 +1279,7 @@
    ;; every actor of it at egress — so a shape fault must be caught at
    ;; definition, like every other registration-shape fault.
    (rf.machines.classification/validate-machine-classification! machine-id machine)
+   (rf.machines.classification/validate-machine-opts-classification! machine-id opts)
    ;; The handler closes over the registered definition and the registrar
    ;; publishes it, so both hold one value, region-machine cache included.
    ;; The type's spawned actors run this same handler, so they share the

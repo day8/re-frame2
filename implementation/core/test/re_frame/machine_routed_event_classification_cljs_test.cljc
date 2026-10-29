@@ -1,8 +1,8 @@
 (ns re-frame.machine-routed-event-classification-cljs-test
   "The machine trace projector redacts the ROUTED inner event a machine echoes
-  into its trace slots — top-level `:event` (`:rf.machine/transition`,
-  `:rf.machine/event-received`) and `[:input :event]`
-  (`:rf.machine/guard-evaluated`, `:rf.machine/action-ran`) — as well as the
+  into its trace slots — top-level `:event` (`:rf.machine/transition`) and
+  `[:input :event]` (`:rf.machine/guard-evaluated`, `:rf.machine/action-ran`),
+  plus the whole routed event `:rf.machine/event-received` carries — as well as the
   durable `:data` snapshot (Spec 005 §Trace events). The generic event projector
   keys off the inner event-id, which is typically unregistered.
 
@@ -68,14 +68,17 @@
     (is (not (leaks? token-sentinel t))
         "the durable token redacts in :before, :after and [:input :data]")))
 
-(deftest event-received-echoed-event-redacted
-  ;; `:rf.machine/event-received` names its machine under `:machine-id`, not `:actor-id`.
+(deftest event-received-routed-event-redacted
+  ;; `:rf.machine/event-received` names its machine under `:machine-id`, not
+  ;; `:actor-id`, and carries the ROUTED event `[<machine-id> <inner>]` the
+  ;; handler was dispatched, so the opts paths apply through the machine's own
+  ;; event registration.
   (register-machine-event-classification!)
-  (is (= redacted-inner-event
+  (is (= [mid redacted-inner-event]
          (:event (project {:operation :rf.machine/event-received
                            :tags {:machine-id mid
                                   :frame      :rf/default
-                                  :event      (inner-event)}})))))
+                                  :event      [mid (inner-event)]}})))))
 
 (deftest guard-and-action-input-event-redacted
   (register-machine-event-classification!)

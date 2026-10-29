@@ -520,6 +520,49 @@
       event)
     event))
 
+;; The reserved inner event-id the runtime dispatches into a PARENT machine
+;; when one of its `:spawn`-spawned children FAILS (Spec 005 §`:on-error`).
+;; The inner shape is `[:rf.machine.spawn/error <invoke-id> <error>]`;
+;; `<error>` (the 3rd element) is CHILD-owned. Inlined here (not a require on the
+;; machines artefact, which ships ABOVE core) so the projection chokepoint can
+;; recognise it without a load cycle.
+(def ^:private spawn-error-event-id :rf.machine.spawn/error)
+
+(defn- spawn-error-event?
+  "True when `v` is a `[:rf.machine.spawn/error <invoke-id> <error>]` synthetic
+  event vector (the parent-failure control-flow event)."
+  [v]
+  (and (vector? v)
+       (>= (count v) 3)
+       (= spawn-error-event-id (first v))))
+
+(defn- summarize-spawn-error-event
+  "Summarize the synthetic spawn-error event vector for trace egress. Keep the
+  STRUCTURAL routing facts — the reserved id and the `<invoke-id>` — and replace
+  the CHILD-owned `<error>` payload (3rd element, plus any further args) with the
+  `:rf/redacted` sentinel."
+  [event]
+  (into [(nth event 0) (nth event 1) rf.privacy/redacted-sentinel]
+        (repeat (max 0 (- (count event) 3)) rf.privacy/redacted-sentinel)))
+
+(defn- project-spawn-error-event
+  "Summarize the child-owned payload of a spawn-error event in either of the
+  two shapes it egresses in: the inner `[:rf.machine.spawn/error <invoke-id>
+  <error>]` a parent's transition and guard/action traces echo, and the routed
+  carrier `[<parent-id> [:rf.machine.spawn/error …]]` the parent is dispatched,
+  which every `:rf.event/v`, `:event-received` and error-record slot carries.
+  Any other value is returned unchanged."
+  [v]
+  (cond
+    (spawn-error-event? v)
+    (summarize-spawn-error-event v)
+
+    (and (vector? v) (spawn-error-event? (nth v 1 nil)))
+    (assoc v 1 (summarize-spawn-error-event (nth v 1)))
+
+    :else
+    v))
+
 (defn redact-event-by-registration
   "Project an event vector for egress — the SINGLE event-vector chokepoint,
   the event peer of `project-fx-args`. Two layers compose:
@@ -538,6 +581,9 @@
      routing-published `:routing/project-url-change-event-args` hook projects
      it (`project-navigation-event-arg`). Unbound ⇒ pass-through.
 
+  A spawn-error event — inner or routed to its parent — has its child-owned
+  payload summarized whatever the parent declares (`project-spawn-error-event`).
+
   A no-op when `event` is not a `[event-id arg-map …]` vector or nothing
   applies.
 
@@ -555,7 +601,8 @@
   (let [event' (if-let [class (classification-when :event (when (vector? event) (first event)))]
                  (let [[sens large] (classification-paths class)]
                    (redact-event-vec event sens large))
-                 event)]
+                 event)
+        event' (project-spawn-error-event event')]
     (case (when (vector? event') (first event'))
       :rf.mutation/execute (project-execute-event-payload event')
       (:rf.route/handle-url-change
@@ -1102,31 +1149,6 @@
               (map #(vec (rest %))))
         paths))
 
-;; The reserved inner event-id the runtime dispatches into a PARENT machine
-;; when one of its `:spawn`-spawned children FAILS (Spec 005 §`:on-error`).
-;; The dispatched shape is `[:rf.machine.spawn/error <invoke-id> <error>]`;
-;; `<error>` (the 3rd element) is CHILD-owned. Inlined here (not a require on the
-;; machines artefact, which ships ABOVE core) so the projection chokepoint can
-;; recognise it without a load cycle.
-(def ^:private spawn-error-event-id :rf.machine.spawn/error)
-
-(defn- spawn-error-event?
-  "True when `v` is a `[:rf.machine.spawn/error <invoke-id> <error>]` synthetic
-  event vector (the parent-failure control-flow event)."
-  [v]
-  (and (vector? v)
-       (>= (count v) 3)
-       (= spawn-error-event-id (first v))))
-
-(defn- summarize-spawn-error-event
-  "Summarize the synthetic spawn-error event vector for trace egress. Keep the
-  STRUCTURAL routing facts — the reserved id and the `<invoke-id>` — and replace
-  the CHILD-owned `<error>` payload (3rd element, plus any further args) with the
-  `:rf/redacted` sentinel."
-  [event]
-  (into [(nth event 0) (nth event 1) rf.privacy/redacted-sentinel]
-        (repeat (max 0 (- (count event) 3)) rf.privacy/redacted-sentinel)))
-
 (defn- project-spawn-synthetic-payloads
   "Summarize the two CHILD-owned / unclassifiable spawn payloads that egress
   through machine traces, UNCONDITIONALLY (independent of the trace machine's
@@ -1134,22 +1156,20 @@
 
     - `:start` (on `:rf.machine.spawn/spawned`) — the newborn child's start
       args; summarized to `:rf/redacted`.
-    - the synthetic `[:rf.machine.spawn/error <invoke-id> <error>]` event the
-      parent receives, wherever it rides a machine trace: under the bare
-      `:event` slot and under `:input :event`. The 3rd element is summarized;
-      the reserved id + invoke-id survive."
+    - the spawn-error event the parent receives, inner or routed, wherever it
+      rides a machine trace: under the bare `:event` slot and under `:input
+      :event` (`project-spawn-error-event`). The child-owned error is
+      summarized; the reserved id + invoke-id survive."
   [tags]
   (cond-> tags
     (contains? tags :start)
     (assoc :start rf.privacy/redacted-sentinel)
 
-    (spawn-error-event? (:event tags))
-    (assoc :event (summarize-spawn-error-event (:event tags)))
+    (contains? tags :event)
+    (update :event project-spawn-error-event)
 
-    (and (map? (:input tags))
-         (spawn-error-event? (get-in tags [:input :event])))
-    (assoc-in [:input :event]
-              (summarize-spawn-error-event (get-in tags [:input :event])))))
+    (and (map? (:input tags)) (contains? (:input tags) :event))
+    (update-in [:input :event] project-spawn-error-event)))
 
 ;; A frame classifies a durable machine `:data` slot at its ABSOLUTE runtime-db
 ;; path, under `rf.elision/machine-snapshot-prefix` (`[:rf.runtime/machines

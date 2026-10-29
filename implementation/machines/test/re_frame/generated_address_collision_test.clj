@@ -9,6 +9,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -114,3 +115,44 @@
           :mark     (:mark (machine-data :gac2/child#1))})
       "B's declarative spawn and both bare retries are refused at the same
        address, the prefixed spawns get #1 and #2, and A's child is untouched"))
+
+(deftest a-spawn-all-is-refused-whole-when-another-parents-child-holds-its-generated-address
+  ;; Two parent types each :spawn-all one child of one type, and both mint
+  ;; <child>#1. An admitted child always installs, so the batch preflight is
+  ;; where the second batch has to be refused: whole, on the always-on record,
+  ;; with the first parent's live child and join left exactly as they were.
+  (reg-child! :gac3/child)
+  (doseq [p [:gac3/pa :gac3/pb]]
+    (rf/reg-machine p
+      {:initial :idle
+       :states  {:idle    {:on {:go :working}}
+                 :working {:spawn-all {:children        [{:id :c :machine-id :gac3/child}]
+                                       :on-all-complete [:all-done]}}}}))
+  (rf/dispatch-sync [:gac3/pa [:go]])
+  (rf/dispatch-sync [:gac3/child#1 [:mark :FROM-A]])
+  (rf.machines.test-support/reset-captured!)
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! ::recorder #(swap! seen conj %))
+    (try (rf/dispatch-sync [:gac3/pb [:go]])
+         (finally (rf.error-emit/unregister-error-listener! ::recorder)))
+    (is (= {:records [{:rf.error/id :rf.error/machine-spawn-all-duplicate-id
+                       :failing-id  :gac3/child#1
+                       :machine-id  :gac3/child
+                       :parent-id   :gac3/pb}]
+            :traces  [:gac3/child#1]
+            :spawned []
+            :owner   :gac3/pa
+            :mark    :FROM-A
+            :b-join  nil}
+           {:records (mapv #(select-keys % [:rf.error/id :failing-id :machine-id :parent-id])
+                           (filterv #(= :rf.error/machine-spawn-all-duplicate-id (:rf.error/id %))
+                                    @seen))
+            :traces  (mapv (comp :failing-id :tags) (reject-events))
+            :spawned (rf.machines.test-support/events-of :rf.machine.spawn/spawned)
+            :owner   (get-in (snapshot :gac3/child#1) [:rf/runtime :join-child :parent-id])
+            :mark    (:mark (machine-data :gac3/child#1))
+            :b-join  (get-in (snapshot :gac3/pb) [:rf/runtime :spawned])})
+        "one always-on record and one dev trace name the address; nothing spawns,
+         A's child still belongs to A's join, and B's mirror names no child")
+    (is (not-any? #(contains? % :reason) @seen)
+        "the always-on record is structural; the prose rides the dev trace only")))

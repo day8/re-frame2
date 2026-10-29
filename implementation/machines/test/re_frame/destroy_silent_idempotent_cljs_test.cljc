@@ -74,3 +74,42 @@
   (is (= [:ready {:sil/kid#1 1 :sil/kid#2 1}]
          [(:state (snapshot :sil/sup))
           (frequencies (map (comp :actor-id :tags) (destroyed-traces)))])))
+
+(deftest destroy-aimed-at-a-plain-event-handler-is-a-no-op
+  ;; Liveness is snapshot presence, so an ordinary handler at the address is no
+  ;; actor: the destroy neither deletes it nor announces a death.
+  (rf/reg-event :sil/plain (fn [_ _] {}))
+  (rf/reg-event ::destroy-plain (fn [_ _] {:fx [[:rf.machine/destroy :sil/plain]]}))
+  (rf/dispatch-sync [::destroy-plain])
+  (is (= [true []] [(definition? :sil/plain) (destroy-reasons)])))
+
+(deftest keyword-destroy-of-a-spawn-child-prunes-the-parents-slot-and-mirror
+  (rf/reg-machine :sil/worker {:initial :running :states {:running {}}})
+  (rf/reg-machine :sil/boss {:initial :working
+                             :states  {:working {:spawn {:machine-id :sil/worker}}}})
+  (rf/reg-event ::fire-worker (fn [_ _] {:fx [[:rf.machine/destroy :sil/worker#1]]}))
+  (rf/dispatch-sync [:sil/boss [:rf.machine/start]])
+  (let [before (get-in (snapshot :sil/boss) [:rf/runtime :spawned])]
+    (rf/dispatch-sync [::fire-worker])
+    (is (= [{[:working] :sil/worker#1} nil nil [[:sil/boss [:working]]]]
+           [before
+            (get-in (snapshot :sil/boss) [:rf/runtime :spawned])
+            (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned :sil/boss])
+            (mapv (comp (juxt :parent-id :invoke-id) :tags) (destroyed-traces))])
+        "the mirror and registry slot no longer name the dead id, and the
+         destroyed trace carries the child's own spawn coordinates")))
+
+(deftest keyword-destroy-of-a-join-child-carries-its-join-coordinates
+  (rf/reg-machine :sil/kid2 {:initial :running :states {:running {}}})
+  (rf/reg-machine :sil/sup2
+    {:initial :working
+     :states  {:working {:spawn-all {:children        [{:id :a :machine-id :sil/kid2}]
+                                     :on-all-complete [:all-done]}}}})
+  (rf/reg-event ::cancel-kid (fn [_ _] {:fx [[:rf.machine/destroy :sil/kid2#1]]}))
+  (rf/dispatch-sync [:sil/sup2 [:rf.machine/start]])
+  (rf/dispatch-sync [::cancel-kid])
+  (is (= [{:actor-id :sil/kid2#1 :parent-id :sil/sup2 :invoke-id [:working]
+           :child-id :a :reason :explicit}]
+         (mapv #(select-keys (:tags %) [:actor-id :parent-id :invoke-id :child-id :reason])
+               (destroyed-traces)))
+      "the same coordinates the parent-exit cancellation of that child carries"))
