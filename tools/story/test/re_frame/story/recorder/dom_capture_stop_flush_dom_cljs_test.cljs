@@ -85,15 +85,14 @@
 (defn- typed-texts []
   (mapv :text (filterv #(= :dom/type (:kind %)) (rf.story.recorder/recorded-entries))))
 
-(deftest stop-before-flush-still-captures-final-type
-  ;; STOP first (flips :recording? false), then drain: a recording-gated
-  ;; drain would be a silent no-op here
+(deftest stop-captures-the-final-type
+  ;; stop-recording! drains the pending keystroke itself, so a programmatic
+  ;; stop inside the debounce window keeps it
   (if-not (dom-available?)
     (skip!)
     (do
       (type-into! :story.x/y "alice")
       (rf.story.recorder/stop-recording!)
-      (rf.story.recorder.dom-capture/flush-type-buffer!)
       (is (= ["alice"] (typed-texts))))))
 
 (deftest remove-after-stop-drains-final-type
@@ -107,9 +106,9 @@
       (is (= ["bob"] (typed-texts))))))
 
 (deftest stop-then-restart-does-not-bleed-across-recordings
-  ;; A keystroke buffered under recording A, a non-flushing stop, then
-  ;; recording B within the debounce window: forcing the flush in B finds
-  ;; nothing, since `start-recording!` cancelled and emptied A's buffer.
+  ;; A keystroke buffered under recording A, A stopped, then recording B
+  ;; within the debounce window: forcing the flush in B finds nothing, since
+  ;; A's stop drained the buffer into A and `start-recording!` empties it.
   (if-not (dom-available?)
     (skip!)
     (do

@@ -246,9 +246,9 @@
   This is deliberately NOT a flush — a keystroke pending when a NEW
   recording starts (or the recorder is cleared) belongs to the recording
   that ended, and dropping it is correct. The final keystroke of a STOPPED
-  recording survives into that same recording because its pending timer
-  fires while the buffer is intact (stop-recording! does NOT drain the
-  buffer); only start/clear drain here. The typed secrets and any open
+  recording is already in that recording, because `stop-recording!`
+  flushes the buffer first (`:recorder/flush-dom-buffer`). The typed
+  secrets and any open
   DOM-step window belong to the recording that ended too, so they go with
   it.
 
@@ -271,7 +271,8 @@
 ;; recorder in an `enabled?` false build (005-SOTA-Features.md
 ;; §Production elision).
 (when rf.story.config/enabled?
-  (rf.story.late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!))
+  (rf.story.late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!)
+  (rf.story.late-bind/set-fn! :recorder/flush-dom-buffer flush-type-buffer!))
 
 ;; ---- predicates ---------------------------------------------------------
 
@@ -472,18 +473,37 @@
   (or (.-cancelBubble ev)
       (rf.story.ui.element-inspector/active?)))
 
+(def ^:private hooked-selector
+  "Any element carrying one of the recorder's hook attributes
+  (`rf.story.recorder.selector/attribute-priority`)."
+  (str/join "," (map (fn [[attr _]] (str "[" attr "]")) rf.story.recorder.selector/attribute-priority)))
+
+(defn- click-element
+  "The element a click records: the nearest hooked ancestor-or-self of the
+  target below the listener's root, else the target. A click lands on the
+  innermost element, so a `<span>` inside `[:button {:data-test \"save\"} …]`
+  records the button's hook rather than a positional selector for the span;
+  the root itself is never taken, as it hooks the canvas, not the variant."
+  [ev]
+  (let [el     (.-target ev)
+        root   (.-currentTarget ev)
+        hooked (when (fn? (.-closest el)) (.closest el hooked-selector))]
+    (if (and hooked (not (identical? hooked root)) (.contains root hooked))
+      hooked
+      el)))
+
 (defn- handle-click!
   "Click handler — fires in the capture phase. Flushes any pending type buffer
   (so the `:dom/type` lands before the `:dom/click` in temporal
-  order) and records the click, unless the element inspector takes it as a
-  pick."
+  order) and records the click on `click-element`, unless the element
+  inspector takes it as a pick."
   [ev]
   (when (and (should-capture?) (not (inspector-pick? ev)))
-    (when-let [el (.-target ev)]
+    (when (.-target ev)
       ;; The flush emits the buffered :dom/type entries first so
       ;; the resulting recording is well-ordered: type-then-click.
       (flush-type-buffer!)
-      (when-let [sel (rf.story.recorder.selector/pick-for-element el)]
+      (when-let [sel (rf.story.recorder.selector/pick-for-element (click-element ev))]
         (record-dom-click! sel)))))
 
 (defn- handle-input!

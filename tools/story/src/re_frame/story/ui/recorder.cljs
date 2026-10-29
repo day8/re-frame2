@@ -384,8 +384,7 @@
                          (rf.story.recorder/start-recording! target))
 
                        rec?
-                       (let [_     (rf.story.recorder.dom-capture/flush-type-buffer!)
-                             {:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
+                       (let [{:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
                          ;; Open the dialog when EITHER stream
                          ;; captured something — a recording of canvas
                          ;; clicks/types only lands in :entries, never
@@ -739,10 +738,6 @@
         {:style    (:btn-muted styles)
          :data-test "story-recorder-stop"
          :on-click (fn [_]
-                     ;; Drain pending typed-input buffer
-                     ;; before sealing the recording so the final
-                     ;; :dom/type entry lands in the script.
-                     (rf.story.recorder.dom-capture/flush-type-buffer!)
                      (let [{:keys [variant-id events entries]} (rf.story.recorder/stop-recording!)]
                        ;; Open on EITHER stream — a DOM-only
                        ;; recording lands only in :entries.
