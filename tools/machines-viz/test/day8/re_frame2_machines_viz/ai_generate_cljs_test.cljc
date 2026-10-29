@@ -52,6 +52,22 @@
               (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
                 (:rf.error/id (ex-data e)))))))
 
+(defn- thrown-message
+  "The message `generate-machine` throws when the resolver answers `spec`."
+  [spec]
+  (try (ai/generate-machine "x" {:resolver (constantly (pr-str spec))})
+       nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-message e))))
+
+(deftest invalid-spec-names-the-actual-defect
+  (testing "a spec with a sound root shape and a dangling target is refused
+            for that target, not for a missing :initial / :states"
+    (let [message (str (thrown-message {:initial :a :states {:a {:on {:go :nope}}}}))]
+      (is (str/includes? message ":rf.error/machine-unresolved-target at depth 1") message)
+      (is (not (str/includes? message ":initial")) message)))
+  (testing "a spec missing its root shape keeps the shape explanation"
+    (is (str/includes? (str (thrown-message {:states {:a {}}})) ":initial"))))
+
 (deftest parse-failed-omits-raw-response
   (testing "an LLM response is untrusted: unparseable EDN and a non-string
             response throw :parse-failed with a value-free summary only"

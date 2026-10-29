@@ -342,6 +342,23 @@
         (is (pos? (count-sel node "[data-machine-root=\"true\"]")))
         (is (= 1 (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-machine-level=\"true\"]")))))))
 
+(deftest chart-fn-after-delay-paints-its-name-not-its-source
+  (testing "a fn `:after` delay paints `⌚ fn` and carries no data-after-ms;
+            a literal delay keeps its ms on both"
+    (with-mounted-chart
+      {:machine-id :test/fn-after
+       :definition {:initial :a
+                    :states  {:a {:after {(fn [_] 5000) :b}}
+                              :b {:after {1000 :a}}}}}
+      (fn [_root node]
+        (let [chips (array-seq (.querySelectorAll node "[data-variant=\"after\"]"))
+              by-ms (group-by #(.getAttribute % "data-after-ms") chips)]
+          (is (= 2 (count chips)))
+          (is (= 1 (count (get by-ms nil))) "the fn delay carries no data-after-ms")
+          (is (= 1 (count (get by-ms "1000"))))
+          (is (str/includes? (.-textContent (first (get by-ms nil))) "⌚ fn"))
+          (is (not-any? #(str/includes? (.-textContent %) "function") chips)))))))
+
 (deftest chart-context-band-renders-keys-and-provenance-badge
   (testing "the root-container frame paints the `:context-band` keys, badged
             `inferred from :data` by default and `declared` when the host

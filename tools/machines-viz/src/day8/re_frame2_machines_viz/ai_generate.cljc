@@ -144,24 +144,32 @@
 ;; return the ORIGINAL authored spec (the runtime desugars again at
 ;; registration, so the author's `:timeout` / `:choice` intent is preserved).
 
+(def ^:private root-shape-remedy
+  "Have the resolver return a spec with a keyword :initial + :states (or :type :parallel + :regions).")
+
 (defn- validate-definition
   "Return `[:ok]` if the (desugared) `definition` is a recognised machine
-  shape, otherwise `[:err reason]` carrying an AI-surface reason string."
+  shape, otherwise `[:err reason remedy]` carrying AI-surface sentences. A
+  definition whose root shape is sound but which breaks the grammar below it
+  (a dangling target, an unknown key, a bad `:timeout`) names that defect's
+  category, as Mermaid and SCXML do (`grammar/grammar-defect-phrase`), so a
+  loop feeding the reason back to the model chases the defect the spec has."
   [definition]
   (cond
     (not (map? definition))
-    [:err "spec must be a map"]
-
-    (g/parallel-definition? definition)
-    (if (g/valid-definition? definition)
-      [:ok]
-      [:err "parallel spec must carry a non-empty :regions map; each region must carry a keyword :initial + non-empty :states"])
+    [:err "spec must be a map" root-shape-remedy]
 
     (g/valid-definition? definition)
     [:ok]
 
     :else
-    [:err "spec must carry a keyword :initial + non-empty :states (or :type :parallel + :regions)"]))
+    (if-let [defect (g/grammar-defect-phrase (g/definition-summary definition))]
+      [:err (str "spec breaks the machine grammar with " defect)
+       "Have the resolver fix that defect."]
+      [:err (if (g/parallel-definition? definition)
+              "parallel spec must carry a non-empty :regions map; each region must carry a keyword :initial + non-empty :states"
+              "spec must carry a keyword :initial + non-empty :states (or :type :parallel + :regions)")
+       root-shape-remedy])))
 
 ;; ---------------------------------------------------------------------------
 ;; Default resolver
@@ -267,16 +275,14 @@
        ;; Validate the DESUGARED form (as Mermaid + SCXML do) but
        ;; return the ORIGINAL authored spec so `:timeout` / `:choice` intent
        ;; survives to `reg-machine`.
-       (let [[stage2 reason] (validate-definition (g/desugar-grammar spec-or-reason))]
+       (let [[stage2 reason remedy] (validate-definition (g/desugar-grammar spec-or-reason))]
          (if (= :ok stage2)
            spec-or-reason
            (rf.error/throw-error!
              :ai-generate/invalid-spec
              'machines-viz/generate-machine
              (str "AI machine generation: the resolver output parsed as EDN but "
-                  "is not a valid machine spec (" reason "). Have the "
-                  "resolver return a spec with a keyword :initial + :states (or "
-                  ":type :parallel + :regions).")
+                  "is not a valid machine spec (" reason "). " remedy)
              {:recovery :return-a-valid-machine-spec
               ;; Value-FREE; the response + parsed spec can
               ;; embed LLM-returned secrets / runtime :data.

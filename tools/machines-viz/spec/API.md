@@ -404,6 +404,7 @@ or two edges, with these structural rules:
 | `:on {:e :target}` — regular targeted | yes | state → ev-node | ev-node → target |
 | `:on {:e :same-state}` — self-target, internal DEFAULT | yes | state → ev-node | ev-node → state |
 | `:on {:e {:target :same-state :reenter? true}}` — self-target, EXTERNAL restart | yes (`:reenter true`) | state → ev-node | ev-node → state |
+| `:on {:e {:target :same-state}}` on the machine root or a region body — resets it to its `:initial` | yes | machine-root chip (region container) → ev-node | ev-node → machine-root chip (region container) |
 | `:on {:e {:action :a}}` — INTERNAL (no `:target`) | yes (`:internal true`) | state → ev-node | **none** |
 | `:after {1000 ...}` — timer | yes (`:variant "after"`, `:afterMs 1000`) | state → ev-node | ev-node → target |
 | `:after {1000 {:action :a}}` — INTERNAL timer (no `:target`) | yes (`:variant "after"`, `:internal true`) | state → ev-node | **none** |
@@ -590,7 +591,7 @@ knows xstate/Stately reads in 30 seconds (per the bead's §Shift 4):
 | Glyph | Variant | Source |
 |---|---|---|
 | hooked arrow + small triangle head | initial-marker — one fixed node-local glyph with the filled dot | `chart.nodes/initial-marker` |
-| `⌚ <ms>ms` | `:after`-delay event-node | `chart.layout/event-segment` |
+| `⌚ <ms>ms` | `:after`-delay event-node; a delay with no static ms reads `⌚ <name>` — a `:delays` name, or a fn's `:name` (`fn` when anonymous), never the fn's text | `chart.layout/event-segment` |
 | `∞`   | `:always` event-node | `chart.layout/event-segment` |
 | `⚡ <name>` | action chip (entry / exit / transition) | `chart.nodes/action-row` + `chart.nodes.event-node` |
 | `IF <name>` | guard chip | `chart.nodes.event-node` |
@@ -2550,7 +2551,10 @@ resolver) from the parse/validate step (this ns). The fn:
    above), not merely shallowly well-formed. On rejection the thrown
    `:ai-generate/invalid-spec` carries the value-free
    `grammar/definition-summary` under `:spec-summary`, whose `:defect`
-   `:category` is the runtime's canonical `:rf.error/machine-*` id.
+   `:category` is the runtime's canonical `:rf.error/machine-*` id. When
+   the root shape is sound, the message names that category too (with its
+   depth below the root), as the Mermaid and SCXML refusals do, so a loop
+   that feeds the message back to the model chases the defect the spec has.
 
 ### Reserved namespaces
 

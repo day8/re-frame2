@@ -48,15 +48,16 @@
   "Convention-glyph variants for the event-node header. The three
   xstate/Stately conventions:
 
-    - `:after`  → `⌚` clock glyph + `<ms>` (e.g. `⌚ 1000ms`); a `:delays`
-                  name, which reaches here as a string (an ISO duration
-                  arrives already in ms), reads the edge's own label
-                  (`⌚ idle-warning`)
+    - `:after`  → `⌚` clock glyph + `<ms>` (e.g. `⌚ 1000ms`) when the
+                  delay has a static duration (an ISO duration arrives
+                  already in ms); a `:delays` name or a fn, which arrive
+                  with no ms, read the edge's own label (`⌚ idle-warning`,
+                  `⌚ fn`)
     - `:always` → `∞` continuation glyph
     - `:on`     → the event keyword's name (with namespace when present)"
   [{:keys [variant after-ms event-label]}]
   (case variant
-    :after  (if (string? after-ms) event-label (str "⌚ " after-ms "ms"))
+    :after  (if (number? after-ms) (str "⌚ " after-ms "ms") event-label)
     :always "∞"
     event-label))
 
@@ -146,7 +147,8 @@
                      namespace/name handled there).
     :variant       — `:on` / `:after` / `:always`. Drives the header
                      glyph.
-    :afterMs       — `:after`-delay in ms (`:after` variant only).
+    :afterMs       — `:after`-delay in ms (`:after` variant only), nil
+                     for a delay with no static duration.
     :guard         — guard name as a string, or nil.
     :action        — action name as a string, or nil.
     :focused       — focused-event lens hit; emphasised border.
