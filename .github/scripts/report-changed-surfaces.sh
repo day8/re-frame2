@@ -1010,8 +1010,8 @@ else
         # case above. examples-asset-manifest.cjs is the SINGLE side-effect-free
         # owner of every examples external-asset EXCEPTION: what
         # extra static asset each departing example stages and which _shared
-        # asset it may omit. The staging helper examples-staging.cjs require's
-        # its `stagedAssetsByBuild` projection to decide what to STAGE before
+        # asset it may omit. The staging helper examples-staging.cjs requires
+        # its `stagedAssetsByPage` projection to decide what to STAGE before
         # the browser gates run — and examples-staging.cjs itself fires BOTH
         # browser-gate families (adapter_testbed_smokes via the adapter-smoke
         # orchestrator, story_xray_browser via the two Story launchers). So a
@@ -1022,8 +1022,8 @@ else
         # false-green for this slice. Fire BOTH gates, exactly like the shared
         # examples-staging.cjs case, so editing the manifest runs the browser
         # gates that depend on it. (The static asset scanner
-        # check-examples-assets.cjs also require's `pageExemptions`, but it is
-        # not a CI gate, so no extra fan-out is warranted.)
+        # check-examples-assets.cjs also requires the manifest, and needs no
+        # output: its test runs in js-harness-self-tests, which every PR runs.)
         adapter_testbed_smokes=true
         story_xray_browser=true
         ;;
