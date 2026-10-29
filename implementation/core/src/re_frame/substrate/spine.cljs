@@ -2206,6 +2206,22 @@
         #js [])
       nil)))
 
+(defn- react-props?
+  "True when `x` is the props OBJECT React passes a function component, and
+  not a CLJS value a direct caller passed positionally.
+
+  Mirrors `uix.compiler.alpha/pojo?`: a plain JS object that is not a React
+  element. CLJS collections fail the constructor test (theirs is their own
+  deftype), and a React element passed positionally to a direct invocation
+  fails the `$$typeof` test — so the two calling conventions a registered
+  view serves stay distinguishable, both to the registered head and to the
+  wrap-view inside it. The constructor test runs FIRST so a null-prototype
+  object answers false rather than throwing on the absent `hasOwnProperty`."
+  [x]
+  (and (some? x)
+       (identical? (.-constructor ^js x) js/Object)
+       (not (.hasOwnProperty ^js x "$$typeof"))))
+
 (defn- with-unmount-sentinel
   "Pair `annotated` — the source-coord / view-id-annotated user output — with
   an unmount sentinel, so the view instance fires `:rf.view/unmounted` on
@@ -2222,22 +2238,29 @@
   `:rf.view/unmounted`. In the Fragment the sentinel always sits second, so
   it mounts once per view instance.
 
-  Output that is not a React element (nil, a string, hiccup handed to a
-  substrate that converts it) passes through unchanged: it has no root to
-  pair, and a caller may read it as the value the view returned.
+  On a React render (`react-render?`) every output is paired, whatever it is:
+  React renders the Fragment's first child exactly as it would have rendered
+  the output alone, so the Fragment is the view's output on every render. A
+  view whose root is conditional — a `(when …)` root, a placeholder that
+  renders nil — keeps one sentinel for its whole life, where an unpaired nil
+  would delete the Fragment, and with it the sentinel, on every
+  element-to-nil step.
 
-  On a headless direct invocation of the wrapped fn this merely builds
-  element objects whose sentinel hooks never run."
-  [unmount-sentinel id frame-id annotated]
-  (if (nil? (some-> ^js annotated .-type))
-    annotated
+  On a headless direct invocation, output that is not a React element (nil,
+  a string, hiccup handed to a substrate that converts it) passes through
+  unchanged, because the caller reads it as the value the view returned.
+  Element output is still paired there, building element objects whose
+  sentinel hooks never run."
+  [unmount-sentinel id frame-id react-render? annotated]
+  (if (or react-render? (some? (some-> ^js annotated .-type)))
     (React/createElement
       (.-Fragment React) nil
       annotated
       (React/createElement unmount-sentinel
                            #js {:viewId    id
                                 :frame     frame-id
-                                :renderKey (reading-render-key)}))))
+                                :renderKey (reading-render-key)}))
+    annotated))
 
 (defn make-wrap-view
   "Return a `wrap-view` fn. The
@@ -2268,10 +2291,15 @@
                            ;; invocation this read falls through the dynamic-var /
                            ;; :rf/default chain — harmless; the sentinel ELEMENT is built
                            ;; but its hooks only run if React actually renders it.
+                           ;; React hands a render its props object as the first
+                           ;; argument, both through a substrate's registered head
+                           ;; and when the bare wrapper is mounted as a component.
                            (let [frame-id  (rf.adapter.context/function-component-current-frame)
                                  out       (apply user-fn args)
                                  annotated (inject-source-coord-attr coord-attr view-attr out)]
-                             (with-unmount-sentinel unmount-sentinel id frame-id annotated)))]
+                             (with-unmount-sentinel unmount-sentinel id frame-id
+                                                    (react-props? (first args))
+                                                    annotated)))]
           wrapped)
         user-fn))))
 
@@ -2300,22 +2328,6 @@
 ;; dropping keyword namespaces. The bare wrapper mounts too, but on the
 ;; CONVERTING path, which is the silent-mangling class the provider seam
 ;; closes.
-
-(defn- react-props?
-  "True when `x` is the props OBJECT React passes a function component, and
-  not a CLJS value a direct caller passed positionally.
-
-  Mirrors `uix.compiler.alpha/pojo?`: a plain JS object that is not a React
-  element. CLJS collections fail the constructor test (theirs is their own
-  deftype), and a React element passed positionally to a direct invocation
-  fails the `$$typeof` test — so the two calling conventions the registered
-  head serves stay distinguishable. The constructor test runs FIRST so a
-  null-prototype object answers false rather than throwing on the absent
-  `hasOwnProperty`."
-  [x]
-  (and (some? x)
-       (identical? (.-constructor ^js x) js/Object)
-       (not (.hasOwnProperty ^js x "$$typeof"))))
 
 (defn make-componentize-view
   "Return the `componentize-view` CORE — shape
