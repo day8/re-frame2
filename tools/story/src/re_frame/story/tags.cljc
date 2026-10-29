@@ -103,16 +103,26 @@
               tags'
               (recur tags' parent (conj visited id) (inc depth)))))))))
 
+(defn with-story-fallback
+  "The raw inherited tag set from a variant chain's unioned `chain-tags` and
+  its story's `story-tags`: the chain's own when it declares a tag, else the
+  story's — a default, not an addition. A chain declaring only `:!x`
+  markers declares no tag, so it takes the story's and the markers then
+  subtract from them (spec 001 §Effective tags)."
+  [chain-tags story-tags]
+  (if (some (complement removal-marker?) chain-tags)
+    (set chain-tags)
+    (into (set story-tags) chain-tags)))
+
 (defn raw-inherited-tags
-  "The RAW (pre-marker-resolution) inherited tag set for `variant-id`: the
-  `:extends`-chain union when it (or any ancestor) declares tags, else the
-  parent story's `:tags` (fallback, NOT a union — responsibility 1). Pure
-  over the injected `lookups` (`{:variant <id→body> :story <id→body>}`)."
+  "The RAW (pre-marker-resolution) inherited tag set for `variant-id`
+  (`with-story-fallback` over its `:extends`-chain union and its parent
+  story's `:tags`). Pure over the injected `lookups`
+  (`{:variant <id→body> :story <id→body>}`)."
   [variant-id {:keys [variant story]}]
-  (let [chain (extends-chain-tags variant-id variant)]
-    (if (seq chain)
-      chain
-      (set (:tags ((as-fn story) (rf.story.predicates/parent-story-id variant-id)))))))
+  (with-story-fallback
+    (extends-chain-tags variant-id variant)
+    (:tags ((as-fn story) (rf.story.predicates/parent-story-id variant-id)))))
 
 (defn effective-tags
   "The EFFECTIVE tag set for `variant-id` — inheritance (extends union /
