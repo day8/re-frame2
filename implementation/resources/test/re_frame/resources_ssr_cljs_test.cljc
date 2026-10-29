@@ -384,8 +384,11 @@
                         :params {:slug "x"} :owner [:ssr "req-1" "nav-1"]
                         :cause [:route-entry :route/article "nav-1"]}]
                       {:frame fid})
-    (let [wid (get-in (rf.frame/frame-runtime-db-value fid)
-                      (conj (rf.resources.state/entry-path gkey) :current-work))]
+    ;; The reply answers the attempt the ensure started: the generation comes
+    ;; from the process-wide high-water, so a hard-coded one goes stale after
+    ;; any earlier ensure in the same process.
+    (let [{wid :current-work gen :generation}
+          (get-in (rf.frame/frame-runtime-db-value fid) (rf.resources.state/entry-path gkey))]
       (is (= [:running true :loading]
              [(:status (ledger-row fid wid))
               (some? (rf.resources.work-ledger/get-handle fid wid))
@@ -398,7 +401,7 @@
                     (when (= 2 (swap! ticks inc))
                       (rf/dispatch-sync
                         [:rf.resource.internal/succeeded
-                         {:resource/key gkey :work/id wid :generation 1
+                         {:resource/key gkey :work/id wid :generation gen
                           :rf.frame/id fid :data {:title "X"}}]
                         {:frame fid})))]
         (is (= {:settled? true :timed-out [] :route-blocking-failure nil}
