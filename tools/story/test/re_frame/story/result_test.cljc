@@ -57,6 +57,15 @@
                 :check/a     [[:rf.assert/path-equals [:a] 1]]}
                [a nowarn b]))))))
 
+(deftest check-keeps-out-a-same-path-checkpoint-pinning-another-value
+  ;; [:count] 0 before an increment, the check [:count] 1 after: the check
+  ;; reads its own record, not the earlier checkpoint's failure
+  (let [early {:assertion :rf.assert/path-equals :payload [[:count] 0] :status :fail}
+        late  {:assertion :rf.assert/path-equals :payload [[:count] 1] :status :pass}]
+    (is (= [{:check :check/count-is-one :status :pass :assertions [late]}]
+           (rf.story.result/check-records {:check/count-is-one [[:rf.assert/path-equals [:count] 1]]}
+                                          [early late])))))
+
 (deftest check-groups-sensitive-record-by-redaction-invariant-key
   (testing "a sensitive path-equals / sub-equals record carries the REDACTED
             expected value in its :payload while the check's atom carries the

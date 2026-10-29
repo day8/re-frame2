@@ -283,27 +283,23 @@
   disambiguates two atoms of the same id against different paths within
   one check.
 
-  For the two REDACTION-PRONE ids (`redaction-prone-assertion-ids`), the
-  comparison instead uses a redaction-invariant key: only the payload's
-  FIRST element (the path / sub-vec — a structural coordinate, never
-  itself redacted by either evaluator) is compared, never the second
-  (the possibly-redacted expected value). Without this, a sensitive
-  `:rf.assert/path-equals` — whose run RECORD carries `[path
-  :rf/redacted]` while the check plan's atom still carries the raw
-  `[path <secret>]` — never matches: the record is never grouped under
-  its check, so the check's `:assertions` reads empty and aggregates
-  vacuously to `:pass` even when the sensitive assertion FAILED (the
-  run-level verdict stays correct — `records` still folds it directly —
-  but the check-level grouping lies). The path/sub-vec position stays an
-  exact, disambiguating key for every other case (two atoms of this id
-  against DIFFERENT paths in one check remain distinct)."
+  For the two REDACTION-PRONE ids (`redaction-prone-assertion-ids`), a
+  record whose expected was REDACTED (`[path :rf/redacted]`, while the
+  check plan's atom still carries `[path <secret>]`) is matched on its
+  path / sub-vec alone — a structural coordinate neither evaluator
+  redacts. Without that, a sensitive check never groups its own record and
+  aggregates vacuously to `:pass`. Every other record matches its whole
+  payload, so a same-path checkpoint pinning a different value stays out
+  of the check."
   [record atom-v]
-  (let [id (atom-id atom-v)]
+  (let [id      (atom-id atom-v)
+        payload (vec (:payload record))]
     (boolean
       (and (= (:assertion record) id)
-           (if (contains? redaction-prone-assertion-ids id)
-             (= (first (:payload record)) (first (atom-payload atom-v)))
-             (= (vec (:payload record)) (atom-payload atom-v)))))))
+           (if (and (contains? redaction-prone-assertion-ids id)
+                    (= :rf/redacted (second payload)))
+             (= (first payload) (first (atom-payload atom-v)))
+             (= payload (atom-payload atom-v)))))))
 
 (defn check-record
   "Build ONE check record (spec/017 §Run result — Check record) for
