@@ -87,11 +87,13 @@
             on-value
             (fn [v]
               ;; The runtime returns a structured envelope in every
-              ;; case. A non-map value can only come from an out-of-date
-              ;; preload that predates `replay-epoch`; surface that
-              ;; honestly rather than as a success.
-              (let [result (if (map? v)
-                             v
+              ;; case. nil is a blank eval, whose outcome is unknown; any
+              ;; other non-map can only come from an out-of-date preload
+              ;; that predates `replay-epoch`. Neither is a success.
+              (let [result (cond
+                             (map? v) v
+                             (nil? v) (probe/blank-eval-envelope "replay-epoch" build-id)
+                             :else
                              {:ok?      false
                               :reason   :replay-unavailable
                               :epoch-id epoch-id

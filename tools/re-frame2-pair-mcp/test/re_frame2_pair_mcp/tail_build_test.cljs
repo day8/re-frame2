@@ -3,6 +3,7 @@
   `:baseline` against the probe samples, in the real reload orderings,
   and the `:probe-values` diagnostics each outcome carries."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
@@ -26,8 +27,14 @@
   "Run tail-build on `args` with `probe` stubbing the nREPL eval, hand the
   result to `check`, then finish the async test."
   [probe args check done]
-  (let [orig nrepl/cljs-eval-value
-        stub (fn ([_ _ _] (probe)) ([_ _ _ _] (probe)))]
+  (let [orig  nrepl/cljs-eval-value
+        ;; The preload probe answers true, so the probe stub sees only the
+        ;; caller's probe form.
+        eval! (fn [form]
+                (if (str/includes? form "__re_frame2_pair_runtime")
+                  (js/Promise.resolve true)
+                  (probe)))
+        stub  (fn ([_ _ form] (eval! form)) ([_ _ form _] (eval! form)))]
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (tail/tail-build-tool nil (tu/args->js args))))
@@ -69,6 +76,16 @@
     (tail! (samples ["abc" "abd"]) {:probe "(some-form)" :baseline "abc" :wait-ms 1000}
            (fn [r]
              (is (= {:ok? true :soft? false :probe-values {:baseline "abc" :initial "abc" :final "abd"}}
+                    (edn-without r :t))))
+           done)))
+
+(deftest a-blank-sample-is-no-answer-not-a-reload
+  ;; While a reloading page has no runtime the probe comes back blank (nil);
+  ;; reading that as a change would report a reload that never landed.
+  (async done
+    (tail! (samples [nil 1]) {:probe "(some-form)" :baseline "0" :wait-ms 1000}
+           (fn [r]
+             (is (= {:ok? true :soft? false :probe-values {:baseline "0" :initial nil :final 1}}
                     (edn-without r :t))))
            done)))
 

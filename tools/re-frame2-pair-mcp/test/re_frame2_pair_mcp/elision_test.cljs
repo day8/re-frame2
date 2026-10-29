@@ -13,11 +13,13 @@
 (deftest egress-opts-edn-names-the-boundary-and-overlays-the-size-override
   ;; Only the sensitive opt-in changes the boundary; `elision false`
   ;; (include-large? true) composes on top of it rather than swapping it,
-  ;; so sensitive slots still redact under the size override.
+  ;; so sensitive slots still redact under the size override. Under
+  ;; local-raw, whose floor passes large, the size choice rides explicitly,
+  ;; so opting into sensitive values alone still elides large ones.
   (doseq [[large? incl? expected]
           [[false false {:rf.egress/profile :rf.egress/off-box-tool}]
            [true  false {:rf.egress/profile :rf.egress/off-box-tool :rf.egress/include-large? true}]
-           [false true  {:rf.egress/profile :rf.egress/local-raw}]
+           [false true  {:rf.egress/profile :rf.egress/local-raw :rf.egress/include-large? false}]
            [true  true  {:rf.egress/profile :rf.egress/local-raw :rf.egress/include-large? true}]]]
     (is (= expected (cljs.reader/read-string (elision/egress-opts-edn large? incl?)))
         (str "include-large? " large? ", include-sensitive? " incl?))))

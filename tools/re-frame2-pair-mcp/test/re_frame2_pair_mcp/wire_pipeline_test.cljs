@@ -75,6 +75,16 @@
     (is (= 0 (snapshot-count {:rf/default {:app-db {} :epochs epochs}} {}))
         "control: a summarised :epochs slice ships no marker")))
 
+(deftest snapshot-summary-epochs-describe-the-records
+  ;; Dedup applies to an :epochs slice that ships whole, so a summarised
+  ;; slice describes the record vector rather than the dedup wrapper.
+  (let [epochs  (vec (for [n (range 3)] (epoch-with-marker n (large-marker [:slot]))))
+        summary (-> (wp/run-wire-pipeline {:rf/default {:app-db {} :epochs epochs}}
+                                          {:kind :snapshot-map :mode :diff :dedup? true
+                                           :slice-mode :summary :slice-modes {}})
+                    (get-in [:value :rf/default :epochs :rf.mcp/summary]))]
+    (is (= {:type :vector :count 3} (select-keys summary [:type :count])))))
+
 ;; The eval form projected every record and bundle app-side through
 ;; `re-frame.core/project-egress`, so a sensitivity flag is a label that the
 ;; record contained classified material, not a reason to withhold it.

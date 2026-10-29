@@ -80,7 +80,7 @@
       :hint             (str "multiple app frames are registered and no frame is "
                              "selected, so " (name operation) " cannot pick a target. "
                              "Pass `frame` (one of " (pr-str available-frames) ") or pin one with "
-                             "`select-frame!` / set-operating-frame, then retry.")}
+                             "set-operating-frame, then retry.")}
      extra)))
 
 ;; ===========================================================================

@@ -39,7 +39,9 @@
   (subject to change behind the opaque boundary) is:
 
     {:v 1
-     :after-id <epoch-id>            ; the last epoch-id we emitted
+     :after-id <epoch-id>            ; the last epoch-id we emitted; nil
+                                     ; on a trace-window page 1 whose
+                                     ; first record alone overflowed
      :ms <int-or-nil>                ; trace-window's :ms arg (sticky)
      :until-ms <int-or-nil>          ; first-call clock; bounds the
                                      ; window so trace-window doesn't
@@ -137,29 +139,39 @@
   map carrying a PRESENT `:after-id` of ANY type — per the `:any`
   `:epoch-id` contract, the reference runtime's epoch-ids
   are integers, so a `string?` guard here would reject every legitimate
-  second-page cursor. We require presence, not type."
+  second-page cursor. We require presence, not type.
+
+  A trace-window cursor may instead carry only its window (`:until-ms`):
+  page 1 cut to zero records has no position to resume from, but a re-call
+  must still see the same window, which the clock would otherwise move."
   [v]
-  (and (map? v) (some? (:after-id v))))
+  (and (map? v) (or (some? (:after-id v)) (some? (:until-ms v)))))
+
+(defn- int-or-nil? [x] (or (nil? x) (integer? x)))
 
 (defn- decodable-payload?
-  "`valid-payload?` plus the one slot a caller-supplied cursor could use
-  to put CODE into an eval form: `:frame` is printed into the frame
-  resolution `(current-frame <frame>)`, so a decoded cursor's frame must
-  be nil or a keyword with id grammar (`args/->id-keyword`) — a list,
-  symbol or other value is `::malformed`. The cursor's
-  other caller-controlled slots are EDN data and ride QUOTED into the
-  forms that consume them (`:after-id`, `:pred`), per the provenance
+  "`valid-payload?` plus the slots a caller-supplied cursor could use to
+  put CODE into an eval form. `:frame` is printed into the frame
+  resolution `(current-frame <frame>)`, so it must be nil or a keyword
+  with id grammar (`args/->id-keyword`); trace-window prints `:until-ms`
+  and the cutoff derived from `:ms` into its window filter as numbers, so
+  both must be nil or integers. Anything else is `::malformed`. The
+  cursor's other caller-controlled slots are EDN data and ride QUOTED into
+  the forms that consume them (`:after-id`, `:pred`), per the provenance
   rule in `eval-form`. Checked on DECODE only: encode sees the frame the
   runtime resolved, which is not the caller's to shape."
   [v]
   (and (valid-payload? v)
+       (int-or-nil? (:until-ms v))
+       (int-or-nil? (:ms v))
        (let [f (:frame v)]
          (or (nil? f)
              (and (keyword? f) (some? (args/->id-keyword f)))))))
 
 (defn encode-cursor
   "Encode a cursor payload as an opaque base64 string. Returns nil on a
-  nil/empty payload or one with no `:after-id` — pagination is over.
+  nil/empty payload or one carrying neither `:after-id` nor `:until-ms` —
+  pagination is over.
   Delegates the codec to `re-frame.mcp-base.cursor/encode-cursor`."
   [payload]
   (when (valid-payload? payload)

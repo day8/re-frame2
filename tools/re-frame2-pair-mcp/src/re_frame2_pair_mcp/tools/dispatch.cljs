@@ -124,11 +124,11 @@
   preload probe and the dispatch eval (the snapshot / get-path /
   dispatch-dry-run prelude shape). The runtime's cascade-summary
   FAILS CLOSED on the `:event-vector` args only when `(not
-  (:allow-raw-state? @raw-state-config))`, and `raw-state-config`
-  DEFAULTS to `{:allow-raw-state? true}` — it flips to the server's gate
-  state ONLY when a tool signals. Signalling before the dispatch eval
-  means even a first-in-session dispatch runs with the runtime at the
-  server's gate state, so its event-vector ARGS redact under the OFF
+  (:allow-raw-state? @raw-state-config))`. `raw-state-config` defaults
+  to the closed `{:allow-raw-state? false}` and takes the server's gate
+  state when a tool signals. Signalling before the dispatch eval means
+  every dispatch runs with the runtime at the server's gate state, so its
+  event-vector ARGS redact under the OFF
   gate — the head event-id is retained, every arg becomes `:rf/redacted`
   (`[:login \"pw\"]` → `[:login :rf/redacted]`), for EVERY epoch whether
   or not it is declared `:rf.epoch/sensitive?` (the args are
@@ -567,10 +567,9 @@
             ;; state (OFF by default) so the cascade-summary's
             ;; `:event-vector` (the raw `:trigger-event`) redacts to
             ;; `:rf/redacted` for a sensitive epoch — even a
-            ;; first-in-session sensitive dispatch. Without the signal the
-            ;; runtime stays at its permissive `{:allow-raw-state? true}`
-            ;; default and the redaction never fires. See
-            ;; raw-state/signal-runtime!.
+            ;; first-in-session sensitive dispatch, and so that an
+            ;; `--allow-sensitive-reads` launch gets the raw vector it
+            ;; opted into. See raw-state/signal-runtime!.
             (probe/eval-after-runtime-signalled!
               conn build-id wrapped :dispatch-failed
               (fn [sentinel]
@@ -595,10 +594,8 @@
             ;; `eval-after-runtime!`). `signal-runtime!` flips the
             ;; runtime's `raw-state-config` to the server's gate state so
             ;; the DEFAULT cascade-summary's `:event-vector` (the raw
-            ;; `:trigger-event`) redacts under the OFF gate — even a
-            ;; first-in-session sensitive dispatch, which would otherwise
-            ;; ship its raw event vector while the runtime sits at its
-            ;; permissive `{:allow-raw-state? true}` default. The
+            ;; `:trigger-event`) redacts under the OFF gate, and an
+            ;; `--allow-sensitive-reads` launch gets the raw vector. The
             ;; `:trace` / `:settle` epoch slots are ALSO projected
             ;; (egress/project-dispatch-result-src above) — the two
             ;; protections compose, mirroring dispatch-dry-run.

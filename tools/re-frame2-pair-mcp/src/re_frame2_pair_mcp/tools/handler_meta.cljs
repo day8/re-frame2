@@ -478,9 +478,13 @@
         (probe/eval-after-runtime!
           conn build-id form :list-handlers-failed
           (fn [v]
-            (wire/ok-text
-              (cond-> {:ok?   true
-                       :kind  kind
-                       :ids   (vec v)
-                       :count (count v)}
-                (some? frame-val) (assoc :frame frame-val)))))))))
+            ;; The runtime lists ids as a vector, empty included, so nil is
+            ;; a blank eval rather than a registry with no ids.
+            (if (nil? v)
+              (wire/err-text (probe/blank-eval-envelope "list-handlers" build-id))
+              (wire/ok-text
+                (cond-> {:ok?   true
+                         :kind  kind
+                         :ids   (vec v)
+                         :count (count v)}
+                  (some? frame-val) (assoc :frame frame-val))))))))))

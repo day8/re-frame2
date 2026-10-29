@@ -143,16 +143,32 @@
 ;; not a per-call `(js/Date.now)`), so it answers "when did the running
 ;; code actually load?" rather than "what time is it now?".
 ;;
-;; This is the browser half of the stale-BUILD detector:
-;; `discover-app` cross-checks it against the JVM-side build's last
-;; compile/flush timestamp. If the build recompiled AFTER this stamp,
-;; the browser tab is serving OLD code (a hot-reload didn't land, or a
-;; stale incremental build is being served) — a silent failure mode the
-;; detector catches before an agent reasons off stale code. A full
-;; page refresh re-evaluates the namespace and re-mints both `session-id`
-;; and this stamp, so a fresh load reads as fresh.
+;; A full page refresh re-evaluates the namespace and re-mints both
+;; `session-id` and this stamp. A hot reload does not: it re-evaluates the
+;; changed namespaces and their dependents, never this preload, so the
+;; stale-BUILD detector reads `code-loaded-at` below instead.
 (def loaded-at
   (js/Date.now))
+
+;; When shadow-cljs last finished a hot reload in this page, nil before the
+;; first one. `defonce`, so a reload that does re-evaluate this namespace
+;; keeps it.
+(defonce ^:private last-reload-at (atom nil))
+
+(defn ^:dev/after-load mark-code-reloaded!
+  "Stamp the end of a hot reload. shadow-cljs calls every `^:dev/after-load`
+   fn in the build after each reload, whichever namespaces it re-evaluated."
+  []
+  (reset! last-reload-at (js/Date.now)))
+
+(defn- code-loaded-at
+  "When the code this page runs finished loading: the preload's own load,
+   or the last hot reload, whichever is later. The browser half of the
+   stale-BUILD detector — `discover-app` compares it with the build's last
+   flush, and a flush after it means the tab is serving old code (a reload
+   that did not land)."
+  []
+  (max loaded-at (or @last-reload-at 0)))
 
 ;; Globally-visible mirror — the preload probe in
 ;; `re-frame2-pair-mcp.tools/ensure-runtime!` reads this rather than
@@ -192,10 +208,11 @@
 ;;                           An agent that cached an id and sees a new one
 ;;                           knows the tab refreshed (stale handles must
 ;;                           re-discover).
-;;   :runtime-loaded-at    — `loaded-at`, the wall-clock moment THIS code
-;;                           evaluated. The JVM-side `discover-app` probe
-;;                           compares it against the build's last compile
-;;                           timestamp to detect a stale-BUILD runtime.
+;;   :runtime-loaded-at    — `code-loaded-at`, when the code this page runs
+;;                           finished loading (preload load or last hot
+;;                           reload). The JVM-side `discover-app` probe
+;;                           compares it against the build's last flush
+;;                           to detect a stale-BUILD runtime.
 ;;   :read-at              — `(js/Date.now)` at the moment of THIS read.
 ;;                           With `:runtime-loaded-at` it yields uptime;
 ;;                           it also proves the runtime answered the eval
@@ -217,7 +234,7 @@
       :read-at             <ms>}"
   []
   {:runtime-instance-id session-id
-   :runtime-loaded-at   loaded-at
+   :runtime-loaded-at   (code-loaded-at)
    :read-at             (js/Date.now)})
 
 ;; ---------------------------------------------------------------------------
@@ -262,11 +279,22 @@
 (defonce ^:private selected-frame (atom nil))
 
 (defn select-frame!
-  "Pin the operating frame for this session. Subsequent ops use it
-   unless an explicit `:frame` opt is passed."
+  "Pin the operating frame for this session (nil clears the pin).
+   Subsequent ops use it unless an explicit `:frame` opt is passed.
+
+   A reserved `:rf/*` tool frame is refused, as `set-operating-frame`
+   refuses it: pinned, it would resolve every omitted-`:frame` read
+   against a devtool surface. Pin through that tool rather than an eval
+   of this fn — only the tool also flushes the server's response cache,
+   whose entries were read against the previous frame."
   [frame-id]
-  (reset! selected-frame frame-id)
-  {:ok? true :frame frame-id})
+  (if (pure/reserved-tool-frame? frame-id)
+    {:ok?    false
+     :reason :reserved-tool-frame
+     :frame  frame-id
+     :hint   "pin an APP frame (frames-list :app-frames) with set-operating-frame"}
+    (do (reset! selected-frame frame-id)
+        {:ok? true :frame frame-id})))
 
 (defn reserved-tool-frame?
   "True when `frame-id` names a framework-reserved `:rf/*` TOOL frame —
@@ -386,7 +414,7 @@
 ;;   :selected-frame   the current session pin (nil = none), so the caller
 ;;                    knows whether a prior `select-frame!` is in effect.
 ;;   :hint             the human sentence + the concrete fix (pass `frame`
-;;                    or pin via `select-frame!` / `set-operating-frame`).
+;;                    or pin one with `set-operating-frame`).
 ;;
 ;; `:reason :ambiguous-frame` is the SOLE machine discriminator (the
 ;; documented bare-dialect reason, Tool-Catalogue §307) — the other slots
@@ -440,45 +468,40 @@
 ;; emitting it through `tap>` — otherwise an `app-db-reset!` log entry
 ;; would surface the same raw payload that the wire path already redacts.
 ;;
-;; The MCP server signals the runtime once per build per server lifetime
-;; via `(configure-raw-state! {:allow-raw-state? bool})`. The flag is
-;; consulted by `app-db-reset!` (and any other raw-state tap site)
-;; before deciding whether to ship verbatim payloads or run them through
-;; `re-frame.core/project-egress`.
+;; The MCP server signals the runtime before every state-emitting tool
+;; eval via `(configure-raw-state! {:allow-raw-state? bool})`. The flag is
+;; consulted by `app-db-reset!` and every other raw-state site (rendered
+;; DOM reads, samples, cascade summaries) before deciding whether to ship
+;; verbatim payloads or run them through `re-frame.core/project-egress`.
 ;;
-;; Default raw-allowed — a runtime loaded into an app without a
-;; re-frame2-pair-mcp server sees the gate as "raw allowed", so a direct
-;; CLJS caller (developer at the REPL invoking `app-db-reset!`) gets
-;; verbatim payloads. When a re-frame2-pair-mcp server attaches with its
-;; own boot flag OFF, it flips the gate to "raw gated" on first tool use.
+;; Default gated: the flag resets to it on every page reload, so an eval
+;; that reaches this runtime before the server's signal — the first read
+;; after a reload, or one from a tool that does not signal — redacts
+;; rather than ships raw. A developer at a bare REPL who wants verbatim
+;; payloads calls `(configure-raw-state! {:allow-raw-state? true})`.
 
 (defonce ^:private raw-state-config
   ;; {:allow-raw-state? bool}
-  ;; Default true — raw `tap>` payloads ride unmodified UNTIL the MCP
-  ;; server signals otherwise. A bare CLJS REPL session (no re-frame2-pair-mcp
-  ;; attached) sees verbatim payloads.
-  (atom {:allow-raw-state? true}))
+  (atom {:allow-raw-state? false}))
 
 (defn configure-raw-state!
   "Set the raw-state posture for tap>-emitting surfaces. Opts:
 
-     :allow-raw-state?  boolean — when true (default), `app-db-reset!`
+     :allow-raw-state?  boolean — when true, `app-db-reset!`
                         taps verbatim pre- and post-reset app-db
-                        values. When false, the values are walked
+                        values. When false (default), the values are walked
                         through `re-frame.core/project-egress` so
                         large / sensitive slots redact before any tap
                         consumer sees them.
 
    Returns the merged config map. Idempotent. Called by
-   `re-frame2-pair-mcp.tools.raw-state/signal-runtime!` once per build
-   per server lifetime; safe to call by hand from a REPL to flip the
+   `re-frame2-pair-mcp.tools.raw-state/signal-runtime!` before every
+   state-emitting tool eval; safe to call by hand from a REPL to flip the
    posture.
 
-   Per Spec 009 §Privacy: re-frame2-pair-mcp's published-build default has the
-   server's boot gate OFF, so the runtime ends up in
-   `:allow-raw-state? false` mode the moment a state-emitting MCP tool
-   first fires. Operators who passed `--allow-sensitive-reads` at server
-   launch get `:allow-raw-state? true` instead."
+   Per Spec 009 §Privacy: the runtime starts, and restarts on every page
+   reload, at `:allow-raw-state? false`; a server launched with
+   `--allow-sensitive-reads` signals `:allow-raw-state? true`."
   [opts]
   (swap! raw-state-config merge (select-keys opts [:allow-raw-state?]))
   (assoc @raw-state-config :ok? true))
@@ -3721,7 +3744,7 @@
      ;; freshness vocabulary names it `:runtime-instance-id`);
      ;; `:runtime-loaded-at` is the stale-build cross-check input.
      :runtime-instance-id       session-id
-     :runtime-loaded-at         loaded-at
+     :runtime-loaded-at         (code-loaded-at)
      :read-at                   (js/Date.now)
      :debug-enabled?            (debug-enabled?)
      :coord-annotation-enabled? (coord-annotation-enabled?)

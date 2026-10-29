@@ -431,7 +431,7 @@
 
   `:probed-builds` is the set of build-ids for which the re-frame2-pair runtime
   preload has been confirmed live on this socket generation.
-  Cleared by `close!` (operator-initiated teardown) and reborn empty
+  Cleared by `close!` (a changed or vanished port file, or shutdown) and reborn empty
   whenever `ensure-connection!` builds a fresh conn for a new port — but
   NOT on a same-port socket reopen (see `connect!`). The
   `__re_frame2_pair_runtime` marker lives in the browser CLJS heap, which
@@ -439,13 +439,15 @@
   across a reopen; a page reload that DID destroy the marker leaves the
   JVM nREPL socket up, so a negative probe re-runs downstream anyway.
 
-  `:resolved-build-id` is the build-id `discover-app` last resolved.
-  Subsequent tool calls without an explicit `:build` arg
-  default to it instead of the `SHADOW_CLJS_BUILD_ID` env-var fallback —
-  so a pair-debug session need not re-pass the build on every call.
-  Same invalidation lifecycle as `:probed-builds`: cleared by `close!`
-  and by a fresh `ensure-connection!` conn, PRESERVED across a transient
-  same-port reopen.
+  `:resolved-build-id` is the session's default build — the one
+  `discover-app` last resolved, or the last explicit `:build` any call
+  passed (`wire/stick-build!`). Subsequent tool calls without an explicit
+  `:build` arg default to it instead of the `SHADOW_CLJS_BUILD_ID`
+  env-var fallback — so a pair-debug session need not re-pass the build
+  on every call. Same invalidation lifecycle as `:probed-builds`: cleared
+  by `close!` and by a fresh `ensure-connection!` conn when the port
+  file changes or vanishes; PRESERVED across a same-port reopen and a
+  page reload, neither of which touches the JVM-side conn.
 
   `:build-alias` is the forgiving-resolution cache:
   `{requested-keyword canonical-keyword}`. A `:build` arg that names a
@@ -456,7 +458,7 @@
   `active-builds`. Same invalidation lifecycle as `:probed-builds`:
   cleared by `close!` and a fresh conn, preserved across a same-port
   reopen — a genuine build restart (which changes the running set) lands
-  on a new port (fresh conn) or an operator `close!`, so a stale alias
+  on a new port (fresh conn) or a vanished port file (`close!`), so a stale alias
   never survives a real build change."
   [port host]
   (atom {:port              port
@@ -465,7 +467,6 @@
          :buf               nil
          :pending           {}
          :closed?           true
-         :session           nil
          :generation        0
          :connecting        nil
          :probed-builds     #{}
@@ -493,6 +494,21 @@
       (fn? (j/get sock :end))     (j/call sock :end)
       :else                       nil)
     (catch :default _ nil)))
+
+(defn- connection-closed-error []
+  (ex-info (str "nREPL connection closed while the op was in flight (shadow-cljs "
+                "stopped or restarted) — retry to reconnect")
+           {:reason :rf.error/pair-mcp-nrepl-connection-closed}))
+
+(defn- fail-pending!
+  "Reject every op still waiting on a reply on this conn. A closed socket
+  answers none of them, so each would otherwise wait out its own deadline
+  and report a timeout instead of the closed connection."
+  [conn-atom]
+  (let [pending (:pending @conn-atom)]
+    (swap! conn-atom assoc :pending {})
+    (doseq [{:keys [fail!]} (vals pending)]
+      (fail! (connection-closed-error)))))
 
 (defn attach-handlers!
   "Wire up `data` / `error` / `close` on the freshly-connected socket for
@@ -544,25 +560,23 @@
                                   (reset! frames* frames)
                                   (assoc c :buf rest'))))]
            (doseq [frame (array-seq @frames*)]
-             (let [id      (j/get frame "id")
-                   resolve (get (:pending @conn-atom) id)]
-               (when resolve
-                 ;; Accumulate fields into the pending result. Each pending
-                 ;; entry holds {:result (atom result-map) :resolve fn}.
-                 ;; For brevity we store a single resolve fn that merges
-                 ;; via a per-call atom — see send-eval! below.
-                 (resolve frame))))))))
+             ;; Each pending entry is `send-op!`'s `{:on-frame :fail!}`;
+             ;; `:on-frame` folds the frame into that op's result.
+             (when-let [{:keys [on-frame]} (get (:pending @conn-atom) (j/get frame "id"))]
+               (on-frame frame)))))))
    (j/call socket :on "error"
      (fn [err]
        ;; A stale socket's error must not mark the LIVE connection closed.
        (when (owns? conn-atom gen)
          (log! "socket error:" (.-message err))
-         (swap! conn-atom assoc :closed? true))))
+         (swap! conn-atom assoc :closed? true)
+         (fail-pending! conn-atom))))
    (j/call socket :on "close"
      (fn [_]
        ;; Likewise a stale socket's late close must not flip the live conn.
        (when (owns? conn-atom gen)
-         (swap! conn-atom assoc :closed? true))))))
+         (swap! conn-atom assoc :closed? true)
+         (fail-pending! conn-atom))))))
 
 (defn connect!
   "Open the persistent socket. Returns a Promise resolving to the
@@ -586,7 +600,7 @@
   The caches' invalidation lives with the layer that actually knows the
   build *identity* changed:
 
-    - `close!` (operator-initiated teardown) clears all three.
+    - `close!` (a changed or vanished port file, or shutdown) clears all three.
     - `server.cljs/ensure-connection!` builds a FRESH conn (empty caches)
       when shadow's nREPL port vanishes or changes — the common shape of
       the \"operator restarted shadow against a different build\" case (a
@@ -673,7 +687,7 @@
   the forgiving suffix→canonical resolution cache — so a
   reconnect doesn't carry a stale build-id from the previous session.
 
-  ## Operator teardown cannot be undone by a late candidate
+  ## Teardown cannot be undone by a late candidate
 
   `close!` bumps `:generation`, so any still-attached socket handlers AND
   any in-flight connect's late `connect` callback read as superseded and
@@ -683,6 +697,7 @@
   settles promptly rather than hanging."
   [conn-atom]
   (let [{:keys [socket connecting]} @conn-atom]
+    (fail-pending! conn-atom)
     (when socket
       (try (.end ^js socket) (catch :default _ nil)))
     ;; Tear down an in-flight candidate so it can't come up behind us.
@@ -765,7 +780,9 @@
                             (js/clearTimeout timer)
                             (swap! conn-atom update :pending dissoc id)
                             (resolve @state)))))]
-                (swap! conn-atom assoc-in [:pending id] on-frame)
+                (swap! conn-atom assoc-in [:pending id]
+                       {:on-frame on-frame
+                        :fail!    (fn [err] (js/clearTimeout timer) (reject err))})
                 (let [op (j/assoc! (clj->js op-map) "id" id)
                       ;; Re-read `:socket` immediately before the
                       ;; write. `connect!` guarantees a live socket at resolve
@@ -855,7 +872,7 @@
     (throw (js/Error. "Reader eval (#=) is refused.")))
   (tagged-literal tag form))
 
-(defn- read-edn-safe
+(defn read-edn-safe
   "Best-effort EDN read of the nREPL value string. The standard readers
   apply; an unknown tag decodes as inert tagged data (`inert-tag`, per
   read, so the global reader registry is untouched). On parse failure we

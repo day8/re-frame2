@@ -163,14 +163,15 @@ Each tool call routes to a shadow-cljs build. The build-id is resolved
 from (highest precedence first):
 
 1. An explicit `:build` MCP arg on this call — always wins.
-2. Session-scoped cache (rf2-l9ixp) — populated by `discover-app`
-   on success. Run `discover-app` once at the start of a session against
-   the build you want to debug; subsequent tool calls default to that
-   build without re-passing `:build`. Removes the friction of a multi-
-   build workspace silently routing follow-up calls to `:app` (the
-   env-var fallback) and returning `:runtime-not-preloaded`. The cache
-   resets on nREPL reconnect (for example a shadow restart, or a full page
-   reload destroying the runtime sentinel).
+2. Session-scoped default — set by a successful `discover-app`, and by
+   any call that passes an explicit `:build`. Run `discover-app` once at
+   the start of a session against the build you want to debug;
+   subsequent tool calls default to that build without re-passing
+   `:build`. Removes the friction of a multi-build workspace silently
+   routing follow-up calls to `:app` (the env-var fallback) and returning
+   `:runtime-not-preloaded`. The default survives a same-port reconnect
+   and a page reload; it is cleared when the nREPL port file changes or
+   vanishes (shadow-cljs restarted or stopped).
 3. `$SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
 
 ### Launch flags

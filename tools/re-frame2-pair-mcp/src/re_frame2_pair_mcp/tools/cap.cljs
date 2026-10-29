@@ -91,7 +91,10 @@
    "eval-cljs"     "Slice the value at the call-site (`get-in`, `take`, project to fewer keys) before returning."
    "discover-app"  "Unusual — the health summary should be small. Inspect `(re-frame2-pair.runtime/health)` directly via `eval-cljs` with a projection."
    "orient"        "orient takes no narrowing argument and already caps each id list at 20 examples, so the bulk is frame lists or wide app-db top levels. Read ids with `list-handlers` (`kind`, optional `frame`), one frame's state shape with `snapshot` (`path`), or re-call orient with a larger `max-tokens` (0 disables the cap)."
-   "dispatch"      "Trace mode is returning a full epoch — re-run with `trace false` and read the epoch via `watch-epochs`/`snapshot` with a narrower path."})
+   "dispatch"       "The event was dispatched and already ran — do NOT dispatch it again. Read its epoch with `trace-window` or `watch-epochs`, which page their records to fit `max-tokens`; pass `trace false` next time to keep the reply small."
+   "replay-epoch"   "The replay already ran — do NOT replay again. Read the new epoch with `trace-window` or `watch-epochs`, which page their records to fit `max-tokens`."
+   "restore-epoch"  "The restore already ran — do NOT restore again. Read the state with `get-path` or `snapshot` (default summary mode)."
+   "replace-app-db" "app-db was already replaced — do NOT replace it again. Read the state with `get-path` or `snapshot` (default summary mode)."})
 
 ;; The fallback string lives in `re-frame.mcp-base.overflow` so the
 ;; cross-MCP marker presents identically. Production reads it via

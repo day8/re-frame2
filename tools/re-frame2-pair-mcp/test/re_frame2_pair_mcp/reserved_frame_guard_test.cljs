@@ -32,6 +32,14 @@
                               [[:rf/xray] nil :summary]]]
     (is (nil? (guard/snapshot-refusal frames path mode)) (pr-str [frames path mode]))))
 
+(deftest snapshot-refusal-reads-the-per-slice-app-db-mode
+  ;; `modes {app-db full}` is the same wholesale read as `mode full`.
+  (is (tu/error? (guard/snapshot-refusal :all nil :summary {:app-db :full})))
+  (is (nil? (guard/snapshot-refusal :all nil :full {:app-db :summary}))
+      "a per-slice summary wins over a global full")
+  (is (nil? (guard/snapshot-refusal :all nil :summary {:epochs :full}))
+      "control: another slice at :full is not a wholesale app-db read"))
+
 (deftest get-path-refusal-shape-and-negative-guards
   (is (= {:ok? false :reason :wholesale-read-of-reserved-frame :frame ":rf/xray"}
          (dissoc (tu/extract-edn (guard/get-path-refusal :rf/xray [] nil)) :hint)))
@@ -86,6 +94,12 @@
                  (is (= :wholesale-read-of-reserved-frame (:reason (tu/extract-edn r))))
                  (is (empty? @seen) "the read eval was never reached")
                  (done))))))
+
+(deftest snapshot-wholesale-by-modes-is-refused-before-the-eval
+  (async done
+    (refused-before-eval
+      #(snapshot/snapshot-tool (fresh-conn) (tu/args->js {:frames "all" :modes #js {"app-db" "full"}}))
+      done)))
 
 (deftest snapshot-wholesale-rf-xray-is-refused-before-the-eval
   (async done

@@ -279,9 +279,13 @@
             ;; wrapping. The await wrap operates on whatever source
             ;; we send over the wire; with-frame is just additional
             ;; outer-CLJS so it composes orthogonally with await.
-            user-form (if frame (wrap-in-frame form frame) form)]
+            user-form (if frame (wrap-in-frame form frame) form)
+            ;; The build the eval ran against, once preflight resolves it,
+            ;; so a compile error echoes that rather than the default.
+            ran-on    (volatile! build-id)]
         (-> (probe/resolve-and-preflight! conn build-id explicit?)
             (.then (fn [resolved-build]
+                     (vreset! ran-on resolved-build)
                      (if-not await?
                        ;; Default path — wrap the form in the typed
                        ;; result codec so a genuine nil, an
@@ -337,6 +341,6 @@
                 (let [data (ex-data err)]
                   (if (= :rf.error/eval-cljs-compile-error (:reason data))
                     (wire/err-text
-                      (cond-> (merge {:ok? false} data {:build build-id})
+                      (cond-> (merge {:ok? false} data {:build @ran-on})
                         frame (assoc :frame frame)))
                     (probe/err->result :eval-error err))))))))))

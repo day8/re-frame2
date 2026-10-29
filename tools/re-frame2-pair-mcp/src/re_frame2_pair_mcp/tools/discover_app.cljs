@@ -110,7 +110,7 @@
   tool frames removed). When a tool frame was excluded — `:app-frames`
   shorter than `:frames` — AND resolution auto-landed on the sole
   remaining app frame, seed a note so the operator sees that ops resolve
-  to that frame WITHOUT a `frames/select`, and which frames the tooling
+  to that frame WITHOUT a `set-operating-frame`, and which frames the tooling
   excluded. The resolved frame is also echoed under `:operating-frame`
   (already on `health`) so every op's frame target is never a guess."
   [health]
@@ -119,7 +119,7 @@
     (if (and (seq excluded) operating-frame)
       (let [sentence (str "Operating frame auto-resolved to " operating-frame
                           " — the sole app frame. Excluded :rf/* tool frame(s): "
-                          excluded ". No frames/select needed; pass --frame to "
+                          excluded ". No set-operating-frame needed; pass `frame` to "
                           "target a tool frame explicitly.")]
         (update health :note (fn [existing]
                                (if existing (str sentence " " existing) sentence))))
@@ -269,8 +269,8 @@
                                 ;; app frames.
                                 :note (str "Multiple app frames registered: "
                                            (vec (or (:app-frames health) (:frames health)))
-                                           ". Mutating ops require --frame :foo "
-                                           "or run `frames/select` first. "
+                                           ". Mutating ops need a `frame` arg, "
+                                           "or pin one first with `set-operating-frame`. "
                                            "(`:rf/*` tool frames are excluded "
                                            "from this list.)"))
                   opts

@@ -209,13 +209,15 @@
                        advisory (:advisory edn)]
                    (is (= {:count 0 :truncated-by :max-tokens :has-more? true :estimated-remaining 3}
                           (select-keys edn [:count :truncated-by :has-more? :estimated-remaining])))
-                   (is (nil? (:next-cursor edn))
-                       "a first page has no position to resume from; the hint says re-call as-is")
+                   (is (= {:after-id nil :until-ms (:until-ms edn) :ms 600000 :frame :app/main}
+                          (select-keys (cursor/decode-cursor (:next-cursor edn))
+                                       [:after-id :until-ms :ms :frame]))
+                       "a first page has no position to resume from, so its cursor carries the window")
                    (is (= {:reason :record-exceeds-max-tokens :frame :app/main :cap-tokens 3000}
                           (select-keys advisory [:reason :frame :cap-tokens])))
                    (is (< 3000 (:record-tokens advisory) cap/default-max-tokens))
                    (is (str/includes? (:hint advisory) "max-tokens 0"))
-                   (is (str/includes? (:hint advisory) "same arguments")))))
+                   (is (str/includes? (:hint advisory) "next-cursor")))))
         (.then (fn [_]
                  (invoke! "watch-epochs" {:since-id "7" :max-tokens 3000}
                           (watch-answer (realistic-epochs 2)))))
