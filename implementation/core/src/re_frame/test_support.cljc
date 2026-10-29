@@ -442,8 +442,6 @@
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
 
-  ## Run-order independence
-
   ## Registration-table isolation (EP-0026 §Default Image)
 
   `make-frame {}` (omitted `:images`) resolves the whole registration table
@@ -461,6 +459,8 @@
   registers its top-level state ABOVE its `use-fixtures` form (or in
   `:init-fn`): a registration evaluated after the fixture was built is outside
   the baseline.
+
+  ## Run-order independence
 
   The baseline is captured ONCE, when the fixture is built —
   i.e. when the test ns's `(use-fixtures :each ...)` form is evaluated,
@@ -841,7 +841,9 @@
   Frame resolution: `:frame` opt → `(current-frame)` (the fixture's ambient
   scope — `:rf/default` unless `:ambient-frame` names another frame — or the
   frame a `with-frame` / `with-new-frame` body binds). `:frame` takes a frame
-  id or a frame object.
+  id or a frame object. A frame that is not live — a mistyped id, a destroyed
+  frame, or no scope at all — FAILS the assertion whatever `expected-val` is:
+  it would otherwise read as a nil app-db and pass a nil expectation.
 
   Returns `true` when the assertion passes, `false` otherwise — the
   `clojure.test` failure has already been reported in either case, so
@@ -856,14 +858,18 @@
   ([path expected-val]
    (assert-path-equals path expected-val nil))
   ([path expected-val opts]
-   (let [opts     (or opts {})
-         frame-id (resolve-frame opts)
-         actual   (get-in (rf.frame/frame-app-db-value frame-id) path)
-         pass?    (= expected-val actual)]
+   (let [frame-id (resolve-frame (or opts {}))
+         live?    (some? (rf.frame/frame frame-id))
+         actual   (when live? (get-in (rf.frame/frame-app-db-value frame-id) path))
+         pass?    (and live? (= expected-val actual))]
      (ctest/do-report
        {:type     (if pass? :pass :fail)
-        :message  (str "assert-path-equals mismatch at path " (pr-str path)
-                       " on frame " frame-id)
+        :message  (if live?
+                    (str "assert-path-equals mismatch at path " (pr-str path)
+                         " on frame " frame-id)
+                    (str "assert-path-equals: no live frame " (pr-str frame-id)
+                         " — the id is mistyped, the frame was destroyed, or no "
+                         "frame scope is established"))
         :expected expected-val
         :actual   actual})
      pass?)))

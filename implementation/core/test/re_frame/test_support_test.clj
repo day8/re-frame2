@@ -77,6 +77,23 @@
                (rf.test-support/assert-path-equals [:n] 5 {:frame f})
                (rf.test-support/assert-path-equals [:n] nil {:frame f})))))))
 
+(deftest assert-path-equals-fails-on-a-frame-that-is-not-live
+  ;; a frame that is not live reads as a nil app-db, so a nil expectation would
+  ;; pass on a mistyped, destroyed or absent frame without the liveness check
+  (register-counter-handlers!)
+  (rf/make-frame {:id :test-support/doomed :initial-events [[:counter/init]]})
+  (rf/destroy-frame! :test-support/doomed)
+  (is (= [:fail :fail :fail :pass]
+         (record-reports
+           (fn []
+             (rf.test-support/assert-path-equals [:session :token] nil {:frame :test-support/never-made})
+             (rf.test-support/assert-path-equals [:session :token] nil {:frame :test-support/doomed})
+             (binding [rf.frame/*current-frame* nil]
+               (rf.test-support/assert-path-equals [:session :token] nil))
+             (rf.test-support/assert-path-equals [:session :token] nil {:frame :rf/default}))))
+      "a never-made frame, a destroyed frame and no scope each fail; control:
+       the live :rf/default, whose [:session :token] is nil, passes"))
+
 ;; ---- make-reset-runtime-fixture reset cascade -----------------------------
 
 (deftest make-reset-runtime-fixture-runs-every-reset-the-documented-number-of-times
