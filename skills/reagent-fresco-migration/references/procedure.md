@@ -166,7 +166,7 @@ tier:
   WHOLE view** — never a partial body. → [`catalog-judgment.md`](catalog-judgment.md):
   state (MIG-16), lifecycle (MIG-17), the `:on-*` handler split (MIG-18),
   derived state and the ratom-store restructure (MIG-19/20), foreign React and
-  its callback contracts (MIG-09/10/22), ambient reads in plain fns (MIG-26),
+  its callback carriers (MIG-09/10/22), ambient reads in plain fns (MIG-26),
   fn props on internal views (MIG-27), computed props (MIG-28), a render-body
   `capture-frame` (MIG-31), and the loop / render-prop shaping calls
   (MIG-08/13). SSR-then-hydrate (MIG-23) is decided
