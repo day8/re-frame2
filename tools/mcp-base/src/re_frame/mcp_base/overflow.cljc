@@ -9,10 +9,9 @@
   the agent's conversation without telling the agent.
 
   This namespace owns the SHAPE of the marker (so it stays byte-
-  identical across the pair); the cap-enforcement glue (counting
-  tokens, replacing the payload) lives consumer-side because the
-  payload representation differs (CLJS JS object for re-frame2-pair-mcp; CLJ
-  map for story-mcp).
+  identical across the pair); `re-frame.mcp-base.cap` owns the shared
+  algorithm that counts tokens and replaces the payload, and each
+  consumer supplies its payload accessors and per-tool hint table.
 
   ## Token rule
 
@@ -36,8 +35,10 @@
 
 (def overflow-hint-fallback
   "Generic overflow hint used when a tool isn't listed in the per-tool
-  hint table. Re-exported as a default for consumers."
-  "Response over budget. Re-call with narrower args, or raise `max-tokens` (0 disables the cap).")
+  hint table. The marker replaces the reply AFTER the handler ran, so
+  the hint must be safe for a tool that changed state: a blind re-call
+  would repeat the change."
+  "Response over budget. If this call changes state it has already run: do not repeat it, read the state back instead. Otherwise narrow the arguments, or raise `max-tokens` (0 disables the cap).")
 
 (defn overflow-payload
   "Build the structured overflow marker that replaces an over-budget

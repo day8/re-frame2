@@ -40,7 +40,11 @@ The estimate is intentionally simple; it is a cheap heuristic, not a tokenizer. 
 
 Generic hint used when a tool isn't listed in the per-tool hint table:
 
-> "Response over budget. Re-call with narrower args, or raise `max-tokens` (0 disables the cap)."
+> "Response over budget. If this call changes state it has already run: do not repeat it, read the state back instead. Otherwise narrow the arguments, or raise `max-tokens` (0 disables the cap)."
+
+The marker replaces a reply after the handler has run, so the fallback
+must be safe for a tool that changed state: it tells the caller to read
+the state back rather than repeat the call.
 
 The per-tool hint table lives consumer-side and is keyed by tool id. The builder fn delegates to the consumer's hint resolver via a small adapter.
 

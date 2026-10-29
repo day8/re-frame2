@@ -12,6 +12,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas]
@@ -842,6 +843,18 @@
     (is (= (+ text-tok struct-tok) (get-in capped [:structuredContent rf.mcp-base.vocab/overflow-key :token-count])))
     (is (not (overflow-marker? (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens (+ text-tok struct-tok)})))
         "control: a cap both slots fit leaves the payload intact")))
+
+(deftest write-overflow-hint-never-invites-a-repeat
+  ;; The marker replaces the reply AFTER the write ran, so its hint must not
+  ;; send the agent back to repeat it.
+  (rf.story-mcp.config/set-allow-writes! true)
+  (let [r    (invoke "register-variant" {:variant-id "story.button/overflowed" :body {:doc "d"} :max-tokens 3})
+        hint (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :hint])]
+    (is (overflow-marker? r))
+    (is (some? (rf.story.registrar/handler-meta :variant :story.button/overflowed)) "the write ran before the reply overflowed")
+    (is (re-find #"Do not register it again" (str hint)) hint))
+  (is (re-find #"do not repeat it" rf.mcp-base.overflow/overflow-hint-fallback)
+      "the shared fallback, for a tool missing from the hint table, is just as safe"))
 
 ;; ---------------------------------------------------------------------------
 ;; `run-variant` with the epoch tape recorded, as every dev app records it:
