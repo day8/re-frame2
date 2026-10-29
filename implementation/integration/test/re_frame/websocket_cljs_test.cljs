@@ -353,7 +353,8 @@
   ;; the socket tells the parent nothing; the socket's own :opened does.
   (let [m                     messages/socket-actor-machine
         data                  {:url "ws://mock" :cred-ref :ws.demo/cred-a}
-        open-socket           (get-in m [:actions :open-socket])
+        ;; `defmachine` stores each action as `{:fn f ...}`.
+        open-socket           (get-in m [:actions :open-socket :fn])
         {:keys [snapshot fx]} (rf.machines/machine-transition
                                 m {:state [:live :opening] :data data} [:opened {}])]
     (is (= [:ws.socket/open]
