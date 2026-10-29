@@ -230,65 +230,13 @@
 
 (defn- emit-view-rendered-trace!
   "Emit the `:rf.view/rendered` cascade-attribution marker (consumed by
-  Xray's Reactive panel for cascade graphing). Fires AFTER
-  the user render-fn has run so the per-render deref sink is fully
-  populated. Carries:
-
-    :render-key     — `[view-id instance-token]` (parity with :view/render).
-    :view-id        — the registered view id.
-    :frame          — the frame the render landed in.
-    :mount?         — `true` on the component instance's first render,
-                      `false` on every subsequent re-render (the
-                      mount-vs-rerender discriminator).
-    :deref-subs     — the vector of subscription query-vectors THIS view
-                      deref'd during the render (the per-view
-                      read-set, the precise per-view reactive 'reason').
-                      First-seen order; absent when the view derefs no
-                      subs (a pure structural render). Distinct from
-                      cascade-wide `:cause-subs` (which over-reports).
-    :render-args    — (when the view took render args) the vector of
-                      positional render args/props passed to THIS render
-                      (read by the Xray VIEWS render-args diff column).
-                      Captured by the
-                      substrate-agnostic `build-frame-aware-view` wrapper
-                      (so it rides Reagent / UIx renders alike) and
-                      threaded in here. Absent on a no-arg render. PRIVACY:
-                      render args are arbitrary user data, so the value is
-                      routed through the SAME emit-time elision chokepoint
-                      every other user-data trace payload uses — the marks
-                      projection's `:rf.view/rendered` arm runs
-                      `re-frame.elision/elide-wire-value` against the
-                      frame's classification policy (sensitive paths →
-                      `:rf/redacted`, large leaves → `:rf.size/large-elided`)
-                      before the event reaches any listener / the wire.
-                      Spec 009 §Privacy / Spec 015 §Data classification.
-    :triggered-by   — (when derivable) the SINGLE sub-id that caused THIS
-                      view to re-render: the first sub in the
-                      view's own read-set (`deref-subs`) whose value
-                      changed in the cascade. The precise per-view cause
-                      Xray's Views panel shows as the re-render reason.
-                      Absent on a structural re-render (no own sub changed)
-                      or outside a cascade. Distinct from `:cause-subs`
-                      (cascade-wide) and from `:deref-subs` (the full
-                      per-view read-set, changed-or-not).
-    :elapsed-ms     — wall-clock duration of the user render-fn for THIS
-                      render, in fractional milliseconds.
-                      Threaded in from the wrapper (measured around the
-                      `mark-and-measure` bracket). Always present in dev
-                      builds; the timing reads ride `rf.interop/debug-enabled?`
-                      so production DCEs them with the rest of the emit.
-    :cause-event-id — (when in-cascade) the dispatching cascade's event-id.
-    :cause-subs     — (when in-cascade) distinct sub-ids that ran in the
-                      cascade, first-seen order, capped at 100.
-
-  The attribution slots are resolved via the epoch capture's in-flight
-  buffer and are absent when re-frame.epoch is not on the classpath — the
-  op still fires, without them. Capped at 100 `:rf.view/rendered` per
-  frame per run with a one-shot `:rf.view/rendered-cap-reached` marker
-  (carries `:frame` + `:dropped-after`). The budget is core's
-  (`re-frame.trace.tooling/claim-render!`), not epoch's: it resets when a
-  run starts in the frame, and renders after the run settles count
-  against that run."
+  Xray's Reactive panel for cascade graphing). Fires AFTER the user render-fn
+  has run so the per-render deref sink is fully populated. Its tags, the
+  100-per-run cap and its `:rf.view/rendered-cap-reached` marker are Spec 009
+  §Per-`:operation` quick reference. Render args reach listeners only through
+  the marks projection's elision (Spec 009 §Privacy). The cap's budget is
+  core's (`re-frame.trace.tooling/claim-render!`), not epoch's, and the
+  attribution slots are absent when re-frame.epoch is not on the classpath."
   [view-id render-key frame-id mount? deref-subs elapsed-ms render-args]
   (when rf.interop/debug-enabled?
     (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]

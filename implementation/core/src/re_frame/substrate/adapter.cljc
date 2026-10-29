@@ -756,26 +756,16 @@
   guarding here covers the router :db commit, drain rollback, flows, epoch
   restore, and SSR write paths in one place.
 
-  Derived-container guard: a derived container (the result
-  of `make-derived-value`) supports `read-container` but NOT
-  `replace-container!` — partial/whole replacement of a value computed
-  from sources is meaningless (per Spec 006 §`make-derived-value`).
-  Writing to one is a programmer error. The choke point detects the
-  derived container (`derived-container?` — the installed adapter's
-  `:derived-container?` capability is authoritative whenever it
-  has an opinion (truthy = derived → reject; `false` = one of the adapter's
-  base containers → delegate), and the host atom-marker heuristic is the
-  fall-back only when the installed adapter has no opinion),
-  emits a `:rf.error/derived-container-replaced` trace so error-listeners
-  observe it, and throws the canonical thrown-error ex-info (per Spec 009
-  §The thrown-error shape) so a `try`/`catch` and
-  `(:rf.error/id (ex-data e))` pivot on one vocabulary. The underlying
-  adapter `replace-container!` is NOT invoked. Guarding here (rather than
-  per-adapter) gives one uniform contract across every reference adapter —
-  the same single choke point that carries the nil guard above. A custom
-  adapter whose legitimate base container is NOT atom-shaped carries a
-  `:derived-container?` (answering `false` for its base) so its writes
-  delegate rather than being rejected as derived."
+  Derived-container guard: writing to a derived container (a
+  `make-derived-value` result) is a programmer error (Spec 006
+  §`make-derived-value`). When `derived-container?` says the container is
+  derived, the choke point emits a `:rf.error/derived-container-replaced`
+  trace so error-listeners observe it, and throws the canonical thrown-error
+  ex-info (Spec 009 §The thrown-error shape) so a `try`/`catch` and
+  `(:rf.error/id (ex-data e))` pivot on one vocabulary. The underlying adapter
+  `replace-container!` is NOT invoked. Guarding here rather than per-adapter
+  gives every adapter the same contract, at the choke point that carries the
+  nil guard above."
   [container new-value]
   (if (nil? container)
     ;; The nil guard runs BEFORE the adapter lookup (a scheduled drain
