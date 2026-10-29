@@ -64,7 +64,7 @@
   (rf/reg-resource-scope :t/viewer
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
-      (when username [:rf.scope/viewer {:username username}])))
+      (when username [:app.scope/viewer {:username username}])))
   (rf/reg-resource :t/shell
     {:scope {:from-db :t/viewer} :params-schema [:map]}
     (fn [_ _] {:request {:method :get :url "/shell"}}))
@@ -119,7 +119,7 @@
   [& ks]
   (into {} (map (juxt rf.resources.state/key-id identity)) ks))
 
-(defn- viewer [u] [:rf.scope/viewer {:username u}])
+(defn- viewer [u] [:app.scope/viewer {:username u}])
 (defn- shell-key [u] (rf.resources.state/scoped-resource-key (viewer u) :t/shell {}))
 (defn- docs-key [u page] (rf.resources.state/scoped-resource-key (viewer u) :t/docs {:page page}))
 (def ^:private global-key (rf.resources.state/scoped-resource-key :rf.scope/global :t/global {}))

@@ -96,7 +96,7 @@
                     "resources and load-more feeds.")
                {:resource-id resource-id :infinite (:infinite spec)})))
     (when (infinite-resource? spec)
-      (when-not (fn? (:next-page-param spec))
+      (when-not (rf.resources.state/callable? (:next-page-param spec))
         (throw (registration-error
                  :rf.error/infinite-missing-next-page-param
                  'rf/reg-resource
@@ -108,7 +108,7 @@
                  {:resource-id resource-id :next-page-param (:next-page-param spec)})))
       (when (and (contains? spec :page->items)
                  (not (or (keyword? (:page->items spec))
-                          (fn? (:page->items spec)))))
+                          (rf.resources.state/callable? (:page->items spec)))))
         (throw (registration-error
                  :rf.error/resource-bad-spec
                  'rf/reg-resource
@@ -212,10 +212,8 @@
              {:resource-id resource-id})))
   ;; Presence is not enough: a non-callable `:request` would fail at the first
   ;; read as a raw host cast error, or (a keyword or map is `ifn?`) silently
-  ;; lower a nil request. The gate is the core reg-sub one, a fn or a Var:
-  ;; not bare `fn?`, because on the JVM `(fn? #'f)` is false while on CLJS it
-  ;; is true; and not `ifn?`, for the silent-nil reason.
-  (when-not (or (fn? (:request spec)) (var? (:request spec)))
+  ;; lower a nil request.
+  (when-not (rf.resources.state/callable? (:request spec))
     (throw (registration-error
              :rf.error/resource-bad-spec
              'rf/reg-resource
@@ -228,6 +226,32 @@
                   "or (for a keyword/map) silently as a nil request. Per Spec "
                   "016 §Resource registration spec.")
              {:resource-id resource-id :value (:request spec)})))
+  ;; Called as `(tags-fn params data)` on every reply. A static set registers
+  ;; cleanly otherwise and then throws at the first reply on the JVM, or on
+  ;; CLJS answers `data` as the tags, so no invalidation ever matches.
+  (when (and (contains? spec :tags) (not (rf.resources.state/callable? (:tags spec))))
+    (throw (registration-error
+             :rf.error/resource-bad-spec
+             'rf/reg-resource
+             (str "resource " resource-id "'s :tags must be a fn "
+                  "(fn [params data] -> #{tag …}), got "
+                  (pr-str (:tags spec)) ". For tags that do not depend on the "
+                  "params or data, write (constantly #{…}). Per Spec 016 "
+                  "§Resource registration spec.")
+             {:resource-id resource-id :tags (:tags spec)})))
+  ;; Checked for the reason `:stale-after-ms` is: it feeds `:deadline-at`
+  ;; arithmetic at every attempt start.
+  (when (contains? spec :timeout-ms)
+    (let [v (:timeout-ms spec)]
+      (when-not (and (number? v) (not (neg? v)))
+        (throw (registration-error
+                 :rf.error/resource-bad-spec
+                 'rf/reg-resource
+                 (str "resource " resource-id " declares a :timeout-ms that is "
+                      "neither absent nor a non-negative number of milliseconds "
+                      "(got " (pr-str v) "). It stamps each attempt's "
+                      ":deadline-at. Per Spec 016 §Resource registration spec.")
+                 {:resource-id resource-id :timeout-ms v})))))
   ;; A non-numeric interval is a typo, refused rather than silently never
   ;; polling; a non-positive one means no polling. Spec 016 §Polling.
   (when (and (contains? spec :poll-interval-ms)

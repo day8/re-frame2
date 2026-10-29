@@ -11,6 +11,15 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+(defn callable?
+  "True for a fn or a Var holding one, the registration gate for every fn
+  slot of a resource or scope registration. Not bare `fn?`: on the JVM
+  `(fn? #'f)` is false while on CLJS it is true. Not `ifn?`: a keyword, map
+  or set is invokable, answers a not-found default, and registers a slot
+  that silently misbehaves. Spec 016 §Resource registration spec."
+  [x]
+  (or (fn? x) (var? x)))
+
 ;; ---- reserved runtime-db paths ----------------------------------------------
 ;;
 ;; Paths here are relative to runtime-db; in a full frame-state projection the
@@ -793,7 +802,7 @@
   (cond
     (nil? page->items)     nil
     (keyword? page->items) #(get % page->items)
-    (fn? page->items)      page->items
+    (callable? page->items) page->items
     :else                  nil))
 
 (defn merge-pages->items

@@ -117,19 +117,23 @@
           "the refetch records a :focus cause and attaches no owner"))))
 
 (deftest back-to-back-focus-coalesces-to-one-refetch
-  ;; a tab return fires both window focus and document visibilitychange, and
-  ;; both dispatch :rf.resource/window-focused
+  ;; A tab return fires both window focus and document visibilitychange, and
+  ;; both dispatch :rf.resource/window-focused. Queued in one drain, both scans
+  ;; run before either refetch, so both select the entry and coalescing falls
+  ;; to the second refetch joining the first.
   (let [k          (owned-stale! :co/sw)
         gen-before (:generation (entry k))]
     (reset! aborts [])
-    (rf/dispatch-sync [:rf.resource/window-focused])
-    (let [gen-after-1 (:generation (entry k))
-          wid-after-1 (:current-work (entry k))]
-      (is (= [(inc gen-before) :fetching] [gen-after-1 (:status (entry k))]) "the first focus refetches")
-      (rf/dispatch-sync [:rf.resource/window-focused])
-      (is (= [gen-after-1 wid-after-1 :fetching []]
-             [(:generation (entry k)) (:current-work (entry k)) (:status (entry k)) @aborts])
-          "the second focus joins the same work with no abort churn"))))
+    (rf/reg-event :test/tab-returned
+      (fn [_ _] {:fx [[:dispatch [:rf.resource/window-focused]]
+                      [:dispatch [:rf.resource/window-focused]]]}))
+    (rf/dispatch-sync [:test/tab-returned])
+    (let [e (entry k)]
+      (is (= [(inc gen-before) :fetching []] [(:generation e) (:status e) @aborts])
+          "one refetch, and no abort churn")
+      (is (= [:focus :focus]
+             (:causes (rf.resources.work-ledger/attempt-record (runtime-db) (:current-work e))))
+          "the second focus joined the first's attempt"))))
 
 (deftest frame-destroy-cancels-revalidation-listeners
   (let [fa :rv/frame-a]

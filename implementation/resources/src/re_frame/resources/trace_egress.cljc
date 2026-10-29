@@ -304,7 +304,7 @@
   [spec]
   (let [accessor (:page->items spec)]
     (if-not (and (rf.resources.registry/infinite-resource? spec)
-                 (or (keyword? accessor) (fn? accessor)))
+                 (or (keyword? accessor) (rf.resources.state/callable? accessor)))
       spec
       (let [data     (fn [p] (let [p (rf.path/normalize-concrete p)]
                                (case (first p)
@@ -321,7 +321,7 @@
                            :else       (into other
                                              (comp (mapcat through) (map #(into [:data] %)))
                                              ds))))
-            callable (fn? accessor)]
+            callable (rf.resources.state/callable? accessor)]
         (cond-> spec
           (seq (:sensitive spec)) (update :sensitive read-as callable)
           (seq (:large spec))     (update :large read-as callable))))))

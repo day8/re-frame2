@@ -422,6 +422,77 @@
         (is (nil? (rf.resources.work-ledger/get-handle fid wid)) "the host handle is cleared")))
     (rf.frame/destroy-frame! fid)))
 
+(defn- ensure-slug!
+  "Ensure `:article/by-slug` for `slug` on `fid` under an SSR owner; returns
+  its scoped key."
+  [fid slug]
+  (rf/dispatch-sync [:rf.resource/ensure
+                     {:resource :article/by-slug :scope :rf.scope/global
+                      :params {:slug slug} :owner [:ssr "req-5" "nav-5"]}]
+                    {:frame fid})
+  (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug slug}))
+
+(defn- land-reply!
+  "Land `k`'s live attempt's success reply on `fid`, as the transport thread
+  does while the drain sleeps."
+  [fid k data]
+  (let [e (get-in (rf.frame/frame-runtime-db-value fid) (rf.resources.state/entry-path k))]
+    (rf/dispatch-sync [:rf.resource.internal/succeeded
+                       {:work/id (:current-work e) :generation (:generation e)
+                        :rf.frame/id fid :data data}]
+                      {:frame fid})))
+
+(defn- deadline-clock
+  "A clock reading 0 at the drain's start and past every deadline after, that
+  runs `on-deadline` inside its second read: the loop's deadline check, after
+  the loop read runtime-db and before the timeout writes it."
+  [on-deadline]
+  (let [reads (atom 0)]
+    (fn []
+      (case (swap! reads inc)
+        1 0
+        2 (do (on-deadline) 1000)
+        1000))))
+
+(deftest drain-timeout-keeps-a-reply-that-lands-at-the-deadline
+  ;; The timeout is decided against the runtime-db it replaces, so a reply
+  ;; that lands between the loop's read and the timeout's write is kept,
+  ;; never reverted to `:loading` with an attempt that cannot settle.
+  (reg! :article/by-slug)
+  (let [fid :ssr/drain-late-reply]
+    (rf/make-frame {:id fid :doc "ssr late-reply drain frame" :platform :server})
+    (let [blocked (ensure-slug! fid "blocked")
+          other   (ensure-slug! fid "other")
+          status  (fn [k] (get-in (rf.frame/frame-runtime-db-value fid)
+                                  (conj (rf.resources.state/entry-path k) :status)))]
+      (rf.frame/swap-runtime-db! fid with-blocking-slot "nav-5" [blocked])
+      (let [res (rf.resources.ssr/drain-blocking-resources!
+                  fid {:pump! nil :deadline-ms 10
+                       :clock-fn (deadline-clock #(land-reply! fid other {:title "landed"}))})
+            oe  (get-in (rf.frame/frame-runtime-db-value fid) (rf.resources.state/entry-path other))]
+        (is (= [false [blocked]] [(:settled? res) (:timed-out res)])
+            "the blocking entry that never replied times out")
+        (is (= [:loaded {:title "landed"} nil]
+               [(:status oe) (:data oe) (:current-work oe)])
+            "the reply that landed at the deadline keeps its loaded entry")
+        (is (= :error (status blocked)))))
+    (rf.frame/destroy-frame! fid)))
+
+(deftest drain-timeout-reports-settled-when-the-blocking-reply-lands-at-the-deadline
+  (reg! :article/by-slug)
+  (let [fid :ssr/drain-late-blocking-reply]
+    (rf/make-frame {:id fid :doc "ssr late blocking reply drain frame" :platform :server})
+    (let [blocked (ensure-slug! fid "blocked")]
+      (rf.frame/swap-runtime-db! fid with-blocking-slot "nav-5" [blocked])
+      (is (= {:settled? true :timed-out [] :route-blocking-failure nil}
+             (rf.resources.ssr/drain-blocking-resources!
+               fid {:pump! nil :deadline-ms 10
+                    :clock-fn (deadline-clock #(land-reply! fid blocked {:title "just in time"}))})))
+      (is (= [:loaded {:title "just in time"}]
+             ((juxt :status :data)
+              (get-in (rf.frame/frame-runtime-db-value fid) (rf.resources.state/entry-path blocked))))))
+    (rf.frame/destroy-frame! fid)))
+
 ;; ===========================================================================
 ;; 3. CLIENT hydration reconcile
 ;; ===========================================================================

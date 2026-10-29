@@ -465,34 +465,45 @@
   the failed entries with each abandoned attempt settled `:timed-out`, then
   the host handles are cleared, so a late reply is stale-suppressed. Routing
   state is never touched.
+
+  The timeout is decided inside that write, against the runtime-db the write
+  replaces, because a reply landing on the transport thread after the loop's
+  read would otherwise be reverted to `:loading` with an attempt that never
+  settles. An entry that settled in that window keeps its reply, and a drain
+  whose every blocking entry did reports a clean settle.
   Spec 016 §SSR and hydration"
   [frame-id {:keys [pump! deadline-ms clock-fn tick-ms]}]
   (let [clock-fn (or clock-fn rf.interop/epoch-now-ms)
         rdb0     (rf.frame/frame-runtime-db-value frame-id)
-        blocking (current-blocking-keys rdb0)]
+        blocking (current-blocking-keys rdb0)
+        entries-path [rf.resources.state/resources-key :entries]]
     (if (empty? blocking)
       {:settled? true :timed-out [] :route-blocking-failure nil}
       (let [start    (clock-fn)
             deadline (+ start deadline-ms)]
         (loop []
           (let [rdb     (rf.frame/frame-runtime-db-value frame-id)
-                entries (get-in rdb [rf.resources.state/resources-key :entries])]
+                entries (get-in rdb entries-path)]
             (cond
               (blocking-settled? entries blocking)
               {:settled? true :timed-out [] :route-blocking-failure nil}
 
               (>= (clock-fn) deadline)
-              (let [{:keys [entries route-blocking-failure timed-out-work]}
-                    (settle-blocking-timeout entries blocking deadline-ms frame-id)]
-                (rf.frame/swap-runtime-db!
-                  frame-id
-                  (fn [rdb]
-                    (assoc-in rdb [rf.resources.state/resources-key :entries] entries)))
+              ;; `swap-runtime-db!` applies its fn once, so the trace
+              ;; `settle-blocking-timeout` emits fires once.
+              (let [outcome (volatile! nil)
+                    _       (rf.frame/swap-runtime-db!
+                              frame-id
+                              (fn [live-rdb]
+                                (let [result (settle-blocking-timeout
+                                               (get-in live-rdb entries-path)
+                                               blocking deadline-ms frame-id)]
+                                  (vreset! outcome result)
+                                  (assoc-in live-rdb entries-path (:entries result)))))
+                    {:keys [route-blocking-failure timed-out-work]} @outcome]
                 (run! #(rf.resources.work-ledger/clear-handle! frame-id %) timed-out-work)
-                {:settled?              false
-                 :timed-out             (vec (vals (unsettled-blocking-keys
-                                                     (get-in rdb [rf.resources.state/resources-key :entries])
-                                                     blocking)))
+                {:settled?              (nil? route-blocking-failure)
+                 :timed-out             (vec (:timed-out route-blocking-failure))
                  :route-blocking-failure route-blocking-failure})
 
               :else

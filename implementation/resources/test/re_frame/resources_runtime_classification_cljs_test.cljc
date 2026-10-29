@@ -78,6 +78,22 @@
     (evict-all!)
     (is (not (contains? (live-sensitive) abs-ssn)) "the evicted entry's claim goes with it, with no drop step")))
 
+(deftest a-coarse-claim-is-claimed-as-the-entrys-whole-data
+  ;; The coarse root-prop claims apply at every egress boundary, runtime-db
+  ;; included, so `:sensitive? true` protects at least what a path does.
+  (reg! :profile/coarse {:sensitive? true})
+  (reg! :profile/bulky {:large? true})
+  (reg! :profile/both {:sensitive? true :large? true})
+  (let [k-of    (fn [id] (rf.resources.state/scoped-resource-key :rf.scope/global id {:slug "x"}))
+        data-at (fn [id] [:rf.runtime/resources :entries (rf.resources.state/key-id (k-of id)) :data])]
+    (is (= {:sensitive-declarations {(data-at :profile/coarse) resource-owner
+                                     (data-at :profile/both)   resource-owner}
+            :declarations           {(data-at :profile/bulky) resource-owner}}
+           (claims (runtime-db-with {(k-of :profile/coarse) {:data {:ssn "x"}}
+                                     (k-of :profile/bulky)  {:data {:bytes "y"}}
+                                     (k-of :profile/both)   {:data {:ssn "z"}}})))
+        "each claims its entry's whole :data, a sensitive claim winning over a large one")))
+
 (deftest a-resource-that-declares-nothing-claims-nothing
   (reg! :plain/card {})
   (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :plain/card {:slug "x"})]

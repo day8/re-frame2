@@ -256,6 +256,32 @@
              [(:data e) (contains? e :refetch-sweep) (:status e)])
           "every page is replaced in order, and the exhausted sweep is cleared"))))
 
+(deftest a-sweep-leg-queued-behind-a-refetch-leaves-that-refetch-live
+  ;; Page 0's reply queues the next leg at the tail of the queue, so a refetch
+  ;; queued behind the reply starts first and re-arms the sweep. The stale leg
+  ;; then finds that attempt live and drops, rather than displacing it
+  ;; unaborted along with its continuation.
+  (let [k       (accumulate-3! :rl/feed {:refetch {:refetch-all-pages? true}})
+        replied (atom [])]
+    (rf/reg-event :test/feed-replied (fn [_ event] (swap! replied conj event) {}))
+    (refetch-feed! :rl/feed)
+    (let [page-0-reply (conj (:on-success @last-managed-args) {:status :ok :value (page [:a*] "c1")})]
+      (reset! aborts [])
+      (rf/reg-event :test/reply-and-refetch
+        (fn [_ _] {:fx [[:dispatch page-0-reply]
+                        [:dispatch [:rf.resource/refetch
+                                    {:resource :rl/feed :scope :rf.scope/global
+                                     :params {:filter :recent} :cause [:test :user]
+                                     :reply-to [:test/feed-replied]}]]]}))
+      (rf/dispatch-sync [:test/reply-and-refetch]))
+    (let [live (:work (entry k))]
+      (is (= [0 0 true []]
+             [(in-flight-page-index) (:page-index live) (boolean (seq (:reply-targets live))) @aborts])
+          "the user's page-0 attempt is still the live one, with its continuation"))
+    (reply-success! (page [:a**] "c1"))
+    (is (= [1 1] [(count @replied) (in-flight-page-index)])
+        "its reply answers the continuation and its own sweep chains page 1")))
+
 ;; ===========================================================================
 ;; a page-0 abort or failure with no pages is a FIRST load, not a load-more
 ;; ===========================================================================
