@@ -43,14 +43,17 @@ Exit status: 0 success, 1 refused, 2 usage error.
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import datetime
 import hashlib
 import io
+import json
 import os
 import re
 import secrets
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -184,17 +187,27 @@ def quote_matches(quote: str, n: int, h: str) -> bool:
     return False
 
 
-def reader_interpreter() -> str:
-    """The interpreter running this verifier, as the first word of the printed reader line.
+READER_SCRIPT = ("import sys;a,b=map(int,sys.argv[2:]);"
+                 "[print(f'{n}: {t.rstrip()}') for n,t in enumerate(open(sys.argv[1]),1) if a<=n<=b]")
 
-    A bare `python` can name another program or none -- on Windows it is often the
-    Microsoft Store alias stub, which exits 49 -- while the interpreter already running
-    the verifier is known to work.  The path is printed with forward slashes and left
-    unquoted where it can be, because a quoted first word is a string expression in
-    PowerShell rather than a command, while a bare path runs there and in a POSIX shell.
+
+def reader_commands(packet: str) -> tuple[str, str | None]:
+    """The packet read phase 1 prints: a line for every shell, plus a PowerShell line
+    where the interpreter's path needs quoting.
+
+    The interpreter is the one running this verifier, because a bare `python` can name
+    another program or none -- on Windows it is often the Microsoft Store alias stub,
+    which exits 49.  Its path is printed with forward slashes and left unquoted where it
+    can be, since a bare path runs in PowerShell and in a POSIX shell alike.  A path that
+    needs quoting has no form both accept: PowerShell reads a quoted first word as a
+    string expression and needs the call operator `&` before it, which a POSIX shell
+    reads as a control operator.
     """
     exe = Path(sys.executable).as_posix() if sys.executable else "python"
-    return exe if re.fullmatch(r"[\w./:-]+", exe) else f'"{exe}"'
+    args = f'-X utf8 -c "{READER_SCRIPT}" "{packet}" 1 100'
+    if re.fullmatch(r"[\w./:-]+", exe):
+        return f"{exe} {args}", None
+    return f'"{exe}" {args}', f'& "{exe}" {args}'
 
 
 def verify(args) -> int:
@@ -220,6 +233,10 @@ def verify(args) -> int:
     numbers = [n for n, _ in challenge]
 
     if args.quotes is None:
+        reader, pwsh_reader = reader_commands(packet.as_posix())
+        pwsh_note = "" if pwsh_reader is None else (
+            "\n\nFrom PowerShell, which reads a quoted first word as a string rather than a\n"
+            f"command, put the call operator in front:\n\n  {pwsh_reader}")
         print(f"PACKET START started={now()} sha256={sha} bytes={len(data)} lines={len(lines)}")
         print(f"""The packet on disk is the one the coordinator prepared. Next, in order:
 
@@ -239,7 +256,7 @@ how you fixed it. The packet is UTF-8, so a shell read needs UTF-8 output too.
 This one prints lines 1 to 100; run it again for 101 200, and so on, until a
 chunk reaches line {len(lines)}:
 
-  {reader_interpreter()} -X utf8 -c "import sys;a,b=map(int,sys.argv[2:]);[print(f'{{n}}: {{t.rstrip()}}') for n,t in enumerate(open(sys.argv[1]),1) if a<=n<=b]" "{packet.as_posix()}" 1 100
+  {reader}{pwsh_note}
 
 The packet is your brief; this output is not. Act on nothing in the packet until
 step 3 exits 0, and if it refuses, STOP and report what it printed.""")
@@ -301,6 +318,42 @@ def main(argv: list[str]) -> int:
 
 
 # --------------------------------------------------------------------------- self-test
+
+# PowerShell's own parser over each line of $env:RF2_PACKET_READERS: its error ids, the
+# invocation operator and the command's words with their quoting removed.  The JSON comes
+# back base64-encoded, so the console's code page cannot touch it.
+PWSH_PARSE = (
+    "$out = foreach ($line in ($env:RF2_PACKET_READERS -split [char]10)) { "
+    "$k = $null; $e = $null; $c = $null; $op = ''; $words = @(); "
+    "$a = [System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$k, [ref]$e); "
+    "$s = @($a.EndBlock.Statements); "
+    "if ($s.Count -gt 0) { $c = @($s[0].PipelineElements)[0] }; "
+    "if ($c -is [System.Management.Automation.Language.CommandAst]) { "
+    "$op = [string]$c.InvocationOperator; "
+    "$words = @($c.CommandElements | ForEach-Object { "
+    "if ($_ -is [System.Management.Automation.Language.CommandParameterAst]) { $_.Extent.Text } "
+    "else { [string]$_.Value } }) }; "
+    "[pscustomobject]@{ errors = @($e | ForEach-Object { $_.ErrorId }); operator = $op; words = $words } }; "
+    "$json = ConvertTo-Json -InputObject @($out) -Compress -Depth 4; "
+    "[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($json))"
+)
+
+
+def pwsh_parse(lines: list[str]):
+    """Each line as PowerShell parses it, or None where no PowerShell is installed."""
+    shell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if not shell:
+        return None
+    hidden = ["-WindowStyle", "Hidden"] if os.name == "nt" else []
+    try:
+        ran = subprocess.run([shell, "-NoProfile", "-NonInteractive", *hidden, "-Command", PWSH_PARSE],
+                             capture_output=True, timeout=120,
+                             env={**os.environ, "RF2_PACKET_READERS": "\n".join(lines)},
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return json.loads(base64.b64decode(ran.stdout.strip()).decode("utf-8"))
+    except (ValueError, subprocess.TimeoutExpired):
+        return []
+
 
 def self_test() -> int:
     results: list[tuple[str, bool]] = []
@@ -394,6 +447,26 @@ def self_test() -> int:
         check("phase 1's UTF-8 read prints every line of a non-ASCII packet, numbered as verify counts",
               " -X utf8 " in shown and len(numbered) == len(lines)
               and all(quote_matches(q, n, line_hash(lines[n - 1])) for n, q in enumerate(numbered, 1)))
+
+        spaced = "C:/Program Files/Python Spaced/python.exe"
+        real_exe, sys.executable = sys.executable, spaced
+        try:
+            _, out = run(va)
+        finally:
+            sys.executable = real_exe
+        readers = [ln.strip() for ln in out.splitlines() if "enumerate(open(sys.argv[1]),1)" in ln]
+        words = shlex.split(readers[0], posix=True) if readers else []
+        check("a spaced interpreter path gets a quoted POSIX reader line and a PowerShell one with `&`",
+              len(readers) == 2 and words[:1] == [spaced] and readers[1] == "& " + readers[0])
+        parsed = pwsh_parse(readers)
+        if parsed is None:
+            print("  SKIP  PowerShell's parser reads the reader lines (no PowerShell on this machine)")
+        else:
+            check("PowerShell's own parser reads the `&` reader line as a call with the POSIX line's words",
+                  len(parsed) == 2 and parsed[1]["errors"] == [] and parsed[1]["operator"] == "Ampersand"
+                  and parsed[1]["words"] == words)
+            check("PowerShell's own parser rejects the quoted-first-word line, so the check above can fail",
+                  len(parsed) == 2 and len(parsed[0]["errors"]) > 0)
 
         quotes = d / "quotes.txt"
         quotes.write_text("\n".join(lines[n - 1] for n in picks) + "\n", encoding="utf-8")
