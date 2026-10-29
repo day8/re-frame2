@@ -219,9 +219,10 @@ first:
   `r/as-element`, or any Reagent component's render, Reagent does, by Reagent's
   rules (`^{:key …}` included).
 - **Where does the frame come from?** React context, written by `h/frame-root`
-  / `h/frame-provider` or `rf/frame-root` and read by both `h/sub` and
-  `rf/reg-view`, so one frame serves both renderers. A retained Reagent view
-  that reads its frame any other way is re-frame-migration's
+  / `h/frame-provider` or `rf/frame-root` and read during render by `h/sub` and
+  by a retained Reagent view alike, an `rf/reg-view` or a plain function, so
+  one frame serves both renderers. A Reagent callback that runs after the
+  render has no frame in scope, which is re-frame-migration's
   [M-11](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/guided-views-m11.md).
 - **Whose queue holds pending work?** React's, which `hm/settle!` drains; and,
   for any retained Reagent component, Reagent's own animation-frame render
