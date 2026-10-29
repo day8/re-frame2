@@ -515,8 +515,9 @@
                      "integer id 7 is passed as \"7\". Returns {:ok? true :restored? true :epoch-id 7 "
                      ":cascade-summary {... :restore? true} :unreplayable-effects [...]}, where "
                      ":unreplayable-effects lists the fx the original cascade fired that a restore cannot undo "
-                     "(HTTP requests, navigation, persisted writes). An id not in the ring, or a drain in flight, "
-                     "returns :reason :restore-rejected with the state unchanged. GATED: without --allow-writes "
+                     "(HTTP requests, navigation, persisted writes). A refused restore (an id not in the ring, a "
+                     "drain in flight) returns :restored? false with the framework's :reason, e.g. "
+                     ":rf.epoch/restore-unknown-epoch, and the state unchanged. GATED: without --allow-writes "
                      "(default off) it returns :reason :rf.error/writes-disabled and touches nothing. Example: "
                      "{:epoch-id \"7\"} -> {:ok? true :restored? true :epoch-id 7 :cascade-summary {:event-id "
                      ":cart/add :restore? true ...} :unreplayable-effects [{:fx-id :http}]}.")

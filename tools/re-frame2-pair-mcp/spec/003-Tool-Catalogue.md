@@ -1665,11 +1665,13 @@ state installed (the target's `:db-after`, or its `:db-before` under
 `to` `"before"`); the
 `:unreplayable-effects` vector enumerates fx the original cascade
 fired that the restore cannot undo. See §Universal: cascade summary
-on state-mutating tools for the shape. Returns
-`{:ok? false :restored? false :reason :restore-rejected ...}` when
-the id is not in the ring or a drain is in flight (the documented
+on state-mutating tools for the shape. A refused restore — the id is
+not in the ring, a drain is in flight, or another of the documented
 `:rf.epoch/*` failure modes per
-[`Tool-Pair.md` §Restore failure modes](../../../spec/Tool-Pair.md#time-travel)).
+[`Tool-Pair.md` §Restore failure modes](../../../spec/Tool-Pair.md#time-travel)
+— returns the framework's refusal, `{:ok? false :restored? false
+:reason <the mode's op> ...}`. A build that elides the epoch surface
+returns `{:ok? false :restored? false :reason :restore-rejected ...}`.
 The `app-db` is unchanged on failure. A rejected restore is **not** a
 terminal-empty outcome — the write did not land — so it rides with
 `isError: true` per the §"Every `:ok? false` response is `isError: true`"
