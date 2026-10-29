@@ -154,7 +154,7 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 
 | Bead | Call | Rationale |
 |---|---|---|
-| rf2-m5u23 | JSON-LD `<script>` body: escape `<` as `<` | The JSON string escape, which `JSON.parse` reads back as `<`; an HTML entity would arrive literally, because a raw-text `<script>` decodes no character reference. Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
+| rf2-m5u23 | JSON-LD `<script>` body: escape `<` as `\u003c` | The JSON string escape, which `JSON.parse` reads back as `<`; an HTML entity would arrive literally, because a raw-text `<script>` decodes no character reference. Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
 | rf2-vl8ir | Hiccup attribute *key* escape (not just value) | Attribute keys are attacker-reachable through registered hiccup forms receiving keyed data; escape prevents breakout from the attribute namespace. |
 
 ### CRLF injection
