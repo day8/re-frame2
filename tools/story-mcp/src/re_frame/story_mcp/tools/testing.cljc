@@ -389,12 +389,23 @@
 (def descriptors
   "Testing-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "run-variant"
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would settle an ordinary `:status :pass` over a DIFFERENT scenario than the one requested. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, `:elapsed-ms`, and the snapshot-identity strings `:plan-hash` (the plan that ran) and `:run-hash` (its behavioural evidence) — equal across reruns of a deterministic scenario, so compare them to tell a changed plan from changed behaviour. Each `:narrative` beat carries its epoch's `:epoch-id`, `:trigger-event`, `:db-before` / `:db-after`, `:effects`, `:sub-runs` and `:renders`, plus a `:trace-event-count` in place of the raw `:trace-events`; pass `:include-trace-events true` for the events themselves (they are most of a run's bytes, so expect to raise `max-tokens`). Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's classification policy — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and the evidence value-slots `:schema-violations` / `:warnings` are PATH-projected on BOTH egress axes against the same frame classification. The epoch rows (`:effects :sub-runs :renders`) and each `:narrative` beat are epoch data and cross the off-box epoch projector the pair MCP uses: an effect's `:args` redact, a sub-run's query vectors keep only their ids, and a beat's `:db-before` / `:db-after` redact by app-db path and its event args redact; `:include-sensitive` lifts only the app-db axes inside that projection, so a query vector ships as recorded and effect and event args stay redacted. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:warnings` record's tag value) ships RAW — there is no value-match; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
-                         "Examples: "
-                         "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
-                         "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
-                         "3. Cannot-run (a causal assertion under a non-reactive runner): {:variant-id \":story.cart/caused\"} -> {:status :cannot-run :cannot-run [...] :assertions [{:status :cannot-run :cannot-run? true ...}]}. "
-                         "4. Clamped timeout / error: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:status :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}.")
+    :description    (str "Run a variant's lifecycle (loaders, setup, render, script) headlessly and return the unified "
+                         "run-result the Story UI reads. `:status` (:pass :fail :cannot-run :error) is the verdict; "
+                         "`:cannot-run` means the plan could not be attempted here, not that it failed. The result also "
+                         "carries `:assertions` (each with its own `:status`), `:checks`, the evidence slots "
+                         "(`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`,"
+                         " `:elapsed-ms`, and `:plan-hash` / `:run-hash`, equal across reruns of a deterministic scenario."
+                         " Refusals (isError): no installed re-frame adapter gives `:rf.error/no-adapter-installed` "
+                         "(install one in the namespace your launch alias preloads, e.g. `(rf/init! plain-atom/adapter)`);"
+                         " an unknown `:active-modes` id or `:cell-overrides` key is named with the accepted set, never "
+                         "dropped. `:timeout-ms` defaults to 10000 and clamps to 30000; an overrun returns `:status "
+                         ":error`. Values are projected through the frame's classification: a sensitive path reads "
+                         "`:rf/redacted`, an oversize slot `:rf.size/large-elided`, and effect and event args redact. A "
+                         "`:narrative` beat carries a `:trace-event-count`; `:include-trace-events true` ships the raw "
+                         "events (raise `max-tokens`). Rendered output is not included. Example: {:variant-id "
+                         "\":story.cart/bad\"} -> {:status :fail :frame :story.cart/bad :assertions [{:assertion "
+                         ":rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}] :checks [] "
+                         ":elapsed-ms 42 ...}.")
     :typicalTokens  2000
     ;; `run-variant` ships the variant's `:app-db` re-keyed
     ;; into `:snapshot` and the evidence slots; structural dedup
@@ -424,12 +435,13 @@
     :handler     tool-run-variant}
 
    {:name           "snapshot-identity"
-    :description    (str "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes × cell-overrides). Stable across hosts; key for visual-regression. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than hashing the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because both slots are identity-BEARING here and a dropped one would return a visual-regression key for a DIFFERENT tuple. `:cell-overrides` perturbs the hash via the resolved `:effective-args` (Story's `resolve-args` merges them after mode args), so two cells differing only by an override get distinct `:content-hash` values. "
-                         "Examples: "
-                         "1. Bare: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :active-modes [] :substrate nil :content-hash \"sha256:abcd...\"}. "
-                         "2. With substrate + mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> different :content-hash from #1 because the tuple inputs differ. "
-                         "3. With cell-overrides: {:variant-id \":story.cart/full\" :cell-overrides {:qty 9}} -> different :content-hash from #1 because the override changes the resolved args. "
-                         "4. Use for cache key: build a visual-regression key as `(str variant-id \"@\" content-hash)`.")
+    :description    (str "Return the content hash of a variant's identity tuple (variant, resolved args, decorators, "
+                         "loaders, modes, cell-overrides, substrate): {:variant-id :active-modes :substrate "
+                         ":content-hash}. It is stable across hosts, so it keys visual regression, and `:cell-overrides` "
+                         "change it through the resolved args. An unknown `:active-modes` id or `:cell-overrides` key is "
+                         "refused (isError naming it and the accepted set), never dropped from the tuple. Runs nothing. "
+                         "Example: {:variant-id \":story.cart/full\" :active-modes [\":mode/dark\"]} -> {:variant-id "
+                         ":story.cart/full :active-modes [:mode/dark] :substrate nil :content-hash \"sha256:abcd...\"}.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens
@@ -445,13 +457,14 @@
 
    {:name           "read-a11y-violations"
     :available?     rf.story-mcp.tools.cljs-resolve/a11y-provider-available?
-    :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). Beside `:violations` it returns `:incomplete`, axe-core's checks it could not decide (from `incomplete-by-frame`): shown, never a failure, and never a clean bill, so `:violations []` beside a non-empty `:incomplete` does NOT mean accessible; a provider that cannot supply them omits the key rather than answering `[]`. The `:violations` vec (and `:incomplete`, same class) is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception: a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
-                         "Host boundary: the shipped JVM stdio server cannot read the CLJS panel atom, so it returns a machine-readable capability-unavailable error (`isError true`, `:rf.error :rf.error/story-mcp-capability-unavailable`) rather than a false-empty `{:violations []}` — an empty vec is reserved for a REACHED provider that reported no findings. "
-                         "Examples: "
-                         "1. JVM stdio server (no browser bridge): {:variant-id \":story.cart/full\"} -> {:isError true :content [{:text \"Capability unavailable: `read-a11y-violations` needs the a11y-panel-state provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"a11y-panel-state\" :tool \"read-a11y-violations\" :recovery :read-from-a-browser-local-story-host}}. "
-                         "2. Browser-local state with findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}] :incomplete []}. "
-                         "3. Browser-local state, clean frame: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :incomplete []} — a reached provider that genuinely reported nothing. "
-                         "4. Browser-local state, undecided checks: {:variant-id \":story.login-form/idle\"} -> {:variant-id :story.login-form/idle :violations [] :incomplete [{:id \"color-contrast\" :nodes [...]}]} — NOT a clean bill: a person must check those nodes.")
+    :description    (str "Re-read the axe-core results a variant's in-browser a11y panel last stored. It runs no check, so"
+                         " it proves nothing about a variant the panel has not inspected. Returns {:variant-id :violations"
+                         " [...] :incomplete [...]}: `:incomplete` holds the checks axe could not decide, so `:violations "
+                         "[]` beside a non-empty `:incomplete` is not a clean bill. Each node carries `:html`, `:target` "
+                         "and `:failureSummary`; a value at a classified app-db path redacts, but one rendered into node "
+                         "`:html` ships as rendered. Listed only on a host that reaches the panel state. Example: "
+                         "{:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id "
+                         "\"label\" :impact \"critical\" :nodes [...]}] :incomplete []}.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens
@@ -463,11 +476,14 @@
     :handler     tool-read-a11y-violations}
 
    {:name           "read-failures"
-    :description    (str "Accumulated assertion records for a variant frame (since the most recent `run-variant`), as UNIFIED records. Returns `{:status :total :failures :assertions}` — the same record shape `run-variant` emits: each record carries a derived `:status`, `:status` is the aggregate verdict over the records, and `:failures` is filtered to the genuine failure statuses (`:fail` / `:error`). A re-read of the accumulator, not a re-run — no epoch tape, so the status is the assertion-record aggregate only (re-run via `run-variant` for the full run verdict incl. the agreement floor). Assertion records carrying `:sensitive? true` are dropped at egress by default; pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
-                         "Examples: "
-                         "1. Clean run: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :status :pass :total 3 :failures [] :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass} ...]}. "
-                         "2. Mixed pass/fail: {:variant-id \":story.cart/bad\"} -> {:variant-id :story.cart/bad :status :fail :total 5 :failures [{:assertion :rf.assert/sub-equals :passed? false :status :fail :reason \"...\"}] :assertions [...]}. "
-                         "3. Registered but never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :status :pass :total 0 :failures [] :assertions []} (vacuously green — the id must be a REGISTERED variant that simply has no run yet; a genuinely unregistered id returns a `Variant not found` error, not an empty accumulator).")
+    :description    (str "Re-read, without re-running, the assertion records a variant frame accumulated in its latest "
+                         "run: {:variant-id :status :total :failures :assertions}, in run-variant's record shape, with "
+                         "`:failures` holding the `:fail` / `:error` records. `:status` aggregates the records alone (no "
+                         "epoch tape, so no agreement floor: re-run run-variant for the full verdict), including any "
+                         "record dropped as sensitive, which `:dropped-sensitive` counts. A registered variant that never "
+                         "ran reads {:status :pass :total 0}. Example: {:variant-id \":story.cart/bad\"} -> {:variant-id "
+                         ":story.cart/bad :status :fail :total 5 :failures [{:assertion :rf.assert/sub-equals :passed? "
+                         "false :status :fail :reason \"...\"}] :assertions [...]}.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens

@@ -370,11 +370,13 @@
   "Write-category descriptors for the in-ns tools (register /
   unregister), in spec/002-Tool-Registry.md order."
   [{:name           "register-variant"
-    :description    (str "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix. "
-                         "Examples: "
-                         "1. Object body (preferred): {:variant-id \":story.cart/probe\" :body {:doc \"...\" :args {:label \"OK\"}}} -> {:variant-id :story.cart/probe :registered? true}. "
-                         "2. EDN-string body (needed for keyword payloads): {:variant-id \":story.cart/probe\" :body \"{:doc \\\"...\\\" :tags #{:dev}}\"} -> {:variant-id :story.cart/probe :registered? true}. "
-                         "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled. Set :rf.story-mcp/allow-writes? ...\"}] :structuredContent {:gated true :tool \"register-variant\"}}.")
+    :description    (str "Register a variant, the write step of the write, run, read-failures, fix loop. Gated: refused "
+                         "with isError and structuredContent {:gated true :tool \"register-variant\"} unless the server was "
+                         "started with `--allow-writes` (or `-Drf.story-mcp.allow-writes=true`, or "
+                         "`RF_STORY_MCP_ALLOW_WRITES=true`). `:body` is a JSON object, or an EDN string when the body "
+                         "needs keywords or sets. Registering an existing id replaces it. Example: {:variant-id "
+                         "\":story.cart/probe\" :body \"{:doc \\\"probe\\\" :tags #{:dev}}\"} -> {:variant-id :story.cart/probe "
+                         ":registered? true}.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens
@@ -395,11 +397,9 @@
     :handler     tool-register-variant}
 
    {:name           "unregister-variant"
-    :description    (str "Unregister a registered variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`. "
-                         "Examples: "
-                         "1. Registered: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? true}. "
-                         "2. Unknown variant: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]} — an unregistered id is an error, not a no-op (the id is resolved against the live registered-variant set). "
-                         "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled...\"}] :structuredContent {:gated true :tool \"unregister-variant\"}}.")
+    :description    (str "Unregister a registered variant, behind register-variant's write gate. An unknown id is an "
+                         "isError \"Variant not found\", not a no-op. Example: {:variant-id \":story.cart/probe\"} -> "
+                         "{:variant-id :story.cart/probe :unregistered? true}.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (rf.story-mcp.tools.schemas/with-max-tokens {:variant-id rf.story-mcp.tools.schemas/kw-or-string})

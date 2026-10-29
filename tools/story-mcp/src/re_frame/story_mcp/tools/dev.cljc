@@ -225,11 +225,10 @@
 (def descriptors
   "Dev-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "get-story-instructions"
-    :description    (str "Return Story's authoring conventions in agent-friendly form (the nine reg-* macros including the reg-fragment/reg-check composition surface, hard rules, lifecycle, snapshots). "
-                         "Examples: "
-                         "1. Session bootstrap: {} -> text content with the conventions prose. "
-                         "2. With budget override: {:max-tokens 0} -> same text, no cap. "
-                         "3. Discovery (paired with list-substrates + list-tags): call this first, then list-* tools to enumerate the registry surface.")
+    :description    (str "Return Story's authoring conventions as text: the reg-* macros (reg-fragment and reg-check "
+                         "included), the hard rules, the variant lifecycle and snapshots. Call it first in a session, then"
+                         " the list-* tools to enumerate the registry. Example: {} -> text content with the conventions "
+                         "prose.")
     :typicalTokens  1500
     :inputSchema    {:type "object" :properties (rf.story-mcp.tools.schemas/with-max-tokens {}) :additionalProperties false}
     :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
@@ -237,12 +236,17 @@
     :handler        tool-get-story-instructions}
 
    {:name           "preview-variant"
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, effective-args, elapsed) + a sharable URL. Runs the SAME `rf.story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). Unknown `:active-modes` ids and `:cell-overrides` keys are refused the same way rather than silently dropped (`:rf.error/story-mcp-unknown-active-mode` / `:rf.error/story-mcp-unknown-cell-override-key`): the diagnostic names the offending RAW identifier and enumerates the accepted set, and a mixed known+unknown mode list rejects ATOMICALLY rather than running the known subset. An ABSENT run option still defaults — only a PRESENT-but-unknown identifier fails, because a dropped one would return a share URL for a scenario you did not request. The `:app-db` slot is routed through `re-frame.core/project-egress` against the variant frame's classification policy — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. Rendered output is NOT part of this result — `rf.story/render-variant` owns rendering and returns it as `:rendered`. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a snapshot nested under `:db`) ships RAW — there is no value-match; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
-                         "Examples: "
-                         "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :effective-args {...}}. "
-                         "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
-                         "3. Slow variant with an explicit timeout: {:variant-id \":story.slow/loader\" :timeout-ms 20000} -> runs against the 20s ceiling (clamped to 30s max); on overrun returns {:status :error :lifecycle :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}. "
-                         "4. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
+    :description    (str "Run a variant headlessly and return its canvas state and a shareable URL: {:variant-id "
+                         ":share-url :status :lifecycle :app-db :assertions :checks :effective-args :snapshot ...}. "
+                         "`:status` (:pass :fail :cannot-run :error) is the verdict; `:lifecycle` (:ready / :error) is the"
+                         " loader state. It runs the same lifecycle as run-variant and refuses the same way (isError): no "
+                         "installed re-frame adapter gives `:rf.error/no-adapter-installed`; an unknown `:active-modes` id"
+                         " or `:cell-overrides` key is named with the accepted set, never dropped. `:timeout-ms` defaults "
+                         "to 10000 and clamps to 30000; an overrun returns `:status :error`. Values are projected through "
+                         "the frame's classification: a sensitive path reads `:rf/redacted`, an oversize slot "
+                         "`:rf.size/large-elided`. Rendered output is not included. Example: {:variant-id "
+                         "\":story.cart/full\" :active-modes [\":mode/dark\"]} -> {:variant-id :story.cart/full :share-url "
+                         "\"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] ...}.")
     :typicalTokens  2000
     ;; `preview-variant` ships the variant's `:app-db`
     ;; re-keyed into `:effective-args` / `:snapshot`; structural
@@ -279,10 +283,9 @@
 
    {:name           "list-substrates"
     :available?     rf.story-mcp.tools.cljs-resolve/substrate-provider-available?
-    :description    (str "Report the render substrates visible to this host. Substrate registration is CLJS-only; when the browser registry is UNREACHABLE (the JVM stdio server has no browser bridge) this returns a machine-readable capability-unavailable error (`isError true`, `:rf.error :rf.error/story-mcp-capability-unavailable`), NOT a false-empty `{:substrates []}` — capability absence is distinct from a reached registry that answered empty. "
-                         "Examples: "
-                         "1. JVM stdio server (no browser bridge): {} -> {:isError true :content [{:text \"Capability unavailable: `list-substrates` needs the substrate-registry provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"substrate-registry\" :tool \"list-substrates\" :recovery :read-from-a-browser-local-story-host}}. "
-                         "2. Browser-local Story host with a reached registry: {} -> {:substrates [:reagent :uix]} (or {:substrates []} when the registry genuinely holds none).")
+    :description    (str "Report the render substrates registered with Story (`re-frame.story/register-substrate!`). "
+                         "Listed only on a host that reaches the CLJS substrate registry. Example: {} -> {:substrates "
+                         "[:reagent :uix]}, or {:substrates []} when the registry holds none.")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (rf.story-mcp.tools.schemas/with-max-tokens {}) :additionalProperties false}
     :outputSchema   rf.story-mcp.tools.schemas/default-output-schema
