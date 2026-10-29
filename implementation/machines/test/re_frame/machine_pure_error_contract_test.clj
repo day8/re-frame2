@@ -50,10 +50,33 @@
            [{:id :probe/p :type :parallel :data {} :actions raising-actions
              :regions {:r {:initial :a :states {:a {:on {:go {:action :go}}}}}}}
             {:r :a}
-            {:rf.error/id :rf.error/machine-bad-raise :value raise-with-options}]]]
+            {:rf.error/id :rf.error/machine-bad-raise :value raise-with-options}]
+           [(on-go {:action :go} {:actions {:go (fn [_] {:fx [[:raise :next]]})}}) :a
+            {:rf.error/id :rf.error/machine-bad-raise :value [:raise :next]}]
+           [{:id :probe/p :type :parallel :data {}
+             :regions {:r {:initial :a :states {:a {:on {:go :a}}}}}}
+            :x
+            {:rf.error/id :rf.error/machine-bad-state-form :state :x}]]]
     (is (= (assoc expected :where 'rf/reg-machine)
            (select-keys (try (rf.machines/machine-transition definition {:state state :data {}} [:go])
                              nil
                              (catch clojure.lang.ExceptionInfo ex (ex-data ex)))
                         (conj (keys expected) :where)))
         (pr-str definition))))
+
+(deftest an-action-return-that-is-not-an-effects-map-fails-the-macrostep
+  ;; Each slip would otherwise drop the write silently or throw a host
+  ;; exception naming no slot; a correct return beside them is the control.
+  (let [run (fn [action]
+              (rf.machines/machine-transition
+                (on-go {:target :b :action :act} {:actions {:act action}})
+                {:state :a :data {:n 0}} [:go]))]
+    (doseq [[label action] [["the bare :data map" (fn [{d :data}] (assoc d :n 1))]
+                            ["a boolean"          (fn [_] true)]
+                            ["an unwrapped :fx"   (fn [_] {:fx [:dispatch [:x]]})]]]
+      (let [r (run action)]
+        (is (= :error (:status r)) label)
+        (is (re-find #"effect-map-shape" (pr-str r)) label)))
+    (is (= [:ok {:n 1}]
+           ((juxt :status (comp :data :snapshot)) (run (fn [{d :data}] {:data (assoc d :n 1)}))))
+        "a well-formed effects map commits")))

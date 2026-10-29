@@ -99,6 +99,24 @@
       (is (= [{:actor-id :sup/unsat :join :all}] (mapv #(select-keys (:tags %) [:actor-id :join]) (warns))))
       (is (= :joining (:state (snapshot :sup/unsat)))))))
 
+(deftest destroying-a-join-child-that-strands-the-join-warns
+  (testing "an explicit destroy of one :all child is a cancellation the fold
+            never sees; the advisory fires when it strands the join, and the
+            parent leaving the join state raises none"
+    (rf/reg-event :sup/fire (fn [_ [_ id]] {:fx [[:rf.machine/destroy id]]}))
+    (let [ids   (start-join! :sup/cancel [:a :b]
+                             {:on-all-complete [:phase/done]}
+                             (assoc (over-on :phase/done) :leave {:target :over}))
+          warns #(mapv (comp (juxt :actor-id :cancelled) :tags)
+                       (events-of :rf.warning/spawn-all-join-unsatisfiable))]
+      (rf/dispatch-sync [:sup/fire (:a ids)])
+      (is (= [[:sup/cancel #{:a}]] (warns)))
+      (rf/dispatch-sync [(:b ids) [:go]])
+      (is (= :joining (:state (snapshot :sup/cancel))) "the stranded join stays hung")
+      (rf/dispatch-sync [:sup/cancel [:leave]])
+      (is (= [:over 1] [(:state (snapshot :sup/cancel)) (count (warns))])
+          "leaving the join state ends it with no second advisory"))))
+
 (deftest registration-time-rejects-bad-shape
   (doseq [[label error-re state-node]
           [[":spawn-all with no :id on a child"
