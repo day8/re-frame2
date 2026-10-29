@@ -4311,8 +4311,8 @@
 
   The leading glyph + colour resolve off the shared
   `badge/fx-row-status-*` primitive: ✓ :ok / ✗ :error /
-  ✗ :rollback / ↺ :overridden / – :skipped (the muted en-dash 'n/a',
-  NEUTRAL — `:skipped-on-platform` carries the hover explainer).
+  ↺ :overridden / – :skipped (the muted en-dash 'n/a', NEUTRAL —
+  `:skipped-on-platform` carries the hover explainer) / ∅ :noop.
 
   The `:db` row's args slot renders the clickable '→ app-db' DESTINATION
   marker (NOT the db diff — that lives in the App-db panel; no
