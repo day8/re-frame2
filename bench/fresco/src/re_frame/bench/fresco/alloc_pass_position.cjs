@@ -1662,8 +1662,8 @@ function selfTest() {
     const realStripped = realisedLabelling(stripped, declared.window.rounds);
     assert.strictEqual(realStripped.n, 11, 'stripping round 0 leaves eleven realised blocks');
     assert.notStrictEqual(realStripped.parity, 0, 'and an unbalanced realised labelling');
-    // The DRAW is untouched, which is the whole point: the old boundary read it
-    // and admitted this record.
+    // The DRAW is untouched, which is the whole point: a boundary reading only
+    // the draw would admit this record.
     assert.strictEqual(parityDot(stripped.passSchedule.flips), 0, 'the DRAWN q·parity is still 0');
     assert.strictEqual(scheduleDrove(stripped), true, 'and the drive still matches the draw');
     const got = admissibleRun(stripped, want);

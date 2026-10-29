@@ -1008,9 +1008,9 @@ function selfTest() {
     grab(V_POS, (m) => [offset(m[1], m[2]), Number(m[3])]), [sh.barOffset, sh.spanWidth]);
 
   // HOW FAR THE BAR'S PARTITION IS FROM THE TWO-POPULATION ONE — the verdict's
-  // third clause, which said `separates the two populations correctly` while A
-  // said it differs on one cell. Both sections now print the count, and A
-  // prints the cells it is.
+  // third clause. A verdict saying `separates the two populations correctly`
+  // while A says it differs on one cell would contradict A, so both sections
+  // print the count, and A prints the cells it is.
   ck('the partition difference agrees between section A, the verdict and the cells',
     [grab(A_DIFF, (m) => [Number(m[1]), Number(m[2]), m[3]]), grab(V_DIFF, (m) => [Number(m[1]), Number(m[2])])],
     [[sh.splitDiff, sh.n, sh.splitDiffAt.join(', ')], [sh.splitDiff, sh.n]]);
@@ -1021,7 +1021,7 @@ function selfTest() {
     pooled.mode2n - pooled.overBar, sh.splitDiff);
 
   // THE BRANCH IS THE ONE THE OCCUPANCY CALLS FOR. Both of these sentences are
-  // emittable — unlike the literal the old guard forbade — and exactly one of
+  // emittable, so a check on either can fail, and exactly one of
   // them belongs in any given run.
   ck('the empty-span sentence is printed exactly when the span is empty',
     [/classifies all \d+ cells identically/.test(rep), /THE SPAN IS NO LONGER EMPTY/.test(rep)],

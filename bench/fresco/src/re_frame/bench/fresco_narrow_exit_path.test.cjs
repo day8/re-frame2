@@ -42,7 +42,7 @@ const REFUSALS = [
   ['a control leak', { leaked: true }, 1],
   ['unverified writes', { badTotal: 5, offenders: 'reagent-ratom:5' }, 1],
   ['a broken leg identity', { identityOk: false }, 1],
-  // The two that used to be green: the warm-up and the clamp each get their own code.
+  // The two late ones: the warm-up and the clamp each get their own code, never a green exit.
   ['an unsettled warm-up', { warmupUnsettled: ['reagent-ratom', 're-frame2'] }, 3],
   ['a clamp-limited leg', { clamped: ['re-frame2/force (4.1x quantum per sample)'] }, 4],
 ];

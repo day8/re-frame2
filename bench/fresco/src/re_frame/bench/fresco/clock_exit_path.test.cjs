@@ -937,7 +937,7 @@ function fixtureRoundsTask(over) {
     ...over,
   });
 
-  t('a dataset whose every bar is fieldless is out, and it used to be IN', () => {
+  t('a dataset whose every bar is fieldless is out: a bar that says nothing is not adjudicated', () => {
     assert.strictEqual(adjudicated(dsRow({ 'h / r': {}, 'h / u': {} })), false);
   });
 
@@ -1438,7 +1438,7 @@ function fixtureRoundsTask(over) {
   /** The driver as an operator meets it: a real process, a real exit code. */
   const run = (...argv) => cp.spawnSync(process.execPath, [LB, ...argv], { encoding: 'utf8' });
 
-  t('an unknown flag is refused AFTER `--self-test` — the position that used to exit 0', () => {
+  t('an unknown flag is refused AFTER `--self-test` — the position a parser that stops reading early would let exit 0', () => {
     assert.deepStrictEqual(lb.parseArgv(['--self-test', '--selftest']), { error: 'unknown flag --selftest' });
     // and after a VALUED flag, the other way a parser stops reading early
     assert.deepStrictEqual(lb.parseArgv(['--from', 'x.json', '--selftest']), { error: 'unknown flag --selftest' });
@@ -1494,11 +1494,11 @@ function fixtureRoundsTask(over) {
 
 // --- THE CHECK STANDARD, AND WHAT MAY PUBLISH A MAGNITUDE --------------------
 //
-// The three-point control is retired as a GATE (it prints, labelled
-// non-gating), and so is the all-blocks strict rule on this instrument. In
-// their place: a versioned, empirically calibrated check standard as the gate
-// (its own fixtures, `checkStandardSelfTest`), and a run-preserving
-// effect-size interval as the publication rule.
+// The three-point control is not a GATE (it prints, labelled non-gating),
+// and neither is the all-blocks strict rule on this instrument. The gate is
+// a versioned, empirically calibrated check standard (its own fixtures,
+// `checkStandardSelfTest`), and the publication rule a run-preserving
+// effect-size interval.
 {
   const { checkStandardSelfTest } = require('./clock_check_standard.cjs');
   const { effectInterval, effectVerdict, reportable } = require('./clock_readjudicate.cjs');
@@ -1774,7 +1774,7 @@ function fixtureRoundsTask(over) {
 //
 // validation.md:17 states the bulk ship bar as one comparison — fresco against
 // Reagent-on-subs — so the other two pairs of a bulk row are reported and not
-// adjudicated. The cross-run max-band veto is retired on every class; it is
+// adjudicated. No class carries the cross-run max-band veto; dropping it is
 // safe on bulk because the gated pair straddles 1.0 on all six row-ensemble
 // combinations and is refused by the whole-interval rule, ahead of the veto.
 // That is a fact about this corpus, which the gated-pair row holds.
@@ -1851,7 +1851,7 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(seen, 6, 'three bulk rows over two ensembles');
   });
 
-  t('the band veto is retired: an effect inside the widest same-run band publishes on the interval alone', () => {
+  t('no class carries the band veto: an effect inside the widest same-run band publishes on the interval alone', () => {
     const iv = { runs: 8, rounds: [6], point: 0.9, lo: 0.85, hi: 0.95, draws: 1, seed: 1 };
     assert.strictEqual(effectVerdict(iv, 'bulk300', GATED, { widestSameRunBandPct: 40 }).publishes, true);
   });

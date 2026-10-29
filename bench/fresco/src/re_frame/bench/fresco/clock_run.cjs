@@ -2544,7 +2544,7 @@ function reportabilitySelfTest() {
 
   const unadj = reportability([keystroke()]);
   check(
-    'a row whose every bar is UNADJUDICATED cannot exit 0 — the case that used to be green',
+    'a row whose every bar is UNADJUDICATED cannot exit 0 — adjudicating nothing is not a pass',
     unadj.code !== 0,
     `code ${unadj.code}`
   );
@@ -2567,7 +2567,7 @@ function reportabilitySelfTest() {
     mixed.lines[mixed.lines.length - 1]
   );
   check(
-    'and REPORTABLE no longer says "publish" without saying "adjudicated"',
+    'and REPORTABLE never says "publish" without saying "adjudicated"',
     /every published bar adjudicated against this run's own band/.test(mixed.lines[mixed.lines.length - 1]),
     mixed.lines[mixed.lines.length - 1]
   );
@@ -2781,7 +2781,7 @@ function reportabilitySelfTest() {
     mixedRegime.lines[mixedRegime.lines.length - 1]
   );
   check(
-    'a magnitude row that fails is STILL refused as a fault, beside the regimes — the old gates are intact',
+    'a magnitude row that fails is STILL refused as a fault, beside the regimes — a regime waives no magnitude gate',
     (() => {
       const v = reportability([row({ rowId: 'bulk300', ctlOk: false }), mount()]);
       return (

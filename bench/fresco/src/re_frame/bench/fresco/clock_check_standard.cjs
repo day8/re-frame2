@@ -437,7 +437,7 @@ function checkStandardSelfTest() {
   twoOut[1] = 2.19; // just over its upper edge
   const survives = checkStandard(twoOut, BULK);
   check(
-    'THE RETIRED RULE, INVERTED: two out-of-band blocks no longer refuse a run whose median and scale hold',
+    'THE RETIRED RULE, INVERTED: two out-of-band blocks do not refuse a run whose median and scale hold',
     survives.ok && survives.tolerance.inBand === 16 && survives.tolerance.of === 18 && survives.tolerance.gating === false,
     JSON.stringify(survives.tolerance)
   );
