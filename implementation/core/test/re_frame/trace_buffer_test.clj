@@ -161,6 +161,18 @@
       (rf/configure! {:trace-buffer {:events-retained 0}})
       (is (= [0 8] (counts))))))
 
+(deftest ^:requires-debug an-unusable-per-frame-override-reads-as-absent
+  (testing "nil, a negative or a non-numeric :rf.trace/events-retained is no cap:
+            the frame inherits the process default, as it would with the key
+            absent, so an earlier override does not survive the re-registration"
+    (rf/configure! {:trace-buffer {:events-retained 4}})
+    (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
+    (doseq [[frame-id unusable] [[:tb/nil nil] [:tb/negative -1] [:tb/string "10"]]]
+      (rf/make-frame {:id frame-id :rf.trace/events-retained 2})
+      (rf/make-frame {:id frame-id :rf.trace/events-retained unusable})
+      (dotimes [_ 6] (rf/dispatch-sync [:tb/ev] {:frame frame-id}))
+      (is (= 4 (count (rf/trace-buffer frame-id))) (pr-str unusable)))))
+
 (deftest ^:requires-debug per-frame-override-zero-before-first-emit-disables-cleanly
   (rf/make-frame {:id :tb/silent :rf.trace/events-retained 0})
   (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))

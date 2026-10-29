@@ -94,6 +94,7 @@
   requires this ns at boot, so the hooks are bound before any dispatch."
   (:require [re-frame.error                :as rf.error]
             [re-frame.frame                :as rf.frame]
+            [re-frame.interop              :as rf.interop]
             [re-frame.late-bind            :as rf.late-bind]
             [re-frame.projection           :as rf.projection]
             [re-frame.registrar            :as rf.registrar]
@@ -383,12 +384,32 @@
          frame-id])
       [(get @process-default stream) nil])))
 
+(defn- print-sink-failure!
+  "Print `[re-frame2] observability sink <id> threw — <message>` when a sink
+  throws, so its author sees the failure the isolation swallows. One line, no
+  trace or error record — either would route back through the sinks. Dev
+  builds only, so a production sink stays silent; never throws. Returns nil."
+  [sink-id e]
+  (when rf.interop/debug-enabled?
+    (try
+      (let [line (str "observability sink " (pr-str sink-id) " threw — "
+                      (ex-message e))]
+        #?(:clj  (binding [*out* *err*]
+                   (println "[re-frame2]" line)
+                   (flush))
+           :cljs (when (and (exists? js/console)
+                            (fn? (.-error js/console)))
+                   (.error js/console "[re-frame2]" line))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    nil))
+
 (defn- deliver-to-sink!
   "Resolve `sink-id`'s registered sink fn and deliver the ALREADY-PROJECTED
   `projected` record to it. A throwing sink is dropped (sibling isolation —
   a buggy sink cannot block its siblings, same posture as the error-emit
-  fan-out). A `sink-id` with no registered fn is a no-op (the policy named
-  a sink the app has not wired yet).
+  fan-out), with one dev-build line naming it (`print-sink-failure!`). A
+  `sink-id` with no registered fn is a no-op (the policy named a sink the app
+  has not wired yet).
 
   Returns 1 when a registered sink fn was INVOKED and 0 when none resolved.
   Invocation is the unit, not outcome: a sink that then threw still counts,
@@ -399,7 +420,8 @@
   (if-let [f (get @sinks sink-id)]
     (do (try
           (f projected)
-          (catch #?(:clj Throwable :cljs :default) _ nil))
+          (catch #?(:clj Throwable :cljs :default) e
+            (print-sink-failure! sink-id e)))
         1)
     0))
 

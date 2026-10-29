@@ -372,6 +372,17 @@
     :after  :frame-state-after
     :before :frame-state-before))
 
+(defn- with-frame-resolution
+  "Call `f` inside frame `frame-id`'s own registration view
+  (`:live-frame/call-with-frame-resolution`), so a machine or route a recorded
+  snapshot names resolves to the definition THIS frame's image selects — the
+  view its events run under — rather than to whichever image registered the id
+  last."
+  [frame-id f]
+  (if-let [with-resolution (rf.late-bind/get-fn :live-frame/call-with-frame-resolution)]
+    (with-resolution frame-id f)
+    (f)))
+
 (defn check-restore-preconditions!
   "Validate the documented preconditions for restoring `frame-id`
   to `epoch-id`'s snapshot in direction `to` — `:after` (the 2-arity) or
@@ -499,7 +510,8 @@
                           :failing-paths          (vec failing-paths)}}
 
                (if-let [missing-reference-details
-                        (seq (missing-references recorded-runtime-db))]
+                        (seq (with-frame-resolution frame-id
+                               #(missing-references recorded-runtime-db)))]
                  ;; (5) Missing handler referenced from runtime-db?
                  {:outcome :fail
                   :op      :rf.epoch/restore-missing-handler
@@ -508,7 +520,8 @@
                             :missing     (vec missing-reference-details)}}
 
                  (if-let [{:keys [machine-id machine-type recorded current]}
-                          (machine-version-mismatch recorded-runtime-db)]
+                          (with-frame-resolution frame-id
+                            #(machine-version-mismatch recorded-runtime-db))]
                    ;; (6) Machine snapshot version drift?
                    ;; `:machine-type` identifies a spawned actor's
                    ;; TYPE keyword alongside its
@@ -1632,7 +1645,10 @@
   natively. Symmetric with how `flows.cljc` elides `:rf.flow/computed`'s
   `:result` / `:before` at emit-time using the flow's `:path`; here we
   do it at egress because the t1/t2 stamps are stored raw and the egress
-  projection is the privacy boundary.
+  projection is the privacy boundary. `elide-trace-events-slot` calls it only
+  under the trusted-local `:rf.egress/include-sensitive?` opt-in: otherwise the
+  trace-tag allow-list redacts `:rf.event/db` whole and the re-rooted walk
+  would be discarded.
 
   Returns the trace-events vector with the inner `:rf.event/db` slots
   re-projected; non-t1/t2 events pass through untouched, and events
@@ -2194,23 +2210,39 @@
     (and include-fx-args? (= :fx-args (:where tags)))
     (into fx-args-alias-slots)))
 
+(defn- machine-row?
+  "Whether `trace-event` is a state-machine row (`:rf.machine/*` and its
+  `:rf.machine.*/*` sub-areas). Its payload tags — a transition's `:before` /
+  `:after` actor snapshots and `:cascade` data deltas, a start's `:data` — copy
+  actor state out of the `:rf.db/runtime` partition, so the runtime-db axis
+  governs them, not the app-db sensitive one."
+  [trace-event]
+  (let [operation (:operation trace-event)]
+    (boolean
+      (when-let [operation-namespace (when (keyword? operation) (namespace operation))]
+        (or (= "rf.machine" operation-namespace)
+            (str/starts-with? operation-namespace "rf.machine."))))))
+
 (defn- allow-list-trace-tags
   "The LAST step off-box: every trace event's `:tags` passes
   `re-frame.projection/project-trace-tags`, so a tag nobody has classified ships
   as `:rf/redacted` rather than raw. The trusted-local
-  `:rf.egress/include-sensitive?` opt-in lifts it, as it lifts every other
-  sensitive axis; a classified body and a lifted event-args or fx-args opt-in
-  keep their slots (`passed-tag-keys`); owner-classified rows
-  (`owner-classified-row?`) keep their owner's verdict. Nil- and
-  non-sequential-preserving.
+  `:rf.egress/include-sensitive?` opt-in lifts it for every row but a machine
+  row (`machine-row?`), whose actor state is runtime-db and stays behind the
+  allow-list unless `:rf.egress/include-runtime-db?` is lifted too. A classified
+  body and a lifted event-args or fx-args opt-in keep their slots
+  (`passed-tag-keys`); owner-classified rows (`owner-classified-row?`) keep
+  their owner's verdict. Nil- and non-sequential-preserving.
   Security.md §Epoch privacy posture."
-  [trace-events {:rf.egress/keys [include-sensitive?] :as opts}]
-  (if (or include-sensitive? (not (sequential? trace-events)))
+  [trace-events {:rf.egress/keys [include-sensitive? include-runtime-db?] :as opts}]
+  (if (or (and include-sensitive? include-runtime-db?)
+          (not (sequential? trace-events)))
     trace-events
     (mapv (fn [trace-event]
             (if (and (map? trace-event)
                      (contains? trace-event :tags)
-                     (not (owner-classified-row? trace-event)))
+                     (not (owner-classified-row? trace-event))
+                     (or (not include-sensitive?) (machine-row? trace-event)))
               (let [tags (:tags trace-event)]
                 (assoc trace-event :tags
                        (cond-> (rf.projection/project-trace-tags tags)
@@ -2220,9 +2252,10 @@
           trace-events)))
 
 (defn- elide-trace-events-slot
-  "Project `:trace-events`: first re-root the
-  per-event `:rf.event/db` slots on the t1 / t2 trace events so the
-  sensitive / large declarations match natively, then fail closed on the
+  "Project `:trace-events`: first, under the trusted-local
+  `:rf.egress/include-sensitive?` opt-in (the only posture in which the
+  allow-list ships them), re-root the per-event `:rf.event/db` slots on the
+  t1 / t2 trace events so the large declarations match natively, then fail closed on the
   dispatched-event-vector args (`:rf.event/v` / `:event`
   carry the same registration-owned transient args as `:trigger-event`,
   which the app-db walker cannot prove safe), then let the resource family's
@@ -2235,10 +2268,13 @@
   `:rf.egress/include-event-args?` / `:rf.egress/include-fx-args?` opt
   the per-call posture back in. Idempotent (a
   second pass walks already-redacted scalars). Nil-preserving."
-  [trace-events frame-id opts]
+  [trace-events frame-id {:rf.egress/keys [include-sensitive?] :as opts}]
   (when (some? trace-events)
     (-> trace-events
-        (reroot-trace-event-db-slots frame-id opts)
+        ;; Off the trusted-local opt-in the allow-list below redacts
+        ;; `:rf.event/db` whole, so re-rooting it first would walk the pending
+        ;; db for nothing.
+        (cond-> include-sensitive? (reroot-trace-event-db-slots frame-id opts))
         (omit-off-box-event-args opts)
         ;; Redact resolver-owned values copied into resource trace tags.
         (omit-off-box-resource-scope-values opts)
@@ -2428,6 +2464,20 @@
     ;; the open schema admits `:rf/redacted` here.
     :else :rf/redacted))
 
+(defn- project-db-slot
+  "`projected` with `record`'s app-db `db-slot` projected. That slot is normally
+  the very value `frame-state-slot`'s `:rf.db/app` partition holds, and both
+  take the same walk under the same registry, so the partition's projection
+  already in `projected` is reused rather than walking app-db a second time."
+  [projected record db-slot frame-state-slot registry frame-id opts]
+  (let [db (get record db-slot)]
+    (assoc projected db-slot
+           (if (and (some? db)
+                    (identical? db (get-in record [frame-state-slot :rf.db/app]))
+                    (contains? (get projected frame-state-slot) :rf.db/app))
+             (get-in projected [frame-state-slot :rf.db/app])
+             (project-payload-slot db registry frame-id opts)))))
+
 (defn- project-record-slots
   "Project every present payload slot of `record` under `frame-id` and the
   egress `opts`. THE projection engine — both doors reach the record's slot
@@ -2472,10 +2522,10 @@
       (update :frame-state-after project-frame-state-slot registry-after frame-id opts)
 
       (contains? record :db-before)
-      (update :db-before project-payload-slot registry-before frame-id opts)
+      (project-db-slot record :db-before :frame-state-before registry-before frame-id opts)
 
       (contains? record :db-after)
-      (update :db-after project-payload-slot registry-after frame-id opts)
+      (project-db-slot record :db-after :frame-state-after registry-after frame-id opts)
 
       ;; Trigger args are not app-db-rooted and fail closed.
       (contains? record :trigger-event)

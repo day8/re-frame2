@@ -103,6 +103,9 @@
                         `:depth`: set `{:depth 100}` and `:trace-events-keep`
                         stays 50 unless you also set it. Pass a smaller value
                         (e.g. 5) to bound dev-session heap more aggressively.
+                        Like `:depth`, it applies to the LIVE rings: lowering
+                        it drops `:trace-events` from every record outside
+                        the newest N before this call returns.
 
   There is no post-projection scrub hook. An app that needs one composes it
   at the forwarder / sink: `(-> r (rf.projection/project-egress opts) scrub)`.
@@ -273,31 +276,25 @@
   frame-state arguments are whole-frame snapshots, and `committed-at` is the
   event envelope's causal time.
 
-  The router arity includes `settling-dispatch-id`, allowing capture to discard
-  a rejected dispatch's traces without consuming a queued child's marker. An
-  empty harvest produces no misleading `:ok` record. A depth halt whose event
-  never ran uses `commit-halt-record!`, which can commit an explicit trigger
-  despite an empty buffer. Explicit outcomes carry a structured halt reason;
-  when no trigger can be recovered, trigger slots are omitted rather than nil."
-  ([frame-id frame-state-before frame-state-after committed-at]
-   (settle! frame-id frame-state-before frame-state-after committed-at :ok nil nil))
-  ([frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]
-   (settle! frame-id frame-state-before frame-state-after committed-at :ok nil settling-dispatch-id))
-  ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason]
-   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason nil))
-  ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id]
-   (when rf.interop/debug-enabled?
-     ;; Take only the settling event's traces, leaving a queued child's
-     ;; marker in the buffer for its own settle. The envelope id also scopes
-     ;; the no-run-start branch so a rejected or aborted dispatch's own
-     ;; error trace is dropped (not returned) rather than committed as a fake
-     ;; `:ok` epoch.
-     (let [events (rf.epoch.state/harvest-buffer-for-event! frame-id settling-dispatch-id)]
-       ;; An empty capture has no event context. Rejected dispatches are
-       ;; suppressed here; never-run depth halts use `commit-halt-record!`.
-       (when (seq events)
-         (commit-record! frame-id frame-state-before frame-state-after events
-                         committed-at outcome halt-reason nil))))))
+  `settling-dispatch-id` is the dequeued envelope's, so capture takes exactly
+  that event's traces and leaves a queued child's marker in the buffer. An
+  empty harvest — a rejected dispatch — produces no misleading `:ok` record. A
+  depth halt whose event never ran uses `commit-halt-record!`, which can
+  commit an explicit trigger despite an empty buffer.
+
+  Single-arity with the `(when interop/debug-enabled? …)` outermost, for the
+  `:advanced` elision reason `commit-halt-record!` gives."
+  [frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]
+  (when rf.interop/debug-enabled?
+    ;; The envelope id also scopes the no-run-start branch, so a rejected or
+    ;; aborted dispatch's own error trace is dropped (not returned) rather than
+    ;; committed as a fake `:ok` epoch.
+    (let [events (rf.epoch.state/harvest-buffer-for-event! frame-id settling-dispatch-id)]
+      ;; An empty capture has no event context. Rejected dispatches are
+      ;; suppressed here; never-run depth halts use `commit-halt-record!`.
+      (when (seq events)
+        (commit-record! frame-id frame-state-before frame-state-after events
+                        committed-at :ok nil nil)))))
 
 (defn- commit-halt-record!
   "Commit a halt record for an event that never ran.
@@ -372,14 +369,11 @@
     :rf.error/no-such-handler          (kind :frame) — frame not registered,
                                          OR the resolved incarnation was
                                          destroyed / replaced by a same-id
-                                         successor at ANY point in the restore
-                                         transaction — during precondition
-                                         sampling, between validation and the
-                                         write, or across the post-write
-                                         anchoring/telemetry tail (the whole
-                                         restore is one EXACT-incarnation
-                                         transaction — a successor is left
-                                         byte-for-byte untouched)
+                                         successor before the write landed —
+                                         during precondition sampling or
+                                         between validation and the write (a
+                                         successor is left byte-for-byte
+                                         untouched)
     :rf.epoch/restore-during-drain     — called while drain is in flight
     :rf.epoch/restore-unknown-epoch    — epoch-id not in current history
     :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok

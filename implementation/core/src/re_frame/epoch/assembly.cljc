@@ -133,17 +133,26 @@
   (try (keys (rf.elision/sensitive-declarations frame-id))
        (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-(defn- any-sensitive-leaf?
-  "True when any sensitive-declared path resolves to a non-nil leaf in
-  `db`. nil-leaf paths do NOT count — the path is declared sensitive
-  but the slot is empty, so the record carries no actual sensitive
-  material from this signal. `db` is `:db-before` or `:db-after`; a nil
-  `db` holds no leaf."
+(defn- sensitive-leaves
+  "The non-nil values each sensitive declaration reaches in `db`, as
+  `{decl-path {concrete-path value}}`. Read through the egress walker's own
+  collection matching (`re-frame.elision/declared-values`), so an index-free
+  `[:items :token]` reaches every element's `:token` and `[:accounts :token]`
+  reaches `[:accounts \"a\" :token]` — the same nodes the projection redacts. A
+  nil value does not count: the slot is declared sensitive but holds nothing.
+  A nil `db` holds no leaf."
   [db sensitive-paths]
-  (boolean
-    (some (fn [path]
-            (some? (get-in db path)))
-          sensitive-paths)))
+  (into {}
+        (keep (fn [[decl-path by-path]]
+                (let [non-nil (into {} (remove (comp nil? val)) by-path)]
+                  (when (seq non-nil) [decl-path non-nil]))))
+        (rf.elision/declared-values db sensitive-paths)))
+
+(defn- any-sensitive-leaf?
+  "True when any sensitive declaration reaches a non-nil leaf in `db`
+  (`sensitive-leaves`). `db` is `:db-before` or `:db-after`."
+  [db sensitive-paths]
+  (boolean (seq (sensitive-leaves db sensitive-paths))))
 
 (defn sensitive-rollup
   "Compute the record-level `:rf.epoch/sensitive?` rollup for the
@@ -154,11 +163,11 @@
   consumers branch on `(true? ...)` / `(false? ...)`).
 
   Runs once per dequeued event. `sensitive-paths-for` reads
-  the frame's classification policy once; the leaf check short-circuits at the
-  first non-nil hit; the trace-event check short-circuits at the first
-  stamped event. For the common case (no frame-declared sensitive
+  the frame's classification policy once; the leaf check walks only the
+  subtrees a declaration can reach; the trace-event check short-circuits at
+  the first stamped event. For the common case (no frame-declared sensitive
   paths, no sensitive handlers in scope) the cost is one keys-of-empty
-  call plus two sequence-with-no-work walks."
+  call plus one sequence-with-no-work walk."
   [frame-id db-before db-after events]
   (boolean
     (or (any-sensitive-event? events)
@@ -180,14 +189,13 @@
   "Compute the record-level `:rf.epoch/redacted-modified-paths-count`
   rollup for the assembled record. Returns the integer count of
   frame-declared sensitive paths whose value differs between
-  `db-before` and `db-after`.
+  `db-before` and `db-after` — for a collection declaration, the whole set
+  of leaves it reaches (`sensitive-leaves`).
 
   Runs once per dequeued event. `sensitive-paths-for` reads
-  the frame's classification policy once and the walk is O(P) where P is the
-  declared-sensitive-path count for the frame — typically a small
-  constant (apps declare a handful of `[:auth :password]`-shaped
-  paths). For the common case (no frame-declared sensitive paths)
-  the cost is one keys-of-empty call and an empty-reduce.
+  the frame's classification policy once, and each side is walked only along
+  the subtrees a declaration can reach. For the common case (no
+  frame-declared sensitive paths) the cost is one keys-of-empty call.
 
   Returns `0` when:
     - No paths are classified sensitive (the frame classifies no
@@ -195,21 +203,15 @@
     - No classified-sensitive path's value differs across the cascade.
 
   Halted records: `db-before` and/or `db-after` may be `nil` on the
-  `:halted-destroy` path. `(get-in nil P)` is `nil`;
-  the predicate `(not= a b)` handles the nil/non-nil edge correctly
-  (counts as a change when one side is nil and the other isn't)."
+  `:halted-destroy` path. A nil db reaches no leaf, so a path holding a
+  value on the other side counts as a change."
   [frame-id db-before db-after]
   (let [sensitive-paths (sensitive-paths-for frame-id)]
     (if (empty? sensitive-paths)
       0
-      (reduce
-        (fn [modified-path-count path]
-          (if (not= (get-in db-before path)
-                    (get-in db-after  path))
-            (inc modified-path-count)
-            modified-path-count))
-        0
-        sensitive-paths))))
+      (let [before (sensitive-leaves db-before sensitive-paths)
+            after  (sensitive-leaves db-after sensitive-paths)]
+        (count (remove #(= (get before %) (get after %)) sensitive-paths))))))
 
 ;; ---- record assembly ------------------------------------------------------
 

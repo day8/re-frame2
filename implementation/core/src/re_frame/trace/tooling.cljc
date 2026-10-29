@@ -172,6 +172,11 @@
     :run-order     []
     :runs          {}}))
 
+(defn- usable-events-retained?
+  "Whether `retained` can be a ring cap: a non-negative number."
+  [retained]
+  (and (number? retained) (not (neg? retained))))
+
 (defn- effective-retained
   "Return the live events-retained cap for `frame-id`. Honours the
   ring's stored cap (whether it came from an explicit per-frame override
@@ -214,27 +219,28 @@
   config owns the authoritative frame record.
 
   `override? true` applies `retained` as the explicit
-  `:rf.trace/events-retained` cap. `override? false` removes any prior override,
-  resizes the existing ring to the live process default, and marks it inherited
-  so later process-default changes continue to reach it. The liveness predicate
+  `:rf.trace/events-retained` cap. `override? false` — or an override whose
+  value is no usable cap (`usable-events-retained?`), which reads as absent —
+  removes any prior override, resizes the existing ring to the live process
+  default, and marks it inherited so later process-default changes continue to
+  reach it. The liveness predicate
   runs INSIDE the trace-ring atom update; the frame engine serializes auxiliary
   publication around it. This makes the store respect the frame registry's
   winner without a second ownership registry."
   [frame-id override? retained current?]
-  (when (and rf.interop/debug-enabled?
-             (or (not override?)
-                 (and (number? retained) (not (neg? retained)))))
-    (swap! trace-rings
-           (fn [rings]
-             (if-not (current?)
-               rings
-               (if override?
-                 (assoc rings frame-id
-                        (resize-ring (get rings frame-id) retained true))
-                 (if-let [existing (get rings frame-id)]
+  (when rf.interop/debug-enabled?
+    (let [override? (and override? (usable-events-retained? retained))]
+      (swap! trace-rings
+             (fn [rings]
+               (if-not (current?)
+                 rings
+                 (if override?
                    (assoc rings frame-id
-                          (resize-ring existing @process-events-retained false))
-                   rings))))))
+                          (resize-ring (get rings frame-id) retained true))
+                   (if-let [existing (get rings frame-id)]
+                     (assoc rings frame-id
+                            (resize-ring existing @process-events-retained false))
+                     rings)))))))
   nil)
 
 (defn release-frame-ring!
@@ -571,8 +577,7 @@
   No-op in production. Returns nil."
   [{:keys [events-retained] :as opts}]
   (when (and rf.interop/debug-enabled?
-             (not (and (number? events-retained)
-                       (not (neg? events-retained)))))
+             (not (usable-events-retained? events-retained)))
     ;; Loud-not-silent: a config call that supplied opts we can't apply
     ;; is a misuse the runtime recovers from (the ring stays at its
     ;; current default) but must surface. Routed through the late-bound
@@ -592,8 +597,7 @@
                               "unchanged. The retired {:depth N} shape is not "
                               "supported — use {:events-retained N}.")})))
   (when (and rf.interop/debug-enabled?
-             (number? events-retained)
-             (not (neg? events-retained)))
+             (usable-events-retained? events-retained))
     (reset! process-events-retained events-retained)
     ;; Apply the new default to every frame whose cap was INHERITED
     ;; (`:override? false`), retuning + trimming the already-allocated
@@ -610,30 +614,7 @@
               (fn [acc frame-id ring]
                 (if (true? (:override? ring))
                   acc
-                  (let [order    (or (:run-order ring) [])
-                        runs (or (:runs ring) {})]
-                    (cond
-                      (zero? events-retained)
-                      (assoc acc frame-id (empty-ring 0))
-
-                      (> (count order) events-retained)
-                      (let [drop-n     (- (count order) events-retained)
-                            ;; A fresh vector, not a `subvec` view — see
-                            ;; `push-to-ring!`.
-                            kept-order (into [] (subvec order drop-n))
-                            evicted    (subvec order 0 drop-n)]
-                        (assoc acc frame-id
-                               {:events-retained events-retained
-                                :override?         false
-                                :run-order     kept-order
-                                :runs          (apply dissoc runs evicted)}))
-
-                      :else
-                      (assoc acc frame-id
-                             {:events-retained events-retained
-                              :override?         false
-                              :run-order     order
-                              :runs          runs})))))
+                  (assoc acc frame-id (resize-ring ring events-retained false))))
               rings
               rings))))
   nil)
@@ -705,6 +686,11 @@
 ;; reach each listener in a single defined order, and an outermost emit still
 ;; returns only after its record has reached every listener (the monitor is held
 ;; for the whole synchronous drive and released before `emit!` returns).
+;;
+;; One constraint follows for listener authors on the JVM: a listener body must
+;; not wait on another thread's work that emits traces. That thread's emit waits
+;; on `fanout-monitor`, which this fan-out holds until the listener returns, so
+;; the wait never ends.
 ;;
 ;; ---- the post-drain deferral seam -----------------------------------------
 ;;
@@ -943,6 +929,26 @@
       (catch #?(:clj Throwable :cljs :default) _ nil))
     nil))
 
+(defn- print-listener-failure!
+  "Print `[re-frame2] trace listener <id> threw — <message>` when a trace
+  listener's callback throws. The fan-out isolates the throw so siblings still
+  receive the event; this line is what tells the listener's author it failed.
+  One line, no trace event — a trace would reach the same listeners and could
+  storm. Dev builds only; never throws. Returns nil."
+  [listener-id e]
+  (when rf.interop/debug-enabled?
+    (try
+      (let [line (str "trace listener " (pr-str listener-id) " threw — "
+                      (ex-message e))]
+        #?(:clj  (binding [*out* *err*]
+                   (println "[re-frame2]" line)
+                   (flush))
+           :cljs (when (and (exists? js/console)
+                            (fn? (.-error js/console)))
+                   (.error js/console "[re-frame2]" line))))
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    nil))
+
 (defn- listener-snapshot
   "The registered listeners, as the `[id f]` entries a queued event is
   delivered to."
@@ -972,10 +978,11 @@
           (print-unobserved-warning! event))
         (loop [i 0]
           (when (and (< i (count entries)) (continue?))
-            (let [[_ f] (nth entries i)]
+            (let [[listener-id f] (nth entries i)]
               (try
                 (f event)
-                (catch #?(:clj Throwable :cljs :default) _ nil))
+                (catch #?(:clj Throwable :cljs :default) e
+                  (print-listener-failure! listener-id e)))
               (recur (inc i)))))
         (recur (inc head))))))
 

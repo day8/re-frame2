@@ -546,6 +546,42 @@
       1   nil false
       nil nil true)))
 
+(defn- eval-in-ns
+  "Evaluate `form` with `*ns*` bound to `ns-sym`, so a `rf/reg-*` macro in it
+  captures that namespace as its provenance."
+  [ns-sym form]
+  (binding [*ns* (create-ns ns-sym)]
+    (refer-clojure)
+    (alias 'rf 're-frame.core)
+    (eval form)))
+
+(deftest restore-preconditions-resolve-in-the-frames-own-image
+  (testing "two frames whose images select different definitions of one machine
+            id each restore their own latest epoch: the version check reads the
+            definition the restoring frame's image selects, not the one
+            registered last"
+    (doseq [[ns-sym version] [['restore-image.v1 1] ['restore-image.v2 2]]]
+      (eval-in-ns ns-sym
+                  `(rf/reg-machine :image/m {:initial :red
+                                             :meta    {:rf/snapshot-version ~version}
+                                             :states  {:red {:on {:tick :green}} :green {}}})))
+    (eval-in-ns 'restore-image.shared
+                '(rf/reg-event :image/put-snap
+                   (fn [{rt :rf.db/runtime} [_ version]]
+                     {:rf.db/runtime (assoc-in rt [:rf.runtime/machines :snapshots :image/m]
+                                               {:state :red :data {}
+                                                :meta  {:rf/snapshot-version version}})})))
+    (doseq [[frame-id ns-glob version] [[:image/a "restore-image.v1" 1]
+                                        [:image/b "restore-image.v2" 2]]]
+      (rf/make-frame {:id     frame-id
+                      :images [(rf/image {:id        (keyword "image" (str (name frame-id) "-image"))
+                                          :select-ns {:include [ns-glob "restore-image.shared"]}})]})
+      (rf/dispatch-sync [:image/put-snap version] {:frame frame-id}))
+    (is (= [true true]
+           (for [frame-id [:image/a :image/b]]
+             (:ok? (rf.epoch/restore-epoch!
+                     frame-id (:epoch-id (last (rf.epoch/epoch-history frame-id))))))))))
+
 ;; ---- structured projections ------------------------------------------------
 
 (deftest sub-runs-projection
@@ -740,6 +776,37 @@
   (let [history (rf.epoch/epoch-history :test/main)]
     (is (= [false false false true true] (mapv #(contains? % :trace-events) history)))
     (is (every? #(every? (partial contains? %) [:sub-runs :renders :effects]) history))))
+
+(deftest lowering-trace-events-keep-applies-to-the-live-ring
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [retained #(mapv (fn [record] (contains? record :trace-events))
+                        (rf.epoch/epoch-history :test/main))]
+    (dotimes [_ 5] (rf/dispatch-sync [:inc] {:frame :test/main}))
+    (rf/configure! {:epoch-history {:trace-events-keep 2}})
+    (is (= [false false false true true] (retained))
+        "the records outside the newest 2 drop their raw stream before configure! returns")
+    (rf/dispatch-sync [:inc] {:frame :test/main})
+    (is (= [false false false false true true] (retained)))))
+
+(deftest a-back-fill-that-splices-nothing-is-not-re-sent
+  (rf/configure! {:epoch-history {:trace-events-keep 0}})
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (rf/dispatch-sync [:inc] {:frame :test/main})
+  (let [delivered (atom 0)
+        epoch-id  (:epoch-id (last (rf.epoch/epoch-history :test/main)))]
+    (rf/register-listener! :epoch ::delivered (fn [_] (swap! delivered inc)))
+    (rf.epoch.listeners/record-unmount!
+      :test/main {:op-type :rf.view :operation :rf.view/unmounted
+                  :tags {:frame :test/main :rf.view/render-key [:test/row 1]}})
+    (is (zero? @delivered)
+        "the record kept no raw stream and an unmount has no row, so nothing changed")
+    (is (some? (rf.epoch.state/back-fill-sub-run!
+                 :test/main epoch-id
+                 {:op-type :rf.sub :operation :rf.sub/run :tags {:frame :test/main}}
+                 {:sub-id :test/sub}))
+        "control: a structured row is spliced, so the record comes back")))
 
 ;; ---- replace-frame-state! app-db patches ---------------------------------
 ;;

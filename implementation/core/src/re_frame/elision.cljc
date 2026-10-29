@@ -981,6 +981,36 @@
   [v path decl-paths ctx]
   (walk-tree v [(vec path) decl-paths] (walk-decider ctx)))
 
+(defn ^:no-doc declared-values
+  "The nodes of `v`, an app-db value, that each path in `decl-paths` reaches
+  under this walker's own collection matching (`fork-decl-paths`,
+  `fork-index-paths`) — so `[:items :token]` reaches the `:token` of every
+  `:items` element — as `{decl-path {concrete-path value}}`. A declaration that
+  reaches nothing is absent, and an unforced seq is not looked inside. Reads
+  only; nothing is substituted. The epoch record's sensitivity rollups read
+  their leaves through it, so they see exactly the nodes the egress walk
+  redacts."
+  [v decl-paths]
+  (let [decl-set (into #{} (map vec) decl-paths)
+        decl-prefixes (into #{} (mapcat prefixes) decl-set)
+        found    (volatile! {})]
+    (when (seq decl-set)
+      (walk-tree v [[] #{[]}]
+                 {:decide   (fn [[path candidates] node]
+                              (if (empty? candidates)
+                                node
+                                (do (doseq [candidate candidates
+                                            :when (contains? decl-set candidate)]
+                                      (vswap! found assoc-in [candidate path] node))
+                                    walk-recur)))
+                  :map-key  (fn [[path candidates] k]
+                              [(conj path k) (fork-decl-paths candidates k decl-prefixes)])
+                  :index    (fn [[path candidates] i]
+                              [(conj path i) (fork-index-paths candidates i decl-prefixes)])
+                  :unforced (fn [_state s] s)
+                  :leaf     (fn [_state node] node)}))
+    @found))
+
 (defn- elide-against-registry
   "Inner walk for `elide-wire-value` against a KNOWN carried frame, over the
   classification value `reg` (normally `frame-id`'s own, via

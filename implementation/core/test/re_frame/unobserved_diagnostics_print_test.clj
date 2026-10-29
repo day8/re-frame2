@@ -289,6 +289,34 @@
     (flush [] (throw (java.io.IOException. "stderr is broken")))
     (close [] nil)))
 
+;; ===========================================================================
+;; Callbacks that throw
+;; ===========================================================================
+;;
+;; A trace listener or an observability sink that throws is isolated, so its
+;; siblings still receive the record. In dev it also prints one line naming
+;; it, because nothing else tells its author it failed.
+
+(deftest a-throwing-trace-listener-prints-and-its-sibling-still-receives
+  (let [received (atom 0)]
+    (rf/register-listener! :trace ::broken (fn [_] (throw (ex-info "listener broke" {}))))
+    (rf/register-listener! :trace ::sibling (fn [_] (swap! received inc)))
+    (expect-one-line
+      (captured-err #(rf.trace/emit! :rf.trace :unobserved/probe {}))
+      [(str "trace listener " (pr-str ::broken) " threw — listener broke")])
+    (rf/unregister-listener! :trace ::broken)
+    (rf/unregister-listener! :trace ::sibling)
+    (is (= (if rf.interop/debug-enabled? 1 0) @received)
+        "the sibling received the event the broken listener threw on")))
+
+(deftest a-throwing-observability-sink-prints-one-line
+  (rf/register-observability-sink! ::throwing (fn [_] (throw (ex-info "sink broke" {}))))
+  (rf/make-frame {:id :unobserved/sunk :observability {:handled-events [{:sink ::throwing}]}})
+  (rf/reg-event :unobserved/ok (fn [{:keys [db]} _] {:db db}))
+  (expect-one-line
+    (captured-err #(rf/dispatch-sync [:unobserved/ok] {:frame :unobserved/sunk}))
+    [(str "observability sink " (pr-str ::throwing) " threw — sink broke")]))
+
 (deftest a-throwing-err-never-aborts-the-drain
   (make-app! :unobserved/app)
   (rf/reg-event :unobserved/cascade
