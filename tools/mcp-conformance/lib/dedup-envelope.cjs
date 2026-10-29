@@ -67,6 +67,10 @@
 //     `!<rest>` — strip one `!`;
 //   - ordinary payload data otherwise (passed through verbatim).
 //
+// In map-KEY position the first form never occurs, because the encoder
+// pools values only: a key sheds an escape or passes verbatim, and a
+// reference there marks a malformed table.
+//
 // This mirrors `re-frame.mcp-base.dedup`, which is where the grammar is
 // stated normatively (`tools/mcp-base/spec/dedup.md` §Reference
 // grammar); the encoder escapes every payload token that would
@@ -146,27 +150,20 @@ function expandCache(cache) {
       // objects on the JSON wire.
       const out = {};
       for (const k of Object.keys(v)) {
-        // Route the KEY through expandValue too, not just the value. The
-        // real `re-frame.mcp-base.dedup/expand` dispatches on `map-entry?` before
-        // `coll?` and expands BOTH halves of every map-entry — `cachable?`
-        // permits a de-duped map KEY, and this codebase has vector/
-        // path-keyed structures where that fires. Expanding only `v[k]`
-        // and using `k` verbatim leaves a de-duped key as the raw
-        // "de-dupe.cache/cache-N" placeholder string in the decoded
-        // object, so a downstream lookup against the real (expanded) key
-        // fails a conformant server. Plain (non-ref) keys pass through
-        // `expandValue` unchanged, so this is safe to apply uniformly.
-        const expandedKey = expandValue(k);
-        // JS object keys must be strings; a Clojure map key can expand to
-        // an arbitrary structure (e.g. a path vector). Use it directly
-        // when it already is a string/number, otherwise fall back to a
-        // deterministic canonical string so the entry is still reachable
-        // (rather than silently colliding/overwriting under implicit
-        // `String(...)` coercion).
-        const jsKey =
-          typeof expandedKey === 'string' || typeof expandedKey === 'number'
-            ? expandedKey
-            : JSON.stringify(expandedKey);
+        // A map KEY is never a reference: the encoder pools values only,
+        // so every key arrives in the server's own JSON spelling and
+        // sheds nothing but an escape marker. A reference here could only
+        // decode to this decoder's spelling of the expanded key, which
+        // matches no raw JSON key — so it is a non-conformant encoder,
+        // refused loud (`tools/mcp-base/spec/dedup.md` §`de-dupe-eq`).
+        if (isCacheRefString(k)) {
+          throw new Error(
+            'dedup-envelope: map key ' + k + ' is a cache reference; the ' +
+              'encoder never pools a map key, so a conformant table carries ' +
+              'every key verbatim.',
+          );
+        }
+        const jsKey = unescapeToken(k);
         // DEFINE, never assign. `out['__proto__'] = …` runs
         // the inherited `Object.prototype.__proto__` setter instead of
         // creating the key — the payload entry vanishes and its value
