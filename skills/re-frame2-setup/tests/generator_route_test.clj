@@ -1,12 +1,12 @@
 ;;;; The documented generator command resolves from its target directory.
 ;;;; Run: bb tests/generator_route_test.clj
-;;;; Set RF2_SETUP_RUN_GENERATOR=1 to exercise the real command.
+;;;; The command itself is not shelled here: no CI lane carries the Clojure CLI
+;;;; with deps-new installed as `new`, so an arm running it could never go red.
 
 (ns generator-route-test
-  (:require [babashka.process :as process]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing run-tests]]))
+            [clojure.test :refer [deftest is run-tests]]))
 
 (def ^:private setup-root (-> *file* io/file .getAbsoluteFile .getParentFile .getParentFile))
 (def ^:private repo-root (-> setup-root .getParentFile .getParentFile))
@@ -79,33 +79,6 @@
       (is (template-dir? (resolve-local-root (absolute-root) target))
           "the documented :local/root must resolve to the deps-new template from a fresh target directory")
       (finally (delete-tree! target)))))
-
-(def ^:private live? (= "1" (System/getenv "RF2_SETUP_RUN_GENERATOR")))
-
-(defn- run-generator!
-  "Run the documented generator command from `cwd` with `root` as the `:local/root`."
-  [^java.io.File cwd ^String root]
-  @(process/process
-    ["clojure" "-Sdeps" (str "{:deps {day8/re-frame2-template {:local/root \"" root "\"}}}")
-     "-Tnew" "create" ":template" "day8/re-frame2-template" ":name" "acme/my-app" ":substrate" ":uix"]
-    {:dir cwd :out :string :err :string}))
-
-(deftest live-generator-emits-under-the-requested-target
-  (if-not live?
-    (println "\n  [LIVE ARM NOT RUN] generator_route_test: set RF2_SETUP_RUN_GENERATOR=1 to run the real"
-             "`clojure -Sdeps … -Tnew create …` arms. The resolution arm above ran.\n")
-    (let [target (fresh-dir! "rf2-setup-generate-")]
-      (try
-        (testing "the documented command exits 0 and writes under the target"
-          (let [{:keys [exit out err]} (run-generator! target (absolute-root))
-                project (io/file target "my-app")]
-            (is (zero? exit) (str "generator exit " exit "\nSTDOUT:\n" out "\nSTDERR:\n" err))
-            (is (= [] (remove #(let [f (io/file project %)] (and (.isFile f) (pos? (.length f))))
-                              ["deps.edn" "shadow-cljs.edn" "package.json" "src/acme/my_app/core.cljs"]))
-                (str "these emitted files are missing or empty under " (.getPath project)))))
-        (testing "nothing lands in the re-frame2 checkout"
-          (is (= [] (filter #(.exists (io/file repo-root %)) ["my-app" "tools/template/my-app"]))))
-        (finally (delete-tree! target))))))
 
 (let [{:keys [fail error]} (run-tests 'generator-route-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
