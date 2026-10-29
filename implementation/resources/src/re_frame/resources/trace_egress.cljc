@@ -277,17 +277,17 @@
 (defn- resource-reply?
   "Whether `m` is a canonical read completion reply, by its
   `:rf.reply/work-kind :resource` marker. A mutation reply is excluded because
-  its path declarations redact at source."
+  its owner is named by `:mutation` rather than by a scoped key."
   [m]
   (= rf.resources.reply/work-kind-resource (:rf.reply/work-kind m)))
 
 (defn- mutation-reply-owner-redacts?
   "Whether `m` is a mutation continuation reply whose owner, named by its
   `:mutation`, makes the coarse `:sensitive?` / `:large?` claim. The claim is
-  applied here, off-box, rather than at source with the path declarations,
-  because the app's own `:reply-to` handler is entitled to the real values,
-  as a read reply's is (`row-owner-redacts?`). An unregistered owner fails
-  closed; a reply naming no owner rides."
+  applied here, off-box, as the path declarations are
+  (`redact-reply-declarations`), because the app's own `:reply-to` handler is
+  entitled to the real values, as a read reply's is (`row-owner-redacts?`). An
+  unregistered owner fails closed; a reply naming no owner rides."
   [m]
   (let [mid (:mutation m)]
     (and (= rf.resources.reply/work-kind-mutation (:rf.reply/work-kind m))
@@ -303,9 +303,9 @@
     rf.resources.reply/work-kind-mutation})
 
 (defn- family-reply?
-  "Whether `m` is a read or mutation completion reply. The envelope arms use
-  this wider proof because no source-side redaction reaches `:error` on either
-  half."
+  "Whether `m` is a read or mutation completion reply. The declaration and
+  envelope arms use this wider proof because neither half is redacted at
+  source."
   [m]
   (boolean (family-reply-kinds (:rf.reply/work-kind m))))
 
@@ -342,18 +342,23 @@
           (seq (:large spec))     (update :large read-as callable))))))
 
 (defn- redact-reply-declarations
-  "A read continuation reply with its owner's projection-relative declarations
-  redacted, through the same `redact-continuation-reply` the mutation uses at
-  source. Needed because a spec that declares only paths classifies
-  `:serialize`, so the coarse arm misses it while the durable entry redacts the
-  same bytes. Applied at egress rather than source because the app's own
-  `:reply-to` handler is entitled to the decoded body. An unregistered owner
-  rides here: the coarse arm has already tokenized it."
+  "A family continuation reply with its owner's projection-relative
+  declarations redacted through `redact-continuation-reply`: a read reply's
+  resource, read the way the reply carries the data (`feed-reply-spec`), or a
+  mutation reply's `:mutation`. Needed because a spec that declares only paths
+  classifies `:serialize`, so the coarse arm misses it while the durable entry
+  or instance redacts the same bytes. Applied at egress rather than source
+  because the app's own `:reply-to` handler is entitled to the real values. An
+  unregistered owner rides here: the coarse arm has already tokenized it."
   [reply]
-  (let [rid  (second (:resource/key reply))
-        spec (when (keyword? rid) (rf.resources.registry/resource-meta rid))]
+  (let [spec (if (resource-reply? reply)
+               (let [rid (second (:resource/key reply))]
+                 (some-> (when (keyword? rid) (rf.resources.registry/resource-meta rid))
+                         feed-reply-spec))
+               (let [mid (:mutation reply)]
+                 (when (keyword? mid) (rf.resources.mutation-registry/mutation-meta mid))))]
     (if spec
-      (rf.resources.classification/redact-continuation-reply reply (feed-reply-spec spec))
+      (rf.resources.classification/redact-continuation-reply reply spec)
       reply)))
 
 (defn- carrier-family-value?
@@ -388,10 +393,10 @@
     - `:scope` in a runtime payload (`carrier-family-payload?`) takes
       `project-scope` unconditionally, as does each scope in a mutation
       payload's issuance `:from-db-scopes`;
-    - `:value` / `:params` of a read reply (`resource-reply?`) tokenize iff its
-      owner redacts, and otherwise its declared paths substitute
-      (`redact-reply-declarations`); of a mutation reply, iff its owner makes
-      the coarse claim (`mutation-reply-owner-redacts?`);
+    - `:value` / `:params` of a family reply (`family-reply?`) tokenize iff
+      its owner redacts (`row-owner-redacts?` for a read reply,
+      `mutation-reply-owner-redacts?` for a mutation reply), and otherwise its
+      owner's declared paths substitute (`redact-reply-declarations`);
     - `:error` of any family reply (`family-reply?`) tokenizes unconditionally;
     - a family reply's `:correlation` gives its `:scope` the scope rule.
   Spec 015 §Projection — applying classification at a boundary"
@@ -423,7 +428,7 @@
           ;; out as scalars; a declaration that matched nothing leaves the row
           ;; unstamped.
           declaration-projected-value
-          (if (and resource-reply-carrier? (not owner-requires-redaction?))
+          (if (and family-reply-carrier? (not owner-requires-redaction?))
             (let [redacted-value (redact-reply-declarations value)]
               (if (= redacted-value value)
                 value

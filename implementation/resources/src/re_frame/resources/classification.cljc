@@ -149,9 +149,9 @@
   `:value` (the data projection), from `spec`'s declarations. A nil spec or
   one declaring neither axis returns `reply` unchanged.
 
-  Mutations call it at the source; reads call it only at off-box egress
+  Reads and mutations alike call it only at off-box egress
   (`trace_egress/redact-reply-declarations`), because the app's own
-  `:reply-to` handler is entitled to the decoded body. A mutation's coarse
+  `:reply-to` handler is entitled to the real values. A mutation's coarse
   claim is likewise applied only off-box (`trace_egress`). Matching is
   index-free, so a declaration such as `[:data :email]` covers every item of
   an infinite feed's merged list, as it does on the durable side."
