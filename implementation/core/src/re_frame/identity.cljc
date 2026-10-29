@@ -548,7 +548,8 @@
   out-of-domain value — the validation walk runs eagerly so a host handle
   buried anywhere in the structure is rejected, never host-stringified — and
   for a map carrying DUPLICATE canonical keys or a set carrying DUPLICATE
-  canonical elements (two distinct host values whose CEDN-1 bytes collide, e.g. a `java.util.Date` and a `java.time.Instant`, or a
+  canonical elements (two distinct host values whose CEDN-1 bytes collide,
+  e.g. a `java.util.Date` and a `java.time.Instant`, or a
   host instant and its tagged tuple, for one millisecond).
 
   Present `nil` stays distinct from a missing key: `(canonical {:page nil})`
