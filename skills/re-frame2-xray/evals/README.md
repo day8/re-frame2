@@ -69,7 +69,7 @@ only the focused family leaf):
 | 26 | `config-init-vs-settings` | yes | The slider wins for the session, but `init! opts` re-pin (and re-persist) on the next boot — four-layer merge order `defaults < configure! < persisted Settings < init! opts`; `configure! {:rf.xray/settings …}` is the user-overridable layer; density is NOT a popup control. |
 | 28 | `panel-route-frames` | yes | The which-image-loaded-which-frame / how-a-frame-resolves question → the Dynamic **Frames** tab (internal id `:module-view`, EP-0023 image→frame lens, no realm/app/module browse dimension); Frames is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
 | 29 | `tab-inventory-count` | yes | The full ordered **10-tab** Dynamic list incl. Frames and Fresco (count is 10, not 9); correct `:order`; no retired label ("Modules"); no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
-| 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (Declared/Realized; shipped-labelled static/live), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
+| 30 | `graph-projection-vs-static-mode` | yes | The Graph tab's registration-derived view is its OWN per-panel projection toggle (its `static` / `live` buttons), NOT the L1 Static mode pill; Graph is a Dynamic tab, so Static mode does not show it at all. |
 | 32 | `panel-route-resources` | yes | Route quality: server-state staleness / in-flight → the Dynamic **Resources** tab; live instances follow the L1 frame picker, not the epoch; a deep follow-up loads only `references/panels-resources.md`. |
 | 4 | `launch-hotkey` | yes | `Ctrl+Shift+C` toggles the shell (first press mounts) and is `Ctrl+Shift` on macOS too; no hotkey opens the pop-out; snap-to-LIVE, if listed, is unshifted `l`. |
 | 5 | `hotkey-mode-toggle` | yes | `Cmd/Ctrl+Shift+M` flips Dynamic ↔ Static, same as the L1 mode pill; not `Ctrl+Shift+C`, not a bare letter. |
@@ -94,7 +94,7 @@ tab-inventory-count that pin the 10-tab Dynamic surface (including Frames
 and Fresco) so a future drop / misroute of Frames, a dropped Fresco, or a
 revert to 9 tabs, fails the
 answer-quality layer, and graph-projection-vs-static-mode that pins the
-Graph tab's per-panel projection toggle (Declared/Realized) as distinct from
+Graph tab's per-panel `static` / `live` toggle as distinct from
 the L1 Static mode pill, so the overloaded `static`/`mode` vocabulary cannot
 re-route a user to the wrong control, and panel-route-simulate-url that pins
 where the URL simulator is actually MOUNTED (Static → Routes, per

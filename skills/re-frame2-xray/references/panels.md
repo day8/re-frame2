@@ -39,7 +39,7 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | **Machine** | `m` | focused epoch | What this event did to the one machine instance it targeted — the machine cascade (guards / actions) over its topology chart; a single placeholder line on a no-machine epoch. | [panels-domains.md](panels-domains.md) |
 | **Routes** | `r` | focused epoch | Current route + this epoch's navigation + the registered-route table. **No URL simulator here** — arbitrary-URL matching is Static → Routes. | [panels-domains.md](panels-domains.md) |
 | **Resources** | `s` | mixed | The declarative server-state lens — registry, live instances, work ledger, mutation/invalidation evidence. | [panels-resources.md](panels-resources.md) |
-| **Graph** | `g` | observed frame / process-global | The EP-0014 derivation/process graph across all five families; its own Declared ↔ Realized projection toggle. | [panels-structure.md](panels-structure.md) |
+| **Graph** | `g` | observed frame / process-global | The EP-0014 derivation/process graph across all five families; its own `static` / `live` toggle (registered vs observed). | [panels-structure.md](panels-structure.md) |
 | **Frames** | `u` | process-global | The EP-0023 `image → frame` lens — which image loaded each live frame, or that it resolves the live registration store, and how it resolves registrations. | [panels-structure.md](panels-structure.md) |
 | **Fresco** | `h` | live runtime (not epoch-coupled) | The Fresco evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four envelopes taken in one turn. | [panels-structure.md](panels-structure.md) |
 
@@ -60,8 +60,8 @@ reads one of three scopes:
 | Scope | Tabs | Picking an epoch in L2… |
 |---|---|---|
 | **Focused epoch** — the event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
-| **Observed frame** — live frame state | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
-| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · **Fresco** · Resources (static registry) | does nothing; identical for every epoch |
+| **Observed frame** — live frame state | **Graph** (`live` side) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
+| **Process-global / registry-wide** | **Graph** (`static` side) · **Frames** · **Fresco** · Resources (static registry) | does nothing; identical for every epoch |
 
 So "select an epoch and Graph/Frames/Fresco update" is **false** — only
 the six focused-epoch lenses rebind.

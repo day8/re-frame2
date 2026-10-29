@@ -274,10 +274,10 @@
  "name": "graph-projection-vs-static-mode",
  "should_trigger": true,
  "prompt": "To see the Graph tab's static graph, do I switch Xray into Static mode?",
- "expected_output": "The agent says NO — the Graph tab is a Dynamic-mode tab, and its registration-derived view is reached by the Graph tab's OWN per-panel projection toggle (the skill calls it Declared/Realized; the shipped UI labels it static/live), NOT by the L1 Dynamic/Static mode pill. Switching Xray to Static mode does NOT show the Graph tab at all (Graph is one of the 10 Dynamic tabs; Static mode shows the 5 registry catalogues). It must not conflate the Graph-local projection axis with the top-level Static mode.",
+ "expected_output": "The agent says NO — the Graph tab is a Dynamic-mode tab, and its registration-derived view is reached by the Graph tab's OWN per-panel projection toggle (the static / live buttons in the Graph header), NOT by the L1 Dynamic/Static mode pill. Switching Xray to Static mode does NOT show the Graph tab at all (Graph is one of the 10 Dynamic tabs; Static mode shows the 5 registry catalogues). It must not conflate the Graph-local projection axis with the top-level Static mode.",
  "expectations": [
  "The output answers NO — top-level Static mode is NOT how you reach the Graph tab's registration-derived view.",
- "The output names the Graph tab's OWN per-panel control (a Declared/Realized projection toggle, shipped-labelled static/live) as distinct from the L1 Dynamic/Static mode pill.",
+ "The output names the Graph tab's OWN per-panel control (the static / live toggle in the Graph header) as distinct from the L1 Dynamic/Static mode pill.",
  "The output states the Graph tab is a Dynamic tab (one of the 10 Dynamic tabs) — switching to Static mode shows the 5 registry catalogues, not Graph."
  ]
  },
