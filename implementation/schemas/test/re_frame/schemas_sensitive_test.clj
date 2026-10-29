@@ -13,11 +13,14 @@
   to a size marker unless sensitivity already redacted it.
 
   An `app-db` failure is also projected through the frame's classification policy,
-  so a path classified there needs no second `:sensitive?` on its schema."
+  so a path classified there needs no second `:sensitive?` on its schema; an
+  event, effect or sub failure through its registration's own `:sensitive` /
+  `:large` paths, for the same reason."
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
+            [re-frame.elision :as rf.elision]
             [re-frame.flows]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
@@ -198,6 +201,17 @@
               (contains? (get-in trace [:tags :explain]) :rf.size/large-elided)
               (:sensitive? trace)])
           ":value is the unclassified leaf; :explain is a size marker"))))
+
+(deftest app-db-validation-registry-sensitive-leaf-wins-over-a-schema-large-mark
+  (testing "a leaf the frame classifies sensitive redacts where its schema
+            marks it :large?, because a size marker carries the secret's size"
+    (rf/reg-classification :auth/classified {:sensitive [[:auth :token]]})
+    (rf/reg-app-schema [:auth :token] [:int {:large? true}])
+    (rf/reg-event :auth/write (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:auth :token] v)}))
+    (let [trace (dispatch-failure-trace [:auth/write "TOPSECRET-PIN-1234"])]
+      (is (= [true :rf/redacted :rf/redacted] (registry-redaction trace)))
+      (is (not-any? rf.elision/marker? (tree-seq coll? seq trace)))
+      (is (not (contains? (:tags trace) :large?))))))
 
 (deftest app-db-validation-sensitive-path-keeps-declared-map-keys
   (testing "each sensitive failure shape redacts :value and :explain, stamps
@@ -498,6 +512,75 @@
                        (rf.schemas.validate/redact-validation-tags schema tags))
         [:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]]
         (m/schema [:map [:password {:sensitive? true} :string]])))))
+
+;; ---- registration-owned classification ------------------------------------------
+;; A registration's own `:sensitive` / `:large` paths govern its `:schema`
+;; failure trace as they govern `:rf.event/v`, so a payload path is declared
+;; once. An event's paths index its payload; an effect's and a sub's index the
+;; checked value. The schema-side mark stays an additional way to say it.
+
+(deftest event-validation-applies-the-registration-s-own-sensitive-paths
+  (let [schema  [:cat [:= :auth/login] [:map [:user :string] [:password :string]]]
+        failing [:auth/login {:user 1 :password "PW-SECRET-77"}]
+        trace!  (fn [meta]
+                  (rf/reg-event :auth/login meta (fn [_ _] {}))
+                  (dispatch-failure-trace failing))]
+    (testing "a registration-owned :sensitive path redacts there, and :explain whole"
+      (let [v (trace! {:sensitive [[:password]] :schema schema})]
+        (is (= [:event true :rf/redacted]
+               [(-> v :tags :where) (:sensitive? v) (-> v :tags :explain)]))
+        (is (= [:auth/login {:user 1 :password :rf/redacted}]
+               (-> v :tags :value) (-> v :tags :received)))
+        (is (not (str/includes? (pr-str v) "PW-SECRET-77")))))
+    (testing "control: the schema-side :sensitive? mark alone redacts the whole payload"
+      (let [v (trace! {:schema [:cat [:= :auth/login]
+                                [:map [:user :string] [:password {:sensitive? true} :string]]]})]
+        (is (= [true :rf/redacted] [(:sensitive? v) (-> v :tags :value)]))
+        (is (not (str/includes? (pr-str v) "PW-SECRET-77")))))
+    (testing "control: with neither, the payload rides verbatim"
+      (let [v (trace! {:schema schema})]
+        (is (= [nil failing] [(:sensitive? v) (-> v :tags :value)]))))
+    (testing "sensitive wins over the schema's own :large? mark"
+      (let [v (trace! {:sensitive [[:password]]
+                       :schema    [:cat [:= :auth/login]
+                                   [:map [:user :string] [:password {:large? true} :string]]]})]
+        (is (= [true :rf/redacted nil]
+               [(:sensitive? v) (-> v :tags :value) (-> v :tags :large?)]))))))
+
+(deftest fx-validation-applies-the-registration-s-own-sensitive-paths
+  (rf/reg-event :p/go (fn [_ _] {:fx [[:p/send {:token "FX-SECRET-5"}]]}))
+  (testing "a registration-owned :sensitive path redacts the args"
+    (rf/reg-fx :p/send {:sensitive [[:token]] :schema [:map [:token :int]]} (fn [_ _] nil))
+    (let [v (dispatch-failure-trace [:p/go])]
+      (is (= [:fx-args true {:token :rf/redacted} {:token :rf/redacted} :rf/redacted]
+             [(-> v :tags :where) (:sensitive? v) (-> v :tags :value)
+              (-> v :tags :rf.fx/args) (-> v :tags :explain)]))
+      (is (not (str/includes? (pr-str v) "FX-SECRET-5")))))
+  (testing "control: without it the args ride verbatim"
+    (rf/reg-fx :p/send {:schema [:map [:token :int]]} (fn [_ _] nil))
+    (is (= {:token "FX-SECRET-5"} (-> (dispatch-failure-trace [:p/go]) :tags :value)))))
+
+(deftest sub-return-validation-applies-the-registration-s-own-paths
+  (testing "a registration-owned :sensitive [[]] redacts the whole return value"
+    (with-trace-recorder! [traces]
+      (rf.schemas/validate-sub! :p/sec [:p/sec] "SUB-SECRET-9" {:sensitive [[]] :schema :int})
+      (let [v (failure-trace @traces)]
+        (is (= [true :rf/redacted :rf/redacted [:p/sec]]
+               [(:sensitive? v) (-> v :tags :value) (-> v :tags :explain)
+                (-> v :tags :rf.sub/query-v)]))
+        (is (not (str/includes? (pr-str v) "SUB-SECRET-9"))))))
+  (testing "a registration-owned :large path elides the value it reaches"
+    (let [blob (apply str (repeat 500 "R"))]
+      (with-trace-recorder! [traces]
+        (rf.schemas/validate-sub! :p/doc [:p/doc] {:pdf blob :n "x"}
+                                  {:large [[:pdf]] :schema [:map [:pdf :string] [:n :int]]})
+        (let [v (failure-trace @traces)]
+          (is (= [nil true true true "x"]
+                 [(:sensitive? v) (-> v :tags :large?)
+                  (rf.elision/marker? (-> v :tags :value :pdf))
+                  (rf.elision/marker? (-> v :tags :explain))
+                  (-> v :tags :value :n)]))
+          (is (not (str/includes? (pr-str v) blob))))))))
 
 ;; ---- :large? size elision ------------------------------------------------------
 ;; A :large? slot's failure elides the value-bearing slots to the
