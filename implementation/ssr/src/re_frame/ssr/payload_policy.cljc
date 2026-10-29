@@ -368,7 +368,7 @@
 ;;
 ;; project-egress on a kindless map walks it as a tree-shaped VALUE via
 ;; `elide-wire-value`, which resolves the frame's classification from the
-;; explicit `:frame` opt. EP-0002 / EP-0015 issue 1 fail-closed: an
+;; explicit `:frame` opt. EP-0002 / EP-0015 §13 fail-closed: an
 ;; unresolvable / never-registered frame redacts the WHOLE value to
 ;; `:rf/redacted` rather than borrow another frame's policy — so a missing
 ;; frame policy fails CLOSED here too (a server render always carries the live
@@ -402,7 +402,7 @@
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
-  Fail-closed (EP-0002 / EP-0015 issue 1): an unresolvable / never-registered
+  Fail-closed (EP-0002 / EP-0015 §13): an unresolvable / never-registered
   `frame-id` redacts the whole slice to `:rf/redacted` rather than ship it under
   no policy. A server render carries the live request frame, so the projection
   runs against that frame's real declarations; a nil `frame-id` is the same
