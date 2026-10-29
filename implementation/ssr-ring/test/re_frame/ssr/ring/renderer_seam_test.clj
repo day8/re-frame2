@@ -5,6 +5,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
@@ -79,3 +80,53 @@
   (let [body (:body (serve {:renderer (fn [_] {:body-html "<div>bare</div>"})}))]
     (is (str/includes? body "<div id=\"app\"><div>bare</div></div>")
         "the pipeline wraps the renderer's bytes and adds nothing to them")))
+
+(defn- render-failures
+  "Serve with `renderer`; the status, and `[id got-type]` of each projected
+  render failure's exception."
+  [renderer]
+  (let [seen (atom [])]
+    (rf.error-emit/register-error-listener! ::seam-recorder #(swap! seen conj %))
+    (try
+      (let [{:keys [status]} (serve {:renderer renderer})]
+        [status
+         (->> @seen
+              (filter #(= :rf.error/ssr-render-failed (:rf.error/id %)))
+              (mapv #(let [data (-> % :exception ex-data)]
+                       [(:rf.error/id data) (get-in data [:got :type])])))])
+      (finally (rf.error-emit/unregister-error-listener! ::seam-recorder)))))
+
+(deftest a-renderer-result-that-is-not-body-html-is-projected-as-a-render-failure
+  ;; Returning the markup bare is the natural slip against a fn-shaped seam,
+  ;; and would otherwise ship a 200 around an empty app root.
+  (is (= [200 []] (render-failures fixed-renderer)) "control: the documented shape")
+  (doseq [[result got] [["<p>bare</p>" :string]
+                        [{:html "<p>misnamed</p>"} :nil]
+                        [nil :nil]]]
+    (is (= [500 [[:rf.error/ssr-ring-renderer-result-invalid got]]]
+           (render-failures (fn [_] result)))
+        (pr-str result))))
+
+(deftest fn-valued-opts-are-shape-checked-at-construction
+  ;; Each would otherwise construct and then fail on every request, or ship
+  ;; a 200 with an empty app root.
+  (let [base    {:frame    {:initial-events [[:rf.test.seam/init]]}
+                 :payload  :rf.ssr.payload/whole-app-db
+                 :renderer fixed-renderer}
+        refusal (fn [opts]
+                  (try (rf.ssr.ring/ssr-handler opts) nil
+                       (catch clojure.lang.ExceptionInfo e
+                         ((juxt :rf.error/id :opt :recovery) (ex-data e)))))]
+    (doseq [[k v recovery] [[:renderer :not-a-fn :supply-a-fn]
+                            [:renderer "<p>not-a-fn</p>" :supply-a-fn]
+                            [:html-shell "not-a-fn" :supply-a-fn]
+                            [:on-error {:status 500} :supply-a-fn]
+                            [:error-view "not-a-view" :supply-a-view-keyword-or-fn]]]
+      (is (= [:rf.error/ssr-ring-fn-opt-invalid k recovery] (refusal (assoc base k v)))
+          (pr-str k v)))
+    (doseq [[k v] [[:renderer #'fixed-renderer]
+                   [:html-shell nil]
+                   [:on-error (fn [_ _] {:status 500})]
+                   [:error-view :seam/registered-later]
+                   [:error-view (fn [_] [:p "error"])]]]
+      (is (nil? (refusal (assoc base k v))) (str "accepted: " (pr-str k v))))))

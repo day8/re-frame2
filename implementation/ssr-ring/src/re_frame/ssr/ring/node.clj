@@ -18,8 +18,9 @@
                `:build-id` — so a skewed deployment fails at boot. The JVM
                passes the sidecar its deadline and admission budget itself,
                so the two halves cannot drift. A child that exits is
-               relaunched after a capped backoff; while it is down, requests
-               fail as unreachable.
+               relaunched after a capped backoff, from a fresh copy if a tmp
+               reaper took the old one; while it is down, requests fail as
+               unreachable.
     :endpoint  the operator runs the sidecar, and the renderer dials it.
 
   The renderer is a fn that is also `java.io.Closeable`: `.close` (or
@@ -354,7 +355,10 @@
              "buildId"   build-id
              "timeoutMs" timeout-ms
              "requestId" (str (symbol frame-id))}
-      (contains? opts :args) (assoc "args" (pr-str args)))))
+      ;; Printed whole whatever the calling thread binds, as
+      ;; `render-state/serialize` prints the partitions.
+      (contains? opts :args) (assoc "args" (binding [*print-length* nil *print-level* nil]
+                                             (pr-str args))))))
 
 (defn- build-request
   ^HttpRequest [^URI render-endpoint ^String request-json transport-timeout-ms]
@@ -581,8 +585,9 @@
 
 (defn- extract-sidecar!
   "Copy the sidecar's runtime off the classpath into a fresh temp directory
-  and return the directory — Node cannot run a file inside a jar."
-  ^Path []
+  and return the directory — Node cannot run a file inside a jar. An
+  `IOException` is the renderer's `:rf.error/ssr-node-unreachable`."
+  ^Path [opts]
   (let [dir (Files/createTempDirectory "rf2-ssr-node-" (make-array FileAttribute 0))]
     (try
       (doseq [^String rel sidecar-files]
@@ -595,9 +600,20 @@
           (with-open [in (io/input-stream resource)]
             (Files/copy ^java.io.InputStream in target ^"[Ljava.nio.file.CopyOption;" (make-array CopyOption 0)))))
       dir
+      (catch IOException cause
+        (delete-tree! dir)
+        (throw-unreachable! opts cause))
       (catch Throwable t
         (delete-tree! dir)
         (throw t)))))
+
+(defn- sidecar-intact?
+  "Every runtime file is still in `dir`. A long-lived host's tmp reaper
+  (a systemd-tmpfiles age rule, macOS's periodic clean-up) deletes files
+  nothing has touched for days, and Node reads `worker.cjs` again for every
+  isolate it starts."
+  [^Path dir]
+  (every? #(.isFile (.toFile (.resolve dir ^String %))) sidecar-files))
 
 (defn- pump-lines!
   "Read `stream` line by line on a daemon thread, calling `on-line` for each
@@ -719,24 +735,31 @@
   `{:endpoint (fn [] url-or-nil) :stop! (fn [])}`; a JVM shutdown hook runs
   `stop!` if nobody else does."
   [opts]
-  (let [dir      (try (extract-sidecar!)
-                      (catch IOException cause (throw-unreachable! opts cause)))
-        lock     (Object.)
-        state    (atom {:process nil :endpoint nil :stopped? false})
+  (let [lock     (Object.)
+        state    (atom {:dir (extract-sidecar! opts) :process nil :endpoint nil :stopped? false})
         on-spawn (fn [^Process process]
                    (locking lock
                      (if (:stopped? @state)
                        (do (.destroyForcibly process)
                            (throw (IOException. "the renderer was closed")))
                        (swap! state assoc :process process))))
+        ;; Re-extracted under the lock when a reaper took any of it, so a
+        ;; stop that lands meanwhile still deletes the directory in use.
+        runtime  (fn []
+                   (locking lock
+                     (let [{:keys [dir stopped?]} @state]
+                       (when-not (or stopped? (sidecar-intact? dir))
+                         (delete-tree! dir)
+                         (swap! state assoc :dir (extract-sidecar! opts)))
+                       (:dir @state))))
         launch   (fn []
-                   (let [endpoint (launch! dir opts on-spawn)]
+                   (let [endpoint (launch! (runtime) opts on-spawn)]
                      (locking lock
                        (when-not (:stopped? @state)
                          (swap! state assoc :endpoint endpoint)))))
         _        (try (launch)
                       (catch Throwable t
-                        (delete-tree! dir)
+                        (delete-tree! (:dir @state))
                         (throw t)))
         supervisor
         (Thread. ^Runnable
@@ -762,11 +785,11 @@
                  "rf2-ssr-node-supervisor")
         hook     (atom nil)
         stop!    (fn stop! []
-                   (let [[first-stop? process]
+                   (let [[first-stop? process dir]
                          (locking lock
-                           (let [{:keys [process stopped?]} @state]
+                           (let [{:keys [process stopped? dir]} @state]
                              (swap! state assoc :stopped? true :endpoint nil)
-                             [(not stopped?) process]))]
+                             [(not stopped?) process dir]))]
                      (when first-stop?
                        (.interrupt supervisor)
                        (when process (destroy! process))
@@ -802,7 +825,9 @@
   under `:module`, launches the sidecar and waits for its ready line, so a
   sidecar that cannot start or serves another build fails here.
 
-      (def node-renderer
+      ;; `defonce`: each `renderer` under `:module` launches its own
+      ;; sidecar, so a re-evaluated `def` would leave the last one running.
+      (defonce node-renderer
         (node/renderer
           {:module       \"out/my-app-server/server.js\"
            :entry        \"app/root\"

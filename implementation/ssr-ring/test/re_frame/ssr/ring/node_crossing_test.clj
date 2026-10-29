@@ -464,6 +464,34 @@
             "the sidecar answering now is a new process")))
     (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
 
+(defn- runtime-copies
+  "The owned sidecar's runtime copies in the JVM's temp directory."
+  []
+  (->> (.listFiles (io/file (System/getProperty "java.io.tmpdir")))
+       (filter #(and (.isDirectory ^java.io.File %)
+                     (str/starts-with? (.getName ^java.io.File %) "rf2-ssr-node-")))
+       set))
+
+(deftest ^:crossing g-module-mode-relaunches-from-a-fresh-copy-when-a-tmp-reaper-took-the-runtime
+  ;; A long-lived host's tmp reaper deletes files nothing has touched for
+  ;; days; the next crash's relaunch must not run from the hole it left.
+  (register-app!)
+  (let [before (sidecar-children)
+        copies (runtime-copies)]
+    (with-open [renderer (rf.ssr.ring.node/renderer module-opts)]
+      (let [h       (handler renderer)
+            child   (the-new-child before)
+            fresh   (remove copies (runtime-copies))]
+        (is (= 1 (count fresh)) "construction extracted one runtime copy")
+        (is (= 200 (:status (h request))))
+        (doseq [^java.io.File f (reverse (file-seq (first fresh)))]
+          (.delete f))
+        (is (not (.exists ^java.io.File (first fresh))) "the reaper took the whole copy")
+        (.destroyForcibly child)
+        (.get (.onExit child) 10 TimeUnit/SECONDS)
+        (is (= 200 (peek (render-until-200 h 20000)))
+            "the relaunch ran from a fresh copy")))))
+
 (deftest ^:crossing g-closing-a-module-renderer-leaves-no-node-process
   (register-app!)
   (let [before   (sidecar-children)

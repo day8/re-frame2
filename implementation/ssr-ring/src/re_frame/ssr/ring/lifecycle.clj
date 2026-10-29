@@ -292,40 +292,60 @@
       {:recovery :supply-the-root-view-opt}))
   opts)
 
+(defn- callable?
+  "Something the pipeline can call: an IFn that is not data. A keyword, a
+  symbol, a map, a set or a vector is an IFn too, and as a `:renderer` would
+  answer every request with an empty body."
+  [v]
+  (and (ifn? v) (not (keyword? v)) (not (symbol? v)) (not (coll? v))))
+
+(def ^:private fn-opts
+  "The fn-valued handler opts, each with the shape its refusal names."
+  {:renderer   "a (fn [{:keys [frame-id request opts]}] {:body-html html})"
+   :html-shell "a (fn [body-html payload-edn opts] html)"
+   :on-error   "a (fn [request throwable] ring-response)"})
+
+(defn- throw-fn-opt-invalid! [option-key received expected recovery]
+  (let [got (rf.error/diag-value-summary received)]
+    (rf.error/throw-error!
+      :rf.error/ssr-ring-fn-opt-invalid
+      'rf.ssr.ring/ssr-handler
+      (str "ssr-handler " option-key " must be " expected "; got a "
+           (name (:type got)) ".")
+      {:recovery recovery
+       :extra    {:opt option-key :got got}})))
+
+(defn validate-fn-opts!
+  "Throw `:rf.error/ssr-ring-fn-opt-invalid` unless each fn-valued handler
+  opt that is present is something the pipeline can call, and `:error-view`
+  a keyword or a fn — what `pipeline/resolve-error-body` accepts. Shape only:
+  a view keyword may be registered after construction. Returns `opts`
+  unchanged."
+  [{:keys [error-view] :as opts}]
+  (doseq [[option-key expected] fn-opts
+          :let  [v (get opts option-key)]
+          :when (and (some? v) (not (callable? v)))]
+    (throw-fn-opt-invalid! option-key v expected :supply-a-fn))
+  (when (and (some? error-view) (not (keyword? error-view)) (not (fn? error-view)))
+    (throw-fn-opt-invalid! :error-view error-view
+                           "a registered-view keyword or a (fn [public-error] hiccup)"
+                           :supply-a-view-keyword-or-fn))
+  opts)
+
 (defn validate-construction-opts!
-  "Run the full fail-closed-at-boot validation for
-  `re-frame.ssr.ring/ssr-handler`. A misconfigured handler
-  refuses to construct rather than failing per request. The checks are:
-
-    0. the frame config is one `:frame` map, without the `:id` and
-       `:platform` the handler owns, via `validate-frame-opt!`.
-    1. required-opt presence (`:initial-events` inside `:frame`,
-       `:root-view`) via `validate-required-opts!`.
-    2. hydration-payload policy (the single `:payload` opt — an allowlist
-       of keys and paths, or the whole-app-db keyword) via
-       `payload-policy/validate-policy-opts!` — throws
-       `:rf.error/ssr-missing-payload-policy` (or
-       `:rf.error/ssr-unknown-payload-policy` on an unknown policy, or
-       `:rf.error/ssr-malformed-payload-allowlist` on a malformed entry or
-       a `:payload-include-sensitive` opt).
-    3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
-       `:app-element-id` are strings or nil; `:script-src` may also be
-       `false`) via
-       `trust/validate-trusted-shell-opts!` — the shell routes these
-       into the HTML envelope (`:head` / `:body-end` as raw content
-       hooks, `:script-src` / `:app-element-id` as escaped attribute
-       hooks), so a structural mistake (map / vector / symbol / number)
-       surfaces here as `:rf.error/ssr-trusted-shell-opt-invalid` at
-       boot rather than as a `ClassCastException` deep in the rendering
-       path.
-
-  Returns `opts` unchanged on success — composes into a `let` /
-  threading position cleanly."
+  "The fail-closed-at-boot validation for `re-frame.ssr.ring/ssr-handler`, so
+  a misconfigured handler refuses to construct rather than failing per
+  request: the one `:frame` map (`validate-frame-opt!`), the required opts
+  (`validate-required-opts!`), the hydration-payload policy
+  (`payload-policy/validate-policy-opts!`), the trusted-shell string opts
+  (`trust/validate-trusted-shell-opts!`) and the fn-valued opts
+  (`validate-fn-opts!`). Returns `opts` unchanged."
   [opts]
   (validate-frame-opt! opts)
   (validate-required-opts! opts)
   (rf.ssr.payload-policy/validate-policy-opts! opts)
-  (rf.ssr.ring.trust/validate-trusted-shell-opts! opts))
+  (rf.ssr.ring.trust/validate-trusted-shell-opts! opts)
+  (validate-fn-opts! opts))
 
 (defn resolve-on-error
   "Resolve the effective `:on-error` Ring-fn from `raw-opts`, the one
