@@ -741,7 +741,7 @@ if ($SelfTest) {
     }
 
     # The nested-loss case. This is the shape a partial recursive delete leaves
-    # behind, and the shape the old immediate-entry canary called healthy.
+    # behind, and the shape an immediate-entry canary alone calls healthy.
     $stNested = Join-Path $stRoot 'nested'
     New-Item -ItemType Directory -Force -Path (Join-Path $stNested 'pkg-a\lib') | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $stNested 'pkg-b\lib') | Out-Null
