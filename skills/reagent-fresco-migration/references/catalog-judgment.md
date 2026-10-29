@@ -267,7 +267,10 @@ W5 does mechanically, and then takes the decision below. A
 repeated crossing — it becomes `(h/defhost x X)`. A hand-written
 `(r/create-element X #js {…})` in a view becomes the same `[:> X {…}]`
 crossing, and an `(r/as-element [:h2 …])` handed to a foreign prop becomes
-`(h/as-element [:h2 …])`, or a `:slots` entry on the host (below).
+`(h/as-element [:h2 …])`, or a `:slots` entry on the host (below). A callback
+whose body returns `(r/as-element …)` — the reporter's `:as-element-island`
+refusal — becomes an `h/render-fn` whose body is the plain Hiccup:
+`(fn [item] (r/as-element [:span item]))` → `(h/render-fn [item] [:span item])`.
 
 - **A one-off crossing → keep `[:> Component …]`.** It is `defhost` with the
   declaration erased: no `:slots`, no server policy. Callbacks mean the same on
@@ -306,7 +309,9 @@ function:
                :on-render-item (h/render-fn [item] [:span (.-name item)])}]
 ```
 
-There is no `:handler` carrier — a plain function is that contract.
+There is no `:handler` carrier — a plain function is that contract — and no
+callback option on the declaration: a `:callbacks` key is refused at namespace
+load with `:rf.error/fresco-bad-host-declaration`.
 
 Two migration behaviours are worth pre-empting:
 
