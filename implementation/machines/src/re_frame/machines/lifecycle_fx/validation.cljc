@@ -210,7 +210,8 @@
   Error categories:
     - `:rf.error/machine-spawn-all-bad-shape` — a child spawn-spec is
       missing `:id`; or `:spawn-all` is not a map; or the join-event
-      slots are missing per the required-iff rules; or a child with no
+      slots are missing per the required-iff rules, or one is present but
+      not an event vector; or a child with no
       `:machine-id`, or one carrying an inline `:definition`; or the
       `:join` value is outside the closed
       `:all` / `:any` enum; or an unknown bare key on the block (e.g.
@@ -301,6 +302,19 @@
                        :rf.error/machine-spawn-all-duplicate-id
                        "two children share an :id keyword inside the same :spawn-all block"
                        {:state state-key :duplicate-ids dup}))))))
+      ;; Every join event the block declares is an event vector, as
+      ;; Spec-Schemas `InvokeAllSpec` types it: the join appends the decisive
+      ;; child and its result to it, and reads anything else as absent.
+      (doseq [slot [:on-all-complete :on-some-complete :on-any-failed]]
+        (when (and (contains? spawn-all-spec slot)
+                   (not (vector? (get spawn-all-spec slot))))
+          (throw (validation-error
+                   :rf.error/machine-spawn-all-bad-shape
+                   (str ":spawn-all " slot " must be an event vector, e.g. "
+                        "[:my/event]; got " (pr-str (get spawn-all-spec slot)))
+                   {:state state-key
+                    :slot  slot
+                    :value (get spawn-all-spec slot)}))))
       ;; The join grammar is a closed two-member enum: `:all` (default)
       ;; and `:any`.
       ;; Quorum cases count completions in the parent's `:data` (each
@@ -2053,16 +2067,18 @@
   projected from the Spec-Schemas `InvokeAllChildSpec` grammar.
 
   It is the single-`:spawn` vocabulary plus the join-address key `:id`, MINUS
-  `:on-error`. A join child has no per-child error transition: failure control
-  flow under a join is the block's own `:on-any-failed`, which decides for the
-  whole fan-out. Admitting `:on-error` here would accept a key nothing
-  honours — the silent under-specification this whole check exists to
-  prevent — so it falls through to the ordinary
+  `:on-error` and the spawn-level `:timeout` / `:on-timeout`. A join child has
+  no per-child error transition: failure control flow under a join is the
+  block's own `:on-any-failed`, which decides for the whole fan-out. Nor has
+  it a per-child deadline: a deadline on the join is the `:spawn-all`-bearing
+  state's own `:timeout` or `:after`. Admitting any of the three would accept
+  a key nothing honours — the silent under-specification this whole check
+  exists to prevent — so each falls through to the ordinary
   `:rf.error/machine-unknown-spawn-key`, which names the valid set. `:on-done`
   IS honoured on a child spec: it folds the parent's `:data` at that child's
   successful finality, before the join fold; a failed child skips it."
   (-> known-spawn-spec-keys
-      (disj :on-error)
+      (disj :on-error :timeout :on-timeout)
       (conj :id)))
 
 (defn- unknown-bare-keys
@@ -2176,8 +2192,8 @@
   (the runtime-stamped `:rf/parent-id` / `:rf/invoke-id` + user extensions).
 
   The two vocabularies are NOT the same set: a `:spawn-all` child adds the
-  join-address `:id` and drops `:on-error` (a join child's failure control flow
-  is the block's `:on-any-failed`). Per
+  join-address `:id` and drops `:on-error`, `:timeout` and `:on-timeout`
+  (`known-spawn-all-child-spec-keys` says why). Per
   Conventions §Spawn-spec keys + §No silent swallow."
   [state-key state-node]
   (let [check! (fn [spec where valid-keys]

@@ -1441,6 +1441,21 @@
           (when-let [hit (match-on-clause machine machine done-event-id event snapshot)]
             {:transition hit :decl-path []}))))))
 
+(defn invoke-node-active?
+  "True iff the `:spawn` / `:spawn-all`-bearing node at `invoke-id` is on
+  `snapshot`'s active path. `invoke-id` is region-qualified on a parallel
+  machine (head = region name), the key the registry slot carries; the
+  machine root's `[]` is active while the machine lives."
+  [snapshot invoke-id]
+  (let [state      (:state snapshot)
+        invoke-id  (vec invoke-id)
+        [path rel] (if (map? state)
+                     [(some-> (get state (first invoke-id)) state-path)
+                      (vec (rest invoke-id))]
+                     [(state-path state) invoke-id])]
+    (or (empty? invoke-id)
+        (boolean (and path (prefix-of? rel path))))))
+
 (defn spawn-carrier-stale-reason
   "Is a single-`:spawn` completion carrier from attempt
   `carried-attempt` at `invoke-id` still CURRENT against the parent's
@@ -1461,18 +1476,12 @@
   staleness: the child and its registry slot are always gone by the time its
   carrier arrives."
   [snapshot invoke-id carried-attempt]
-  (let [state       (:state snapshot)
-        invoke-id   (vec invoke-id)
-        [path rel]  (if (map? state)
-                      [(some-> (get state (first invoke-id)) state-path)
-                       (vec (rest invoke-id))]
-                      [(state-path state) invoke-id])]
-    (cond
-      (and (seq invoke-id) (not (and path (prefix-of? rel path))))
-      :rf.machine.spawn/state-exited
+  (cond
+    (not (invoke-node-active? snapshot invoke-id))
+    :rf.machine.spawn/state-exited
 
-      (not= carried-attempt (get-in snapshot [:rf/runtime :spawn-attempts invoke-id]))
-      :rf.machine.spawn/attempt-superseded)))
+    (not= carried-attempt (get-in snapshot [:rf/runtime :spawn-attempts (vec invoke-id)]))
+    :rf.machine.spawn/attempt-superseded))
 
 (defn- live-spawn-node
   "The `:spawn`-bearing node a spawn carrier's `invoke-id` names, while that

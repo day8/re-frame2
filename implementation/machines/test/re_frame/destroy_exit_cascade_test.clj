@@ -2,7 +2,9 @@
   "Every destroy path runs the actor's active `:exit` cascade before teardown,
   and each `:phase :destroy-exit` `:rf.machine/action-ran` row names the
   destroyed INSTANCE and its frame (Spec 005 §Declarative `:spawn`, §Final
-  states; the Xray Handler section and epoch capture key on both)."
+  states; the Xray Handler section and epoch capture key on both). A destroy
+  driven by a dispatched event hands that event's `:rf.cofx` host facts to the
+  `:exit` (Spec 005 §Causal host facts)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -56,3 +58,20 @@
   (rf/dispatch-sync [:dea/finisher#1 [:finish]])
   (is (= [nil [[:dea/finisher#1 :ex-b :rf/default]]]
          [(rf.machines.test-support/snapshot :dea/finisher#1) (destroy-exit-rows)])))
+
+(deftest destroy-exit-reads-the-destroying-events-host-facts
+  (let [seen (atom [])]
+    (rf/reg-machine :dea/clocked
+      {:initial :a
+       :states  {:a {:exit (fn [{[event-id] :event cofx :rf.cofx}]
+                             (swap! seen conj [event-id (number? (:rf/time-ms cofx))])
+                             nil)
+                     :on   {:leave :b}}
+                 :b {:on {:back :a}}}})
+    (rf/reg-event :dea/kill-clocked (fn [_ _] {:fx [[:rf.machine/destroy :dea/clocked]]}))
+    (rf/dispatch-sync [:dea/clocked [:rf.machine/start]])
+    (rf/dispatch-sync [:dea/clocked [:leave]])
+    (rf/dispatch-sync [:dea/clocked [:back]])
+    (rf/dispatch-sync [:dea/kill-clocked])
+    (is (= [[:leave true] [:rf.machine/destroy-exit true]] @seen)
+        "a destroy-time :exit reads :rf/time-ms as a transition-time one does")))

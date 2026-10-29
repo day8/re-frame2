@@ -108,6 +108,13 @@
 
 (declare reap-tracked-children!)
 
+(def ^:dynamic ^:private *tearing-down*
+  "The `[frame-id actor-id]` of every actor whose teardown is running on this
+  call stack. A join whose parent is in it is ending with that parent, so a
+  destroy its `:exit` issues never counts as the child failing (Spec 005 §Join
+  semantics)."
+  #{})
+
 (defn- teardown-live-actor!
   "The shared ordered teardown pipeline for a LIVE actor (the caller has
   already confirmed liveness). Both destroy entry-points — the per-actor
@@ -155,43 +162,44 @@
 
   The durable writes ride `owner-token` — the token of the incarnation whose
   event entered the destroy effect, or nil for an eventless caller, which takes
-  the bare write."
+  the bare write. The whole pipeline runs with the actor in `*tearing-down*`."
   [frame-id actor-id teardown-args emit-destroyed!-fn owner-token]
-  ;; (1) run the active configuration's `:exit` cascade.
-  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id owner-token)
-  ;; (1b) destroy the children this actor's `:spawn` / `:spawn-all` slots
-  ;; track.
-  (reap-tracked-children! frame-id actor-id owner-token)
-  ;; (2) abort in-flight HTTP through the late-bound
-  ;; `:http/abort-on-actor-destroy` hook. Frame-exact: an actor address is
-  ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
-  ;; actor in a sibling frame keeps its in-flight requests.
-  (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id)
-  ;; (3) has no code: the actor's classification leaves with its snapshot.
-  ;; (4) cancel armed `:after` timers.
-  (rf.machines.timer/cancel-actor-timers! frame-id actor-id)
-  ;; (5) apply the unified teardown projection through the EXACT durable write:
-  ;; `swap-runtime-db-exact!` binds the write to the owner's own container and
-  ;; returns nil once that incarnation is gone; the eventless caller (nil
-  ;; token) takes the bare write.
-  (let [swap-fn     (fn [runtime-db]
-                      (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db teardown-args))
-        new-rt      (if owner-token
-                      (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
-                      (rf.frame/swap-runtime-db! frame-id swap-fn))
-        db-swapped? (some? new-rt)]
-    ;; (6) emit `:rf.machine/destroyed`.
-    (when emit-destroyed!-fn
-      (emit-destroyed!-fn))
-    ;; (7) release the actor's resource owners once it is gone, so
-    ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
-    ;; keep refetching/polling.
-    ;; Guarded on resources being loaded (machines never depends on resources).
-    ;; The `:final?`-state auto-destroy path (`finalize-machine`) does NOT route
-    ;; through here; it appends the symmetric `rf.machines.lifecycle-fx.resource-release/release-fx-entry`
-    ;; to its returned `:fx` instead — together they cover every destroy cause.
-    (rf.machines.lifecycle-fx.resource-release/release-actor-resource-owners! frame-id actor-id)
-    db-swapped?))
+  (binding [*tearing-down* (conj *tearing-down* [frame-id actor-id])]
+    ;; (1) run the active configuration's `:exit` cascade.
+    (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id owner-token)
+    ;; (1b) destroy the children this actor's `:spawn` / `:spawn-all` slots
+    ;; track.
+    (reap-tracked-children! frame-id actor-id owner-token)
+    ;; (2) abort in-flight HTTP through the late-bound
+    ;; `:http/abort-on-actor-destroy` hook. Frame-exact: an actor address is
+    ;; frame-LOCAL, so the destroying frame is threaded through and a same-named
+    ;; actor in a sibling frame keeps its in-flight requests.
+    (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! frame-id actor-id)
+    ;; (3) has no code: the actor's classification leaves with its snapshot.
+    ;; (4) cancel armed `:after` timers.
+    (rf.machines.timer/cancel-actor-timers! frame-id actor-id)
+    ;; (5) apply the unified teardown projection through the EXACT durable write:
+    ;; `swap-runtime-db-exact!` binds the write to the owner's own container and
+    ;; returns nil once that incarnation is gone; the eventless caller (nil
+    ;; token) takes the bare write.
+    (let [swap-fn     (fn [runtime-db]
+                        (rf.machines.lifecycle-fx.teardown/teardown-actor runtime-db teardown-args))
+          new-rt      (if owner-token
+                        (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+                        (rf.frame/swap-runtime-db! frame-id swap-fn))
+          db-swapped? (some? new-rt)]
+      ;; (6) emit `:rf.machine/destroyed`.
+      (when emit-destroyed!-fn
+        (emit-destroyed!-fn))
+      ;; (7) release the actor's resource owners once it is gone, so
+      ;; a `[:machine actor-id]`-owned resource does not outlive the actor and
+      ;; keep refetching/polling.
+      ;; Guarded on resources being loaded (machines never depends on resources).
+      ;; The `:final?`-state auto-destroy path (`finalize-machine`) does NOT route
+      ;; through here; it appends the symmetric `rf.machines.lifecycle-fx.resource-release/release-fx-entry`
+      ;; to its returned `:fx` instead — together they cover every destroy cause.
+      (rf.machines.lifecycle-fx.resource-release/release-actor-resource-owners! frame-id actor-id)
+      db-swapped?)))
 
 (defn destroy-single-actor!
   "Destroy a single spawned actor against the frame's container: run
@@ -293,11 +301,13 @@
   completion observes a closed attempt and cannot fold a contradictory
   terminal. A new join attempt seeds a new join-state, so no tombstone crosses
   re-entry. `counts-as-failure?` goes to `cancel-child`: true for a keyword
-  destroy, whose cancellation counts as the child failing.
+  destroy, whose cancellation counts as the child failing — except while the
+  join's parent is itself being torn down, when the join ends with it.
 
   Returns `{:reason ... :join-child ...}` for the caller's trace — with the
-  join state before (`:join-state`) and after (`:join-state'`) the write when
-  it closed an attempt — or nil when the durable write did not land."
+  join state before (`:join-state`) and after (`:join-state'`) the write, and
+  the `:counts-as-failure?` it passed, when it closed an attempt — or nil when
+  the durable write did not land."
   [frame-id actor-id requested-reason counts-as-failure? owner-token]
   (let [runtime-db     (rf.frame/frame-runtime-db-value frame-id)
         current        (authenticated-join-child runtime-db actor-id)
@@ -314,14 +324,16 @@
                        ;; join attempt that is committed.
                        (if-let [{:keys [parent-id invoke-id child-id] :as latest}
                                 (authenticated-join-child latest-db actor-id)]
-                         (let [db' (rf.machines.lifecycle-fx.join/cancel-child
-                                     latest-db parent-id invoke-id child-id
-                                     counts-as-failure?)]
+                         (let [counts? (and counts-as-failure?
+                                            (not (contains? *tearing-down* [frame-id parent-id])))
+                               db'     (rf.machines.lifecycle-fx.join/cancel-child
+                                         latest-db parent-id invoke-id child-id counts?)]
                            (vreset! prepared
                                     (assoc latest
-                                           :reason      requested-reason
-                                           :join-state' (get-in db' (rf.machines.paths/spawned-path
-                                                                      parent-id invoke-id))))
+                                           :reason             requested-reason
+                                           :counts-as-failure? counts?
+                                           :join-state'        (get-in db' (rf.machines.paths/spawned-path
+                                                                             parent-id invoke-id))))
                            db')
                          (do
                            (vreset! prepared {:reason requested-reason})
@@ -449,10 +461,12 @@
   reason, and an `:explicit` teardown of an authenticated child durably closes
   the attempt before callbacks can release a queued completion.
 
-  The keyword form (nil `invoke-id`) is the app's own destroy, so a join
+  The keyword form (nil `invoke-id`) is the app's own destroy, so a live join
   child's cancellation counts as that child failing: once the child is gone,
   `join/resolve-cancelled-child!` resolves the join on `:on-any-failed` and
-  its fx run here, through the standard fx interpreter."
+  its fx run here, through the standard fx interpreter. A destroy issued while
+  the join's parent leaves the `:spawn-all` state, or is itself torn down,
+  ends the join along with it instead (Spec 005 §Join semantics)."
   [frame-id actor-id requested-reason parent-id invoke-id old-db owner-token]
   (when (actor-live? actor-id old-db)
     (when-let [teardown (prepare-join-child-teardown!
@@ -519,8 +533,9 @@
       ;; A keyword destroy that closed a join child's attempt resolves or
       ;; strands its join now that the child is gone. A parent leaving the
       ;; join state reaches its children through `destroy-spawn-all-children!`
-      ;; instead, where the join is ending anyway.
-      (when (and (nil? invoke-id) (contains? teardown :join-state'))
+      ;; instead, and a parent being torn down ends its join too; neither
+      ;; counts the cancellation.
+      (when (:counts-as-failure? teardown)
         (when-let [fx (seq (rf.machines.lifecycle-fx.join/resolve-cancelled-child!
                              (rf.frame/frame-runtime-db-value frame-id) frame-id
                              (:parent-id teardown) (:invoke-id teardown) (:child-id teardown)

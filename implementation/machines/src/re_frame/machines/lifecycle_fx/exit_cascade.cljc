@@ -91,9 +91,14 @@
            ;; instance and no frame. Stamp both, as the transition path's
            ;; machine map carries them, so every `:rf.machine/action-ran` the
            ;; cascade emits names the instance being torn down and carries the
-           ;; `:frame` epoch capture admits a trace by.
+           ;; `:frame` epoch capture admits a trace by. A destroy driven by a
+           ;; dispatched event also stamps that event's `:rf.cofx` record, so
+           ;; the `:exit` reads `:rf/time-ms` as it does on a transition (Spec
+           ;; 005 §Causal host facts); the eventless frame-destroy has none.
+           cofx       (:rf.cofx (rf.frame/current-event-envelope frame-id))
            machine    (some-> (resolve-machine-spec actor-id snapshot)
-                              (assoc :id actor-id :rf/frame frame-id))]
+                              (assoc :id actor-id :rf/frame frame-id)
+                              (cond-> (some? cofx) (assoc :rf/cofx cofx)))]
        (when (and snapshot machine)
          (let [r (rf.machines.parallel/run-active-exit-cascade machine snapshot)]
            (if (rf.machines.result/fail? r)

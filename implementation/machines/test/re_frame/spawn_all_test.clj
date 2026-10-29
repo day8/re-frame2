@@ -1,7 +1,7 @@
 (ns re-frame.spawn-all-test
   "Spec 005 §Spawn-and-join via `:spawn-all`: the closed `:all` / `:any` join
   grammar, sibling cancellation on resolution, an explicit destroy counting as
-  a failure, the unsatisfiable-join warning, completion-carrier ownership, and
+  a failure while the join is live, the unsatisfiable-join warning, completion-carrier ownership, and
   registration-time validation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -40,21 +40,30 @@
 (defn- start-join!
   "Register and start `parent-id`, whose `:joining` state spawn-alls one `child`
   per id in `child-ids` under `spawn-all` and takes the transitions `on`.
+  `opts` adds `:states` beside `:joining`, an `:exit` on it, and with `:fixed?`
+  spawns each child at the fixed address `:<parent-name>/<child-id>`.
   Returns the spawned ids by child id."
-  [parent-id child-ids spawn-all on]
-  (rf/reg-machine :spawn-all-test/child child)
-  (rf/reg-machine parent-id
-    {:initial :idle
-     :actions {:record (fn [{data :data ev :event}] {:data (assoc data :join-event ev)})}
-     :states  {:idle    {:on {:start :joining}}
-               :joining {:spawn-all (assoc spawn-all :children
-                                           (mapv (fn [id] {:id id :machine-id :spawn-all-test/child
-                                                           :start [:set-id id]})
-                                                 child-ids))
-                         :on        on}
-               :over    {}}})
-  (rf/dispatch-sync [parent-id [:start]])
-  (:children (join-state parent-id)))
+  ([parent-id child-ids spawn-all on]
+   (start-join! parent-id child-ids spawn-all on {}))
+  ([parent-id child-ids spawn-all on {:keys [states exit fixed?]}]
+   (rf/reg-machine :spawn-all-test/child child)
+   (rf/reg-machine parent-id
+     {:initial :idle
+      :actions {:record (fn [{data :data ev :event}] {:data (assoc data :join-event ev)})}
+      :states  (merge {:idle    {:on {:start :joining}}
+                       :joining (cond-> {:spawn-all (assoc spawn-all :children
+                                                           (mapv (fn [id]
+                                                                   (cond-> {:id id :machine-id :spawn-all-test/child
+                                                                            :start [:set-id id]}
+                                                                     fixed? (assoc :fixed-actor-id
+                                                                                   (keyword (name parent-id) (name id)))))
+                                                                 child-ids))
+                                         :on        on}
+                                  exit (assoc :exit exit))
+                       :over    {}}
+                      states)})
+   (rf/dispatch-sync [parent-id [:start]])
+   (:children (join-state parent-id))))
 
 (defn- join-event [parent-id]
   (get-in (snapshot parent-id) [:data :join-event]))
@@ -151,6 +160,39 @@
       (is (= [nil nil] (mapv snapshot (vals ids))))
       (is (empty? (events-of :rf.machine.spawn-all/any-failed))))))
 
+(deftest a-destroy-while-the-parent-leaves-the-join-ends-it
+  (let [kill      (fn [{[_ id] :event}] {:fx [[:rf.machine/destroy id]]})
+        spawn-all {:on-all-complete [:phase/done] :on-any-failed [:phase/failed]}]
+    (testing "a destroy in the leaving transition's action: the parent rests in
+              its leaving target and receives no :on-any-failed"
+      (let [ids (start-join! :sup/leave-kill [:a :b] spawn-all
+                             {:cancel {:target :cancelled :action kill}}
+                             {:states {:cancelled {:on (over-on :phase/failed)}}})]
+        (rf/dispatch-sync [:sup/leave-kill [:cancel (:a ids)]])
+        (is (= [:cancelled nil] [(:state (snapshot :sup/leave-kill)) (join-event :sup/leave-kill)]))
+        (is (= [nil nil] (mapv snapshot (vals ids))))
+        (is (empty? (events-of :rf.machine.spawn-all/any-failed)))
+        (is (empty? (events-of :rf.warning/spawn-all-join-unsatisfiable)))))
+    (testing "control: the same destroy with the parent staying in the join fires
+              :on-any-failed"
+      (rf.machines.test-support/reset-captured!)
+      (let [ids (start-join! :sup/stay-kill [:a :b] spawn-all
+                             (assoc (over-on :phase/failed) :cancel {:action kill}))]
+        (rf/dispatch-sync [:sup/stay-kill [:cancel (:a ids)]])
+        (is (= [:over [:phase/failed :a cancellation-result]]
+               [(:state (snapshot :sup/stay-kill)) (join-event :sup/stay-kill)]))
+        (is (= 1 (count (events-of :rf.machine.spawn-all/any-failed))))))
+    (testing "a destroy in the :spawn-all state's :exit while the parent is torn
+              down: no :on-any-failed re-creates the destroyed singleton"
+      (rf.machines.test-support/reset-captured!)
+      (rf/reg-event :sup/destroy (fn [_ [_ id]] {:fx [[:rf.machine/destroy id]]}))
+      (start-join! :sup/torn [:a :b] spawn-all (over-on :phase/failed)
+                   {:fixed? true
+                    :exit   (fn [_] {:fx [[:rf.machine/destroy :torn/a]]})})
+      (rf/dispatch-sync [:sup/destroy :sup/torn])
+      (is (= [nil nil nil] (mapv snapshot [:sup/torn :torn/a :torn/b])))
+      (is (empty? (events-of :rf.machine.spawn-all/any-failed))))))
+
 (deftest destroying-a-join-child-that-strands-the-join-warns
   (testing "with no :on-any-failed, an explicit destroy of one :all child is
             tracked as a failure is: the join can no longer succeed, the advisory
@@ -216,6 +258,17 @@
             #"machine-spawn-all-bad-shape"
             {:spawn-all {:children        [{:id :x :fixed-actor-id :x/kid}]
                          :on-all-complete [:done]}}]
+           ;; nothing arms a per-child deadline; the join's is the state's own
+           [":spawn-all child carrying a spawn-level :timeout / :on-timeout"
+            #"machine-unknown-spawn-key"
+            {:spawn-all {:children        [{:id :x :machine-id :foo
+                                            :timeout 600000 :on-timeout {:target :s}}]
+                         :on-all-complete [:done]}}]
+           [":spawn-all whose :on-any-failed is a keyword, not an event vector"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children        [{:id :x :machine-id :foo}]
+                         :on-all-complete [:done]
+                         :on-any-failed   :failed}}]
            ;; the natural spelling of a runtime-sized fan-out; refused by the
            ;; grammar, never by a host exception
            [":spawn-all whose :children is a fn"
