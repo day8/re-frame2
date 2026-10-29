@@ -194,10 +194,9 @@
 ;;
 ;; The capture survives a macrotask, and it is the thing that serves the
 ;; crossing HD-011 made the escape for. `[:>]` is
-;; `defhost` with the declaration erased, and a declaration is what a
-;; callback contract lives on — so `raw-crossing`'s roster is empty by
-;; construction and every slot at this crossing is UNCLAIMED. What remains
-;; is a plain function, which carries nothing. The frame has to be put
+;; `defhost` with the declaration erased, and at either door a plain
+;; function crosses untouched — so what reaches the foreign component is
+;; the body's own function, which carries nothing. The frame has to be put
 ;; into it by hand, in the body, where it is knowable.
 
 (def ^:private !built
