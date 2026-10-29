@@ -1,92 +1,19 @@
 (ns re-frame.views.frame-boundary
-  "Substrate-agnostic cores for the TWO frame-boundary components — the
-  ENSURE-shaped `rf/frame-root` and the SCOPE-only `rf/frame-provider`. One
-  verb per component (EP-0024 §Scope, carry, and ownership — *roots ensure;
-  providers scope*):
+  "Substrate-agnostic cores for the two frame-boundary components, the
+  ENSURE `rf/frame-root` and the SCOPE-only `rf/frame-provider` — *roots
+  ensure; providers scope*. Spec 002 §`frame-root` — the ENSURE component
+  and §`frame-provider` — the SCOPE-only component hold the contract
+  (EP-0024 §Scope, carry, and ownership are separate).
 
-    - **`rf/frame-root` — ENSURE (commit-owned).** Create the frame if absent,
-      REUSE it if present WITHOUT re-seeding, and provide its id to descendants.
-      **There is NO destroy-on-unmount.** A genuine unmount leaves the frame
-      live. Takes the `rf/make-frame` opts (`{:id :images :initial-events
-      :url-bound? …}` + record-config). `:id` is REQUIRED and must be a keyword.
+  The per-substrate shells — Reagent's in `re-frame.views.provider`, UIx's
+  `defui`s, Fresco's boundary heads — read their props in their own idiom,
+  run the did-you-mean rejectors and guards here, and hand a clean opts map
+  and children down. frame-root's commit-owned two-pass lifecycle lives once,
+  in `frame-root-fc`, so no substrate carries a copy to drift, as
+  `re-frame.substrate.spine/build-frame-provider-element` does for the
+  scope-only element build.
 
-    - **`rf/frame-provider` — SCOPE-only.** Provide an ALREADY-CREATED frame's
-      id to descendants through the shared React context. Creates / refreshes /
-      destroys NOTHING. FAILS LOUD when the named frame is ABSENT
-      (`:rf.error/frame-provider-frame-absent`) — the guardrail Story + Xray rely
-      on (you asked to scope a frame that does not exist). This is the
-      scope-INTO-React counterpart to `rf/with-frame` (a dynamic var cannot cross
-      React's render boundary). The validate-keyword + provide-tier work itself
-      lives in the per-adapter shells
-      (`re-frame.substrate.spine/build-frame-provider-element` /
-      `re-frame.adapter.context/provider-element`); the absent guard
-      (`require-live-frame-for-scope!`) lives here so every shell validates
-      against one place.
-
-  ## Why two components, and why frame-root is a COMMIT-OWNED TWO-PASS boundary
-
-  A component that ran `make-frame` (registry mutation + synchronous
-  `:initial-events`) FROM ITS BODY (render phase) would violate React render
-  purity, with a concrete failure: a Suspense-aborted / concurrent pre-commit
-  render would create + seed a GHOST frame whose once-per-lifetime
-  initialization is consumed, yet the component never commits; a later real
-  mount would then re-`make-frame` the same id (idempotent replacement) and
-  never replay the initialization. Creating side-effecting state during render
-  is the root defect.
-
-  `frame-root` avoids it by owning the ENSURE at COMMIT time, in two passes:
-
-    1. **First render emits NO descendant subtree.** `frame-root-fc` returns
-       `nil` (no children, no Provider) on its first render — before the frame
-       exists, there is nothing to scope. A render that React discards (Suspense
-       / concurrent abort) therefore creates NOTHING and seeds NOTHING.
-    2. **ENSURE runs in a client `useLayoutEffect`.** Only a render that COMMITS
-       runs the layout effect; the effect calls `make-frame` (idempotent
-       creation) and marks the boundary READY (a `useState` flip). The
-       synchronous layout-phase state flip re-renders BEFORE the browser paints,
-       so there is no visible flash.
-    3. **After ready, provider + children render.** The second render scopes the
-       now-live frame's id to the children through the shared React context.
-
-  `:initial-events` therefore fire **ONCE on first successful creation in a
-  committed frame-root/frame-id lifetime**, never on a re-mount or a
-  reconfiguration: `make-frame` fires them on first creation and re-construction
-  RE-RECORDS but does NOT REPLAY them on an idempotent re-registration
-  (EP-0027 §Frame provider). React StrictMode's dev double-invoke of the layout
-  effect is safe for the same reason — the second `make-frame` is idempotent
-  replacement, preserving durable state and not replaying `:initial-events`.
-
-  A MOUNTED `:id` / opts change FAILS LOUD (`:rf.error/frame-root-reconfigured`)
-  rather than being silently ignored: a committed frame-root scopes exactly one
-  frame for its lifetime, and re-pointing it at a different frame (or a different
-  configuration) is a configuration error, not a reconfiguration the boundary
-  supports. Change the `:id` and remount (a React `key`) to scope a different
-  frame; use `rf/make-frame` again to reconfigure the SAME frame.
-
-  ## Fail-loud, both ways (did-you-mean)
-
-  The two components have disjoint required keys, and each rejects the sibling's
-  key with a diagnostic that names the sibling:
-
-    - `frame-provider` (SCOPE) given `:id`  → `:rf.error/frame-provider-given-id`
-      (\"did you mean `frame-root`?\").
-    - `frame-root` (ENSURE) given `:frame`   → `:rf.error/frame-root-given-frame`
-      (\"did you mean `frame-provider`?\").
-    - both-keys is covered by the same two rejectors (giving a SCOPE component
-      an `:id`, or an ENSURE component a `:frame`, is the error regardless of
-      whether the component's own key is also present).
-
-  ## Where this lives
-
-  CLJS-only (in core, like `re-frame.adapter.context`): it reaches React-shaped
-  lifecycle through ONE shared React function component (`frame-root-fc`) so the
-  commit-owned two-pass handling lives ONCE, not per substrate. The per-adapter
-  shells (Reagent's `:r>` embed in `re-frame.views.provider`, UIx's
-  `defui`) only read their props in the native idiom, DISPATCH on
-  `:frame` vs `:id`, and hand a clean opts map + children to these cores — zero
-  per-substrate lifecycle drift, mirroring how
-  `re-frame.substrate.spine/build-frame-provider-element` factors the scope-only
-  element-build. The plain-atom (JVM-runnable) build never loads this ns."
+  CLJS-only, like `re-frame.adapter.context`; the JVM build never loads it."
   (:require ["react"               :as React]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.error        :as rf.error]
@@ -104,24 +31,12 @@
 ;; re-registration (EP-0027), NOT a teardown trick.
 
 (defn acquire-frame-root!
-  "ENSURE (EP-0024). Create the named frame if absent, REUSE
-  it WITHOUT re-seeding if present, and return the resolved frame id.
-
-  Runs the unified `make-frame` over the frame-root's `opts` (`{:id :images
-  :initial-events :url-bound? …}` plus any record-config keys). Idempotent under
-  the same `:id`: a re-acquire (hot reload / StrictMode remount / Story re-eval)
-  takes `make-frame`'s idempotent-replacement path — the record-config + resolved
-  generation refresh while durable state (app-db, sub-cache, queue) is PRESERVED
-  and `:initial-events` are RE-RECORDED but NOT REPLAYED (EP-0027 §Frame
-  provider). So a remount never re-seeds.
-
-  `opts` must carry an explicit `:id` keyword — a frame-root names the frame it
-  ensures, so the id is the addressing token. `make-frame`'s own validation fails
-  loud on a bad shape. Returns the frame id (read off the returned frame value
-  via `rf.frame/frame-value->id`).
-
-  CALLED FROM COMMIT PHASE (`frame-root-fc`'s `useLayoutEffect`), never from a
-  render body — that is the whole point of the commit-owned boundary."
+  "ENSURE: create the named frame if absent, reuse it without re-seeding if
+  present, and return its id. One `make-frame` over the frame-root's `opts`,
+  whose idempotent replacement under the same `:id` is what makes a remount,
+  a StrictMode re-invoke or a hot reload safe (Spec 002 §`frame-root` — the
+  ENSURE component). `make-frame` validates the opts. Called from
+  `frame-root-fc`'s commit-phase `useLayoutEffect`, never from a render body."
   [opts]
   (rf.frame/frame-value->id (rf.live-frame/make-frame opts)))
 
@@ -132,11 +47,7 @@
   `:children`) and the `:fallback` carrier (an optional pre-ready element,
   reserved: the boundary renders `nil` before it is ready) — and passes
   EVERY OTHER key through: `:id`, `:images`, `:initial-events`, `:url-bound?`, and the
-  record-config keys `make-frame` honours (`:fx-overrides`, `:preset`, …).
-  `:initial-events` run ONCE per committed frame-id lifetime: the first creation
-  runs the setup; a genuine remount / StrictMode re-acquire under the same id
-  RE-RECORDS but does NOT replay (idempotent re-registration preserves durable
-  state)."
+  record-config keys `make-frame` honours (`:fx-overrides`, `:preset`, …)."
   [props]
   (dissoc props :children :fallback))
 
@@ -257,13 +168,9 @@
 
 ;; ---- SCOPE-only: fail-loud-if-absent guard --------------------------------
 ;;
-;; `rf/frame-provider` provides an ALREADY-CREATED frame and creates / refreshes
-;; / destroys NOTHING. Per EP-0024 it FAILS LOUD when the
-;; named frame is ABSENT (the scope-only guardrail Story + Xray rely on) — a
-;; caller cannot silently scope a subtree to a frame that does not exist. The
-;; guard lives here (beside the frame-root id guard) so both the Reagent and
-;; React-hook shells validate against one place; every per-adapter scope shell
-;; calls it before delegating to the scope-only provide tier.
+;; The guard lives here, beside the frame-root id guard, so every per-adapter
+;; scope shell validates against one place before delegating to its provide
+;; tier.
 
 (defn ^:no-doc require-live-frame-for-scope!
   "Fail loud when a `{:frame existing-id}` SCOPE-only `frame-provider` names a
@@ -324,29 +231,14 @@
 ;; ---- the shared React lifecycle component (frame-root, TWO-PASS) ----------
 ;;
 ;; ONE React function component backs `rf/frame-root` on every React-shaped
-;; substrate (Reagent via `:r>`, UIx via `createElement`). The commit-owned
-;; two-pass ENSURE lives here, not per adapter:
-;;
-;;   PASS 1 (render, pre-ready): return nil. No frame exists yet, so there is
-;;     nothing to scope and NO descendant subtree is emitted. A render React
-;;     discards (Suspense / concurrent abort) thus creates + seeds NOTHING.
-;;   COMMIT (useLayoutEffect): `make-frame` (idempotent creation), record the
-;;     committed opts baseline, flip the READY state. Only a render that COMMITS
-;;     reaches here. StrictMode double-invoke is safe (idempotent make-frame,
-;;     re-construction does not replay :initial-events).
-;;   PASS 2 (render, ready): scope the now-live frame's id to the children
-;;     through the shared React context Provider.
-;;
-;; A mounted `:id` / opts change is a render-phase fail-loud
-;; (`:rf.error/frame-root-reconfigured`) — a committed root scopes exactly one
-;; frame for its lifetime. There is deliberately NO unmount effect — the
-;; frame-root does not own the frame's teardown. True ownership is explicit
-;; (`make-frame` + `destroy-frame!` inside a `create-class`).
+;; substrate — Reagent through `:r>`, UIx and Fresco through
+;; `frame-root-react-element` — so the commit-owned two-pass ENSURE lives here,
+;; not per adapter.
 
 (defn ^:no-doc frame-root-fc
   "The React function component that ENSURES one frame at COMMIT time and scopes
-  it to its children — ONE implementation shared by every React-shaped
-  substrate. `props` is a JS object carrying:
+  it to its children, in the two passes Spec 002 §`frame-root` — the ENSURE
+  component specifies. `props` is a JS object carrying:
 
     - `:rfOpts`   — the `make-frame` opts (an opaque CLJS value, already stripped
                     of `:children` / `:fallback` by `frame-root-opts`; passed
@@ -360,32 +252,13 @@
                     native React children), so they arrive here as ordinary React
                     children.
 
-  Two-pass, commit-owned:
-
-    - `ready?` (a `useState` flag) is `false` on first render → return `nil`
-      (PASS 1: no frame yet, so no subtree — a discarded render creates nothing).
-    - A `useLayoutEffect` (empty deps, so it runs once per committed mount; twice
-      under StrictMode's dev double-invoke, harmlessly, because `make-frame` is
-      idempotent) calls `acquire-frame-root!`, records the committed opts baseline
-      in a ref, and flips `ready?` true. The layout-phase state flip re-renders
-      synchronously before paint.
-    - Once `ready?`, return the shared frame Context Provider element scoping the
-      ENSURED frame's id (`:id` of the opts) to the children (PASS 2).
-
-  A MOUNTED `:id` / opts change is caught in the render guard and fails loud
-  (`require-unchanged-root-opts!`) — the committed baseline in the ref is
-  compared against this render's opts.
-
-  A render while the root's adoption flag is up (`rf.adapter.context/
-  adoption-context`, provided by a hydrating root) refuses with
-  `:rf.error/fresco-frame-root-adopting`: an empty first pass cannot adopt
-  the server's markup.
-
-  No unmount effect: the frame-root does NOT destroy the frame on unmount
-  (EP-0024: the frame-root does not own the frame's teardown). A genuine
-  unmount leaves the frame live; a keyed remount re-ensures it (idempotent, no
-  re-seed). True ownership is expressible as `make-frame` + `destroy-frame!`
-  inside a `create-class`."
+  `ready?` is false on the first render, which returns nil; the empty-deps
+  `useLayoutEffect` ensures the frame, records the committed opts in a ref and
+  flips `ready?`, and the ready render returns the Provider. A later render
+  whose opts differ from the committed ones fails loud
+  (`require-unchanged-root-opts!`), and a render under an adopting root refuses
+  (`refuse-adopting-frame-root!`). It arms no unmount effect: the boundary does
+  not own the frame's teardown."
   [^js props]
   (let [opts       (.-rfOpts props)
         children   (.-children props)
@@ -424,9 +297,9 @@
       nil)))
 
 (defn ^:no-doc frame-root-react-element
-  "Build the raw React element for `rf/frame-root`, for the React-hook substrates
-  (UIx). The substrate-agnostic CORE those adapters' native `frame-root`
-  shells delegate to, parallel to
+  "Build the raw React element for `rf/frame-root`, for UIx's `frame-root` and
+  Fresco's boundary head. The substrate-agnostic CORE those shells delegate to,
+  parallel to
   `re-frame.substrate.spine/build-frame-provider-element` for the scope-only
   `frame-provider`. Given the frame-root's already-native-read prop map `props`
   (`{:id :images :initial-events :url-bound? …}`), the React children value

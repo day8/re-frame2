@@ -1160,15 +1160,9 @@
      ;; The captured incarnation was superseded between the outer
      ;; subscribe-in-frame comparison and this durable build — recover-but-emit
      ;; and DO NOT read/build/cache into the same-id successor (identical posture
-     ;; to the outer fence; one exact-incarnation operation).
-     ;; `emit-frame-destroyed-recovery!` is subscribe-realm by
-     ;; construction and stamps `:op :subscribe`, so the resolved `:source-coord`
-     ;; names the `[:sub id]` realm.
-     ;; This branch is reached ONLY for a CAPTURED subscribe (guarded
-     ;; by `some? expected-incarnation`) whose pinned incarnation is dead, so the
-     ;; bare `frame-id` may name a live same-id successor B — pass `route-frame?`
-     ;; false to keep A's failure out of B's frame-owned `:observability :errors`
-     ;; sink (corpus record + dev trace still fire).
+     ;; to the outer fence; one exact-incarnation operation). Only a captured
+     ;; read reaches here, so `route-frame?` is false — see
+     ;; `emit-frame-destroyed-recovery!` for why.
      (do (emit-frame-destroyed-recovery! frame-id query-v false) nil)
      ;; else — the build, against the validated `frame-record` for a
      ;; captured read (never a bare-id re-resolve), or re-resolved by id for the
@@ -1560,40 +1554,19 @@
      (build-and-cache!* frame-id query-v expected-incarnation))))
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
-;;
-;; See the block comment inside `subscribe` for the full rationale. This
-;; helper is CLJS-only and consulted ONLY inside the
-;; `rf.interop/debug-enabled?` gate, so the whole seam DCEs under `:advanced`
-;; + `goog.DEBUG=false`. The resolver fn + the React-context reader are
-;; published from Story / the CLJS-only carriage ns
-;; (`re-frame.adapter.sub-override-context`) via the
-;; `:subs/resolve-sub-override` late-bind hook, so core never `:require`s
-;; a tools ns (bundle-isolation holds).
-;;
-;; The schema-validation fold-in (`:where :sub-override` — an override
-;; that violates the sub's own declared `:schema` is the 'pin a state the
-;; real derivation could never produce' anti-pattern) lives in the ONE
-;; shared `re-frame.subs.override-schema/validate-sub-override!` primitive
-;; so the compiled-view path applies byte-identical
-;; validation + `:no-recovery` reporting.
 
 #?(:cljs
    (defn- resolve-sub-override
-     "Consult the `:subs/resolve-sub-override` late-bind hook for an
-     exact-query-vector `:sub-overrides` HIT. The hook (Story-
-     published) reads the closest enclosing override-context Provider and
-     returns `[value]` on a hit (a one-element vector so a nil-valued
-     override is honoured) or nil on a miss / unbound.
-
-     On a HIT, schema-validate the pinned value (the shared
-     `rf.subs.override-schema/validate-sub-override!` primitive) and return a
-     CONSTANT reaction `(rf.substrate.adapter/make-derived-value [] (constantly v))` —
-     no inputs, never recomputes, never cached, never touches app-db /
-     `compute-sub`. On a miss / unbound / unpublished hook, return nil so
-     `subscribe` falls through to the normal build-and-cache path.
-
-     CLJS-only and called ONLY inside `subscribe`'s `rf.interop/debug-enabled?`
-     gate, so this DCEs in production."
+     "Story's `:sub-overrides` consult (Spec 006 §The sub-override subscribe
+     seam (debug-gated)). The `:subs/resolve-sub-override` hook is published
+     from the tool side, so core never requires a tools ns; it answers
+     `[value]` on an exact-query-vector hit, so a nil override still hits.
+     On a hit, return a constant reaction over the pinned value, validated by
+     the shared `rf.subs.override-schema/validate-sub-override!` so the
+     compiled-view path reports a schema-invalid override identically. nil on
+     a miss or an unpublished hook, so `subscribe-in-frame` falls through to
+     the build. Called only inside its `rf.interop/debug-enabled?` gate, so it
+     elides in production."
      [frame-id query-v]
      (when-let [resolve-override (rf.late-bind/get-fn :subs/resolve-sub-override)]
        (when-let [hit (resolve-override query-v)]
@@ -1827,16 +1800,8 @@
   builds against its OWN view, byte-identical to the keyword form. Mirrors the dispatch-side normalization in
   `re-frame.router/build-envelope`.
 
-  Per Spec 006 §The sub-override subscribe seam (CLJS /
-  dev-only): when a Story render wraps the variant view in the
-  override-context Provider, an exact-query-vector `:sub-overrides` HIT
-  short-circuits build-and-cache and returns a constant reaction holding
-  the pinned value (schema-validated against the sub's declared
-  `:schema` when present). The whole consult sits inside
-  `rf.interop/debug-enabled?` so it DCEs in production, and the override
-  feeds ONLY the derefed reaction the view sees — never app-db, never
-  `compute-sub` — so `:rf.assert/sub-equals` stays unsatisfiable by an
-  override.
+  A CLJS dev `:sub-overrides` hit returns `resolve-sub-override`'s constant
+  reaction in place of the build.
 
   `expected-incarnation` (3-arity) is the EXACT incarnation token a
   `capture-frame` `:subscribe` op pinned at capture. When non-nil the read is
@@ -1863,45 +1828,6 @@
       (when rf.interop/debug-enabled?
         (when-let [record! (rf.late-bind/get-fn :views/record-view-deref!)]
           (record! query-v))))
-   ;; (CLJS, dev-only): the SUBSTITUTIVE override seam. Story's
-   ;; lowest-fidelity ladder rung (`:sub-overrides`) pins a view into an
-   ;; `:error`/`:loading`/`:empty` state by naming subscription
-   ;; query-vectors and the values they should surface — no events, no
-   ;; app-db (`tools/story/spec/017-Testing-Story.md` §View-state
-   ;; subscription overrides). When a Story render wraps the variant view
-   ;; in the override-context Provider (`re-frame.adapter.sub-override-
-   ;; context`), the resolver published under `:subs/resolve-sub-override`
-   ;; reads the closest enclosing override map and returns `[value]` on an
-   ;; exact-query-vector HIT (a one-element vector so a nil-valued
-   ;; override is still honoured) or nil on a miss / unbound / production.
-   ;;
-   ;; On a HIT we short-circuit build-and-cache and hand back a CONSTANT
-   ;; reaction `(rf.substrate.adapter/make-derived-value [] (constantly v))`: it has no
-   ;; inputs, so it never recomputes, is never cached, and feeds ONLY the
-   ;; derefed reaction the view sees. It NEVER touches app-db and NEVER
-   ;; reaches `compute-sub`, so `:rf.assert/sub-equals` (which evaluates a
-   ;; sub through `compute-sub` against the real app-db) still cannot be
-   ;; satisfied by an override — the load-bearing honesty boundary.
-   ;;
-   ;; An override that violates the sub's own
-   ;; declared output `:schema` is exactly the "pin a state the real
-   ;; derivation could never produce" anti-pattern, so we schema-validate
-   ;; the pinned value the SAME way Spec 010 §step 6 validates a
-   ;; `:sub-return` — through the `:schemas/check!` seam, dev-only. On a
-   ;; mismatch it emits `:rf.error/schema-validation-failure` with a `:where
-   ;; :sub-override` discriminator and we still surface the pinned value,
-   ;; as `:sub-return` does (`:recovery :no-recovery` — the failure is
-   ;; reported, the view renders what was pinned).
-   ;;
-   ;; This whole block is the same `rf.interop/debug-enabled?` +
-   ;; `rf.late-bind/get-fn` envelope the `:views/*` subscribe hooks above use,
-   ;; so it DCEs under `:advanced` + `goog.DEBUG=false`; the resolver +
-   ;; the context reader live in Story / the CLJS-only carriage ns, so
-   ;; core stays tools-free (bundle-isolation holds). `resolve-sub-override`
-   ;; (CLJS, dev-only) returns the constant override reaction on a HIT, or
-   ;; nil to fall through to the normal build-and-cache path. On the JVM
-   ;; and in production it is always nil (the gate / reader DCE / no-op).
-   ;;
    ;; Route the BUILD path through the target frame's
    ;; resolved IMAGE generation when `frame-id` names an image-loaded frame, so
    ;; `rf.registrar/lookup :sub` (and the layer-2+ input `subscribe` calls inside
@@ -1942,37 +1868,15 @@
          ;; Missing or destroyed frame, OR a superseded captured read:
          ;; recover-but-emit `:rf.error/frame-destroyed` and return
          ;; nil rather than deref-ing nil, reading a same-id successor's app-db,
-         ;; or caching a reaction in its sub-cache. Production-survivable
-         ;; (surface #4) so a subscribe during a teardown / hot-reload race
-         ;; recovers safely while a real use-after-destroy bug stays observable on
-         ;; the production-watched stream.
-         ;;
-         ;; The `expected-incarnation` comparison (folded into
-         ;; `superseded?`) is made against the record we JUST resolved for the
-         ;; read — A destroyed + a same-id successor B installed after the
-         ;; capture's liveness pre-check resolves B here, whose `:drain-lock`
-         ;; differs from the pinned token — so validation and consumption are one
-         ;; exact-incarnation operation. The DURABLE build/read past
-         ;; this cond (a miss, or a hit's concurrent-eviction rebuild) carries the
-         ;; SAME token into `build-and-cache!*`, which re-fences it, so a
-         ;; supersession in the post-comparison window cannot retarget B either. A
-         ;; nil `expected-incarnation` leaves the clause a pure
-         ;; `(nil? frame-record)` test.
+         ;; or caching a reaction in its sub-cache (Spec 006 §Lifetime contract —
+         ;; frame disposal). Recovering keeps a teardown / hot-reload race safe
+         ;; while a real use-after-destroy stays visible on the always-on stream.
+         ;; The durable build past this cond carries the same token into
+         ;; `build-and-cache!*`, which re-fences it, so a supersession after this
+         ;; comparison cannot retarget the successor either.
          (or (nil? frame-record) superseded?)
-         ;; `emit-frame-destroyed-recovery!` is
-         ;; subscribe-realm by construction and stamps `:op :subscribe`
-         ;; UNCONDITIONALLY — for a CAPTURED subscribe (superseded or a captured
-         ;; pin whose frame is now missing) AND for an ORDINARY address-directed
-         ;; subscribe to a missing frame alike. The resolved `:source-coord` names
-         ;; the EXACT `[:sub id]` realm (omitting when the sub-id is genuinely
-         ;; unregistered), and the attempted query vector egresses on the `:event`
-         ;; slot as raw IDENTITY rather than fail-closed to redacted.
-         ;; Suppress the EP-0015 frame-owned sink route ONLY for a dead
-         ;; CAPTURED incarnation (`superseded?` — a captured pin whose frame was
-         ;; destroyed/reseated, so the bare `frame-id` may name a live same-id
-         ;; successor B). An ORDINARY address-directed subscribe (`superseded?`
-         ;; false, `expected-incarnation` nil, frame simply missing) keeps its
-         ;; default route — its bare id names no captured incarnation.
+         ;; Only a dead CAPTURED incarnation suppresses the frame-owned sink
+         ;; route — see `emit-frame-destroyed-recovery!` for why.
          (emit-frame-destroyed-recovery! frame-id query-v (not superseded?)) ;; emits, returns nil
 
          :else

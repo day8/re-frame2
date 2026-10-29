@@ -1,26 +1,13 @@
 (ns re-frame.adapter.context
-  "Shared React context for frame propagation across substrate adapters.
+  "Shared React context for frame propagation across substrate adapters
+  (Spec 006 §Frame-provider via React context; Spec 002 §Reading the frame
+  from React context).
 
-  Per Spec 006 §Frame-provider via React context, the frame keyword is
-  propagated through the React tree via a single React Context. Both the
-  Reagent and UIx adapters read this same context object so a tree
-  containing components from multiple substrates resolves frames
-  consistently — and so a mixed-substrate app sees one shared
-  frame-provider chain rather than per-adapter silos.
-
-  The context lives in core (CLJS-only) because:
-
-    1. It is CLJS-only (re_frame/adapter/context.cljs): the plain-atom
-       adapter (the JVM-runnable half) does not load it, so the JVM build
-       never sees its React require.
-
-    2. Both adapters MUST share the *same* React.createContext object —
-       two separate createContext calls produce distinct contexts whose
-       Provider/Consumer pairs do not interact. Putting the createContext
-       call in a single shared ns guarantees identity.
-
-  Separate from re-frame.views so every React-shaped adapter (UIx)
-  reads the same context object."
+  Every React-shaped adapter (Reagent, UIx, Fresco) must read the SAME
+  `createContext` object — two calls produce distinct contexts whose
+  Provider/Consumer pairs do not interact — so the one call lives here, in a
+  leaf ns each adapter requires rather than in `re-frame.views`. CLJS-only,
+  so the JVM build never sees its React require."
   (:require ["react" :as React]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
@@ -43,11 +30,8 @@
   :rf.frame/no-provider)
 
 (defonce frame-context
-  ;; Default = the no-provider sentinel (NOT :rf/default). Components
-  ;; beneath neither frame boundary — `frame-provider` (SCOPE) nor
-  ;; `frame-root` (ENSURE) — observe this; the resolver maps it to nil (no
-  ;; scope) rather than to a synthesised default frame, per the EP-0002
-  ;; carried invariant.
+  ;; Default = `no-provider-sentinel` (NOT :rf/default), so a component
+  ;; beneath no frame boundary reads as having no scope.
   (.createContext React no-provider-sentinel))
 
 ;; Stamp a human-readable `displayName` on the React Context
@@ -65,9 +49,12 @@
 
 (defn provider-element
   "Build a React element for the frame-context Provider with `frame-kw`
-  as its value and `children` as its child elements. Substrate-agnostic
-  — the Reagent adapters (via `:>` interop) and the UIx adapter (via
-  `$`) both wrap their element idiom around this primitive.
+  as its value and `children` as its child elements. The one element
+  builder behind `re-frame.substrate.spine/build-frame-provider-element`
+  (UIx's and Fresco's `frame-provider`), Fresco's
+  `:register-context-provider` slot, and `frame-root-fc`'s ready pass
+  (every substrate's `frame-root`); Reagent's `frame-provider` mounts the
+  same Provider through its own `:r>` head instead.
 
   Returns a raw React element so callers don't pay for an extra
   reagent.core/as-element walk."
@@ -368,40 +355,14 @@
         primary))))
 
 (defn function-component-current-frame
-  "Resolution chain (READER) for function-component substrates (UIx).
-  Returns the scope frame, or **nil** when no scope is
-  established — it never synthesises `:rf/default` (per Spec 002 §Frame
-  target resolution — the carried invariant, EP-0002). The two tiers it
-  observes:
-
-    1. `re-frame.frame/*current-frame*` (dynamic var) — set by
-       `with-frame` / `bind-fn`.
-    2. The closest enclosing frame boundary via React context — either a
-       `frame-provider` (SCOPE) or a `frame-root` (ENSURE); both install
-       the same shared context, so a read resolves identically beneath
-       either. Reads the ACTIVE value slot off the shared context object
-       directly (the substrate-portable path; UIx's `use-context` is
-       sugar over this read — which slot is active depends on the renderer,
-       see the NOTE below) and classifies the value it selected, ONCE,
-       through the shared [[context-value->current-frame]] rules.
-
-  Returns nil when neither tier names a frame — a component rendered
-  beneath neither frame boundary observes the no-provider sentinel, which
-  resolves to nil ('no scope'). Public frame-scoped operations turn that
-  nil into a loud `:rf.error/no-frame-context` via
-  `rf.frame/require-current-frame!`; low-level readers / tooling model 'no
-  context' with the nil directly.
-
-  NOTE: React carries TWO value slots per
-  context — `_currentValue` (primary; the client renderer) and
-  `_currentValue2` (secondary; React 19.2's `react-dom/server` writes and
-  reads THIS one). So tier 2 reads the primary slot and falls back to the
-  secondary ONLY when the primary holds the untouched no-provider sentinel.
-  Under the client renderer the secondary slot is never written, so it still
-  holds `createContext`'s default — the same sentinel — and the fallback is
-  inert. Callers that can observe the renderer-agnostic value (a component
-  reading `useContext` inside render, e.g. the compiled ViewCell) may pass
-  that value to [[context-value->current-frame]] directly instead.
+  "Resolution chain (READER) for function-component substrates (UIx), the
+  UIx adapter's `:current-frame` capability (Spec 006 §Frame-provider via
+  React context). Returns the dynamic var's frame, else the closest
+  enclosing frame boundary's through [[context-slot-frame]], else nil — never
+  a synthesised `:rf/default`. Callers that can observe the
+  renderer-agnostic value (a component reading `useContext` inside render,
+  e.g. the compiled ViewCell) may pass that value to
+  [[context-value->current-frame]] directly instead.
 
   The dynamic tier stays FIRST here, unlike Reagent's
   `re-frame.views/current-frame`: a function component offers no
