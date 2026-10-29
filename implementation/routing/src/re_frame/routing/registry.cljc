@@ -808,7 +808,8 @@
     the layered validator.
   - `:uuid` — coerced to a UUID object when the string is the 8-4-4-4-12
     hex spelling in either case, identically on JVM and CLJS (any other
-    string passes through; never throws). This is what makes the canonical Spec 012 `:uuid` PATH route
+    string passes through; never throws). This is what makes the
+    canonical Spec 012 `:uuid` PATH route
     (`{:path \"/articles/:id\" :params [:map [:id :uuid]]}`) round-trip a
     real UUID URL to `{:id #uuid \"...\"}` rather than 404.
   - `[:rf.route/enum-keyword {token kw} {kw token}]` — declared as
