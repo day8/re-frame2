@@ -12,6 +12,10 @@
 > sugar (core's `rf/reg-state`) and a real test kit, so most Reagent constructs convert.
 > Three things genuinely do not.
 
+**Contents:** MIG-36 the update protocol · MIG-03 a frame-pinned read · MIG-35
+introspection and schedulers · MIG-20 recap · not holds — they convert ·
+phrasing a hold.
+
 ## MIG-36 — the prev-props / prev-state update protocol
 
 ```clojure

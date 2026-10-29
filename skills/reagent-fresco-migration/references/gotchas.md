@@ -4,6 +4,10 @@
 > renders, and then misbehaves. Read them before a first migration. They are
 > ordered by how expensive they are to find later.
 
+**Contents:** three leftovers, three ids · reading a complaint · brackets
+versus parens · the bare-symbol trap · the `::h/…` keywords · the other silent
+traps, by rule · the guide is not the API.
+
 ## Three leftovers, three ids — and only one of them fails at CLICK time
 
 The single most consequential trap in the whole migration, and it is really

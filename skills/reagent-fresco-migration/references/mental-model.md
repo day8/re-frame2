@@ -4,6 +4,10 @@
 > function I run every render" onto Fresco's "a view is a declared React
 > component I mount", and every rule below stops being a surprise.
 
+**Contents:** the anchor (call versus mount) · the four shifts — one props map,
+deref-drop, handlers as data (and the synchronous drain), no view state · why
+this shapes the tiers · two renderers in one tree.
+
 ## Anchor: a React function component you can also call → one you can only mount
 
 If you know React, the closest analogue is the move from a **function component
