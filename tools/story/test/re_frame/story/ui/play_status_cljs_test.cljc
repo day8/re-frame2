@@ -62,3 +62,8 @@
    (deftest dropdown-row-status-shapes
      (is (= "IDLE" (rf.story.ui.play-status/dropdown-row-status nil)))
      (is (= "RUN"  (rf.story.ui.play-status/dropdown-row-status {:status :running})))))
+
+#?(:cljs
+   (deftest dropdown-row-status-names-a-refusal
+     (is (= "CANNOT-RUN" (rf.story.ui.play-status/dropdown-row-status {:status :cannot-run}))
+         "a run the runner finished as :cannot-run never reads as its raw keyword")))

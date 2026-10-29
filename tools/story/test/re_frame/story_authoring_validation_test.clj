@@ -46,7 +46,7 @@
                {:args "not-a-map"})]                     ; :args must be a map
            [:rf.error/story-panel-shape "story-panel"
             #(rf.story/reg-story-panel :rf.story/bad-panel
-               {:placement :nowhere                      ; not one of the five
+               {:placement :nowhere                      ; not :right, the one host
                 :render    :some/view})]]]
     (testing (str "an invalid " kind " body")
       (let [data (shape-data register!)]

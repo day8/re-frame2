@@ -22,7 +22,8 @@
             [re-frame.story.ui.docs   :as rf.story.ui.docs]
             [re-frame.story.ui.state  :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
-            [re-frame.story.ui.workspace :as rf.story.ui.workspace]))
+            [re-frame.story.ui.workspace :as rf.story.ui.workspace]
+            [re-frame.story.verdict   :as rf.story.verdict]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -638,9 +639,14 @@
              (-> (row {:assertion :rf.assert/sub-equals :passed? false
                        :source-coord {:file "f.cljs" :line 9}})
                  :detail :source))))
-    (testing ":rf.assert/skipped reads :skip; a nil record reads :fail and still has a label"
+    (testing ":rf.assert/skipped reads :skip; a record with no outcome reads as the
+              run's own record rule reads it (`verdict/record-status`: :pass)
+              and still has a label"
       (is (= :skip (:status (row {:assertion :rf.assert/skipped :passed? false}))))
-      (is (= [:fail true] ((juxt :status (comp some? :label)) (row nil)))))
+      (is (= [:pass true] ((juxt :status (comp some? :label)) (row nil))))
+      (is (= (map rf.story.verdict/record-status [{} {:passed? false} {:skipped? true}])
+             (map (comp :status row) [{} {:passed? false} {:skipped? true}]))
+          "a row never disagrees with the verdict its record fed"))
     (testing ":row-key is the label, so the view keys :expanded on identity and a
               re-run that inserts a sibling does not open the wrong row"
       (let [a (row {:assertion :rf.assert/path-equals :payload [[:count] 1]
@@ -666,7 +672,20 @@
   (let [rs rf.story.ui.test-mode.pure/run-status]
     (testing "the unified run-level :status wins"
       (is (= [:pass :fail :error :cannot-run]
-             (map #(rs {:status %} {}) [:pass :fail :error :cannot-run]))))
+             (map #(rs {:status %} {:total 1}) [:pass :fail :error :cannot-run]))))
+    (testing "a :pass that judged nothing shows :pending (spec/009 §Status
+              semantics), so the 'no assertions recorded' pill is reachable"
+      (is (= :pending (rs {:status :pass} {:total 0})))
+      (is (= "no assertions recorded"
+             (rf.story.ui.test-mode.pure/summary-pill-text :pending {:total 0} true)))
+      (is (= "not run yet"
+             (rf.story.ui.test-mode.pure/summary-pill-text :pending {} false))))
+    (testing "a :fail whose assertions all passed names its tape cause instead of
+              '0 failed of N'"
+      (is (= "failed: the run's tape shows an unconsumed failure"
+             (rf.story.ui.test-mode.pure/summary-pill-text :fail {:failed 0 :total 2} true)))
+      (is (= "1 failed of 2"
+             (rf.story.ui.test-mode.pure/summary-pill-text :fail {:failed 1 :total 2} true))))
     (testing "no result is :pending; without :status the counts decide"
       (is (= [:pending :pending :pass :fail :cannot-run]
              [(rs nil nil) (rs {} {:total 0}) (rs {} {:total 2 :failed 0 :all-passed? true})
@@ -792,10 +811,16 @@
     (testing "each play event matches the tape by :trigger-event, in order"
       (is (= [10 11 12] (slice (tape [10 [:a]] [11 [:b]] [12 [:c]]) play))))
     (testing "an interleaved epoch from a non-dispatch step (:click / :type) is
-              skipped, not attributed to the next play event as a positional
-              trailing-N slice would"
-      (is (= [100 102 103]
+              never attributed to the next play event as a positional
+              trailing-N slice would: it lands in the step it follows"
+      (is (= [101 102 103]
              (slice (tape [100 [:a]] [101 [:click/side-effect]] [102 [:b]] [103 [:c]]) play))))
+    (testing "a step's tick restores the state after the child dispatches its
+              :fx queued, which commit their own epochs, and the last tick is
+              the tape's end"
+      (is (= [11 20 31]
+             (slice (tape [10 [:a]] [11 [:a/child]] [20 [:b]] [30 [:c]] [31 [:c/child]])
+                    play))))
     (testing "a tape that runs out before every play event matches yields [] rather
               than a mis-mapping, as do nil and empty inputs"
       (is (= [] (slice (tape [10 [:a]]) play) (slice nil [[:a]])

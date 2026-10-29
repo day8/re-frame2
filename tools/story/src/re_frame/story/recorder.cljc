@@ -671,6 +671,16 @@
                                 :t     (timestamp-since-start state now-ms)}
                          cofx* (assoc :rf.cofx cofx*))))))))
 
+(defn captured-count
+  "How many steps a recording's `entries` captured: its dispatches, DOM
+  interactions and inserted assertions, without the timing markers
+  (`append-timer-child`). A click the DOM rail records is one step, and
+  the dispatch its handler fires is not recorded beside it. The REC chip,
+  the save dialog and the export dialog all count this way, so one
+  recording reads as one count. Pure."
+  [entries]
+  (count (remove #(= :event/timer-child (:kind %)) entries)))
+
 (defn append-timer-child
   "Pure: append a payload-free `{:kind :event/timer-child :t <ms> :ms <delay>}`
   marker onto `:entries` iff the state is recording — the time a

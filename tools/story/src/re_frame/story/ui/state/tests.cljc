@@ -120,14 +120,20 @@
   including a tape-floor `:fail` or a `:cannot-run` refusal that the
   assertion counts alone might miss).
 
-  Status precedence: an explicit run `:status` wins; otherwise it is
-  derived from the counts — zero assertions → `:pending` (grey — ran but
-  no signal); all-passed → `:pass`; any `:cannot-run` (and no fail) →
-  `:cannot-run`; else → `:fail`."
+  Status precedence: a `:pass` that judged nothing (zero assertions) is
+  `:pending` — the run verdict is `:pass` (/spec/007-Stories.md
+  §Story-as-test duality), but the dot stays grey because the run produced no signal
+  (spec/009 §Status semantics); otherwise an explicit run `:status` wins;
+  otherwise it is derived from the counts — zero assertions → `:pending`;
+  all-passed → `:pass`; any `:cannot-run` (and no fail) → `:cannot-run`;
+  else → `:fail`."
   [state variant-id summary]
   (let [{:keys [total passed failed cannot-run skipped all-passed?
                 ran-at-ms elapsed-ms status]} (or summary {})
         status (cond
+                 (and (= :pass status) (zero? (or total 0)))
+                 :pending
+
                  (contains? rf.story.verdict/statuses status)
                  ;; This slot carries the FIVE dot-facing run statuses
                  ;; (`test-run-statuses` — `:cannot-run` is the distinct

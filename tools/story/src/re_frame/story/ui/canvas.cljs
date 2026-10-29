@@ -37,9 +37,7 @@
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.loaders :as rf.story.loaders]
             [re-frame.story.registrar :as rf.story.registrar]
-            [re-frame.story.args :as rf.story.args]
             [re-frame.story.decorators :as rf.story.decorators]
-            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.render :as rf.story.render]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.sub-overrides :as rf.story.sub-overrides]
@@ -504,15 +502,22 @@
   calling it too for the same generation collapses to one execution.
 
   The 0-arity reads the shell, for the lifecycle hooks (which run outside
-  render). The 2-arity takes a `run-key` the caller already holds, so
-  `canvas-inner`'s render-phase call never derefs the shell atom — a deref
-  there would subscribe that render to every shell write."
+  render), and always RESUMES: the render-phase call below may already
+  have prepared the run under the current key, and only a post-commit
+  resume lets the script's DOM steps see the view that render produced
+  (`rf.story.runtime/resume-run!`). The 2-arity takes a `run-key` the
+  caller already holds, so `canvas-inner`'s render-phase call never derefs
+  the shell atom — a deref there would subscribe that render to every
+  shell write — and with `resume?` false it only PREPARES."
   ([]
    (when rf.story.config/enabled?
      (let [shell      @rf.story.ui.state/shell-state-atom
            variant-id (:selected-variant shell)]
-       (run-if-needed! variant-id (when variant-id (run-key shell variant-id))))))
-  ([variant-id key]
+       (run-if-needed! variant-id (when variant-id (run-key shell variant-id)))
+       (when variant-id
+         (rf.story.runtime/resume-run! variant-id)))))
+  ([variant-id key] (run-if-needed! variant-id key true))
+  ([variant-id key resume?]
    (when rf.story.config/enabled?
      (if-not variant-id
        (reset! canvas-last-run-key nil)
@@ -530,7 +535,8 @@
          ;; one first — prepares a fresh one. Its settlement reaches
          ;; `run-settled` through `follow-run!`, like every other run of the
          ;; variant's. Returns the resume's promise, for tests.
-         (rf.story.runtime/resume-run! variant-id))))))
+         (when resume?
+           (rf.story.runtime/resume-run! variant-id)))))))
 
 (defn variant-substrate-set
   "Resolve a variant's effective substrate set off its COMPILED `plan`. Per
@@ -597,10 +603,10 @@
         ;; one that inherits `:loaders` as events-only, suppressing the
         ;; skeleton for a fixture that does have loading to do. Reading the
         ;; subject raw, an `:extends` child of a variant naming its own
-        ;; `:component` would render its story's view, or none.
-        plan           (rf.story.plan/variant-plan
-                         variant-id
-                         {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+        ;; `:component` would render its story's view, or none. A plan
+        ;; that does not compile renders its error card in the subject's
+        ;; place (`plan-error` below) rather than unmounting the shell.
+        [plan plan-error] (rf.story.ui.multi-substrate/render-plan variant-id run-opts)
         view-id        (get-in plan [:world :component])
         decorator-pack (rf.story.decorators/resolve-decorator-refs
                          (get-in plan [:world :decorators] []))
@@ -647,7 +653,9 @@
         ;; reaching `frame-provider` before allocation. Runs BEFORE
         ;; `lifecycle-phase` / `first?` below so those reads see the
         ;; POST-allocation state (the fast-path `:ready`) on this same pass.
-        _              (when events-only? (run-if-needed! variant-id rk))
+        ;; Prepare only: the resume waits for the post-commit hook, so a
+        ;; DOM step never reads the render before this one.
+        _              (when events-only? (run-if-needed! variant-id rk false))
         ;; Skeleton gating. The lifecycle machine reports
         ;; :pre-mount / :mounting / :loading while the four-phase
         ;; loader cascade runs; once :ready / :error lands, the
@@ -699,6 +707,9 @@
        (nil? variant-id)
        [:div {:style (:empty styles)} "no variant selected"]
 
+       plan-error
+       (rf.story.ui.multi-substrate/plan-error-card plan-error)
+
        (nil? view-id)
        [:div {:style (:empty styles)}
         "variant has no :component registered — register one on the story or variant body"]
@@ -719,6 +730,8 @@
        ;; view-state overrides too: the Provider is a React context, so one
        ;; scope around the grid covers every cell (without it a pinned
        ;; design state would paint from the real app-db here).
+       ;; Each grid cell's body carries `data-rf-story-variant-root`, so
+       ;; the a11y scan reaches every substrate's subject.
        ^{:key (str "multi-" variant-id)}
        [rf/frame-provider {:frame variant-id}
         [sub-overrides-scope sub-ovr

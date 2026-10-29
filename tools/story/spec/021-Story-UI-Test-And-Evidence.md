@@ -158,12 +158,6 @@ promotion's source is a captured artifact, and authoring's source is the
 author's declared INTENT (the expectation). Conflating any two is an
 explicit not-EPIC-ready condition.
 
-The read-only display of a variant's authored (declared, un-run)
-expectations — each atom with its runner-cost / `:cannot-run` flag — is the
-`authored-expectation-strip` companion in
-`re-frame.story.ui.assertion-strip` (distinct from the run-result strip,
-which carries verdicts).
-
 ## 2. Result → evidence linkage
 
 Story pressure: S4.

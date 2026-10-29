@@ -109,22 +109,12 @@
   The row's `:detail :source` slot accepts either."
   [record]
   (let [rec      (or record {})
-        st       (:status rec)
-        passed?  (:passed? rec)
         aid      (:assertion rec)
-        status   (cond
-                   (= :rf.assert/skipped aid)          :skip
-                   ;; The unified `:status` wins; the :passed?-only
-                   ;; derivation is the fallback.
-                   (contains? rf.story.verdict/statuses st)     st
-                   (:cannot-run? rec)                  :cannot-run
-                   (or (:error rec) (:exception rec))  :error
-                   passed?                             :pass
-                   ;; A record carrying neither a stamped :status nor a
-                   ;; truthy :passed? reads :fail — the conservative
-                   ;; view-side default (a missing pass signal can't be
-                   ;; rendered green).
-                   :else                               :fail)
+        ;; The run's own record rule (`rf.story.verdict/record-status`), so a
+        ;; row never disagrees with the verdict its record fed.
+        status   (if (= :rf.assert/skipped aid)
+                   :skip
+                   (rf.story.verdict/record-status rec))
         payload  (or (:payload rec) [])
         label    (let [p (pretty-payload payload)]
                    (cond-> (str aid)
@@ -191,12 +181,10 @@
 ;; ---- pure: play-step scrubber data --------------------------------------
 ;;
 ;; Each play event derived from the variant body's `:script` is
-;; dispatched as a
-;; single event — each dispatch produces exactly one epoch in the variant
-;; frame's `epoch-history`. So the play sequence maps 1-to-1 onto a slice
-;; of epochs. The scrubber row renders one tick per play event; clicking
-;; a tick restores the variant frame's app-db to the epoch settled at
-;; that step.
+;; dispatched as a single event, which commits one epoch, and every child
+;; dispatch it queues commits one more. The scrubber row renders one tick
+;; per play event; clicking a tick restores the variant frame's app-db to
+;; the last epoch before the next step began (`epoch-id-slice`).
 ;;
 ;; The pure-data layer here computes:
 ;;
@@ -304,14 +292,21 @@
 
   So this walks `epoch-tape` in order, matching each record's
   `:trigger-event` against the next UNCONSUMED play-event: a match
-  consumes both and contributes that record's `:epoch-id`; a non-match
-  (a non-dispatch-step epoch, or any other epoch not among the
-  dispatch-only steps) is skipped rather than consumed. The result stays
-  aligned to the dispatch-only steps regardless of what interleaves
-  between them. (A `:click`/`:type` step whose OWN side-effecting
-  dispatch happens to carry the identical event vector as an upcoming
-  `:dispatch` step is the one residual ambiguity this can't disambiguate
-  — ordinary event-vector identity carries no per-invocation identity.)
+  consumes both and marks where that step begins; a non-match (a
+  non-dispatch-step epoch, a child an earlier step's `:fx [[:dispatch …]]`
+  queued, or any other epoch not among the dispatch-only steps) is skipped
+  rather than consumed. The result stays aligned to the dispatch-only
+  steps regardless of what interleaves between them. (A `:click`/`:type`
+  step whose OWN side-effecting dispatch happens to carry the identical
+  event vector as an upcoming `:dispatch` step is the one residual
+  ambiguity this can't disambiguate — ordinary event-vector identity
+  carries no per-invocation identity.)
+
+  Each step's epoch is the LAST tape record before the next matched step
+  (the tape's last record for the final step), not the matched record
+  itself. Core commits one epoch per dequeued event, so a step's queued
+  child dispatches commit later epochs, and restoring the matched record
+  would show the state before they ran.
 
   Returns `[]` (never a partial or misaligned vector) when the tape runs
   out before every play-event is matched — production / ring-buffer-
@@ -322,16 +317,22 @@
   Pure data → data; JVM-testable."
   [epoch-tape play-events]
   (let [tape (vec (or epoch-tape []))
-        evs  (vec (or play-events []))]
-    (if (empty? evs)
+        evs  (vec (or play-events []))
+        ;; The tape index each play event matched at, or nil when the tape
+        ;; runs out first.
+        starts (when (seq evs)
+                 (loop [ti 0 ei 0 acc []]
+                   (cond
+                     (= ei (count evs))  acc
+                     (= ti (count tape)) nil
+                     (= (:trigger-event (nth tape ti)) (nth evs ei))
+                     (recur (inc ti) (inc ei) (conj acc ti))
+                     :else (recur (inc ti) ei acc))))]
+    (if (empty? starts)
       []
-      (loop [ti 0 ei 0 acc []]
-        (cond
-          (= ei (count evs))  acc
-          (= ti (count tape)) []
-          (= (:trigger-event (nth tape ti)) (nth evs ei))
-          (recur (inc ti) (inc ei) (conj acc (:epoch-id (nth tape ti))))
-          :else (recur (inc ti) ei acc))))))
+      (mapv (fn [next-start]
+              (:epoch-id (nth tape (dec (or next-start (count tape))))))
+            (concat (rest starts) [nil])))))
 
 ;; ===========================================================================
 ;; UNIFIED RUN-RESULT PROJECTION  (tools/story/spec/021 §1)
@@ -368,6 +369,10 @@
   result carries no `:status` (a host without the unified shape):
 
   - no result / nothing recorded  → `:pending`
+  - a `:pass` with zero assertions → `:pending`: the run verdict is
+                                     `:pass` (/spec/007-Stories.md
+                                     §Story-as-test duality), but it produced no signal,
+                                     so it shows grey (spec/009 §Status semantics)
   - explicit unified `:status`    → that verdict (`:pass` / `:fail` /
                                      `:error` / `:cannot-run`)
   - else (count-only host) derive from the assertion summary:
@@ -382,6 +387,7 @@
   (let [st (:status result)]
     (cond
       (nil? result)                   :pending
+      (and (= :pass st) (zero? (or (:total summary) 0))) :pending
       (contains? rf.story.verdict/statuses st) st
       :else
       (let [{:keys [total failed cannot-run all-passed?]} (or summary {})]
@@ -391,6 +397,23 @@
           all-passed?              :pass
           (pos? (or cannot-run 0)) :cannot-run
           :else                    :fail)))))
+
+(defn summary-pill-text
+  "The status pill's text for `status` (`run-status`) over `summary` (the
+  `aggregate-summary` fold), shared by the Tests pane and Docs so the two
+  surfaces read the same (spec/022 §1). `ran?` is false when no run has
+  settled. A `:fail` whose assertions all passed names its cause: the
+  run's tape shows an unconsumed failure (the agreement floor,
+  `re-frame.story.result`). Pure data → data."
+  [status {:keys [passed failed cannot-run total]} ran?]
+  (case status
+    :pass       (str (or passed 0) " passed")
+    :error      "error"
+    :cannot-run (str (or cannot-run 0) " cannot-run of " (or total 0))
+    :pending    (if ran? "no assertions recorded" "not run yet")
+    (if (pos? (or failed 0))
+      (str failed " failed of " (or total 0))
+      "failed: the run's tape shows an unconsumed failure")))
 
 (defn check-rows
   "Project the run-result's `:checks` slot (spec/017 §Checks, surfaced per
@@ -679,14 +702,7 @@
                      rf.story.assertions/id-a11y            :a11y
                      rf.story.assertions/id-a11y-structural :a11y-structural
                      :browser))
-        status-of (fn [rec]
-                    (let [st (:status rec)]
-                      (cond
-                        (contains? rf.story.verdict/statuses st)    st
-                        (:cannot-run? rec)                 :cannot-run
-                        (or (:error rec) (:exception rec)) :error
-                        (:passed? rec)                     :pass
-                        :else                              :fail)))]
+        status-of rf.story.verdict/record-status]
     (->> (or (:assertions result) [])
          (filterv browser?)
          (mapv (fn [rec]

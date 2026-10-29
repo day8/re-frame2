@@ -62,9 +62,9 @@
     titles. Same family as `sans-stack`; the difference is letter-
     spacing applied at the call site (`-0.01em` on display surfaces).
   - `inject-font-faces!` — CLJS-only helper that lazily injects
-    `<style>` `@font-face` rules into `js/document.head` so the dev-
-    time shell can self-host webfonts without forcing a build-time
-    asset pipeline."
+    `local()`-only `<style>` `@font-face` rules into `js/document.head`,
+    so an OS-installed Plex is used with no build-time asset pipeline and
+    no font fetch."
   {:no-doc true}
   #?(:cljs (:require [re-frame.story.config :as rf.story.config])))
 

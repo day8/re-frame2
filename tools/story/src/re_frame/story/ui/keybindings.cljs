@@ -126,7 +126,11 @@
 
   We accept the focus-on-editable predicate verbatim from the standard
   pattern used by Storybook + VS Code: tag is `INPUT` / `TEXTAREA` /
-  `SELECT`, OR the element carries `contenteditable=\"true\"`."
+  `SELECT`, OR the element carries `contenteditable=\"true\"`.
+
+  A target inside a variant's subject (`[data-rf-story-variant-root]`)
+  counts too: the keys belong to the variant there, so a widget doing
+  single-letter typeahead never toggles Story's chrome."
   [^js evt]
   (let [t (.-target evt)]
     (when t
@@ -135,7 +139,9 @@
         (or ce
             (= tag "INPUT")
             (= tag "TEXTAREA")
-            (= tag "SELECT"))))))
+            (= tag "SELECT")
+            (boolean (and (fn? (.-closest t))
+                          (.closest t "[data-rf-story-variant-root]"))))))))
 
 (defn- has-modifier?
   "True when any modifier key is held. The chrome hotkeys are deliberately

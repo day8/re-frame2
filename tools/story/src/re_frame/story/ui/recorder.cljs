@@ -346,12 +346,10 @@
   (some? (:selected-variant shell)))
 
 (defn- captured-count
-  "How many steps the recording `rec` has captured: its dispatches, DOM
-  interactions and inserted assertions (`:entries`), without the timing
-  markers. A click the DOM rail records is one step, and the dispatch its
-  handler fires is not recorded beside it."
+  "How many steps the recording `rec` has captured
+  (`rf.story.recorder/captured-count` over its `:entries`)."
   [rec]
-  (count (remove #(= :event/timer-child (:kind %)) (:entries rec))))
+  (rf.story.recorder/captured-count (:entries rec)))
 
 (defn rec-chip
   "Toolbar chip rendered by the toolbar strip. Click toggles recording.
@@ -789,10 +787,14 @@
             ;; bare :events vector only when no rich entries were
             ;; snapshotted.
             src        (if (seq entries) entries events)
-            {:keys [spec snippet]}
+            {:keys [snippet]}
             (rf.story.recorder.play-export/save-dialog-output
               src {:variant-id draft-id :extends source-id})
-            step-count (count (:script spec))]
+            ;; The steps the recording captured — the REC chip's count —
+            ;; not the generated script's, which adds `[:wait]` steps.
+            step-count (if (seq entries)
+                         (rf.story.recorder/captured-count entries)
+                         (count events))]
         (rf.story.review-dialog/review-dialog dialog
           {:title             "Test Codegen — save recording as variant"
            :hint              (str "EDN snippet generated from "

@@ -82,8 +82,8 @@
 
 (deftest reg-story-panel-late-bind-replaces-stub
   (rf.story/reg-story-panel :rf.story/xray-epoch
-    {:title "Epochs (stub)" :placement :bottom :render :rf.story.stubs/xray-epoch-stub})
+    {:title "Epochs (stub)" :placement :right :render :rf.story.stubs/xray-epoch-stub})
   (rf.story/reg-story-panel :rf.story/xray-epoch
-    {:title "Epochs (Xray)" :placement :bottom :render :day8.re-frame2-xray.panels.time-travel/Panel})
+    {:title "Epochs (Xray)" :placement :right :render :day8.re-frame2-xray.panels.time-travel/Panel})
   (is (= ["Epochs (Xray)" :day8.re-frame2-xray.panels.time-travel/Panel]
          ((juxt :title :render) (rf.story/handler-meta :story-panel :rf.story/xray-epoch)))))

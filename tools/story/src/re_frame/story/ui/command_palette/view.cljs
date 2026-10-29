@@ -7,6 +7,7 @@
             [re-frame.story.ui.author-expectations :as rf.story.ui.author-expectations]
             [re-frame.story.ui.command-palette :as rf.story.ui.command-palette]
             [re-frame.story.ui.explain-panel :as rf.story.ui.explain-panel]
+            [re-frame.story.ui.mode-tabs :as rf.story.ui.mode-tabs]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]))
@@ -19,10 +20,6 @@
        (or (.-metaKey event) (.-ctrlKey event))
        (not (.-altKey event))
        (not (.-shiftKey event))))
-
-(defn- focus-input! [input]
-  (when-let [node @input]
-    (.setTimeout js/window #(.focus node) 0)))
 
 (defn select-entry!
   "Apply a palette entry to shell state, then return true when handled.
@@ -60,7 +57,8 @@
         (fn [s]
           (-> s
               (rf.story.ui.state/select-variant (:id entry))
-              (rf.story.ui.state/select-workspace nil))))
+              (rf.story.ui.state/select-workspace nil)
+              (rf.story.ui.mode-tabs/with-stored-mode-tab (:id entry)))))
       true)
 
     :workspace
@@ -78,7 +76,8 @@
         (fn [s]
           (-> s
               (rf.story.ui.state/select-variant variant-id)
-              (rf.story.ui.state/select-workspace nil))))
+              (rf.story.ui.state/select-workspace nil)
+              (rf.story.ui.mode-tabs/with-stored-mode-tab variant-id))))
       true)
 
     :mode
@@ -171,7 +170,7 @@
   `:reagent-render` slot produces when `open?` is true. Called by
   `command-palette-host`'s render and directly by view tests."
   [{:keys [query results active on-close on-input-change on-input-keydown
-           on-row-hover on-row-select input-ref]}]
+           on-row-hover on-row-select]}]
   [:div {:style     (:scrim styles)
          :data-test "story-command-palette"
          :on-click  on-close}
@@ -181,7 +180,10 @@
           :aria-label "Story command palette"
           :on-click (fn [event] (.stopPropagation event))}
     [:div {:style (:input-wrap styles)}
-     [:input {:ref         input-ref
+     ;; The input mounts with the open palette, so `:auto-focus` focuses
+     ;; it on every open: arrow keys and Enter reach it at once, and typing
+     ;; never falls through to the chrome hotkeys underneath.
+     [:input {:auto-focus  true
               :style       (:input styles)
               :value       query
               :placeholder "Search stories, variants, workspaces, modes, decorators..."
@@ -209,7 +211,6 @@
       (let [open?        (r/atom false)
         query        (r/atom "")
         active-index (r/atom 0)
-        input        (atom nil)
         listener     (atom nil)
         close!       (fn []
                        (reset! open? false)
@@ -217,8 +218,7 @@
                        (reset! active-index 0))
         open!        (fn []
                        (reset! open? true)
-                       (reset! active-index 0)
-                       (focus-input! input))]
+                       (reset! active-index 0))]
     (r/create-class
       {:display-name "rf-story-command-palette"
        :component-did-mount
@@ -269,7 +269,6 @@
                 {:query             @query
                  :results           results
                  :active            active
-                 :input-ref         #(reset! input %)
                  :on-close          (fn [_] (close!))
                  :on-input-change   (fn [event]
                                       (reset! query (.. event -target -value))

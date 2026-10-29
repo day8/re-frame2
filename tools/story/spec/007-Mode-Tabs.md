@@ -63,7 +63,7 @@ in `re-frame.story.ui.mode-tabs`:
 (select-mode-tab! variant-id tab)   ; programmatic switch
 (load-mode-tab! variant-id)         ; read persisted value
 (save-mode-tab! variant-id tab)     ; persist
-(hydrate-from-storage! variant-id)  ; idempotent state-from-LS seed
+(with-stored-mode-tab state variant-id) ; state-from-LS seed, applied on selection
 ```
 
 State helpers in `re-frame.story.ui.state` (pure data → data,
@@ -123,9 +123,13 @@ The key prefix is `re-frame.story/active-mode-tab/` followed by
 defensive `safe-local-storage` pattern — a localStorage failure
 degrades silently to in-memory-only state.
 
-`hydrate-from-storage!` runs on the first render of a variant's strip
-and seeds the in-memory slot if the localStorage record exists and
-the in-memory slot is empty. Idempotent — safe on every render.
+`with-stored-mode-tab` seeds the in-memory slot from the localStorage
+record when one exists and the in-memory slot is empty. The selection
+gestures — a sidebar row, a command-palette entry — apply it in the
+same swap that selects the variant, so the URL takes one history entry
+carrying the tab. URL hydration (a deep link, Back / Forward) never
+applies it: a URL with no `mode-tab=` means Canvas, so Back to such an
+entry lands on Canvas and a shared `?variant=` link opens on Canvas.
 
 ## Accessibility
 

@@ -214,13 +214,24 @@
   Compiles with the ambient arg layers (`rf.story.args/run-arg-layers`: the
   global and story `:args`) like every other keyword-target reader, so a
   variant that leaves a required prop to its story compiles here as it does
-  for a run. No modes or cell-overrides: Docs shows the
-  variant's declared shape."
-  [variant-id]
-  (try
-    (rf.story.plan/variant-plan variant-id
-                                {:run-args (rf.story.args/run-arg-layers variant-id)})
-    (catch #?(:clj Exception :cljs :default) _ nil)))
+  for a run, and with the shell's `active-modes`, as the args and
+  decorator sections do, so an `[:arg k]` only a mode resolves never shows
+  'plan unavailable' beside a working args table. No cell-overrides: Docs
+  shows the variant's declared shape."
+  ([variant-id] (variant-plan-quietly variant-id nil))
+  ([variant-id active-modes]
+   (try
+     (rf.story.plan/variant-plan
+       variant-id
+       {:run-args (rf.story.args/run-arg-layers variant-id {:active-modes active-modes})})
+     (catch #?(:clj Exception :cljs :default) _ nil))))
+
+#?(:cljs
+   (defn- shell-active-modes
+     "The shell's active modes, read through a cursor so a Docs render
+     re-renders on a mode change and on no other shell write."
+     []
+     @(r/cursor rf.story.ui.state/shell-state-atom [:active-modes])))
 
 (def fidelity-rungs
   "The fidelity-ladder rungs (highest → lowest, spec/017 §View-state
@@ -778,18 +789,6 @@
        (:status-pending styles))))
 
 #?(:cljs
-   (defn- status-pill-text
-     "Human-readable pill text for a verdict — mirrors Test mode's
-     summary-pill wording so the two surfaces read the same."
-     [{:keys [status passed failed cannot-run total]}]
-     (case status
-       :pass       (str passed " passed")
-       :error      "error"
-       :cannot-run (str cannot-run " cannot-run of " total)
-       :pending    "not run yet"
-       (str failed " failed of " total))))
-
-#?(:cljs
    (defn- badge-strength-style
      [strength]
      (case strength
@@ -822,7 +821,7 @@
          [:span {:style       (merge (:status-pill styles) (status-pill-style (:status status)))
                  :data-test   "story-docs-status-pill"
                  :data-status (name (:status status))}
-          (status-pill-text status)]
+          (rf.story.ui.test-mode.pure/summary-pill-text (:status status) status (:ran? status))]
          (when (:ran? status)
            [:span {:style     (:status-counts styles)
                    :data-test "story-docs-status-counts"}
@@ -1023,19 +1022,22 @@
                     (`variant-plan-quietly` → nil); the section then renders
                     its degraded 'plan unavailable' line without a TOC entry;
   - `docs-schema` — dropped when the view declares no `:view-args-schema`
-                    (`view-arg-schema-rows` empty)."
-  [variant-id]
-  (let [prose?  (seq (prose-for-variant variant-id))
-        plan    (variant-plan-quietly variant-id)
-        status? (some? plan)
-        schema? (seq (view-arg-schema-rows plan))
-        drop?   {"docs-prose"  (not prose?)
-                 "docs-status" (not status?)
-                 "docs-schema" (not schema?)}]
-    (vec
-      (remove (fn [{:keys [id conditional?]}]
-                (and conditional? (get drop? id false)))
-              docs-toc-entries))))
+                    (`view-arg-schema-rows` empty).
+
+  `active-modes` are the shell's, as `variant-plan-quietly` takes them."
+  ([variant-id] (visible-toc-entries variant-id nil))
+  ([variant-id active-modes]
+   (let [prose?  (seq (prose-for-variant variant-id))
+         plan    (variant-plan-quietly variant-id active-modes)
+         status? (some? plan)
+         schema? (seq (view-arg-schema-rows plan))
+         drop?   {"docs-prose"  (not prose?)
+                  "docs-status" (not status?)
+                  "docs-schema" (not schema?)}]
+     (vec
+       (remove (fn [{:keys [id conditional?]}]
+                 (and conditional? (get drop? id false)))
+               docs-toc-entries)))))
 
 #?(:cljs
    (defn- toc-pane-styles []
@@ -1107,7 +1109,7 @@
           (fn [_]
             (when (and (exists? js/window) (.-IntersectionObserver js/window))
               (try
-                (let [entries (visible-toc-entries variant-id)
+                (let [entries (visible-toc-entries variant-id (shell-active-modes))
                       io (js/IntersectionObserver.
                            (fn [entries-arr _obs]
                              (doseq [e (array-seq entries-arr)]
@@ -1127,7 +1129,7 @@
           :reagent-render
           (fn [variant-id]
             (let [s         (toc-pane-styles)
-                  entries   (visible-toc-entries variant-id)
+                  entries   (visible-toc-entries variant-id (shell-active-modes))
                   active-id @active]
               (when (and (responsive-toc?) (seq entries))
                 [:nav {:style     (:wrap s)
@@ -1164,7 +1166,7 @@
      (`variant-plan-quietly` → nil) without taking the pane down."
      [variant-id]
      (when variant-id
-       (let [plan (variant-plan-quietly variant-id)]
+       (let [plan (variant-plan-quietly variant-id (shell-active-modes))]
          [:div {:style     {:display "flex"
                             :flex "1"
                             :overflow "auto"
@@ -1233,7 +1235,7 @@
      glance; the full SPARSE evidence excerpt stays on the single-variant
      `docs-view` to keep the rollup terse (documentation, not a debug log)."
      [variant-id]
-     (let [plan (variant-plan-quietly variant-id)]
+     (let [plan (variant-plan-quietly variant-id (shell-active-modes))]
        [:div {:style     (merge (:section styles)
                                 {:padding-top "16px"
                                  :border-top  "1px solid #444"})

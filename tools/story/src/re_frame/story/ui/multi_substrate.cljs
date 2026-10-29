@@ -443,7 +443,11 @@
           [:div {:style (:error-body styles)} error]]
          [:div {:style (:cell styles)}
           [:div {:style (:cell-head styles)} (name substrate)]
-          [:div {:style (merge (:cell-body styles) (cell-subject-style variant-id))}
+          ;; Each cell body is a variant root, so the a11y scan
+          ;; (`rf.story.ui.a11y/variant-root-context`) covers every cell's
+          ;; subject and none of the grid's chrome.
+          [:div {:style (merge (:cell-body styles) (cell-subject-style variant-id))
+                 :data-rf-story-variant-root (pr-str variant-id)}
            [cell-subject render-fn variant-id view-id eff-args]]]))}))
 
 (defn- safe-render-cell
@@ -522,6 +526,40 @@
       (contains? declared host-default)  host-default
       :else                              (first (sort-by name declared)))))
 
+;; ---- the render-time plan compile ---------------------------------------
+
+(defn render-plan
+  "Compile the plan a render of `variant-id` reads, with the per-run
+  `run-opts` (`:active-modes` / `:cell-overrides`) lowered to its
+  `:run-args`. Returns `[plan nil]`, or `[nil error]` when the compile
+  throws — a missing `[:arg k]`, a missing required view arg, an unknown
+  assertion id, a malformed step, an unregistered `:compose` fragment or
+  `:extends` parent. Nothing above a render catches, so a throw here would
+  unmount the whole shell; the caller renders `plan-error-card` in the
+  subject's place instead."
+  [variant-id run-opts]
+  (try
+    [(rf.story.plan/variant-plan
+       variant-id
+       {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+     nil]
+    (catch :default e
+      [nil e])))
+
+(defn plan-error-card
+  "The contained card a render shows in place of a variant whose plan does
+  not compile (`render-plan`): the error's `:rf.error/id` and message, so
+  the author sees what to fix while the rest of the shell keeps working."
+  [error]
+  (let [error-id (:rf.error/id (ex-data error))]
+    [:div {:style     (:error-cell styles)
+           :role      "alert"
+           :data-test "story-plan-error"}
+     [:div {:style (:error-head styles)}
+      (str "variant plan does not compile" (when error-id (str " — " error-id)))]
+     [:div {:style (:error-body styles)}
+      (or (ex-message error) (str error))]]))
+
 ;; ---- the multi-substrate grid component ---------------------------------
 
 (defn multi-substrate-grid
@@ -547,13 +585,13 @@
         ;; `[:world :substrates]` already folds the story in
         ;; `resolve-substrate-set`'s order, which then only adds the host
         ;; fallback.
-        plan       (rf.story.plan/variant-plan
-                     variant-id
-                     {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+        [plan plan-error] (render-plan variant-id run-opts)
         substrates (resolve-substrate-set (:world plan) nil
                                           (or (:substrate shell) :reagent))
         view-id    (get-in plan [:world :component])
         eff-args   (get-in plan [:world :effective-args] {})]
+    (if plan-error
+      (plan-error-card plan-error)
     ;; The multi-substrate grid is the canvas's labelled landmark when a
     ;; variant declares ≥2 substrates. `role="group"` + `aria-label`
     ;; exposes the substrate-comparison surface as a group of cells; each
@@ -569,4 +607,4 @@
        [:div {:key         (name substrate)
               :role        "region"
               :aria-label  (str (name substrate) " substrate cell")}
-        (safe-render-cell variant-id substrate view-id eff-args)])]))
+        (safe-render-cell variant-id substrate view-id eff-args)])])))

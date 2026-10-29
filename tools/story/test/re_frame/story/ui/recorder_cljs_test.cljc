@@ -139,3 +139,25 @@
          1       1
          (+ n 5) 0
          -1      (dec n)))))
+
+;; ---- one recording, one count ---------------------------------------------
+
+(def ^:private timed-entries
+  [{:kind :event/dispatch :event [:counter/inc] :t 0}
+   {:kind :event/timer-child :t 50 :ms 50}
+   {:kind :event/dispatch :event [:counter/inc] :t 60}])
+
+(deftest captured-count-skips-timing-markers
+  (is (= 2 (rf.story.recorder/captured-count timed-entries))
+      "a timer-child marker is timing, not a captured step"))
+
+#?(:cljs
+   (deftest save-dialog-counts-what-the-rec-chip-counts
+     (reset! rf.story.ui.recorder/ui-dialog
+             (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
+                                            :story.a/source
+                                            [[:counter/inc] [:counter/inc]]
+                                            timed-entries 0))
+     (is (str/includes? (str (rf.story.ui.recorder/save-dialog)) "2 recorded steps")
+         "the save dialog counts the recording's captured steps, as the REC chip
+          does, not the generated script, which adds a [:wait] for the timer marker")))

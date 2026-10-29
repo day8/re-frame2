@@ -195,11 +195,19 @@
              (set! (.. body -style -cursor) (or (:prev-cursor cur) ""))
              (swap! state dissoc :prev-cursor)))))))
 
+#?(:cljs (declare install!))
+
 #?(:cljs
    (defn set-active!
      "Programmatic mode toggle. Public so tests + toolbar can drive without
-     going through the DOM."
+     going through the DOM.
+
+     Turning it on installs the listeners on the CURRENT canvas root. The
+     root exists only while a variant shows on the Canvas or Tests tab, and
+     a Canvas → Docs → Canvas round trip replaces it, so listeners bound
+     once at shell mount would leave inspect mode attached to nothing."
      [on?]
+     (when on? (install!))
      (set-cursor! on?)
      (swap! state
             (fn [s] (cond-> (assoc s :active? (boolean on?))

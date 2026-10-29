@@ -150,9 +150,9 @@
   re-renders against the app-db at that step.
 
   `idx` is a 0-based index into the variant's `:epoch-ids` vector.
-  Pass nil to release — the canvas reverts to the post-play app-db
-  (we restore against the last epoch-id in the slice, which is the
-  play-sequence's terminal state).
+  Pass nil to release — the canvas reverts to the app-db the run ended
+  in: the slice's last epoch-id is the run tape's last record
+  (`rf.story.ui.test-mode.pure/epoch-id-slice`).
 
   No-ops while the slot's `:running?` is true. A
   scrubber-tick during an in-flight run would race
@@ -171,7 +171,7 @@
                           (< idx (count epoch-ids)))
                      (nth epoch-ids idx)
 
-                     ;; release → restore terminal state
+                     ;; release → restore the run's end state
                      (and (nil? idx) (seq epoch-ids))
                      (peek epoch-ids)
 
@@ -238,23 +238,30 @@
   (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run variant-id))
 
 (defn- follow-run!
-  "The pane's `rf.story.runtime/listen-runs!` listener. A run of the
-  variant the pane shows marks the slot running when its generation is
-  prepared; a settled run is stored when it is still the variant's
-  current generation (a superseded one is dropped — its successor
-  settles), for the variant the pane shows or for a slot a Re-run marked
-  running. So the slot follows every run of the variant, whoever started
-  it, while runs of variants nobody is looking at leave it alone."
-  [variant-id {:keys [generation] :as run}]
-  (cond
-    (not (contains? run :result))
-    (when (= variant-id @pane-variant)
-      (begin-run! variant-id))
+  "The pane's `rf.story.runtime/listen-runs!` listener. It follows the
+  variant the pane shows and every variant that already has a slot, so
+  Docs and the Evidence spine, which read the slot, never keep a verdict
+  a later run replaced. A followed run marks the slot running when its
+  generation is claimed; a settled run is stored when it is still the
+  variant's current generation (a superseded one is dropped — its
+  successor settles). A retired generation runs nothing, so it only
+  clears the running mark of the run it superseded. Runs of variants
+  nobody has looked at leave the slots alone."
+  [variant-id {:keys [generation retired?] :as run}]
+  (let [followed? (or (= variant-id @pane-variant)
+                      (contains? @results-atom variant-id))]
+    (cond
+      retired?
+      (when (get-in @results-atom [variant-id :running?])
+        (clear-running! variant-id))
 
-    (and (= generation (rf.story.runtime/current-generation variant-id))
-         (or (= variant-id @pane-variant)
-             (get-in @results-atom [variant-id :running?])))
-    (store-result! variant-id (run-opts variant-id) (:result run))))
+      (not (contains? run :result))
+      (when followed?
+        (begin-run! variant-id))
+
+      (and followed?
+           (= generation (rf.story.runtime/current-generation variant-id)))
+      (store-result! variant-id (run-opts variant-id) (:result run)))))
 
 (when rf.story.config/enabled?
   (rf.story.runtime/listen-runs! ::pane follow-run!))

@@ -535,3 +535,17 @@
                        (is (str/includes? (str (:value attrs)) ":extends :story.egress/by-hand")
                            "for the focused variant"))))
             (.finally (fn [] (restore! prev) (done))))))))
+
+;; ---- the Copy EDN badge classifies the args the snippet emits ------------
+
+(deftest edn-report-flags-a-declared-callback-arg
+  (testing "the snippet emits the cell's effective args, so a callback arg the
+            variant declares makes its badge view-only with no override set,
+            while the share URL, which carries no args, stays reproducible"
+    (rf.story/reg-variant :story.egress/cb {:tags #{:dev} :setup [] :args {:on-click (fn [_] nil)}})
+    (rf.story.ui.state/swap-state! #(assoc % :selected-variant :story.egress/cb))
+    (let [shell (rf.story.ui.state/get-state)
+          edn   (rf.story.ui.share/current-edn-report shell)]
+      (is (= :view-only (:status edn)))
+      (is (some #(= :arg-fn (:code %)) (:reasons edn)))
+      (is (not= :view-only (:status (rf.story.ui.share/current-share-report shell)))))))

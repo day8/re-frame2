@@ -2,7 +2,7 @@
   "The shared inline assertion strip — the pure projections (`truncate`,
   `summary-line`, `group-by-event`, `value-display`) and the rendered row /
   strip / detail-value hiccup, walked without a React mount."
-  (:require [cljs.test :refer-macros [are deftest is]]
+  (:require [cljs.test :refer-macros [are deftest is testing]]
             [re-frame.story.ui.assertion-strip :as rf.story.ui.assertion-strip]))
 
 ;; ---- pure: truncate ------------------------------------------------------
@@ -273,3 +273,13 @@
     (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail-reveal")))
     (is (= "false" (:data-revealed (find-prop hiccup :data-test "story-canvas-assertion-detail-value")))
         "a long value starts collapsed")))
+
+(deftest a-cannot-run-row-reads-as-a-refusal
+  (testing "a :cannot-run row takes the tool-wide refusal glyph and its
+            reason as its summary, never an unknown blank row"
+    (is (= "⊘" (get rf.story.ui.assertion-strip/status-glyph :cannot-run)))
+    (is (= "needs a DOM"
+           (rf.story.ui.assertion-strip/summary-line
+             {:status :cannot-run :detail {:reason "needs a DOM"}})))
+    (is (= "cannot run"
+           (rf.story.ui.assertion-strip/summary-line {:status :cannot-run :detail {}})))))

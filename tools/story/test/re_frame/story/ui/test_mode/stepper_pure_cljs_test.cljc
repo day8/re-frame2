@@ -5,7 +5,7 @@
   The substantive UI is CLJS but every projection function the view
   consumes is .cljc + pure so the JVM test corpus pins the contract
   without booting Reagent."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.ui.test-mode.stepper-pure :as rf.story.ui.test-mode.stepper-pure]))
 
 ;; ---- enrich-statuses ----------------------------------------------------
@@ -96,3 +96,14 @@
                  {:type :dispatch   :passed? nil}]
         rows    (rf.story.ui.test-mode.stepper-pure/step-statuses steps results)]
     (is (= [:pass :fail :skip :event] (mapv :status rows)))))
+
+(deftest a-refused-step-reads-cannot-run-not-fail
+  (testing "a capability refusal carries :passed? false and :cannot-run? true;
+            it is the distinct third status, so the stepper never paints it
+            as a failure while the pane shows the refusal"
+    (let [steps   [[:dispatch [:a]] [:assert-dom "#x" :visible] [:assert-dom "#y" :visible]]
+          results [{:passed? true}
+                   {:passed? false :cannot-run? true}
+                   {:passed? false}]]
+      (is (= [:pass :cannot-run :fail]
+             (mapv :status (rf.story.ui.test-mode.stepper-pure/step-statuses steps results)))))))

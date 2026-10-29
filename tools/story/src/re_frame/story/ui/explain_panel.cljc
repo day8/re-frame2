@@ -207,8 +207,10 @@
               "this variant authors no :network routes")
      (section "sub-overrides" "Sub-override lowering" :sub-ovr (:sub-overrides e)
               "this variant pins no view-state subscription overrides")
+     (section "db-seed" "App-db seed" :kv (:seed (:db-seed e))
+              "this variant seeds no app-db slices")
      (section "fidelity" "Fidelity" :badges (:fidelity e)
-              "real-setup fidelity — no overrides lower the evidence rung")
+              "no setup, seed or overrides — a bare render of the view as mounted")
      ;; ---- execution ----
      (section "setup-order" "Setup order" :steps (:setup-order e)
               "no :setup steps")

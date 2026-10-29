@@ -207,7 +207,12 @@
               (seq dropped)
               (assoc-in [:rf.story/share-import-hint variant-id]
                         {:dropped-count (count dropped)
-                         :dropped       (vec dropped)}))))))))
+                         :dropped       (vec dropped)})
+
+              ;; A hydration that drops nothing clears an earlier hint, so a
+              ;; pop back to a clean entry stops reporting dropped overrides.
+              (not (seq dropped))
+              (update :rf.story/share-import-hint dissoc variant-id))))))))
 
 (defn dismiss-share-import-hint!
   "Clear the share-import hint for `variant-id`. Called
@@ -269,6 +274,18 @@
 
 ;; ---- pure: report + EDN snippet ------------------------------------------
 
+(defn- share-plan
+  "The focused cell's plan (`rf.story.cell-plan/cell-plan` over the
+  shell's active modes and the variant's overrides), or nil when no
+  variant is focused or the plan does not compile."
+  [shell]
+  (when-let [vid (:selected-variant shell)]
+    (try (rf.story.cell-plan/cell-plan
+           vid
+           {:active-modes   (:active-modes shell)
+            :cell-overrides (get-in shell [:cell-overrides vid])})
+         (catch :default _ nil))))
+
 (defn current-share-report
   "Build the reproducibility report (`rf.story.egress/classify`) for the cell the
   `shell` state currently describes. Pure-ish: compiles the focused
@@ -289,16 +306,23 @@
   [shell]
   (let [vid       (:selected-variant shell)
         overrides (when vid (get-in shell [:cell-overrides vid]))
-        dropped   (when vid (get-in shell [:rf.story/share-import-hint vid :dropped]))
-        plan      (when vid
-                    (try (rf.story.cell-plan/cell-plan
-                           vid
-                           {:active-modes   (:active-modes shell)
-                            :cell-overrides overrides})
-                         (catch :default _ nil)))]
-    (rf.story.egress/classify {:plan           plan
-                      :cell-overrides overrides
-                      :dropped        dropped})))
+        dropped   (when vid (get-in shell [:rf.story/share-import-hint vid :dropped]))]
+    (rf.story.egress/classify {:plan           (share-plan shell)
+                               :cell-overrides overrides
+                               :dropped        dropped})))
+
+(declare snippet-args)
+
+(defn current-edn-report
+  "Build the reproducibility report for the Copy EDN snippet
+  (`egress-edn-snippet`) of the cell `shell` describes. The snippet emits
+  the cell's full effective args, not the overrides the share URL
+  carries, so it is classified against those args (`:args`) and the
+  shared plan: a callback arg the variant declares makes it view-only even
+  when no override is set. Never nil."
+  [shell]
+  (rf.story.egress/classify {:plan (share-plan shell)
+                             :args (snippet-args shell)}))
 
 (def ^:const shared-id-prefix
   "Per-flow prefix for the Copy-EDN snippet's derived variant id — the
@@ -312,6 +336,17 @@
   placeholder the dev renames — never the source id, which would
   reintroduce the self-`:extends` cycle."
   :story.shared/example)
+
+(defn snippet-args
+  "The effective args the Copy EDN snippet emits for the focused cell
+  (`rf.story.plan/effective-args` over the shell's active modes and the
+  variant's overrides), or nil when no variant is focused."
+  [shell]
+  (when-let [vid (:selected-variant shell)]
+    (rf.story.plan/effective-args
+      vid
+      {:active-modes   (:active-modes shell)
+       :cell-overrides (get-in shell [:cell-overrides vid])})))
 
 (defn egress-edn-snippet
   "Build the copyable `(reg-variant …)` EDN form for the focused cell — a
@@ -337,16 +372,14 @@
   `shell` is the shell-state map. `now-ms` seeds the derived id's suffix;
   the 1-arity reads the wall clock, and the 2-arity exists so callers and
   tests can pin it. Returns nil when no variant is focused. A fn-valued
-  effective arg prints as an unreadable tagged literal; the
-  reproducibility badge already flags that case, so the snippet is emitted
-  honestly (it is what the dev would paste) rather than silently dropped."
+  effective arg prints as an unreadable tagged literal; the snippet's own
+  badge (`current-edn-report`, which classifies these same args) flags
+  that case, so the snippet is emitted honestly (it is what the dev would
+  paste) rather than silently dropped."
   ([shell] (egress-edn-snippet shell (.now js/Date)))
   ([shell now-ms]
    (when-let [vid (:selected-variant shell)]
-     (let [eff    (rf.story.plan/effective-args
-                    vid
-                    {:active-modes   (:active-modes shell)
-                     :cell-overrides (get-in shell [:cell-overrides vid])})
+     (let [eff    (snippet-args shell)
            new-id (or (rf.story.review-dialog/default-variant-id-with-prefix
                         vid now-ms shared-id-prefix)
                       shared-id-fallback)]
@@ -760,6 +793,7 @@
       (let [shell    @rf.story.ui.state/shell-state-atom
             vid      (:selected-variant shell)
             report   (current-share-report shell)
+            edn-report (current-edn-report shell)
             url      (current-url)
             edn      (egress-edn-snippet shell)]
         [rf.story.ui.a11y-dialog/focus-trap
@@ -804,7 +838,7 @@
               {:test    "copy-edn"
                :name    "Copy EDN"
                :desc    "A (reg-variant …) snippet of this cell's effective state — paste into your stories ns. It registers a NEW variant extending this one, so the source stays as it is."
-               :badge   (reproducibility-badge report)
+               :badge   (reproducibility-badge edn-report)
                :copied? (= copied :copy-edn)
                :error   (when (= :copy-edn (:cmd error)) (:reason error))
                ;; The row has no on-screen body of its own, so a failed copy

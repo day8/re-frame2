@@ -35,15 +35,18 @@
 (defn- step-outcome
   "Outcome glyph class for a step given its result record (or nil when
   the step has not yet run). `:pass` / `:fail` / `:skip` for assertion-
-  class + DOM-skipped steps; `:event` (neutral) for dispatch / wait
-  steps and for not-yet-run steps."
+  class + DOM-skipped steps; `:cannot-run` for a capability refusal, which
+  carries `:passed? false` but is no failure (`rf.story.play.runner/
+  cannot-run-step?`, spec/017 §`:cannot-run`); `:event` (neutral) for
+  dispatch / wait steps and for not-yet-run steps."
   [result]
   (cond
-    (nil? result)               :event
-    (:skipped? result)          :skip
-    (true? (:passed? result))   :pass
-    (false? (:passed? result))  :fail
-    :else                       :event))
+    (nil? result)                                     :event
+    (:skipped? result)                                :skip
+    (rf.story.play.runner/cannot-run-step? result)    :cannot-run
+    (true? (:passed? result))                         :pass
+    (false? (:passed? result))                        :fail
+    :else                                             :event))
 
 (defn step-statuses
   "Pure: given the FULL coerced step vector + the per-step result records
@@ -53,7 +56,7 @@
       {:index   <0-based step index>
        :step    <the coerced step vector>
        :label   <runner/step-summary string>
-       :status  :pass | :fail | :skip | :event}
+       :status  :pass | :fail | :skip | :cannot-run | :event}
 
   A step at `index < (count results)` has run and takes its outcome from
   `(nth results index)`; a step at or beyond the results length has not

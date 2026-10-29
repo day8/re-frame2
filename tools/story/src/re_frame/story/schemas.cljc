@@ -1222,7 +1222,9 @@
    [:doc       {:optional true} :string]
    [:source    {:optional true} SourceCoords]
    [:title     :string]
-   [:placement [:enum :right :left :bottom :top :modal]]
+   ;; `:right` is the shell's one panel host; an enum of one keeps the slot
+   ;; open for more hosts without accepting a panel that never renders.
+   [:placement [:enum :right]]
    [:render    :keyword]
    [:for       {:optional true} [:set :keyword]]])
 

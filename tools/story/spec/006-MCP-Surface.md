@@ -265,8 +265,8 @@ Summary as it pertains to the MCP surface:
 
 1. **`:render` is a `:view` id.** Late-bind via `(rf/view ...)`. The
    actual view can register from a different artefact.
-2. **Placement is one of five slots.** `:right` / `:left` /
-   `:bottom` / `:top` / `:modal`.
+2. **Placement is `:right`.** The right-hand pane is the shell's one
+   panel host.
 3. **Visibility flows through `:panel-visibility`.** The shell's
    on/off switch keyed by panel id.
 4. **Author calls `reg-story-panel` from anywhere.** Built-in panels

@@ -83,17 +83,24 @@
       (try (.setItem ls (ls-key variant-id) (name tab))
            (catch :default _ nil)))))
 
-(defn hydrate-from-storage!
-  "Seed the shell state's `:active-mode-tab` entry for `variant-id` from
-  localStorage if a persisted value exists and the state has no
-  in-memory entry yet. Idempotent — safe to call on every render of the
-  tab strip; only writes when the in-memory slot is empty."
-  [variant-id]
-  (when variant-id
-    (let [shell @rf.story.ui.state/shell-state-atom]
-      (when-not (contains? (:active-mode-tab shell) variant-id)
-        (when-let [persisted (load-mode-tab! variant-id)]
-          (rf.story.ui.state/swap-state! rf.story.ui.state/set-active-mode-tab variant-id persisted))))))
+(defn with-stored-mode-tab
+  "Shell-state transition: seed `state`'s `:active-mode-tab` entry for
+  `variant-id` from localStorage when a persisted value exists and the
+  state has no in-memory entry yet.
+
+  The selection gestures (a sidebar row, a command-palette entry) apply it
+  in the SAME swap that selects the variant, so the URL watcher pushes one
+  history entry carrying the tab. URL hydration never applies it: an
+  absent entry means the URL named no tab, which is Canvas — re-seeding it
+  would make Back land on a stored tab and push a new entry over the
+  forward history."
+  [state variant-id]
+  (if (or (nil? variant-id)
+          (contains? (:active-mode-tab state) variant-id))
+    state
+    (if-let [persisted (load-mode-tab! variant-id)]
+      (rf.story.ui.state/set-active-mode-tab state variant-id persisted)
+      state)))
 
 ;; ---- selection helper ----------------------------------------------------
 
@@ -164,9 +171,6 @@
   `<main>`."
   [variant-id]
   (when variant-id
-    ;; Hydrate from localStorage on first render of this variant's
-    ;; strip — idempotent on subsequent renders.
-    (hydrate-from-storage! variant-id)
     (let [shell  @rf.story.ui.state/shell-state-atom
           active (rf.story.ui.state/active-mode-tab shell variant-id)]
       [:div {:style       (:strip styles)

@@ -281,10 +281,17 @@ is the pane's run, and its Re-run is the same in-place PREPARE (with
 The pane never destroys the frame; it stores every settled run of the
 variant it shows, whoever started it, through `runtime/listen-runs!`.
 
-The headless `run-variant` (MCP / sidebar Run-all) composes
+The headless `run-variant` (MCP / sidebar Run all / watch mode) composes
 prepare + resume in one call — one generation claimed and immediately
 resumed — so it runs the full four-phase lifecycle exactly once with no
-render boundary to span. Ownership is per variant/frame (one registry
+render boundary to span. Claiming the generation before it touches the
+frame supersedes a canvas run in flight on the same frame, and it
+announces the generation and its settlement through
+`runtime/listen-runs!`, so the canvas, the Tests pane, Docs and the
+Evidence spine follow a Run all or a watch re-run as they follow a
+Re-run. The step-debugger's Start claims a generation that nothing
+resumes, to end the current run, and announces it as retired, so a
+display that marked the ended run as running clears the mark. Ownership is per variant/frame (one registry
 slot per variant-id), so different variants run concurrently and
 independently — this is **not** a global lock.
 
@@ -687,10 +694,10 @@ no parallel mounting protocol. Five rules govern panel hosting:
    panel) so long as the same `:view` id is registered before the user
    opens the panel.
 
-2. **Placement is one of five slots.** `:right` / `:left` / `:bottom`
-   / `:top` host the panel inline; `:modal` opens it over the canvas.
-   Each placement is an independent host; multiple panels at the same
-   placement stack in id order.
+2. **Placement is `:right`.** The right-hand pane is the shell's one
+   panel host, and `StoryPanel` refuses any other placement at
+   registration, so no panel registers into a slot that never renders.
+   Multiple panels stack in id order.
 
 3. **Visibility flows through `:panel-visibility`.** The shell state's
    `:panel-visibility` map (keyed by panel id) is the on/off switch.

@@ -54,7 +54,8 @@
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.runtime          :as rf.story.runtime]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as rf.story.theme.colors]))
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.status :as rf.story.theme.status]))
 
 ;; ---- styles ---------------------------------------------------------------
 
@@ -180,6 +181,9 @@
            :running (:chip-running styles)
            :pass    (:chip-pass    styles)
            :fail    (:chip-fail    styles)
+           ;; A refusal is the distinct third status (spec/017
+           ;; §`:cannot-run`), never idle.
+           :cannot-run (rf.story.theme.status/chip-style :cannot-run)
            {})))
 
 (defn- chip-icon
@@ -189,6 +193,7 @@
     :pass    "Pass"
     :fail    "Fail"
     :idle    "Idle"
+    :cannot-run (rf.story.theme.status/label :cannot-run)
     (str status)))
 
 (defn chip-label
@@ -225,6 +230,7 @@
       :running  "RUN"
       :pass     "PASS"
       :fail     "FAIL"
+      :cannot-run "CANNOT-RUN"
       (str (:status state)))))
 
 ;; ---- click-to-highlight ---------------------------------------------------

@@ -360,6 +360,8 @@
                                             (some? (.-nodeType context)))
                                    context)]
                    (reset! violations (vec (array-seq vs)))
+                   ;; A re-scan replaces the previous scan's outlines.
+                   (rf.story.ui.a11y/clear-violation-overlays! scope-el)
                    (doseq [v (array-seq vs)]
                      (rf.story.ui.a11y/record-violation-overlay! scope-el v)
                      (rf.story.ui.a11y/emit-warning-for-violation chrome-frame-id v))

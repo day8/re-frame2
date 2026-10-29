@@ -51,3 +51,26 @@
   (rf.story.ui.keybindings/full-screen-toggle!)
   (rf.story.ui.keybindings/exit-full-screen!)
   (is (false? (:full-screen? (visibility)))))
+
+;; ---- keys typed inside a variant belong to the variant ----------------------
+
+(def ^:private target-is-input? @#'rf.story.ui.keybindings/target-is-input?)
+
+(defn- key-event-on
+  "A keydown whose target is a plain element, inside a variant root when
+  `in-variant?`."
+  [in-variant?]
+  #js {:target #js {:tagName "DIV"
+                    :isContentEditable false
+                    :closest (fn [sel]
+                               (when (and in-variant?
+                                          (= sel "[data-rf-story-variant-root]"))
+                                 #js {}))}})
+
+(deftest a-key-inside-a-variant-never-toggles-the-chrome
+  (testing "a widget doing single-letter typeahead inside the variant's
+            subject keeps its keys: the chrome hotkeys yield there as they
+            yield to a text input"
+    (is (true? (boolean (target-is-input? (key-event-on true)))))
+    (is (not (target-is-input? (key-event-on false)))
+        "outside the variant a plain element still takes the hotkeys")))
