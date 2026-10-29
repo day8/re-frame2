@@ -8,11 +8,12 @@
   `re-frame.http-completion-fence-cljs-test`.
 
   Nothing user-facing throws above the reply tail (a `:decode` or `:accept`
-  throw is classified by design), so `classify-decoded` is redefined to throw,
-  landing the throw at the 2xx accept phase, before the outcome commits."
+  throw is classified by design), so `encoding/valid-accept-return?`, the
+  accept-shape check, is redefined to throw, landing the throw at the 2xx
+  accept phase, before the outcome commits."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.privacy-body :as rf.http.privacy-body]
+            [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.managed]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -54,7 +55,7 @@
         ops      (fn [op] (filter #(= op (:operation %)) @captured))]
     (try
       (rf.trace.tooling/register-listener! ::cap #(swap! captured conj %))
-      (with-redefs [rf.http.privacy-body/classify-decoded
+      (with-redefs [rf.http.encoding/valid-accept-return?
                     (fn [& _]
                       (throw (ex-info "completion cascade kaboom"
                                       {:rf.error/id :rf.error/schemas-artefact-missing})))]

@@ -3,7 +3,9 @@
   `:retry :on` at fx-call time, before the middleware chain and before any
   attempt: a member that is neither a retryable category nor a status from 400
   to 599, or an `:on` that is not a set, throws `:rf.error/http-bad-retry-on`, and so does a `:retry` map
-  without `:max-attempts` (Spec 014 §Retry and backoff)."
+  without `:max-attempts`, a non-map `:retry`, and a `:max-attempts` or
+  `:backoff` value the retry arithmetic cannot use (Spec 014 §Retry and
+  backoff)."
   (:require [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.handlers :as rf.http.handlers]
@@ -69,7 +71,9 @@
     {:on #{429} :max-attempts 3}
     {:on #{:rf.http/http-5xx 400 599} :max-attempts 3}
     {:max-attempts 3}
-    {:on nil :max-attempts 3}))
+    {:on nil :max-attempts 3}
+    {:max-attempts 1 :backoff {:base-ms 0 :factor 1.5 :max-ms 100 :jitter true}}
+    nil))
 
 (deftest a-retry-map-without-max-attempts-is-refused
   ;; The transport retries only under :max-attempts, so these would validate
@@ -80,3 +84,27 @@
     {:on #{:rf.http/transport :rf.http/http-5xx}}
     {:on closed-set :max-attempts nil}
     {}))
+
+(deftest a-non-map-retry-is-refused
+  ;; `:retry 3` names no policy, so it would never retry.
+  (are [retry] (= {:rf.error/id :rf.error/http-bad-retry-on :where :rf.http/managed
+                   :recovery :no-recovery :received retry}
+                  (select-keys (call-managed! retry) [:rf.error/id :where :recovery :received]))
+    3
+    :rf.http/http-5xx
+    [:max-attempts 3]))
+
+(deftest a-retry-value-the-arithmetic-cannot-use-is-refused
+  ;; Each would throw when a failure reaches the retry decision, ending the
+  ;; request with no reply.
+  (are [retry bad-key] (= {:rf.error/id :rf.error/http-bad-retry-on :where :rf.http/managed
+                           :recovery :no-recovery :received retry :bad-key bad-key}
+                          (select-keys (call-managed! retry)
+                                       [:rf.error/id :where :recovery :received :bad-key]))
+    {:max-attempts "3"}                         :max-attempts
+    {:max-attempts 0}                           :max-attempts
+    {:max-attempts 2.5}                         :max-attempts
+    {:max-attempts 3 :backoff 250}              :backoff
+    {:max-attempts 3 :backoff {:base-ms "250"}} [:backoff :base-ms]
+    {:max-attempts 3 :backoff {:factor :x}}     [:backoff :factor]
+    {:max-attempts 3 :backoff {:max-ms -1}}     [:backoff :max-ms]))

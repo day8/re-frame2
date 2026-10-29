@@ -54,6 +54,30 @@
      :cause "interceptor :auth/check :before threw"}
     false :cause "interceptor :auth/check :before threw"))
 
+;; A host's free-text :message can quote the url it failed on: the quote takes
+;; the redacted form the url slot carries, and a sensitive request redacts the
+;; message whole, like a string :cause.
+(deftest redact-failure-redacts-a-url-quoted-in-the-message
+  (let [url      "/api/items?api_key=SECRET-K&page=2"
+        redacted "/api/items?api_key=:rf/redacted&page=2"
+        failure  {:kind    :rf.http/transport
+                  :url     url
+                  :request {:method :get :url url}
+                  :message (str "got relative URL " (pr-str url) ".")}]
+    (is (= (str "got relative URL " (pr-str redacted) ".")
+           (:message (rf.http.privacy/redact-failure failure false nil))))
+    (is (= (str "no stub transport for :get " redacted)
+           (:message (rf.http.privacy/redact-failure
+                       {:kind    :rf.http/transport
+                        :request {:method :get :url url}
+                        :message (str "no stub transport for :get " url)}
+                       false nil)))
+        "the request echo's url is matched when the failure has no top-level :url")
+    (is (= :rf/redacted (:message (rf.http.privacy/redact-failure failure true nil))))
+    (is (= "connection reset"
+           (:message (rf.http.privacy/redact-failure (assoc failure :message "connection reset")
+                                                     false nil))))))
+
 ;; ---- project-managed-fx-args ------------------------------------------------
 ;;
 ;; The fn core's `:http/project-managed-fx-args` late-bind hook resolves to: it

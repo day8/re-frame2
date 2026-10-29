@@ -7,14 +7,17 @@
   load-bearing assertion. The JVM silent-hang half is
   `re-frame.http-completion-fence-test`.
 
-  `classify-decoded` is stubbed to throw, armed by the fetch stub so the
-  request reaches the wire and succeeds before anything throws."
+  `encoding/valid-accept-return?`, the accept-shape check, is stubbed to
+  throw, armed by the fetch stub so the request reaches the wire and succeeds
+  before anything throws. A rejected fetch's failure tail is fenced the same
+  way."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.privacy-body :as rf.http.privacy-body]
+            [re-frame.http.transport-cljs :as rf.http.transport-cljs]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -43,20 +46,20 @@
           traces      (atom [])
           cb-id       (gensym "completion-fence-cljs-")
           orig-fetch  (.-fetch js/globalThis)
-          orig-cd     rf.http.privacy-body/classify-decoded
+          orig-va     rf.http.encoding/valid-accept-return?
           resp        (fake-200-json-response)
           restore     (fn []
                         (set! (.-fetch js/globalThis) orig-fetch)
-                        (set! rf.http.privacy-body/classify-decoded orig-cd)
+                        (set! rf.http.encoding/valid-accept-return? orig-va)
                         (rf.trace.tooling/unregister-listener! cb-id)
                         (rf.http.managed/clear-all-http-interceptors!))]
       (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
-      (set! rf.http.privacy-body/classify-decoded
+      (set! rf.http.encoding/valid-accept-return?
             (fn [& args]
               (if @armed?
                 (throw (ex-info "completion cascade kaboom"
                                 {:rf.error/id :rf.error/schemas-artefact-missing}))
-                (apply orig-cd args))))
+                (apply orig-va args))))
       (set! (.-fetch js/globalThis)
             (fn [_url _init]
               (swap! fetch-count inc)
@@ -93,6 +96,57 @@
                    (is (= [:rf.error/schemas-artefact-missing]
                           (mapv (comp :reply-error-id :tags) (ops traces :rf.error/http-reply-tail-failed)))
                        "surfaced exactly once, carrying the caught throw's own id")))
+          (.catch (fn [e]
+                    (is false (str "unexpected: " e))
+                    nil))
+          (.then (fn [_] (restore) (done)))))))
+
+(deftest a-rejected-fetch-whose-failure-tail-throws-is-fenced
+  (async done
+    (rf/destroy-adapter!)
+    (rf/init! rf.adapter.reagent/adapter)
+    (rf.frame/ensure-default-frame!)
+    (rf.http.managed/clear-all-in-flight!)
+    (rf.http.managed/clear-all-http-interceptors!)
+    (let [replies       (atom [])
+          traces        (atom [])
+          cb-id         (gensym "completion-fence-cljs-catch-")
+          orig-fetch    (.-fetch js/globalThis)
+          orig-classify rf.http.transport-cljs/classify-cljs-error
+          restore       (fn []
+                          (set! (.-fetch js/globalThis) orig-fetch)
+                          (set! rf.http.transport-cljs/classify-cljs-error orig-classify)
+                          (rf.trace.tooling/unregister-listener! cb-id))]
+      (rf.trace.tooling/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+      ;; The failure tail starts by classifying the rejection.
+      (set! rf.http.transport-cljs/classify-cljs-error
+            (fn [& _]
+              (throw (ex-info "failure tail kaboom"
+                              {:rf.error/id :rf.error/schemas-artefact-missing}))))
+      (set! (.-fetch js/globalThis)
+            (fn [_url _init] (js/Promise.reject (js/TypeError. "Failed to fetch"))))
+      (rf/reg-event :reply/rejected-recorder
+        (fn [_ [_ payload]] (swap! replies conj payload) {}))
+      (rf/reg-event :issue-rejected
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request    {:url "/x"}
+                  :request-id :fence/rejected
+                  :on-success [:reply/rejected-recorder]
+                  :on-failure [:reply/rejected-recorder]}]]}))
+      (rf/dispatch-sync [:issue-rejected] {:frame :rf/default})
+      (-> (rf.test-support/poll-until
+            #(seq (ops traces :rf.error/http-reply-tail-failed))
+            {:timeout-ms 3000
+             :label "cljs rejected-fetch :rf.error/http-reply-tail-failed surfaced"})
+          (.catch (fn [e] (is false (.-message e)) nil))
+          (.then (fn [_]
+                   (is (= [:rf.error/schemas-artefact-missing]
+                          (mapv (comp :reply-error-id :tags) (ops traces :rf.error/http-reply-tail-failed)))
+                       "surfaced exactly once, carrying the caught throw's own id")
+                   (is (empty? @replies))
+                   (is (not (contains? (rf.http.managed/in-flight-snapshot) :fence/rejected))
+                       "the fence retires the request")))
           (.catch (fn [e]
                     (is false (str "unexpected: " e))
                     nil))

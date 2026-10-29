@@ -99,6 +99,21 @@
       (is (false? (respond! {:body {:too :late}})) "and fences its late answer")
       (is (empty? (rf.http.managed/in-flight-snapshot))))))
 
+(deftest a-test-reset-abort-delivers-no-reply
+  ;; A fixture's reset aborts what is still held after it has emptied the
+  ;; frames registry, so a reply would have no frame to land in.
+  (let [{:keys [transport]} (rf.http.stub-transport/pending-transport)
+        traces              (atom [])]
+    (rf.trace.tooling/register-listener! ::reset #(swap! traces conj %))
+    (try
+      (rf.http.stub-transport/with-transport transport #(fire! {:request {:url url}}))
+      (rf.http.managed/clear-all-in-flight!)
+      (is (= [:test-reset] (mapv #(get-in % [:tags :reason])
+                                 (filter #(= :rf.http/aborted (:operation %)) @traces))))
+      (is (empty? (filter #(= :rf.http/replied (:operation %)) @traces))
+          "no cancelled reply is built or dispatched")
+      (finally (rf.trace.tooling/unregister-listener! ::reset)))))
+
 (deftest a-routes-delay-defers-the-answer
   (rf.http.stub-transport/with-transport
     (rf.http.stub-transport/route-transport {[:get url] {:body {:n 1} :delay-ms 40}})

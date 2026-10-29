@@ -59,6 +59,25 @@
   (or (contains? retryable-categories member)
       (and (integer? member) (<= 400 member 599))))
 
+(defn- unusable-retry-value
+  "The first `:retry` key whose value the retry arithmetic cannot use, as
+  `[key-or-path what-it-must-be]`, or nil. `retry` is a map that carries
+  `:max-attempts`."
+  [{:keys [max-attempts backoff]}]
+  (cond
+    (not (pos-int? max-attempts))
+    [:max-attempts "a positive integer (total attempts, including the first)"]
+
+    (and (some? backoff) (not (map? backoff)))
+    [:backoff "a map of `:base-ms` / `:factor` / `:max-ms` / `:jitter`"]
+
+    :else
+    (some (fn [k]
+            (let [v (get backoff k)]
+              (when-not (or (nil? v) (and (number? v) (not (neg? v))))
+                [[:backoff k] "a non-negative number"])))
+          [:base-ms :factor :max-ms])))
+
 (defn- validate-retry!
   "Refuses a `:retry` policy the transport cannot honour, throwing
   `:rf.error/http-bad-retry-on` at fx-call time before `run-attempt!`, so
@@ -70,6 +89,13 @@
   ;; pass) from an absent key, so we read `:on` only when the `:retry`
   ;; map actually carries it and the value is non-nil.
   (let [retry (:retry args-map)]
+    ;; SHAPE: a non-nil `:retry` is a policy map; `:retry 3` names no policy,
+    ;; so it would destructure to nothing and never retry.
+    (when (and (some? retry) (not (map? retry)))
+      (throw (rf.error/thrown-ex-info
+               :rf.error/http-bad-retry-on :rf.http/managed
+               "`:retry` must be a policy map such as `{:on #{:rf.http/transport :rf.http/http-5xx} :max-attempts 3}` per Spec 014 §Retry and backoff; any other value names no policy, so the request would never retry. Pass a map, or omit `:retry` for no retry"
+               {:extra {:received retry}})))
     (when (and (map? retry) (contains? retry :on))
       (let [on (:on retry)]
         (when (some? on)
@@ -98,7 +124,18 @@
       (throw (rf.error/thrown-ex-info
                :rf.error/http-bad-retry-on :rf.http/managed
                "a `:retry` map must carry `:max-attempts` (total attempts, including the first) per Spec 014 §Retry and backoff; without it no attempt is ever retried, and none is defaulted because an extra attempt re-sends a request that may not be idempotent. Add `:max-attempts`, or omit `:retry` for no retry"
-               {:extra {:received retry}})))))
+               {:extra {:received retry}})))
+    ;; NUMBERS: `:max-attempts` counts attempts and the `:backoff` values feed
+    ;; the delay arithmetic, so a value neither can compute with would throw
+    ;; when a failure reaches the retry decision, inside the completion fence,
+    ;; ending the request with no reply.
+    (when (map? retry)
+      (when-let [[bad-key expected] (unusable-retry-value retry)]
+        (throw (rf.error/thrown-ex-info
+                 :rf.error/http-bad-retry-on :rf.http/managed
+                 (str "`:retry` " (pr-str bad-key) " must be " expected
+                      " per Spec 014 §Retry and backoff; any other value throws when a failure reaches the retry decision, ending the request with no reply")
+                 {:extra {:received retry :bad-key bad-key}}))))))
 
 (defn validate-url!
   "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the
@@ -235,11 +272,8 @@
         ;;
         ;; It belongs in `normalise-args` rather than beside `managed-handler`'s
         ;; other dispatch-time guards because this fn OWNS `:decode` (it
-        ;; destructures it and threads it onto the normalised ctx), and because
-        ;; it runs on the POST-`:before` args — `validate-retry!` and
-        ;; `validate-reply-target!` fire before the chain, so a `:before` that
-        ;; SET `:decode` would be checked there against a decode the transport
-        ;; never uses. The result is discarded, and the response-time call
+        ;; destructures it and threads it onto the normalised ctx). The result
+        ;; is discarded, and the response-time call
         ;; walks the schema again: the walk is unmemoised,
         ;; and a second schema walk is cheap next to a network round trip.
         _            (rf.http.privacy-body/decode-schema-marks decode)

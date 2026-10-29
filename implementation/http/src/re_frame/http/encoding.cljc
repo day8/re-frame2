@@ -121,7 +121,10 @@
   - a sequential value yields one `[name (str element)]` pair per
     element, in order.
 
-  The name is stringified once; values are stringified per element so a
+  A keyword name is sent as its `name` (`:authorization` → `authorization`),
+  the spelling `decode/content-type-of` and the header redactor read, so the
+  default Content-Type and the denylist see the header the wire carries; any
+  other name is `str`-ed. Values are stringified per element so a
   keyword / number value lands as its plain string form on the wire
   (assigning a vector straight into a `HeadersInit`, or calling `(str v)`
   on the whole vector, would produce a single malformed wire value). An empty sequential value contributes no
@@ -129,10 +132,10 @@
   empty-sequential rule."
   [headers]
   (mapcat (fn [[k v]]
-            (let [name (str k)]
+            (let [wire-name (if (keyword? k) (name k) (str k))]
               (if (sequential? v)
-                (map (fn [el] [name (str el)]) v)
-                [[name (str v)]])))
+                (map (fn [el] [wire-name (str el)]) v)
+                [[wire-name (str v)]])))
           headers))
 
 (defn header-invalid-cause

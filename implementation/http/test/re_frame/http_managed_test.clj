@@ -330,6 +330,28 @@
             (is (= ["application/vnd.custom+json"] (get-in s ["/clash" :content-types])))
             (is (= ["alpha" "beta" "gamma"] (get-in s ["/multi" :x-multi])))))))))
 
+(deftest jvm-keyword-header-names-reach-the-wire
+  (testing "a keyword header name goes out as its name, so a keyword
+            :authorization reaches the server and the default Content-Type is
+            still added, while a keyword :content-type replaces that default"
+    (let [seen (atom {})]
+      (with-server (fn [^HttpExchange ex]
+                     (let [headers (.getRequestHeaders ex)]
+                       (swap! seen assoc (.getPath (.getRequestURI ex))
+                              {:authorization (vec (.get headers "Authorization"))
+                               :content-types (vec (.get headers "Content-Type"))}))
+                     (write-response! ex 200 "application/json" "{\"ok\":true}"))
+        (fn [base]
+          (request! {:request {:method :post :url (str base "/auth") :body {:name "widget"}
+                               :headers {:authorization "Bearer T"}}
+                     :decode :json})
+          (request! {:request {:method :post :url (str base "/csv") :body "a,b"
+                               :headers {:content-type "text/csv"}}
+                     :decode :json})
+          (is (= {:authorization ["Bearer T"] :content-types ["application/json"]}
+                 (get @seen "/auth")))
+          (is (= ["text/csv"] (get-in @seen ["/csv" :content-types]))))))))
+
 ;; ---- issuance counters ----------------------------------------------------
 
 (deftest issuance-counter-runs-per-frame

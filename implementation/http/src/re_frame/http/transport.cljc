@@ -170,7 +170,9 @@
   `:frame-destroyed` means the request's owning frame was DESTROYED:
   the target frame is already marked destroyed, so dispatching a
   live cancellation reply into it is invalid — the late completion MUST NOT
-  deliver to its original `:rf/reply-to` target either.
+  deliver to its original `:rf/reply-to` target either. `:test-reset` means a
+  test fixture's reset aborted the request after emptying the frames registry,
+  so the reply would have no frame to land in.
   All still emit their trace facts (the suppressed-attempt's stale envelope);
   only the app dispatch is suppressed.
 
@@ -182,7 +184,7 @@
   `abort-in-flight-on-frame-destroyed!`). `dispatch-aborted!` here fires only
   the `:rf.http/aborted` `:info` trace and then suppresses the reply for these
   reasons."
-  #{:request-id-superseded :epoch-restored :frame-destroyed})
+  #{:request-id-superseded :epoch-restored :frame-destroyed :test-reset})
 
 (defn reply-suppressing-abort-reason?
   "True when an `:rf.http/aborted` failure carrying `reason` must NOT dispatch
@@ -418,6 +420,17 @@
 ;; the abort path's `dispatch-aborted!`, which makes the abort/natural
 ;; symmetry visible in code.
 
+(defn- classify-failure-decoded
+  "`failure` with an `:rf.http/accept-failure`'s pre-`:accept` `:decoded` body
+  classified by the request's `:decode` schema marks, for a trace row: a
+  marked slot redacts or elides even when the request is not `:sensitive?`.
+  The delivered reply keeps the raw body. Spec 014 §Response-body
+  classification (EP-0015 §5)."
+  [failure ctx]
+  (cond-> failure
+    (contains? failure :decoded)
+    (update :decoded rf.http.privacy-body/classify-decoded (:decode ctx))))
+
 (defn- emit-reply-trace!
   "Emit a managed-async completion trace row built from the
   CANONICAL reply-envelope facts (Managed-Effects §Tracing), not the
@@ -440,10 +453,10 @@
     ;; `:decode` (`:auto` / `:json` / `:text` / binary / custom fn) is a
     ;; no-op here — its body is governed by the per-call `:sensitive?` flag on
     ;; the dev trace (and by the off-box fail-closed disposition for captures).
-    ;; Only the success status carries a DECODED body; failure / cancel carry
-    ;; the classified failure map at `:error`, which gets its own family
-    ;; redaction below rather than this schema pass — its body is
-    ;; raw and unschematized by construction. The schema's per-slot marks cover
+    ;; A failure / cancel reply carries the classified failure map at `:error`,
+    ;; which gets its own family redaction below: a raw error body is
+    ;; unschematized by construction, and an accept failure's pre-`:accept`
+    ;; `:decoded` body takes the schema marks there. The schema's per-slot marks cover
     ;; `:sensitive?` (→ `:rf/redacted`) and `:large?` (→ `:rf.size/large-elided`)
     ;; through the shared marks walker. They are paths into the decoded body
     ;; (`:decoded` on the ctx), so they apply per-slot only when the success
@@ -484,9 +497,10 @@
           failure (:error reply)
           reply' (if failure
                    (update reply' :error
-                           rf.http.privacy/redact-failure
-                           (true? (:sensitive? ctx))
-                           (rf.http.privacy/managed-carriers))
+                           #(rf.http.privacy/redact-failure
+                              (classify-failure-decoded % ctx)
+                              (true? (:sensitive? ctx))
+                              (rf.http.privacy/managed-carriers)))
                    reply')]
       ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
       ;; frame resolves from the carried stamp; HTTP completions fire from the
@@ -775,7 +789,7 @@
     ;; transports share the same contract.
     (let [sensitive? (true? (:sensitive? ctx))
           redacted   (rf.http.privacy/prepare-emit-failure
-                       (assoc failure
+                       (assoc (classify-failure-decoded failure ctx)
                               :request-id (:request-id ctx)
                               :url        (:url ctx)
                               :recovery   :no-recovery)
@@ -1032,7 +1046,7 @@
 
 (defn- complete-fenced!
   "THE COMPLETION FENCE. Invoke `f`, the WHOLE body of a platform
-  completion callback (the Fetch `.then` on CLJS, the `CompletableFuture`
+  completion callback (the Fetch `.then` or `.catch` on CLJS, the `CompletableFuture`
   `.whenComplete` on the JVM), and catch anything it throws.
 
   The reply-tail fence in `dispatch-reply!` covers the BOTTOM of that
@@ -1153,7 +1167,7 @@
                 ;; §Keyword-interning cap) throws a structured
                 ;; `:rf.error/malformed-json` ex-info carrying `:cause`
                 ;; (`:too-many-keys`) and `:limit` (the configured cap).
-                ;; The spec (lines 145, 285, 289) mandates the overflow
+                ;; The same section mandates the overflow
                 ;; surface as `:rf.http/decode-failure` with
                 ;; `:reason :too-many-keys` and that `:limit`. Propagate
                 ;; both onto the failure map so a caller branching on
@@ -1209,15 +1223,6 @@
                                :response-meta {:http-status status
                                                :status-text status-text
                                                :headers     headers})
-                ;; RESPONSE-BODY classification (EP-0015 §8,
-                ;; issue 5). The pre-`:accept` decoded body rides at
-                ;; `:decoded` on an `:rf.http/accept-failure` trace; apply
-                ;; the request's `:decode` schema per-slot `:sensitive?`
-                ;; marks so a sensitive body slot redacts even when the
-                ;; request was not declared per-call `:sensitive?`. A
-                ;; non-schema `:decode` is a no-op here (the per-call flag /
-                ;; off-box disposition govern an unschematized body).
-                decoded' (rf.http.privacy-body/classify-decoded decoded decode)
                 outcome (try
                           {:accepted (rf.http.encoding/run-accept accept decoded)}
                           (catch #?(:clj Throwable :cljs :default) e
@@ -1230,7 +1235,7 @@
                            :detail     {:rf.http/bad-accept :threw
                                         :message #?(:clj (.getMessage ^Throwable (:accept-error outcome))
                                                     :cljs (.-message ^js (:accept-error outcome)))}
-                           :decoded    decoded'
+                           :decoded    decoded
                            :request-id request-id}})
 
               (rf.http.encoding/valid-accept-return? (:accepted outcome))
@@ -1241,14 +1246,13 @@
                   ;; successful 2xx decode) is an `:rf.http/accept-failure`,
                   ;; exactly like the throw / malformed-return branches. Its
                   ;; reply goes through `emit-and-dispatch-failure!`, which
-                  ;; emits the failure-CATEGORY trace and stamps the off-box
-                  ;; disposition for the `:decoded` slot — the schema-classified
-                  ;; body, so a `:decode`-schema sensitive slot redacts on the
-                  ;; on-box trace.
+                  ;; emits the failure-CATEGORY trace with `:decoded` classified
+                  ;; by the `:decode` schema's marks and stamps its off-box
+                  ;; disposition; the delivered reply carries the raw body.
                   (completed! record ctx'
                               {:failure {:kind       :rf.http/accept-failure
                                          :detail     (:failure accepted)
-                                         :decoded    decoded'
+                                         :decoded    decoded
                                          :request-id request-id}})))
 
               :else
@@ -1257,7 +1261,7 @@
                 {:failure {:kind       :rf.http/accept-failure
                            :detail     {:rf.http/bad-accept :malformed-return
                                         :returned (:accepted outcome)}
-                           :decoded    decoded'
+                           :decoded    decoded
                            :request-id request-id}})))))
 
       :else
@@ -1464,9 +1468,13 @@
                       (complete-fenced! record ctx #(handle-response! record ctx result))))
              ;; A genuine transport rejection. After an abort the Fetch also
              ;; rejects (the controller aborted it); the request is done by
-             ;; then, so `completed!` commits nothing.
+             ;; then, so `completed!` commits nothing. Fenced like the response
+             ;; arm, because a throw in the failure tail would otherwise reject a
+             ;; promise nobody holds and leave the request in flight.
              (.catch (fn [err]
-                       (maybe-retry! record ctx (rf.http.transport-cljs/classify-cljs-error err url))))))
+                       (complete-fenced!
+                         record ctx
+                         #(maybe-retry! record ctx (rf.http.transport-cljs/classify-cljs-error err url)))))))
        :clj
        ;; A monotonic start mark for the timeout's `:elapsed-ms`, taken before
        ;; the request is issued so the measured elapsed spans the whole attempt.

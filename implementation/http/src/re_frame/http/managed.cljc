@@ -55,9 +55,10 @@
 
   ## Production elision
 
-  Trace events (`:rf.http/retry-attempt`,
-  the `:rf.error/*` from failures) gate on `interop/debug-enabled?`. The
-  `:rf.http/managed` fx itself is dev+prod (user-facing).
+  Trace events (`:rf.http/retry-attempt`, the `:rf.http/*` failure
+  categories) gate on `interop/debug-enabled?`. `:rf.error/http-reply-tail-failed`
+  is always-on (Spec 014 §Failure mode). The `:rf.http/managed` fx itself is
+  dev+prod (user-facing).
 
   ## Optional artefact
 
