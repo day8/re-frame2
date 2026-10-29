@@ -44,7 +44,7 @@ Surfaces that ship today:
 - Mermaid `stateDiagram-v2` emitter — a pure `definition → string`
   function kept in this tool jar so the runtime machines artefact stays
   focused on execution. The normal end-user workflow for it is Xray's
-  **Static → Machines → Copy Mermaid** header button (rf2-sxw06): one
+  **Static → Machines → Copy Mermaid** header button: one
   click copies the selected registered machine's fenced ```` ```mermaid ````
   block for paste into a README, a PR description, Notion, or an
   AI-pair chat. The library API below is for hosts building their own
@@ -81,7 +81,7 @@ tools/machines-viz/
     └── viewer.cljs                           ; read-only viewer entry (^:export run)
 ```
 
-Why `page/` is a second source root (rf2-k7l2o). `src` is library
+Why `page/` is a second source root. `src` is library
 surface a host requires; `page` holds the one application in this tree.
 `viewer.cljs` is the `^:export run` entry `public/viewer.html` loads, and
 it ships as the compiled `viewer.js` beside that HTML — the jar was never
@@ -91,15 +91,14 @@ its delivery vehicle. Only `src` is on `:paths` and on `:clein/build
 The page boots no framework. `MachineChart` is an ordinary Reagent
 component, so `viewer.cljs` mounts it through a plain
 `reagent.dom.client` root and stops there — no `rf/init!`, no substrate
-adapter, no frame, no dispatch (rf2-6r9j.115). The chart's own DOM suite
+adapter, no frame, no dispatch. The chart's own DOM suite
 mounts the same component through `adapters/react-chart` and a bare
 `react-dom/client` root, which is the standing proof that no framework
 boot is a rendering prerequisite.
 
-When rf2-k7l2o made the `src`/`page` split the page did still require
-`re-frame.adapter.reagent`, and that require was the sharper half of the
-argument: had it stayed in `src`, the jar would have had to declare
-`day8/re-frame2-reagent` to be loadable at all. The require is gone now, so what keeps the split is the
+A page requiring `re-frame.adapter.reagent` from `src` would make the jar
+declare `day8/re-frame2-reagent` to be loadable at all. The page requires
+no adapter, so what keeps the split is the
 application-versus-library-surface line above.
 
 ## Building and hosting the viewer page
@@ -116,7 +115,7 @@ and the docs named
 no `day8/re-frame2-machines-viz` repository, because machines-viz ships
 out of the re-frame2 monorepo. Every default share-URL was a dead link
 that looked correct to whoever copied it. The default is gone and `:host`
-is now required (rf2-8m344).
+is now required.
 
 Hosting the page yourself is 2 files and no server:
 
@@ -131,7 +130,7 @@ That compiles the bundle to `out/machines-viz-viewer/viewer.js`, copies
 the global the page's boot script calls is one the bundle installs. The
 second check evaluates the bundle in an isolated context and asks
 whether that global came out callable, rather than searching the bundle's
-text for something that looks like an export (rf2-8m344). The long hand
+text for something that looks like an export. The long hand
 is the same 2 steps:
 
 ```bash
@@ -143,7 +142,7 @@ This recipe is gated. The `machines-viz-viewer-page` job in
 `.github/workflows/test.yml` runs the same command on every change to
 this artefact or to the build that declares the viewer bundle, and it is
 a required check — so the instructions above cannot quietly stop working
-the way the 404 host did (rf2-8m344). CI builds and stages the page; it
+the way the 404 host did. CI builds and stages the page; it
 still deploys nothing, because there is nowhere to deploy it to.
 
 Serve that directory from anywhere that serves static files — your docs
@@ -163,7 +162,7 @@ fine. The machine payload is the fragment, and a URL has only one, so
 `{:host ".../viewer.html#docs"}` would produce
 `.../viewer.html#docs#machine=…`: a link that looks right and that the
 viewer cannot read, because it stops at the first `#`. The encoder refuses
-that rather than shipping it (`:reason :host-carries-fragment`, rf2-xld5m).
+that rather than shipping it (`:reason :host-carries-fragment`).
 It does not otherwise parse the URL — a host that is not a URL comes back
 to you as `"banana#machine=…"`, visibly wrong before you share it, so
 `file:///…/viewer.html` and a relative `/viewer.html` both keep working.

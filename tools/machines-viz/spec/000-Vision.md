@@ -104,7 +104,7 @@ exports:
    compiled viewer bundle (`public/viewer.html` + `viewer.js`) that
    decodes a `#machine=<base64url-transit>` URL fragment and renders the
    chart with callbacks disabled and no runtime connection. The consumer
-   hosts it; there is no Day8-hosted instance (Lock #7, rf2-8m344).
+   hosts it; there is no Day8-hosted instance (Lock #7).
 3. **The share-URL encoding rules.** EDN-shaped data → transit-write →
    base64url, with a versioned envelope (`:rf.machines-viz.share/v`,
    currently `"2"`) keying the encoding. Roundtrips:
@@ -147,7 +147,7 @@ exports:
   buffer. Per Xray Lock #4 (session export forbidden), lifted
   into Machines-Viz as load-bearing.
 - **Not** an *interactive* Markdown-embed. Machines-Viz **does**
-  ship a Mermaid `stateDiagram-v2` exporter at v1.0 (per rf2-deo2i;
+  ship a Mermaid `stateDiagram-v2` exporter at v1.0 (
   see [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #4); it
   emits a fenced markdown code block for paste into a GitHub README
   / PR description / Notion. The emitter is **lossy by design**:
@@ -187,11 +187,11 @@ must tell."
 | **`:rf.machine.timer/*` events** | The host projects `:after` overlay descriptors; their tick drives countdown rings only while visible. |
 | **`:rf.machine.spawn-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any`). |
 | **`:rf.machine.spawn/spawned` + `-destroyed`** | The chart draws no spawn topology (per [`API.md`](./API.md) §What renders); spawned children surface only through the host-fed `:spawn-all-join` overlay descriptor, one row per child key. |
-| **State-tags** (Spec 005 §State tags) | A neutral tag-pill row below the state name (one chip style, rf2-az6e2); the full tag set on the node tooltip. |
+| **State-tags** (Spec 005 §State tags) | A neutral tag-pill row below the state name (one chip style); the full tag set on the node tooltip. |
 | **Source-coord stamping** (Spec 001) | The chart renders no coord chips; a state click fires `:on-state-click` with the state path and the host resolves the coords and jumps to the registration. |
 | **`reg-machine` definition as data** | The whole chart layout is a function of the transition table; no reflection, no instrumented build. |
 | **Compound states + parallel regions** | Nested compound states render with recursive active-child highlighting; parallel regions render as side-by-side panes. |
-| **Final states + `:on-done` completion** | `:final?` leaves render with a quiet doubled border (UML final-state ring) regardless of depth — but the doubled border is a STATIC topology marker, NOT a claim about finality semantics, which Spec 005 keys on the leaf's DEPTH (§Embedded vs top-level). A `:on-done` (XState `onDone`) on a compound / parallel-root projects the **completion transition** — a `✓ done` edge advancing the outer flow to the compound's sibling, or a terminal completion affordance for the action-only parallel-root form (rf2-41goo) — and is the surface the viz draws. The two are distinct: a ROOT-level `:final?` leaf is whole-machine finality (a singleton rests there; a spawned actor is torn down) and carries no `:on-done` edge; an EMBEDDED `:final?` leaf signals compound-done and the machine **keeps running**, so the `:on-done` completion edge it projects is NOT tied to whole-machine finality (Spec 005 §The done-state signal). |
+| **Final states + `:on-done` completion** | `:final?` leaves render with a quiet doubled border (UML final-state ring) regardless of depth — but the doubled border is a STATIC topology marker, NOT a claim about finality semantics, which Spec 005 keys on the leaf's DEPTH (§Embedded vs top-level). A `:on-done` (XState `onDone`) on a compound / parallel-root projects the **completion transition** — a `✓ done` edge advancing the outer flow to the compound's sibling, or a terminal completion affordance for the action-only parallel-root form — and is the surface the viz draws. The two are distinct: a ROOT-level `:final?` leaf is whole-machine finality (a singleton rests there; a spawned actor is torn down) and carries no `:on-done` edge; an EMBEDDED `:final?` leaf signals compound-done and the machine **keeps running**, so the `:on-done` completion edge it projects is NOT tied to whole-machine finality (Spec 005 §The done-state signal). |
 
 ## Where it lives in the stack
 
@@ -283,8 +283,8 @@ emitter**:
 
 The **fourth surface** is the existing Mermaid
 `stateDiagram-v2` emitter
-(`day8.re-frame2-machines-viz.mermaid` per rf2-deo2i; relocated into
-this tool jar per rf2-sqhqu — pure text-to-SVG via the Mermaid DSL):
+(`day8.re-frame2-machines-viz.mermaid`; relocated into
+this tool jar — pure text-to-SVG via the Mermaid DSL):
 
 4. **Mermaid static surface — docs prose, README, AI-pair chat
    replies.** Same emitter, different consumption — a fenced
@@ -313,8 +313,8 @@ The v1.0 `MachineChart` is built on:
   parallel regions, multi-source edges with bundling. Same engine
   Stately Studio runs on; VS Code's `mermaid-state-machine`
   preview also uses it. Bundle ~600 KB. License: **EPL-2.0** —
-  compatibility with re-frame2's MIT posture verified 2026-05-19
-  (rf2-9lath); see §License compatibility below and the
+  compatibility with re-frame2's MIT posture verified 2026-05-19;
+  see §License compatibility below and the
   §License chain decision-trace row.
 - **Interactive renderer: `@xyflow/react` (React Flow).**
   Production-grade React graph renderer. The same engine Stately
@@ -328,13 +328,12 @@ The v1.0 `MachineChart` is built on:
   minimap natively; elk.js runs as xyflow's layout backend
   inside the chart component. Per the **2026-05-21 override**
   recorded in §Decision trace §Interactive renderer below
-  (rf2-gpzb4) — Mike's override of the 2026-05-19 hand-rolled-
+  — Mike's override of the 2026-05-19 hand-rolled-
   SVG lock after the polish-within-current-stack path repeatedly
   failed to reach the Stately Studio quality bar.
 - **Static renderer: Mermaid** (already shipped, at
-  `src/day8/re_frame2_machines_viz/mermaid.cljc` per the rf2-sqhqu
-  relocation into this tool jar — the runtime `machines` artefact is
-  now pure-engine).
+  `src/day8/re_frame2_machines_viz/mermaid.cljc` in this tool jar — the
+  runtime `machines` artefact is pure-engine).
   Stays in its lane: text-to-SVG via the `stateDiagram-v2` DSL for
   Markdown-embed cases; not extended into interactive territory.
 
@@ -347,7 +346,7 @@ same model.
 | Renderer | Layout | Output | Surface | Status |
 |---|---|---|---|---|
 | Mermaid | Mermaid-internal (Dagre-derived) | static SVG via DSL | docs prose, README, AI-pair chat replies | shipped (`day8.re-frame2-machines-viz.mermaid`) |
-| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Xray panel + user-app drop-in + docs cells | v1.0 commitment (Phase 2 COMPLETE — rf2-gpzb4 xyflow migration + rf2-lkwev/rf2-3ow55/rf2-yg9he/rf2-y9j79: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, UIx/Helix substrate adapters — the Helix shell since deleted at S7/W13 (rf2-d6epb), browser-side visual-pin tests) |
+| xyflow + elkjs (`MachineChart`) | ELK.js inside `@xyflow/react` | interactive React canvas | Xray panel + user-app drop-in + docs cells | v1.0 commitment (shipped: full parallel-region rendering, `:spawn-all` join + cancellation-cascade overlays, the UIx substrate adapter, browser-side visual-pin tests) |
 
 ### Alternatives rejected (with reasons)
 
@@ -366,7 +365,7 @@ same model.
   (rounded-corner nodes, default edge style) collides with the
   "beautiful + integrated" bar without significant override work.
   Rejected 2026-05-19; **superseded 2026-05-21** — the override
-  (rf2-gpzb4) accepts xyflow as the renderer BUT with extensive
+  accepts xyflow as the renderer BUT with extensive
   custom node + edge components that recover the Xray identity;
   the default look itself remains rejected.
 - **JointJS / GoJS.** Commercial; wrong fit for re-frame2's
@@ -374,15 +373,14 @@ same model.
 
 ## Decision trace
 
-The locked rendering-stack decisions (rf2-04gvh closure, locked
-2026-05-19), expressed in the §Decision-trace template above.
+The locked rendering-stack decisions, expressed in the §Decision-trace template above.
 
 ### XState / Stately ground-truth (cited)
 
 The rows below assert "same engine Stately Studio uses" for both
 the layout engine and the interactive renderer. This subsection
 records the cited prior-art that justifies those assertions and
-the xyflow + elkjs stack choice (sourced from the rf2-ox50v
+the xyflow + elkjs stack choice (sourced from the
 machine-representation research). The point is **construction, not
 mimicry**: we reproduce Stately's look by adopting the same
 primitives, not by copying its pixels.
@@ -426,7 +424,7 @@ tool, then map, then name where we diverge):
 - **Host-projected live state.** Xray derives highlights and overlays from
   the Spec 009 `:rf.machine/*` trace bus and passes them into the chart.
   The separate static simulator is a hermetic what-if walker.
-- **First-class history pseudo-states (rf2-m285a — no longer a
+- **First-class history pseudo-states (no longer a
   divergence).** Spec 005 has first-class `:type :history` pseudo-states
   (shallow / deep / `:default-target` — §History states). The chart
   parses them into non-occupiable history markers (`H` / `H*`), the
@@ -469,7 +467,7 @@ pan / zoom / minimap affordances.
 **re-frame2's choice (2026-05-21 — superseded the 2026-05-19
 lock):** **`@xyflow/react` (React Flow). Same as Stately.**
 
-**Rationale (2026-05-21 override per rf2-gpzb4):** Mike's
+**Rationale (2026-05-21 override):** Mike's
 override of the 2026-05-19 hand-rolled-SVG lock after the polish-
 within-current-stack path was attempted and the result was still
 poor relative to the §Quality bar (Stately Studio is the
@@ -481,7 +479,7 @@ continuing to lift the hand-rolled stack.
 re-litigate them — these were knowingly traded, not overlooked):
 
 - **Substrate-agnostic hiccup contract LOST (substrate PARITY
-  restored Phase 2, rf2-yg9he).** xyflow is a React component
+  restored Phase 2).** xyflow is a React component
   library; the chart becomes React-component-shaped rather than
   substrate-agnostic hiccup data. Phase 1 shipped Reagent-only.
   Phase 2 restored substrate parity: because xyflow IS React,
@@ -490,12 +488,11 @@ re-litigate them — these were knowingly traded, not overlooked):
   any host mounts. The shared bridge
   (`adapters/react_chart.cljs`) builds that element; a thin per-substrate
   shell (`adapters/uix.cljs`) presents an idiomatic surface. (Phase 2
-  also shipped a Helix shell, deleted with the Helix adapter's removal
-  at S7/W13 — rf2-d6epb, 2026-07-22.) There is no fork of the chart
+  also shipped a Helix shell, deleted with the Helix adapter's removal.) There is no fork of the chart
   per substrate — every host renders the same component through one
   bridge.
 - **JVM-testability of the rendered output LOST (browser-side CLJS
-  coverage restored Phase 2, rf2-y9j79).** The previous
+  coverage restored Phase 2).** The previous
   `chart/svg.cljc` was `.cljc`-testable from `clojure -M:test`;
   the new `chart.cljs` is CLJS-only because xyflow is a JS lib.
   The **parse layer** (`chart/layout.cljc`) stays JVM-testable —
@@ -513,8 +510,8 @@ re-litigate them — these were knowingly traded, not overlooked):
   nodes, generic edge style) collides with the Xray devtool
   aesthetic. Custom Reagent node + edge components in
   `chart.nodes` + `chart.edges` recover the Xray identity
-  (rounded-rect 6px-radius lock per rf2-g6cig, mono typography
-  per `theme/tokens`, state-tag pills per rf2-m1b88, final-
+  (rounded-rect 6px-radius lock, mono typography
+  per `theme/tokens`, state-tag pills, final-
   state double border, active-state cyan tint + emphasised
   stroke).
 - **Bundle cost.** xyflow ≈ 60 KB gzipped; elkjs ≈ 250 KB
@@ -559,8 +556,7 @@ no Mermaid `stateDiagram-v2` output.
 for GitHub READMEs, PR descriptions, Notion, Slack code blocks.
 Stately's commercial model doesn't optimise for that surface
 because their utility lever is the editor, not the embed. re-frame2
-already shipped the Mermaid emitter (per rf2-deo2i and the rf2-yamkm
-relocation); the static surface is essentially free value over the
+already ships the Mermaid emitter; the static surface is essentially free value over the
 shared model. Lossy by design (`:after` rings + `:spawn-all` rows
 absent — flagged inline in the output's `%% comment`); the
 interactive surfaces carry the lossless cases.
@@ -604,7 +600,7 @@ ELK). The product's value-add lives behind a SaaS / commercial
 licence; the OSS pieces sit underneath.
 
 **re-frame2's choice:** **MIT throughout, with a deliberate
-EPL-2.0 sign-off for ELK (verified 2026-05-19, rf2-9lath).** Same
+EPL-2.0 sign-off for ELK (verified 2026-05-19).** Same
 OSS posture as the rest of re-frame2; no closed components; no
 SaaS layer.
 
@@ -613,9 +609,8 @@ model**, not on the OSS pieces. EPL-2.0 (ELK's license) is
 compatible with MIT use — EPL-2.0 is weak copyleft at the file
 level: copyleft applies to modifications of the EPL-2.0 source
 files themselves, not to consumers that import and link against
-them as a runtime dependency. The 5-minute sign-off owed in
-rf2-04gvh's closure was completed 2026-05-19 (rf2-9lath); see
-§License compatibility below for the full verdict.
+them as a runtime dependency. See §License compatibility below for the
+full verdict.
 
 ### Active-state highlighting transport
 
@@ -649,7 +644,7 @@ not by `MachineChart`'s rendering plane.
 ELK.js ships under **EPL-2.0** (Eclipse Public License 2.0).
 re-frame2 ships under **MIT**.
 
-**Compatibility verified 2026-05-19 (rf2-9lath):** EPL-2.0 is a
+**Compatibility verified 2026-05-19:** EPL-2.0 is a
 weak copyleft license operating at the **file level**, not the
 project level. Using ELK.js as a runtime dependency in a
 re-frame2-derived consumer bundle is permitted: the ELK.js code
@@ -688,26 +683,25 @@ References:
 The component + the read-only viewer + the encoding rules — the
 surface Xray requires to ship its panel (Story reaches the same
 surface through Xray's `[Machines]` chip, not a separate panel).
-**The whole v1.0 foundation has shipped** (the renderer per the rf2-gpzb4 xyflow
-migration + Phase 2; the share-URL / viewer / exporter trio per
-rf2-8d7w1) — see the
+**The whole v1.0 foundation has shipped** (the xyflow renderer and the share-URL / viewer /
+exporter trio) — see the
 [implemented-surface inventory](README.md#implemented-surfaces) for the
 current list and its separately documented test lanes.
 
 - `MachineChart` component (per [`API.md`](./API.md) §MachineChart) —
   **shipped** (`src/.../chart.cljs`; xyflow + elkjs).
 - Read-only viewer page (per [`API.md`](./API.md) §Read-only viewer) —
-  **shipped** (`public/viewer.html` + `page/.../viewer.cljs`, rf2-8d7w1;
-  the page root is not packaged in the jar, rf2-k7l2o). "Shipped" here
+  **shipped** (`public/viewer.html` + `page/.../viewer.cljs`;
+  the page root is not packaged in the jar). "Shipped" here
   means *written, tested, and buildable* — `npm run
   build:machines-viz-viewer` emits the bundle, stages the HTML beside it,
   and checks the two fit; the required `machines-viz-viewer-page` job runs
   that on every change, so *buildable* is a gated claim rather than a
   remembered one. It does not mean *deployed*: no workflow serves the page
-  and there is no hosted instance (rf2-8m344).
+  and there is no hosted instance.
 - Share-URL encoding (per [`API.md`](./API.md) §Share-URL encoding) —
-  **shipped** (`src/.../share.cljs`, rf2-8d7w1).
-- PNG + SVG exporters — **shipped** (`src/.../export.cljs`, rf2-8d7w1;
+  **shipped** (`src/.../share.cljs`).
+- PNG + SVG exporters — **shipped** (`src/.../export.cljs`;
   PNG/SVG are browser-DOM rasterisers).
 - Mermaid `stateDiagram-v2` exporter (per
   [`API.md`](./API.md) §Mermaid `stateDiagram-v2`) — the
@@ -720,7 +714,7 @@ current list and its separately documented test lanes.
   §What the panel shows + §`:spawn-all` viz + §Performance.
 - Source-coord chips on every clickable element (the host wires
   the editor URL handler via `:on-state-click`; transitions render
-  as event-nodes per rf2-qo5xy, so a clickable event-node label
+  as event-nodes, so a clickable event-node label
   fires `:on-edge-click` — there is no `:on-transition-click`).
 - Accessibility: SVG `<title>` / `<desc>` + machine summary text
   alternative today; the transition-history ribbon + machine picker
@@ -773,7 +767,7 @@ does **not** include:
   trigger: **first external alpha**, or earlier if the first
   external consumer needs assistive-tech access to chart topology.
   Design should be informed by a real accessibility pass rather than
-  built speculatively now. Joint wording with rf2-a0t1z5 (the
+  built speculatively now. Joint wording with the
   deferred `:pixels`/`:a11y-engine` browser-tier CI gate trigger): if
   this alt-view ships, an axe-style `:rf.assert/a11y` variant over it
   would be the first real `:a11y-engine` consumer for that gate — the
@@ -801,7 +795,7 @@ does **not** include:
 
 ### v1.1 shipped (rf2-1bncf + rf2-6urjd, 2026-05-21)
 
-- **SCXML import / export** (rf2-6urjd) — `(scxml/spec->scxml spec)`
+- **SCXML import / export** — `(scxml/spec->scxml spec)`
   + `(scxml/scxml->spec xml)` pure-data round-trip for non-CLJS
   sharing (Erlang `gen_statem`, external workflow systems, the
   xstate-visualizer). Per [`API.md`](./API.md) §SCXML import/export.
@@ -810,7 +804,7 @@ does **not** include:
   non-Clojure tooling, and the round-trip implementation is small
   and pure-data (no XML parser dep — string-based for the SCXML
   subset we emit).
-- **AI-generate-a-machine** (rf2-1bncf) — `(ai-generate/generate-machine
+- **AI-generate-a-machine** — `(ai-generate/generate-machine
   user-prompt opts)` library fn with a pluggable `:resolver` seam.
   Production callers inject an LLM bridge (Anthropic / OpenAI /
   local Ollama / Xray's chat / re-frame2-pair-mcp); tests inject a
