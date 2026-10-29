@@ -1234,8 +1234,8 @@
         {:rf.db/app <map>? :rf.db/runtime <map>?}]` replaces app-db with a
         present :rf.db/app, replaces each runtime-db subtree a present
         :rf.db/runtime carries (omitted subtrees are preserved), and after the
-        commit re-arms restored machine :after timers and restores their
-        machine classification claims. The payload is sensitive as a whole. A
+        commit re-arms the restored machines' :after timers. The payload is
+        sensitive as a whole. A
         non-map payload, a non-map partition or a resource-runtime subtree
         throws."
    :rf/framework-authority? true
