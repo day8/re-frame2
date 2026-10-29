@@ -103,10 +103,10 @@
                    (done)))))))
 
 (deftest surfaces-isError-when-runtime-returns-structured-failure-map
-  ;; A rejected restore can come back as a map as well as a bare `false`;
+  ;; Every refusal from a build that records epochs is the framework's map;
   ;; passed to ok-text it would read as a landed write.
   (async done
-    (let [failure {:ok? false :restored? false :reason :restore-rejected
+    (let [failure {:ok? false :restored? false :reason :rf.epoch/restore-unknown-epoch
                    :epoch-id 7 :frame :rf/default}]
       (-> (restore! (atom []) failure #js {:epoch-id "7"})
           (.then (fn [r]

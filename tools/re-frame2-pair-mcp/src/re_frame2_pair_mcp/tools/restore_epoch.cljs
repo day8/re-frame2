@@ -49,9 +49,11 @@
   Restore is a query against a finite per-frame history; it can fail
   for the documented `:rf.epoch/*` reasons (no-such-epoch, ring
   age-out, restore-during-drain — see spec/Tool-Pair.md §Restore
-  failure modes). The runtime primitive returns `false` on any failure
-  (the frame's app-db is unchanged); we surface that as
-  `{:ok? false :reason :restore-rejected}`."
+  failure modes). The runtime primitive answers every one of them with
+  the framework's structured `{:ok? false :restored? false :reason <op>
+  …}` refusal (the frame-state is unchanged), which passes through. It
+  returns a bare `false` only when the build elides the epoch surface;
+  we surface that as `{:ok? false :reason :restore-rejected}`."
   (:require [re-frame.mcp-base.args :as rf.mcp-base.args]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -102,10 +104,11 @@
               (fn [v]
                 ;; The runtime returns a structured
                 ;; envelope on success carrying `:ok? :restored? :epoch-id
-                ;; :frame :cascade-summary :unreplayable-effects`. Failure
-                ;; surfaces as a bare `false`, which we turn into a clean
-                ;; reject envelope here; nil is a blank eval, whose outcome
-                ;; is unknown.
+                ;; :frame :cascade-summary :unreplayable-effects`, and the
+                ;; framework's structured refusal on every failure mode. A
+                ;; bare `false` means the epoch surface is elided, which we
+                ;; turn into a clean reject envelope here; nil is a blank
+                ;; eval, whose outcome is unknown.
                 (let [result
                       (cond
                         (map? v)
@@ -126,14 +129,12 @@
                          :reason    :restore-rejected
                          :epoch-id  epoch-id
                          :frame     frame
-                         :hint      (str "restore-epoch returned false — one of the seven restore "
-                                         "failure modes tabled in skills/re-frame2-pair/references/"
-                                         "ops.md §Time-travel. Read which from (re-frame.core/trace-buffer "
-                                         (if frame (pr-str frame) "<frame-id>")
-                                         " {:flat true :op-type :error}): the error trace's "
-                                         ":operation names the mode. Frame-id is the first positional "
-                                         "arg and :op-type is a :flat-only filter, so both are "
-                                         "required — an opts map as the sole arg returns [].")})]
+                         :hint      (str "restore-epoch returned false: this build elides the epoch "
+                                         "surface (re-frame.interop/debug-enabled? is false, which "
+                                         "discover-app reports as :debug-disabled), so it records no "
+                                         "epochs to restore. Restore against a dev build. A build that "
+                                         "records epochs answers every refusal structured, with :reason "
+                                         "naming the :rf.epoch/* op.")})]
                   ;; A soft failure (the bare `false` reject
                   ;; OR a structured `{:ok? false ...}` envelope) is NOT a
                   ;; terminal-empty outcome: the write did
