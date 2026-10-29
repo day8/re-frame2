@@ -1691,15 +1691,14 @@
         ;; Union `:tags` across the resolved `:extends` chain (`bodies` is
         ;; root→child and includes an inline body correctly, unlike a re-walk
         ;; via `lookup`), fall back to the parent story's `:tags` when the
-        ;; chain declares none, then resolve `:!x` removal markers through the
-        ;; shared `re-frame.story.tags` resolver. So the plan's `:tags` is the
+        ;; chain declares none (`rf.story.tags/with-story-fallback`), then
+        ;; resolve `:!x` removal markers through the shared
+        ;; `re-frame.story.tags` resolver. So the plan's `:tags` is the
         ;; EFFECTIVE set — a `:!dev` cancels an inherited `:dev` and never
         ;; leaks itself, matching what every other tag consumer computes.
         chain-tags   (reduce (fn [acc b] (into acc (:tags b))) #{} bodies)
         eff-tags     (rf.story.tags/resolve-markers
-                       (if (seq chain-tags)
-                         chain-tags
-                         (set (:tags story-body))))
+                       (rf.story.tags/with-story-fallback chain-tags (:tags story-body)))
         world        (cond-> {:setup          setup
                               :args           arg-map
                               :argtypes       argtypes

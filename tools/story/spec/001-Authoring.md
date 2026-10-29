@@ -1095,7 +1095,11 @@ reads a variant's **effective** tag set, computed by the single resolver in
    `:extends` chain (root→child, additive). When neither the variant nor any
    `:extends` ancestor declares `:tags`, they FALL BACK to the parent story's
    `:tags` (story tags are a default, not an addition — a variant that
-   declares its own tags does not union with the story).
+   declares its own tags does not union with the story). A chain whose
+   `:tags` are all `:!x` removal markers declares no tag, so it too takes
+   the story's tags, and step 3 subtracts from them: under a story tagged
+   `#{:dev :docs :test :screenshot}`, a variant declaring `#{:!screenshot}`
+   is `#{:dev :docs :test}`.
 2. **Marker removal.** A `:!x` removal marker is dropped from the output — it
    is authoring syntax, never a visible or queryable tag.
 3. **Base subtraction.** Each `:!x` marker subtracts its base `:x`, so an

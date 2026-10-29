@@ -26,14 +26,17 @@
     (is (= #{:test} (rf.story.tags/effective-tags :story.login/child {:variant m})))))
 
 (deftest effective-tags-story-fallback-only-when-chain-empty
-  (let [variants {:story.t/no-tags  {}
-                  :story.t/own-tags {:tags #{:test}}}
+  (let [variants {:story.t/no-tags      {}
+                  :story.t/own-tags     {:tags #{:test}}
+                  :story.t/markers-only {:tags #{:!docs}}}
         stories  {:story.t {:tags #{:dev :docs}}}
         lookups  {:variant variants :story stories}]
     (testing "a variant that declares none inherits the parent story's tags"
       (is (= #{:dev :docs} (rf.story.tags/effective-tags :story.t/no-tags lookups))))
     (testing "a variant that declares its own tags does NOT union with the story"
-      (is (= #{:test} (rf.story.tags/effective-tags :story.t/own-tags lookups))))))
+      (is (= #{:test} (rf.story.tags/effective-tags :story.t/own-tags lookups))))
+    (testing "removal markers alone declare no tag: they subtract from the story's"
+      (is (= #{:dev} (rf.story.tags/effective-tags :story.t/markers-only lookups))))))
 
 (deftest resolve-body-tags-projects-effective-onto-each-body
   (is (= {:story.p/base  {:tags #{:dev}}
