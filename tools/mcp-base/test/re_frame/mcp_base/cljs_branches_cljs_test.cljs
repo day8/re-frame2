@@ -63,9 +63,8 @@
   (and (map? m) (some? (:after-id m))))
 
 (deftest cursor-codec-round-trips-under-cljs
-  ;; cljs.reader refuses a trailing form, an injected `]`, and the
-  ;; built-in #inst / #uuid tags its tag table would otherwise resolve
-  ;; past the :default handler.
+  ;; The CLJS read refuses a trailing form, an injected `]`, and every
+  ;; tag — cljs.reader's tag-table tags (#inst #uuid #js #queue) included.
   (let [payload {:v 1 :after-id "ev-42" :ms 1000}]
     (is (= payload (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor payload) pair?))))
   (is (nil? (rf.mcp-base.cursor/decode-cursor nil pair?)))
@@ -74,7 +73,9 @@
     "{:v 1 :after-id 1} {:junk 1}"
     "{:v 1 :after-id 1}] {:junk 1}"
     "{:v 1 :after-id 1 :junk #inst \"2024-01-01T00:00:00.000-00:00\"}"
-    "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}"))
+    "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}"
+    "{:v 1 :after-id 1 :junk #js {}}"
+    "{:v 1 :after-id 1 :junk #queue []}"))
 
 (def ^:private b64-alphabet
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")

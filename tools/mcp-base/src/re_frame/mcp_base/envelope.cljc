@@ -28,10 +28,9 @@
   passes the string here, so the shape-specific accessor stays
   consumer-side while the prefix-detection logic is shared."
   (:require [clojure.string :as str]
-            #?(:clj [clojure.edn :as edn])
+            [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
-            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab])
-  #?(:cljs (:require [cljs.reader])))
+            [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
 ;; ---------------------------------------------------------------------------
 ;; Indicator-field splice — the MUST-level 'omit when zero' rule.
@@ -167,14 +166,11 @@
 ;; after the cheap pre-filter matches, we PARSE the whole rendered text and
 ;; require a closed single-key marker map.
 ;;
-;; The read reuses cursor.cljc's proven, host-agnostic "one form, EOF-
-;; exhausted, tagged-literals-rejected" technique: wrap as
-;; `[<text> <eof-sentinel>]` and require the read to yield EXACTLY
-;; `[<one-form> <eof-sentinel>]`. A trailing EDN form pushes the count past
-;; 2; an injected `]` truncates the read before the sentinel; any tagged
-;; literal (built-in `#inst`/`#uuid` or custom `#js`/`#foo`) throws. All
-;; three fall through to "not a marker". Runs identically on `clojure.edn`
-;; (JVM) and `cljs.reader` (CLJS).
+;; The read is cursor.cljc's `read-one-form`: exactly one form, end of
+;; input after it, every tagged literal rejected. A trailing EDN form, a
+;; stray `]` and any tagged literal (built-in `#inst`/`#uuid` or custom
+;; `#js`/`#foo`) all fall through to "not a marker", identically on the
+;; JVM and CLJS.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private marker-keys
@@ -193,37 +189,23 @@
   (throw (ex-info "marker text carried a tagged literal — not a marker" {})))
 
 (def ^:private marker-no-tag-readers
-  "Reject the BUILT-IN `#inst` / `#uuid` tags, which have registered
-  readers on both hosts and would otherwise bypass `:default`. Mirrors
+  "Reject the JVM's BUILT-IN `#inst` / `#uuid` tags, which `clojure.edn`
+  resolves itself and so would otherwise bypass `:default`. Mirrors
   cursor.cljc's `no-tag-readers`."
   {'inst (fn [_] (reject-marker-tag!))
    'uuid (fn [_] (reject-marker-tag!))})
 
-(def ^:private marker-eof-sentinel
-  "Appended after the rendered text to assert the reader consumed the
-  WHOLE wrapped string (the string-host analog of an `:eof` read
-  sentinel). Qualified + unguessable so attacker text reproducing this
-  literal still cannot pass the exhaustion check."
-  ::marker-eof-sentinel)
-
 (defn- read-one-closed-form
-  "Read `text` as EXACTLY ONE EDN form — tagged literals rejected, EOF
-  exhausted (a trailing form ⇒ reject), `]`-injection defeated — via
-  cursor.cljc's wrap-and-sentinel technique. Returns the sole form, or
-  `::invalid` on any read failure / trailing content / tagged literal.
-  Never throws."
+  "Read `text` as EXACTLY ONE EDN form — tagged literals rejected, end of
+  input required after it — via `rf.mcp-base.cursor/read-one-form`.
+  Returns the sole form, or `::invalid` on any read failure / trailing
+  content / tagged literal. Never throws."
   [text]
   (try
-    (let [opts    {:readers marker-no-tag-readers
-                   :default (fn [_ _] (reject-marker-tag!))}
-          wrapped (str "[" text " " (pr-str marker-eof-sentinel) "]")
-          forms   #?(:clj  (edn/read-string opts wrapped)
-                     :cljs (cljs.reader/read-string opts wrapped))]
-      (if (and (vector? forms)
-               (= 2 (count forms))
-               (= marker-eof-sentinel (nth forms 1)))
-        (nth forms 0)
-        ::invalid))
+    (rf.mcp-base.cursor/read-one-form {:readers marker-no-tag-readers
+                                       :default (fn [_ _] (reject-marker-tag!))}
+                                      text
+                                      #(throw (ex-info "marker text carried a second form" {})))
     (catch #?(:clj Throwable :cljs :default) _ ::invalid)))
 
 (defn- closed-marker-envelope?

@@ -43,17 +43,19 @@
 
   Pure CLJC. The base64 codec resolves to `java.util.Base64` on the
   JVM (story-mcp) and `js/Buffer` on CLJS (re-frame2-pair-mcp). The EDN
-  read uses `clojure.edn/read-string` (JVM) / `cljs.reader/read-string`
-  (CLJS) — gated so that a hostile / corrupt cursor cannot smuggle ANY
-  tagged literal past the reader: a `:default` handler throws on every
-  UNREGISTERED tag, and `:readers` overrides throw on the BUILT-IN
-  `#inst` / `#uuid` tags (which have registered readers and would
-  otherwise bypass `:default`, decoding to a host `Date` / `UUID`)."
+  read (`read-one-form`) uses `clojure.edn/read` (JVM) /
+  `cljs.tools.reader.edn/read` (CLJS) — gated so that a hostile /
+  corrupt cursor cannot smuggle ANY tagged literal past the reader: a
+  `:default` handler throws on every UNREGISTERED tag, and `:readers`
+  overrides throw on the JVM's BUILT-IN `#inst` / `#uuid` tags (which
+  have registered readers and would otherwise bypass `:default`,
+  decoding to a host `Date` / `UUID`)."
   (:require [clojure.string :as str]
             #?(:clj [clojure.edn :as edn])
             [re-frame.mcp-base.args :as rf.mcp-base.args]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab])
-  #?(:cljs (:require [cljs.reader]))
+  #?(:cljs (:require [cljs.tools.reader.edn :as tr.edn]
+                     [cljs.tools.reader.reader-types :as tr.reader-types]))
   #?(:clj (:import (java.util Base64))))
 
 (def ^:const max-cursor-chars
@@ -213,16 +215,14 @@
 (def ^:private no-tag-readers
   "Per-tag readers that reject the BUILT-IN EDN tags `#inst` / `#uuid`.
 
-  The `:default` data-reader catches every UNREGISTERED tag, but the
-  built-in `inst` / `uuid` tags have registered readers
-  (`clojure.edn` / `cljs.reader` resolve them from
-  `*data-readers*` / the tag-table) and so BYPASS `:default` entirely —
-  they would otherwise decode to a host `java.util.Date` / `UUID`
-  (JVM) or `js/Date` / `cljs.core/UUID` (CLJS) and smuggle a host
-  object through the cursor boundary. Overriding them here with
-  throwing fns closes that hole so EVERY tag — built-in or custom —
-  is rejected. `:readers` is consulted before `:default` on both
-  platforms, so these win."
+  The `:default` data-reader catches every UNREGISTERED tag, but on the
+  JVM `clojure.edn` resolves the built-in `inst` / `uuid` tags itself, so
+  they BYPASS `:default` and would decode to a host `java.util.Date` /
+  `UUID`. Overriding them here with throwing fns closes that hole so
+  EVERY tag — built-in or custom — is rejected; `:readers` is consulted
+  before `:default`. On CLJS `cljs.tools.reader.edn` carries no built-in
+  tags (unlike `cljs.reader`, whose tag table adds `#js` and `#queue`
+  too), so `:default` already sees every tag there."
   {'inst (fn [_] (bad-tag! 'inst))
    'uuid (fn [_] (bad-tag! 'uuid))})
 
@@ -239,68 +239,40 @@
                    :recovery    :no-recovery
                    :reason      "EDN cursor decoded to more than one form — a cursor is one opaque payload map"})))
 
-(def ^:private eof-sentinel
-  "A sentinel keyword appended after the decoded cursor text to assert
-  the reader consumed the ENTIRE wrapped string (the string-host analog
-  of an `:eof` read sentinel — see `read-edn-no-tags`). Qualified +
-  unguessable so that even attacker-supplied text reproducing this exact
-  literal cannot pass the exhaustion check (a cursor must still be a
-  single payload map FOLLOWED by the sentinel — two forms, no more)."
-  ::cursor-eof-sentinel)
+(defn read-one-form
+  "Read `s` as EXACTLY ONE EDN form under `opts` (`:readers` /
+  `:default`), calling `on-trailing` (which must throw) when anything but
+  whitespace or comments follows it, or when `s` holds no form at all.
+
+  One pushback reader reads the form and then must reach end of input,
+  told apart from any form by an `:eof` value that is a fresh object, so
+  no payload text can spell it. Shared by `decode-cursor` and
+  `re-frame.mcp-base.envelope/marker-text?`, whose inputs must each be
+  one form."
+  [opts s on-trailing]
+  (let [eof       #?(:clj (Object.) :cljs (js-obj))
+        opts      (assoc opts :eof eof)
+        rdr       #?(:clj  (java.io.PushbackReader. (java.io.StringReader. s))
+                     :cljs (tr.reader-types/string-push-back-reader s))
+        next-form #(#?(:clj edn/read :cljs tr.edn/read) opts rdr)
+        form      (next-form)]
+    (if (and (not (identical? eof form)) (identical? eof (next-form)))
+      form
+      (on-trailing))))
 
 (defn- read-edn-no-tags
   "Read a cursor's decoded EDN string as EXACTLY ONE form, with EVERY
-  tagged literal rejected — built-in (`#inst` / `#uuid`) AND custom
-  (`#js`, `#foo/bar`, …). The `:readers` overrides throw on the two
-  built-in tags that would otherwise bypass `:default` (they have
-  registered readers), and the `:default` data-reader throws
-  `:rf.error/mcp-cursor-bad-edn-tag` on every remaining unregistered
-  tag.
-
-  ## One form, EOF-exhausted
-
-  A cursor is ONE opaque payload map; a token whose decoded text is a
-  valid map FOLLOWED by a second form — e.g.
-  `{:v 1 :offset 0 :sig \"s\"} #inst \"2024-01-01\"` or
-  `{...} {:junk 1}` — must be rejected as `::malformed`, not silently
-  accepted on the strength of its first form (which would ignore the
-  trailing object and weaken the opacity / corruption guard). A plain
-  `read-string` reads only the FIRST form and never checks exhaustion.
-
-  A naive guard that wrapped the text in `[ … ]` and accepted a
-  ONE-element vector would be bypassable by `]`-INJECTION: attacker text
-  `{…valid map…}] <junk>` wraps to `[{…}] <junk>]`, where the injected
-  `]` closes the wrapper early — `read-string` reads the clean
-  1-element vector `[{…}]`, returns the inner map, and SILENTLY DISCARDS
-  everything after the injected `]`.
-
-  So instead this asserts reader EXHAUSTION via an appended sentinel:
-  wrap as `[ <text> <eof-sentinel> ]` and require the read to yield
-  EXACTLY `[<one-form> <eof-sentinel>]` — a 2-element vector whose
-  SECOND element is the sentinel. The sentinel can only land as the
-  trailing element if the reader consumed the WHOLE wrapped string
-  (no early-`]` truncation): an injected `]` truncates the read before
-  the sentinel (vector does NOT end with it ⇒ `bad-trailing!`), and any
-  genuine trailing form pushes the count past 2 (also `bad-trailing!`).
-  Trailing whitespace / comments are absorbed. This is a pure
-  `read-string` technique that behaves identically on the JVM
-  (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either
-  host's pushback-reader internals. Tagged literals anywhere inside the
-  wrapped text still throw via the readers above. Returns the sole
-  decoded payload form (so the caller's `map?` / `valid?` checks are
-  unchanged). Caught by the surrounding try in `decode-cursor` →
+  tagged literal rejected (`no-tag-readers` plus a `:default` that throws
+  `:rf.error/mcp-cursor-bad-edn-tag`). A cursor is ONE opaque payload
+  map, so a valid map FOLLOWED by anything — a second form, a stray `]`
+  — is `bad-trailing!`, never accepted on the strength of its first
+  form. Caught by the surrounding try in `decode-cursor` →
   `::malformed`."
   [s]
-  (let [opts    {:readers no-tag-readers
-                 :default (fn [tag _val] (bad-tag! tag))}
-        wrapped (str "[" s " " (pr-str eof-sentinel) "]")
-        forms   #?(:clj  (edn/read-string opts wrapped)
-                   :cljs (cljs.reader/read-string opts wrapped))]
-    (if (and (vector? forms)
-             (= 2 (count forms))
-             (= eof-sentinel (nth forms 1)))
-      (nth forms 0)
-      (bad-trailing!))))
+  (read-one-form {:readers no-tag-readers
+                  :default (fn [tag _val] (bad-tag! tag))}
+                 s
+                 bad-trailing!))
 
 (defn decode-cursor
   "Decode an opaque base64 cursor back to its EDN payload map.

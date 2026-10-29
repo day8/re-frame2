@@ -36,6 +36,7 @@
     "{:rf.mcp/overflow {:limit :reached} :unexpected 1}"               ; a top-level sibling
     "{:rf.mcp/overflow {:limit :reached}} 42"                          ; a trailing form
     "{:rf.mcp/overflow {:limit :reached}}] {:junk 1}"                  ; `]` ending the read early
+    "{:rf.mcp/overflow {:limit :reached}} :re-frame.mcp-base.envelope/marker-eof-sentinel] 42" ; a spelled read sentinel
     "{:rf.mcp/overflow {:at #inst \"2024-01-01T00:00:00.000-00:00\"}}" ; a tagged literal
     "{:rf.mcp/overflow 42}"                                            ; a non-map body
     "{:rf.mcp/overflow {:limit :reached}"                              ; truncated
