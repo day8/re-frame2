@@ -167,6 +167,35 @@
       (is (not (str/includes? out "--> a : ping")) "mermaid: no phantom arrow"))
     (is (= 1 (scxml-internal-transition-count m)))))
 
+;; A root `:target :same-state` resets the whole machine (or, on a region body,
+;; the region) to its `:initial` (Spec 005 §Self-transitions). Every emitter
+;; draws it once, and SCXML names a state that exists.
+
+(defn- scxml-ids-and-targets [definition]
+  (let [out (scxml/spec->scxml definition)]
+    {:ids     (set (map second (re-seq #"\bid=\"([^\"]*)\"" out)))
+     :targets (mapv second (re-seq #"\btarget=\"([^\"]*)\"" out))
+     :reset   (count (re-seq #"event=\"reset\"" out))}))
+
+(deftest root-same-state-reset-drawn-by-all-three
+  (doseq [[label m] [["machine root" {:initial :a
+                                      :on      {:reset {:target :same-state}}
+                                      :states  {:a {:on {:hop :b}} :b {}}}]
+                     ["region root"  {:type    :parallel
+                                      :regions {:r {:initial :a
+                                                    :on      {:reset {:target :same-state}}
+                                                    :states  {:a {:on {:hop :b}} :b {}}}
+                                                :q {:initial :x :states {:x {}}}}}]]]
+    (is (= 1 (count (filter #(= :reset (:event %)) (:edges (layout/project-definition m)))))
+        (str label ": the chart draws the reset"))
+    (is (= 1 (count (filter #(and (str/includes? % "-->") (str/includes? % ": reset"))
+                            (str/split-lines (mermaid-body m)))))
+        (str label ": mermaid draws the reset"))
+    (let [{:keys [ids targets reset]} (scxml-ids-and-targets m)]
+      (is (= 1 reset) (str label ": scxml emits the reset"))
+      (is (seq targets))
+      (is (every? ids targets) (str label ": every scxml target is a declared id " targets)))))
+
 ;; A region's own action-only `:on-done` (Spec 005 §Parallel `:on-done`): a
 ;; Mermaid region block reading only `:initial` / `:states` / `:on` would lose
 ;; it while SCXML carries it. The chart's projection is pinned in

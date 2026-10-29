@@ -145,13 +145,32 @@
       (is (= [{:id layout/machine-root-id :path []}]
              (map #(select-keys % [:id :path]) (filter :machine-root? nodes)))))))
 
-(deftest project-definition-machine-root-same-state-drops-no-phantom-edge
-  (testing "a top-level `:same-state` has no concrete state to target, so it is
-            dropped, and no MACHINE-ROOT chip is minted for it"
+(deftest project-definition-machine-root-same-state-loops-on-root
+  (testing "a top-level `:same-state` names the machine root (Spec 005
+            §Self-transitions: every active state exits and `:initial`
+            re-descends), so it charts as a targeted self-loop on the
+            MACHINE-ROOT chip, never as an edge to the empty id"
     (let [{:keys [nodes edges]} (layout/project-definition
-                                  {:initial :a :states {:a {} :b {}} :on {:noop {:target :same-state}}})]
-      (is (empty? edges))
-      (is (not-any? :machine-root? nodes)))))
+                                  {:initial :a :states {:a {} :b {}} :on {:reset {:target :same-state}}})]
+      (is (= [{:machine-level? true :from [] :to []
+               :source layout/machine-root-id :target layout/machine-root-id}]
+             (edges-with edges (event= :reset) [:machine-level? :from :to :source :target])))
+      (is (not-any? :internal? (filter (event= :reset) edges)) "a reset, not an action-only chip")
+      (is (= [layout/machine-root-id] (map :id (filter :machine-root? nodes)))))))
+
+(deftest project-definition-region-root-same-state-loops-on-region
+  (testing "a region body's own `:same-state` resets the region, so it charts
+            as a targeted self-loop on the region container"
+    (let [rid             (layout/region-node-id :r)
+          {:keys [edges]} (layout/project-definition
+                            {:type    :parallel
+                             :regions {:r {:initial :a
+                                           :on      {:reset {:target :same-state}}
+                                           :states  {:a {:on {:hop :b}} :b {}}}
+                                       :q {:initial :x :states {:x {}}}}})]
+      (is (= [{:source rid :target rid}]
+             (edges-with edges (event= :reset) [:source :target])))
+      (is (not-any? :internal? (filter (event= :reset) edges))))))
 
 ;; ---- node ids ----------------------------------------------------------
 

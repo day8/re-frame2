@@ -440,6 +440,26 @@
     (is (= "⌚ warn"
            (:eventLabel (:data (event-node-for graph (:id (first (:edges parsed))))))))))
 
+(deftest xyflow-graph-event-node-names-a-fn-delay
+  ;; A fn delay has no static ms: it is labelled by name, the way a fn guard
+  ;; is, so the host's text for the fn (its JS source in a browser, a class
+  ;; name on the JVM) reaches no label, id or `:afterMs`.
+  (doseq [[delay-fn label] [[(fn [_] 5000)            "⌚ fn"]
+                            [(with-meta (fn [_] 5000) {:name 'idle-delay}) "⌚ idle-delay"]
+                            ;; a share payload's stand-in for a fn key
+                            [[:rf.machines-viz.share/fn 0] "⌚ fn"]]]
+    (let [parsed (layout/project-definition {:initial :a
+                                             :states  {:a {:after {delay-fn {:target :b
+                                                                             :guard  (fn [_] true)}}}
+                                                       :b {}}})
+          edge   (first (:edges parsed))
+          data   (:data (event-node-for (projection/xyflow-graph parsed {} {}) (:id edge)))]
+      (is (= {:afterMs nil :eventLabel label :guard "fn"}
+             (select-keys data [:afterMs :eventLabel :guard])))
+      (is (= (str "a__b__" label "__g_fn") (:id edge)) "the edge id is stable across loads")
+      (is (not-any? #(or (str/includes? % "function") (str/includes? % "$"))
+                    [(:eventLabel data) (:id edge) (:event-label edge)])))))
+
 (deftest xyflow-graph-event-node-eventId-is-the-fireable-event-only
   ;; The on-chart simulator sends a clicked event-node's `:eventId`; timers,
   ;; eventless and engine-raised transitions and the `:*` wildcard carry none.

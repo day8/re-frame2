@@ -516,11 +516,17 @@
           on-map))
 
 (defn- emit-transitions-for-after
+  "A literal ms or ISO-8601 delay rides `after.<delay>` verbatim and a
+  `:delays` name through the id codec. A fn delay has no static value, so it
+  takes the chart's stable `delay-label` (`after.fn`, or its `:name`) rather
+  than the host's text for the fn. A fn body is lossy here, as a fn guard's
+  is, so the label does not round-trip to the fn."
   [after-map target->path depth]
   (mapcat (fn [[delay spec]]
-            (map #(emit-transition (str "after." (if (keyword? delay)
-                                                  (keyword->id-string delay)
-                                                  delay))
+            (map #(emit-transition (str "after." (cond
+                                                   (keyword? delay) (keyword->id-string delay)
+                                                   (or (integer? delay) (string? delay)) delay
+                                                   :else (layout/delay-label delay)))
                                    % target->path depth)
                  (transition-candidates spec)))
           after-map))
@@ -673,8 +679,13 @@
   round-trip is impossible. Rather than silently lose the topology, the
   exporter emits annotated, non-conformant `<transition>` children. This
   keeps the fallback inspectable, but conforming consumers may reject it
-  and the local importer does not recover it."
-  [on depth]
+  and the local importer does not recover it.
+
+  A root `:target :same-state` re-descends the machine's `:initial` chain
+  (Spec 005 §Self-transitions), so it targets the `initial` state's id —
+  the configuration the engine re-enters — and never the empty id the
+  root's own `[]` path would name."
+  [on initial depth]
   (when (seq on)
     (concat
       [(str (indent-str depth)
@@ -682,7 +693,11 @@
             " — inherited by every state (Spec 005 §top-level :on) -->")]
       ;; Machine-level targets are siblings at the machine
       ;; root, so resolve them against the empty root path.
-      (emit-transitions-for-on on (partial resolve-target-path [] [] []) depth))))
+      (emit-transitions-for-on on
+                               #(if (= :same-state %)
+                                  [initial]
+                                  (resolve-target-path [] [] [] %))
+                               depth))))
 
 (defn- emit-flat-or-compound
   [{:keys [initial states on]} depth]
@@ -694,7 +709,7 @@
           ;; by its unique qualified id (a single-segment path, so the
           ;; bare escaped name).
           " initial=\"" (escape-xml-attr (qualified-id [initial])) "\">")]
-    (emit-machine-level-on on (inc depth))
+    (emit-machine-level-on on initial (inc depth))
     (mapcat (fn [[child-id child-node]]
               (emit-state [] [child-id] child-node (inc depth)))
             states)

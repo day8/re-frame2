@@ -215,18 +215,13 @@
     Resolve to `source-path` so the edge is a true self-transition
     (source == target); it dissolves through an event-node under the
     events-as-nodes paradigm (`state → event-node → state`). At an EMPTY
-    `source-path` (the machine root, or a parallel region's own root —
-    both project via `collect-machine-edges`' `resolve-target-path []`
-    call) there is NO concrete state to self-target, so this returns nil.
-    `(vec [])` is `[]`, which is FALSY in most Lisps but TRUTHY in
-    Clojure, so returning it would mint a phantom edge to `(node-id [])`
-    = the empty string (a machine-root `:same-state`) or
-    `(region-scoped-id region-id [])` (a region-root `:same-state`) — an
-    id no real node carries. `collect-machine-edges`' docstring declares
-    this shape DROPPED (\"there is no concrete root state to
-    self-transition against at the top level\"), and `transition-edge`'s
-    `(when (or internal? tp) ...)` drops the candidate for a targeted
-    (non-internal) `:same-state` at a root.
+    `source-path` (the machine root, or a parallel region's own root)
+    this returns nil: `(node-id [])` is the empty string and
+    `(region-scoped-id region-id [])` a degenerate id, so `[]` here would
+    mint an edge to a node that does not exist. A root `:same-state` names
+    the root itself, which no state node stands for, so the caller that
+    owns a root (`collect-machine-edges`, `collect-region-on-done-edges`)
+    resolves it to `[]` and points the edge at the root's own chip.
   - a plain keyword target — resolve relative to the parent path.
   - a vector-path target — take it verbatim.
   - nil (no `:target`) — returns nil. The **internal** self-transition
@@ -658,11 +653,22 @@
 (defn after-delay-ms
   "An `:after` delay key in milliseconds when it is a static duration — a
   positive integer, or an ISO-8601 string (`\"PT1S\"` → 1000) read by the
-  engine's own duration grammar (`grammar/resolve-timeout-ms`). Any other key
-  (a fn, or the vector label a share link carries in a fn's place) has no
-  static value and is returned as-is."
+  engine's own duration grammar (`grammar/resolve-timeout-ms`) — else nil.
+  A `:delays` name, a fn, and the vector label a share link carries in a
+  fn's place have no static value; `delay-label` names them."
   [after]
-  (or (g/resolve-timeout-ms after) after))
+  (g/resolve-timeout-ms after))
+
+(defn delay-label
+  "The label of an `:after` delay key with no static duration: a `:delays`
+  name or a fn through `name-of` (a fn reads as its `:name` meta or `\"fn\"`,
+  as a fn guard does), and a share payload's `[<label> <n>]` stand-in for a
+  fn as its label's name. The host's own text for a fn — its source, in a
+  browser — never reaches a label or an id."
+  [after]
+  (if (and (vector? after) (keyword? (first after)))
+    (name (first after))
+    (name-of after)))
 
 (defn event-segment
   "Render the leading event segment of an edge label per the
@@ -679,11 +685,12 @@
                               at a glance against ordinary event
                               arrows). An ISO-8601 delay renders its
                               milliseconds (`after-delay-ms`), so
-                              `\"PT1S\"` reads `⌚ 1000ms`; a `:delays`
-                              name renders as the name, with no `ms`
-                              (its value is resolved only when the timer
-                              arms), so `:idle-warning` reads
-                              `⌚ idle-warning`
+                              `\"PT1S\"` reads `⌚ 1000ms`; a delay with no
+                              static value renders its `delay-label`, with
+                              no `ms` (its value is resolved only when the
+                              timer arms), so the `:delays` name
+                              `:idle-warning` reads `⌚ idle-warning` and
+                              an anonymous fn `⌚ fn`
     - `:always` transition  → `\"∞\"` (Stately graph view convention:
                               an infinity glyph, so an eventless
                               transition reads as a continuation glyph
@@ -704,10 +711,9 @@
   (cond
     on-done?         "✓ done"
     on-error?        "✗ error"
-    (keyword? after) (str "⌚ " (if-let [n (namespace after)]
-                                 (str n "/" (name after))
-                                 (name after)))
-    after            (str "⌚ " (after-delay-ms after) "ms")
+    after            (if-let [ms (after-delay-ms after)]
+                       (str "⌚ " ms "ms")
+                       (str "⌚ " (delay-label after)))
     always?          "∞"
     (= :* event)     "* (any)"
     (keyword? event) (if-let [n (namespace event)]
@@ -837,8 +843,10 @@
   state unchanged (XState v5 targetless-transition semantics — see
   `machine_root_on_fallback_test`), so an inherited fallback ACTION must
   be visible as a hanging chip on the machine root rather than silently
-  dropped. A `:same-state` machine-level fallback IS dropped: there
-  is no concrete root state to self-transition against at the top level.
+  dropped. A `:same-state` machine-level fallback names the root itself
+  (Spec 005 §Self-transitions: every active state exits and the
+  `:initial` chain re-descends), so it is a TARGETED, non-internal
+  self-loop on the machine-root node (`:to []`, no `:internal?`).
   The `:*` wildcard fallback is supported (rendered as a non-fireable
   affordance downstream)."
   [machine-on]
@@ -848,13 +856,13 @@
         ;; An internal (omit-`:target`) candidate is a documented
         ;; Spec 005 shape; `transition-edge` self-anchors it on the root node
         ;; (`:to []`), mirroring `collect-state-edges` / `collect-parallel-
-        ;; root-edges`. `:same-state` (a sentinel value, not an omitted key) has
-        ;; no concrete root state and resolves to nil → dropped.
+        ;; root-edges`. `:same-state` (a sentinel value, not an omitted key)
+        ;; resolves to the root's own `[]` and stays a targeted reset.
         (keep (fn [candidate]
                 (transition-edge candidate
                                  {:from [] :event event-id :machine-level? true}
                                  []
-                                 #(resolve-target-path [] %)))
+                                 #(if (= :same-state %) [] (resolve-target-path [] %))))
               (g/transition-candidates spec)))
       machine-on)))
 
@@ -1044,16 +1052,17 @@
                        (let [base (edge-id (:to e) e)
                              n    (get seen base 0)
                              id   (if (zero? n) base (str base "__" n))
-                             ;; A targetless machine-level `:on`
-                             ;; (`:internal? true`, `:to []`) self-anchors on
-                             ;; the synthetic MACHINE-ROOT node: `(node-id [])`
-                             ;; is the empty string, so resolve the target to
+                             ;; A machine-level edge whose `:to` is the root
+                             ;; `[]` — a targetless `:on` (`:internal? true`)
+                             ;; or a `:same-state` reset — lands on the
+                             ;; synthetic MACHINE-ROOT node: `(node-id [])` is
+                             ;; the empty string, so resolve the target to
                              ;; `machine-root-id` explicitly (mirrors the
                              ;; parallel-root path's `(if (:internal? e)
                              ;; machine-root-id …)`). A state-local internal
                              ;; edge keeps its self-path `:to`, so this is
                              ;; gated on `:machine-level?`.
-                             target (if (and (:machine-level? e) (:internal? e))
+                             target (if (and (:machine-level? e) (empty? (:to e)))
                                       machine-root-id
                                       (node-id (:to e)))]
                          {:seen (assoc seen base (inc n))
@@ -1224,12 +1233,14 @@
                   ;; fallback chip hangs off the region the way the machine-
                   ;; level fallback hangs off the top-level machine root.
                   ;; For a TARGETED fallback the target is
-                  ;; the region-scoped destination state. But for a TARGETLESS /
-                  ;; action-only fallback (`:internal? true`, `:to-path []`) the
-                  ;; target must ALSO be the region container: `(region-scoped-id
-                  ;; region-id [])` is the degenerate `region__<id>__` — the
-                  ;; synthetic machine-root node dropped above — so scoping the
-                  ;; target would mint a phantom edge endpoint.
+                  ;; the region-scoped destination state. But for a fallback
+                  ;; whose `:to-path` is the region body `[]` — a TARGETLESS /
+                  ;; action-only one (`:internal? true`) or a `:same-state`
+                  ;; region reset — the target must ALSO be the region
+                  ;; container: `(region-scoped-id region-id [])` is the
+                  ;; degenerate `region__<id>__` — the synthetic machine-root
+                  ;; node dropped above — so scoping the target would mint a
+                  ;; phantom edge endpoint.
                   ;; This mirrors `project-flat`'s internal machine-level edge,
                   ;; which self-anchors target = source = `machine-root-id`; here
                   ;; the region container `rid` is the analogue. `:internal? true`
@@ -1243,7 +1254,7 @@
                             :source (if (:machine-level? e)
                                       rid
                                       (region-scoped-id region-id (:from-path e)))
-                            :target (if (and (:machine-level? e) (:internal? e))
+                            :target (if (and (:machine-level? e) (empty? (:to-path e)))
                                       rid
                                       (region-scoped-id region-id (:to-path e)))))
                         (:edges parsed))

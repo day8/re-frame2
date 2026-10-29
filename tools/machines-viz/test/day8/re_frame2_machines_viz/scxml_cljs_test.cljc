@@ -178,7 +178,10 @@
                ["a named inline-fn guard exports its name" fn-refs
                 "cond=\"ready?\""]
                ["an anonymous inline-fn action exports the stable fn label" fn-refs
-                "<!-- action: fn -->"]]]
+                "<!-- action: fn -->"]
+               ["a fn :after delay exports its stable name, never its text"
+                {:initial :a :states {:a {:after {(fn [_] 5000) :b}} :b {}}}
+                "<transition event=\"after.fn\" target=\"b\" type=\"internal\"/>"]]]
         (is (str/includes? (scxml/spec->scxml machine) form) label)))))
 
 ;; Every target names a state the document declares. A scope mistake made
