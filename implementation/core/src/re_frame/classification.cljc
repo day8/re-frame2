@@ -260,75 +260,20 @@
     v
     (rf.elision/->marker v path {:reason :classification})))
 
-(defn- strict-prefix?
-  "True when path `a` is a STRICT prefix of `b` — `b` is `a` extended by at
-  least one further segment (so `b` is a descendant slot under `a`)."
-  [a b]
-  (let [na (count a)]
-    (and (> (count b) na)
-         (= a (subvec b 0 na)))))
-
-(defn- large-shadow-set
-  "The subset of `large-set` whose paths have a `:sensitive` path strictly BELOW
-  them — a `:large`-marked subtree containing a `:sensitive` descendant. Such a
-  node still gets the ordinary size marker, measured over the subtree AFTER its
-  sensitive descendants redact, so the marker never varies with a secret (Spec
-  015 §No propagation, 009 §Wire marker). Computed once per walk; empty in the
-  common no-nesting case. The peer of
-  `re-frame.elision/large-keys-shadowing-sensitive`, over path SETS rather than
-  declaration tables."
-  [sensitive-set large-set]
-  (into #{} (filter (fn [lp] (some #(strict-prefix? lp %) sensitive-set))) large-set))
-
 ;; ---- the declaration-coordinate candidate set -----------------------------
 ;;
 ;; The walker threads `[path candidates]`: the CONCRETE runtime path (which
 ;; drives the `:large` marker's `:path` / `:handle`) beside a SET of candidate
 ;; DECLARATION coordinates — the positions in declaration space the walker
-;; could currently be standing at.
-;;
-;; Candidates are pruned against the prefix set of every declared path, so one
-;; that can never reach a declaration is dropped and the set stays bounded by
-;; that PREFIX VOCABULARY — every prefix of every declared path, plus the
-;; retained root — and NOT by the declaration count. The two bounds are not the
-;; same, and it is `:index-free?` that separates them: there an unadvanced
-;; candidate rides the descent beside the advanced one, so a single declaration
-;; can hold several of its own prefixes alive at once. Against `#{[0 0 0]}` the
-;; set grows `1 → 2 → 3 → 4` and ends `#{[] [0] [0 0] [0 0 0]}` — four
-;; candidates for one declaration. Finite and
-;; declaration-derived either way, which is what keeps the walk linear in the
-;; tree; but a reader who took "declaration cardinality" literally would expect
-;; a singleton and misread the fork.
-;;
-;; In the DEFAULT mode the set IS exactly `#{path}` while `path` is still some
-;; declaration's prefix and `#{}` the moment it is not — which is the exact path
-;; membership test spelled through the same machinery, since a declared path is
-;; always its own prefix.
-;; `:index-free?` is the only thing that lets the two diverge, and it is the
-;; device `re-frame.elision`'s schema-first walker uses: a vector index rides
-;; every candidate, and a map key — which may be a `:map-of` key — rides every
-;; candidate already inside a declaration, so `[:accounts :token]` reaches
-;; `[:accounts "a" :token]`. The empty root candidate never rides a key, so a
-;; declaration cannot float past leading named slots.
-
-(defn- path-prefixes
-  "Every non-empty prefix of `path`, the full path included."
-  [path]
-  (map #(subvec path 0 %) (range 1 (inc (count path)))))
-
-(defn- decl-prefix-set
-  "The set of every prefix of every declared path. A candidate declaration
-  coordinate stays alive only while it is a member: anything outside can never
-  reach a declaration, so dropping it is matching-safe."
-  [sensitive-set large-set]
-  (into #{} (mapcat path-prefixes) (concat sensitive-set large-set)))
-
-(defn- fork-segment
-  "Advance every candidate by one declaration segment `seg`, keeping only those
-  still a prefix of some declared path. Under `:index-free?` the walk also lets
-  a container coordinate ride unconsumed (`walk-with-paths`)."
-  [candidates seg prefixes]
-  (into #{} (comp (map #(conj % seg)) (filter #(contains? prefixes %))) candidates))
+;; could currently be standing at. The candidate machinery is
+;; `re-frame.elision`'s, shared with the schema-first wire walker (its
+;; §collection-coordinate declaration matching): the prefix vocabulary that
+;; prunes the set, the map-key / index forks, and the large-over-sensitive
+;; collision set. In the DEFAULT mode the forks keep only the named-segment
+;; interpretation, so the set IS exactly `#{path}` while `path` is still some
+;; declaration's prefix and `#{}` once it is not: the exact path membership
+;; test. `:index-free?` adds the collection-coordinate interpretations the wire
+;; walker always uses.
 
 (defn- walk-with-paths
   "Walk `v` and substitute sentinels at the declared paths. Paths in
@@ -350,35 +295,24 @@
   so the mode only ever ADDS the per-element reading.
 
   No-op early-exit: when both path sets are empty, returns `v` unchanged.
-  Shares the map/vec/set/seq recursion skeleton with the schema-first elision
-  walker via `re-frame.elision/walk-tree`."
+  Shares the recursion skeleton (`re-frame.elision/walk-tree`) and the
+  candidate forks with the schema-first elision walker; only the per-node
+  decision is its own."
   [v sensitive-paths large-paths index-free?]
   (if (and (empty? sensitive-paths) (empty? large-paths))
     v
     (let [sensitive-set (set (map vec sensitive-paths))
           large-set     (set (map vec large-paths))
-          prefixes      (decl-prefix-set sensitive-set large-set)
-          shadow-set    (large-shadow-set sensitive-set large-set)
+          prefixes      (rf.elision/decl-prefix-set (concat sensitive-set large-set))
+          shadow-set    (rf.elision/large-paths-shadowing-sensitive large-set sensitive-set)
           matches?      (fn [tbl candidates] (boolean (some #(contains? tbl %) candidates)))
           descend
           {:map-key (fn [[path candidates] k]
                       [(conj path k)
-                       ;; An index-free candidate already inside a declaration
-                       ;; also rides the key unchanged — it may be a `:map-of`
-                       ;; key, which consumes no declared segment. The empty
-                       ;; root candidate does not, so a declaration cannot float
-                       ;; past leading named slots.
-                       (cond-> (fork-segment candidates k prefixes)
-                         index-free? (into (filter seq) candidates))])
+                       (rf.elision/fork-decl-paths candidates k prefixes index-free?)])
            :index   (fn [[path candidates] i]
                       [(conj path i)
-                       ;; An index-free candidate rides the descent UNCHANGED —
-                       ;; the element position consumed no declared segment.
-                       ;; Riding an index can never float a declaration past a
-                       ;; NAMED slot, so no position guard is needed here (the
-                       ;; argument `re-frame.elision/fork-index-paths` makes).
-                       (cond-> (fork-segment candidates i prefixes)
-                         index-free? (into candidates))])
+                       (rf.elision/fork-index-paths candidates i prefixes index-free?)])
            ;; A seq the app has not forced is never walked. A declared path
            ;; that can still reach inside it fails closed; otherwise it ships
            ;; as found.
