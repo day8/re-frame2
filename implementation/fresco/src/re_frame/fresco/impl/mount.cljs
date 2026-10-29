@@ -374,10 +374,14 @@
   production build's error sinks learn of a mismatch, and
   `:identifier-prefix` is behaviour, deciding what `useId` answers: a
   release build that dropped it would hydrate every server `useId` into a
-  mismatch."
+  mismatch. `:on-uncaught-error` becomes React's `onUncaughtError` when
+  given."
   [window frame-kw opts]
-  (root-options (:identifier-prefix opts)
-                (hydration-reporter window frame-kw (:on-recoverable-error opts))))
+  (let [o (root-options (:identifier-prefix opts)
+                        (hydration-reporter window frame-kw (:on-recoverable-error opts)))]
+    (when-some [on-uncaught-error (:on-uncaught-error opts)]
+      (unchecked-set o "onUncaughtError" on-uncaught-error))
+    o))
 
 (defn hydrate-root!
   "Associate `container`'s existing server-rendered DOM with `frame-kw`
@@ -407,9 +411,13 @@
   window is minted in every build because presence and the reporter read
   it in production.
 
-  `opts` carries two keys. `:on-recoverable-error` is the host's callback,
+  `opts` carries three keys. `:on-recoverable-error` is the host's callback,
   called with each error React recovers from, after the framework's own
-  report. `:identifier-prefix` is React's `identifierPrefix`,
+  report. `:on-uncaught-error` is React's `onUncaughtError`, passed through
+  untouched. Only the mounted test facade names it (`hm/hydrate!`), to
+  deliver a render error to the test door that drove it rather than to the
+  window; the public root door's roster does not carry it, so a shipped
+  root keeps React's default report. `:identifier-prefix` is React's `identifierPrefix`,
   passed through untouched, and it must be the string the server render
   used or every `useId` in the tree resolves differently from the bytes
   and React recovers by replacing the subtree. Matching the prefix is
