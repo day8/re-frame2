@@ -156,7 +156,7 @@ hidden shell. Reach it after the preload (or `init!`) plus a mount verb.
 ```clojure
 (require '[day8.re-frame2-xray.core :as xray])
 
-(xray/focus! {:panel :trace})              ; just flip the tab
+(xray/focus! {:panel :trace})              ; leave Static mode, flip the tab
 (xray/focus! {:frame    :app/checkout      ; observe this host frame
               :panel    :app-db            ; surface this L4 tab
               :epoch-id 42})               ; pin the spine to this epoch
@@ -169,7 +169,7 @@ The command keys, per
 | Key | Meaning |
 |---|---|
 | `:frame` | The **host** frame Xray should observe. Omit to keep the current scope. |
-| `:panel` | Which Dynamic L4 tab to surface (one of the ten ids below). |
+| `:panel` | Which Dynamic L4 tab to surface (one of the ten ids below). A shell in Static mode switches to Dynamic first, since Static hides every Dynamic tab; a command without `:panel` leaves the mode alone. |
 | `:epoch-id` | Settling epoch to pin the spine to. |
 | `:dispatch-id` | Event-bundle root to pin the spine to — an alternative to `:epoch-id`; passing both is fine. |
 | `:source` | **Opaque** provenance echoed back in the result. Xray never reads into it — it is the host's own intent context. |

@@ -140,7 +140,7 @@ Every key of the command is optional, and other keys are ignored:
 | Key | Does |
 | --- | --- |
 | `:frame` | selects the frame Xray observes |
-| `:panel` | selects the tab, one of `valid-focus-panels`; `:routes` is accepted for `:routing` |
+| `:panel` | selects the tab, one of `valid-focus-panels`, switching Xray to Dynamic mode first; `:routes` is accepted for `:routing` |
 | `:epoch-id` | focuses that epoch |
 | `:dispatch-id` | focuses the event with that dispatch id; it wins over `:epoch-id` |
 | `:source` | anything you like, returned untouched in the result, for your own diagnostics |

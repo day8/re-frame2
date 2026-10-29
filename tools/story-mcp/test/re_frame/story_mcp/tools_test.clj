@@ -1251,8 +1251,9 @@
 
 (deftest read-a11y-violations-re-keyed-html-ships-raw-fail-open
   ;; A value rendered into a node's :html sits at a DOM position the app-db
-  ;; classification path cannot reach, so on a live frame it ships raw:
-  ;; classify the app-db PATH to redact it before it reaches the DOM.
+  ;; classification path cannot reach, so on a live frame it ships raw.
+  ;; Classifying an app-db path never changes what a view renders, so the app
+  ;; must omit or mask content it does not want rendered.
   (with-clean-frame [vid :story.button/primary]
     (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
     (declare-sensitive! vid [:auth :token])
