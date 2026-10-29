@@ -142,8 +142,8 @@ comment there anticipates the steady state correctly: with a durable +1 already
 held, the round trip goes 1 → 2 → 1 and never crosses the disposal edge.
 
 For a query with **no live cache entry** it goes 0 → 1 → 0, and 1 → 0 *is* the
-disposal edge. `re-frame.subs.cache/unsubscribe!` disposes in-tick with no grace
-period: the reaction the render phase just built is disposed and its cache slot
+disposal edge. `re-frame.subs.cache/unsubscribe-if-reaction!` disposes in-tick
+with no grace period: the reaction the render phase just built is disposed and its cache slot
 evicted. The commit-phase `subscribe-fn` then misses the cache again and builds a
 **second** reaction.
 

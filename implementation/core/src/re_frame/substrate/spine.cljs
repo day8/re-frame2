@@ -1220,18 +1220,15 @@
   callback reports a hydration mismatch ONLY while the adoption window is open
   (`(.-adopting adoption-ref)`) — the always-on record, then the dev trace —
   and ALWAYS delegates to the host callback (compose, never clobber) or React's
-  default report. The report is bounded to the window because React invokes
-  this callback for post-hydration recoverable errors too, and reporting outside
-  the window would mislabel that later recovery as a hydration mismatch. The
-  window closes on the hydration commit — see `adoption-window-closer`.
+  default report. Why the report is bounded to the window is ADOPTION WINDOW in
+  the section comment above; the window closes on the hydration commit — see
+  `adoption-window-closer`.
 
   Public so the mounted-DOM window-bounding proof can drive the REAL callback
   across the window boundary (`re-frame.adapter.react-shared-suite`)."
   [^js adoption-ref authored]
   (fn on-recoverable [error error-info]
-    ;; Report ONLY inside the adoption window; once the window closes it is a
-    ;; later recoverable error, NOT a hydration mismatch. The record is
-    ;; always-on; the trace is debug-gated + DCE'd inside
+    ;; The record is always-on; the trace is debug-gated + DCE'd inside
     ;; `emit-native-hydration-mismatch!`.
     (when (.-adopting adoption-ref)
       (dispatch-hydration-mismatch-record! 're-frame.substrate.spine/make-render nil)
@@ -2026,43 +2023,15 @@
 
 ;; ---- synchronous render flush ---------------------------------------------
 ;;
-;; `flush-render!` is the PRODUCTION-grade synchronous render-commit fn for
-;; the substrate-adapter contract (distinct from
-;; `re-frame.test-support/flush-views!`, the test-only `act()` wrapper around
-;; it). It exists because the React-shaped substrates
-;; schedule their re-renders through React's normal lane scheduler, whose
-;; commit lands on a `requestAnimationFrame`-style tick that (a) fires AFTER
-;; an eval'd `dispatch` returns and (b) is throttled to ~never in a
-;; backgrounded / unfocused tab. So tooling that drives the view lifecycle
-;; headless — the re-frame2-pair MCP `dispatch` → observe-the-DOM loop
-;; (its dispatch-and-settle) — cannot rely on the scheduled commit ever
-;; arriving.
-;;
-;; `react-dom/flushSync` runs its callback and SYNCHRONOUSLY flushes every
-;; React update scheduled inside it (and any already-pending work) to the
-;; DOM before returning — it is NOT rAF-scheduled, so it is immune to the
-;; backgrounded-tab throttle and fires even headless. After
-;; `(flush-render! f)` returns, any state change `f` triggered (or any render
-;; already pending) is committed; a caller can then read the settled DOM /
-;; epoch. The 0-arity form flushes already-pending work with an empty
-;; callback.
-;;
-;; This is the React-hook (UIx) spine impl; the Reagent family realises
-;; the same contract through `reagent.core/flush` (its
-;; render-queue drain forces the component re-renders synchronously and, on
-;; React 19, commits them via `flushSync`), wired in the ratom adapter.
+;; The React-hook spine's `:flush-render!` slot. Why the slot exists is
+;; `re-frame.substrate.adapter/flush-render!` (Spec 006 §`flush-render!`); the
+;; Reagent adapter fills it with `reagent.core/flush` instead.
 
 (defn flush-render!
-  "Synchronously flush pending React renders to the DOM via
-  `react-dom/flushSync` (Spec 006 §`flush-render!`). The 1-arity form runs
-  `f` inside `flushSync` so any state change `f` schedules commits before
-  the call returns; the 0-arity form flushes already-pending work. Unlike
-  `re-frame.test-support/flush-views!` (the test-only `act()` wrapper around
-  it) this is production-grade and
-  NOT rAF-scheduled, so headless tooling can drive a `dispatch → flush-render!
-  → observe-settled-DOM` loop even in a backgrounded tab. Returns
-  nil. No-op-safe when there is nothing pending — `flushSync` with an empty
-  callback is a cheap no-op."
+  "Run `f` inside `react-dom/flushSync`, which commits every React update `f`
+  schedules, and any already pending, before it returns; the 0-arity form
+  flushes pending work. `flushSync` is not rAF-scheduled, so it commits in a
+  backgrounded tab too. Returns nil; with nothing pending it is a cheap no-op."
   ([] (flush-render! (fn [] nil)))
   ([f]
    (react-dom/flushSync f)
@@ -2969,19 +2938,9 @@
                 ;; React guarantee. Nothing in this branch depends on which
                 ;; arrives.
                 ;;
-                ;; Both leak triggers stay closed by construction:
-                ;;   • abandoned before commit — the render's reference is
-                ;;     owned by the reaper, not by the fiber React discarded, so
-                ;;     it is released whether or not any effect ever runs. The
-                ;;     zero-leak property holds; the zero-POINT is the reap
-                ;;     horizon, and that is the single contract-visible
-                ;;     consequence.
-                ;;   • memo perf-discard — committed, the round trip is
-                ;;     balanced; uncommitted, the factory releases the ref's
-                ;;     PREVIOUS token after taking its own, so a hook holds at
-                ;;     most one escrowed reference however many times React
-                ;;     re-runs it. No climb on either path.
-                ;; Per Spec 006 §Reference counting and disposal.
+                ;; Neither an abandoned render nor a memo perf-discard can
+                ;; leak: see WHY IT CANNOT LEAK in the section comment above,
+                ;; and Spec 006 §Reference counting and disposal.
                 ;;
                 ;; ---- the memo yields the VALUE, never the handle --------------
                 ;;

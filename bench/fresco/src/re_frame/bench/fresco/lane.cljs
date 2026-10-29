@@ -421,8 +421,8 @@
     `:sub-ref-count`  the sum of those slots' ref-counts.
 
   Both subscription numbers return to their starting value by
-  construction rather than by hope: `re-frame.subs.cache/unsubscribe!`
-  EVICTS an entry the moment its ref-count reaches zero, with no grace
+  construction rather than by hope:
+  `re-frame.subs.cache/unsubscribe-if-reaction!` EVICTS an entry the moment its ref-count reaches zero, with no grace
   period, so a row whose every boundary unmounted leaves an EMPTY cache.
   A row that left three hundred `[:p0/cell i]` reactions watching the
   app-db is therefore visible as a non-zero count and not merely as a

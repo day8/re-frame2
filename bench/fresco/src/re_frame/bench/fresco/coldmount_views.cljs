@@ -35,8 +35,8 @@
   followed by `rf.subs/unsubscribe` (the net-zero rule) — lets a render
   that never commits retain no ref-count. For a query with NO live cache
   entry that is `0 -> 1 -> 0`, and `1 -> 0` is the disposal edge:
-  `re-frame.subs.cache/unsubscribe!` disposes in-tick with no grace
-  period. The commit-owned `subscribe-fn` then misses the cache and
+  `re-frame.subs.cache/unsubscribe-if-reaction!` disposes in-tick with no
+  grace period. The commit-owned `subscribe-fn` then misses the cache and
   REBUILDS. Two reactions per cold read; the COUNT is exact
   (`bodyRuns = 2.00N` vs Reagent's `1.00N`,
   `docs/design/fresco/studio/uix-spine-per-read-decomposition.md`), and
