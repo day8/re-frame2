@@ -306,10 +306,13 @@
                "conformance.")))))
 
 ;; story-mcp's twin of `indicator_field_test.clj`'s pair-mcp routing pin:
-;; the omit-when-zero rule lives on one emit-path in mcp-base.
+;; the omit-when-zero rule lives on one emit-path in mcp-base. Every needle
+;; reads comment- and string-stripped source, because a docstring naming the
+;; call would otherwise satisfy the pin after the call itself is gone.
 (deftest story-mcp-routes-envelope-through-the-centralised-helper
   (let [egress-rel "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
-        egress-src (rf.mcp-conformance.fixtures/read-source egress-rel)]
+        egress-src (rf.mcp-conformance.fixtures/strip-comments-and-strings
+                     (rf.mcp-conformance.fixtures/read-source egress-rel))]
     (testing "egress.cljc delegates to the shared mcp-base envelope helper"
       (is (str/includes? egress-src "rf.mcp-base.envelope/with-indicators")
           (str egress-rel " must delegate to "
@@ -328,7 +331,9 @@
   (doseq [rel ["tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
                "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"]]
     (testing (str rel " — routes payload through egress/result-with-indicators")
-      (is (str/includes? (rf.mcp-conformance.fixtures/read-source rel) "egress/result-with-indicators")
+      (is (str/includes? (rf.mcp-conformance.fixtures/strip-comments-and-strings
+                           (rf.mcp-conformance.fixtures/read-source rel))
+                         "egress/result-with-indicators")
           (str rel " does not route its payload through "
                "`egress/result-with-indicators` — the centralised egress "
                "epilogue (which threads through `egress/with-indicators`) is "

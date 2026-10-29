@@ -97,7 +97,9 @@ No committed gate runs the whole `Clojure → Cheshire → Node` seam in one pro
 
 Compresses `form` into a flat cache map. Slot `cache-0` holds the root; every further slot is a subtree that occurred more than once, replaced at each occurrence by its cache-element symbol. Scalars, empty collections and two-element vectors are never pooled: the first two are shorter inline than any reference, and a two-element vector is how a map entry rebuilds. Cache-id allocation is call-local, so the same input always yields the same slot ids.
 
-The encoder reads the value and nothing else. Metadata is not wire data, so the caller's metadata can neither name a slot nor replace a subtree; which slot a subtree occupies is tracked by the walk itself. A record rebuilds as itself with exactly its own entries: an extension key that the grammar escapes, or that is pooled into a reference, replaces its original spelling rather than landing beside it, in both directions.
+**Nothing in map-key position is pooled, at any depth**, and a key is not counted as an occurrence either: it rides verbatim, carrying only its escapes. That is what keeps the JSON projection exact for keys. JSON renders a collection key — a path vector, say — as one string in the server's own spelling (`"[:users 0 :name]"` from Cheshire), and a reference in its place would decode, on a JSON reader, to the decoder's spelling of the expanded key instead — a key neither server sent. So a payload whose only repeats are keys ships unwrapped, and the Node decoder refuses a reference in key position as a non-conformant encoder.
+
+The encoder reads the value and nothing else. Metadata is not wire data, so the caller's metadata can neither name a slot nor replace a subtree; which slot a subtree occupies is tracked by the walk itself. A record rebuilds as itself with exactly its own entries: an extension key that the grammar escapes replaces its original spelling rather than landing beside it, in both directions.
 
 ### `expand cache` → value
 

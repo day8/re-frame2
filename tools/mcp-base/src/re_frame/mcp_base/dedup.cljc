@@ -106,6 +106,11 @@
   codec unchanged — dedup then expand is the identity on it — not that
   JSON grew a type system.
 
+  That guarantee is why nothing in map-KEY position is pooled, at any
+  depth: JSON renders a collection key as one string in the server's own
+  spelling, and no slot reference decodes back to it. A key carries its
+  escapes and nothing else.
+
   A missing reference stays a LOUD failure: `cache-<digits>` is a
   reference whether or not the table holds that slot, so a truncated or
   hand-mangled table is rejected by the Node decoder rather than
@@ -169,7 +174,7 @@
 ;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 ;; THE SOFTWARE.
 ;;
-;; DIFFERENCES FROM UPSTREAM (only item 5 changes the wire shape):
+;; DIFFERENCES FROM UPSTREAM (only items 5 and 7 change the wire shape):
 ;;
 ;;   1. Upstream's compression-id counter is a NAMESPACE-GLOBAL atom that
 ;;      every `create-cache-internal` call `reset!`s to 1. That is a real
@@ -211,6 +216,11 @@
 ;;      `=` alone merges a vector with an equal list or seq (`wire=` here).
 ;;      Output differs only for inputs that hit one of the three, and the
 ;;      wire shape does not change at all.
+;;   7. Upstream pools a repeated map KEY like any value. Here both passes
+;;      leave keys verbatim (`walk-values`), so the JSON projection keeps
+;;      every key in the server's own spelling — see the namespace
+;;      docstring's §Reference grammar. A payload whose only repeats are
+;;      keys ships unwrapped.
 ;;
 ;; ---------------------------------------------------------------------------
 
@@ -367,15 +377,17 @@
   `(empty form)` for everything EXCEPT a sorted map or sorted set,
   which lower to their unsorted counterparts. Substitution replaces a
   repeated subtree with a `de-dupe.cache/cache-N` SYMBOL, so rebuilding
-  a sorted collection through its own comparator hands that placeholder
-  to a comparator chosen for the data: a default sorted-map of vector
-  keys throws the moment one key is pooled and another beside it is not
+  a sorted set through its own comparator hands that placeholder to a
+  comparator chosen for the data: a default sorted-set of vectors throws
+  the moment one element is pooled and another beside it is not
   (`Symbol cannot be cast to IPersistentVector`). Dedup is default-on,
-  so that would turn ordinary persistent app-db state — an index keyed by
-  path vectors, say — into a boundary failure instead of a read.
+  so that would turn ordinary persistent app-db state — a set of path
+  vectors, say — into a boundary failure instead of a read. A sorted
+  map's keys never pool (see `walk-values`), and it lowers with the set
+  because the wire keeps the order of neither.
 
   Lowering here costs nothing the codec ever kept: the cache travels as
-  EDN/JSON, where a sorted map reads back unsorted regardless, and
+  EDN/JSON, where a sorted collection reads back unsorted regardless, and
   Clojure equality across the round trip is exact either way. Metadata
   rides along as `empty` would have carried it."
   [form]
@@ -388,8 +400,8 @@
 
   A record cannot be rebuilt from `empty` (it has none), so its entries
   are written back into the original — which makes a RESPELLED key the
-  hazard: an extension key that `f` escapes, unescapes or pools into a
-  slot reference must REPLACE its original, or both spellings survive
+  hazard: an extension key that `f` escapes or unescapes must REPLACE
+  its original, or both spellings survive
   and the record gains an entry. A fixed field's key is a
   plain keyword that no transform respells, so the `dissoc` below only
   ever meets extension keys and the record keeps its type. Every entry
@@ -422,6 +434,24 @@
   "`f` applied to `form`, then to every child of the result, recursively."
   [f form]
   (walk (partial prewalk f) (f form)))
+
+(defn ^:private walk-values
+  "`walk`, except that a map entry keeps its KEY as it stands and hands
+  `f` only its value. Both encoder passes descend this way, so nothing in
+  map-key position is counted or pooled, at any depth: JSON renders a
+  collection key as one string in the server's own spelling, and a slot
+  reference in its place decodes on a JSON reader to a key neither server
+  sent (`tools/mcp-base/spec/dedup.md` §`de-dupe-eq`). Keys still carry
+  their escapes, which `escape-literals` applied beforehand."
+  [f form]
+  (if (map-entry?* form)
+    [(key form) (f (val form))]
+    (walk f form)))
+
+(defn ^:private prewalk-values
+  "`prewalk` descending through `walk-values`."
+  [f form]
+  (walk-values (partial prewalk-values f) (f form)))
 
 (defn ^:private cacheable?
   "True for the forms worth pooling. Scalars and empty collections are
@@ -498,12 +528,12 @@
 (defn ^:private count-cacheable-elements
   [form]
   (let [store (new-bucket-store)]
-    (prewalk (fn [element]
-               (when (and (not (identical? element form))
-                          (cacheable? element))
-                 (count-cacheable-element! store element))
-               element)
-             form)
+    (prewalk-values (fn [element]
+                      (when (and (not (identical? element form))
+                                 (cacheable? element))
+                        (count-cacheable-element! store element))
+                      element)
+                    form)
     store))
 
 (defn ^:private repeated-cacheable?
@@ -552,8 +582,9 @@
 (defn de-dupe-eq
   "Compress `form` into a flat cache map keyed by `de-dupe.cache/cache-N`
   symbols, pooling subtrees by EQUALITY. Slot `cache-0` always holds the
-  root; every further slot is a subtree that occurred more than once and
-  has been replaced, at each occurrence, by its cache-element symbol.
+  root; every further slot is a subtree that occurred more than once
+  outside map-key position (`walk-values`) and has been replaced, at each
+  occurrence, by its cache-element symbol.
   `expand` is the exact inverse.
 
   Payload tokens that would themselves read as references are escaped
@@ -581,21 +612,22 @@
     ;; stored the slots nested inside it.
     (letfn [(substitute [element]
               ;; Map entries and scalars are not cacheable, and a subtree
-              ;; seen once is cheaper inline: rebuild those in place.
+              ;; seen once is cheaper inline: rebuild those in place. An
+              ;; entry rebuilds with its key verbatim (`walk-values`).
               (if-not (and (cacheable? element)
                            (repeated-cacheable? candidate-counts element))
-                (walk substitute element)
+                (walk-values substitute element)
                 (or (pooled-id values-store element)
                     ;; First sighting. The id is allocated BEFORE the
                     ;; descent, so a parent's slot numbers ahead of its
                     ;; children's.
                     (let [cache-id (next-cache-id! counter)
                           _        (pool! values-store element cache-id)
-                          rebuilt  (walk substitute element)]
+                          rebuilt  (walk-values substitute element)]
                       (vswap! compressed-cache assoc cache-id rebuilt)
                       cache-id))))]
       ;; The root itself is slot 0, never a substitution.
-      (let [cache-0 (walk substitute form)]
+      (let [cache-0 (walk-values substitute form)]
         (vswap! compressed-cache assoc (make-cache-element 0) cache-0))
       @compressed-cache)))
 

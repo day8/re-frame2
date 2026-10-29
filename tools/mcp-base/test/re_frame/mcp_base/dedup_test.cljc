@@ -202,9 +202,42 @@
 (deftest sorted-collections-with-a-pooled-member-beside-an-unpooled-one-round-trip
   ;; Rebuilding through the collection's own comparator would hand a slot
   ;; symbol to a comparator chosen for the data, and `compare` would throw.
+  ;; A sorted map's keys never pool, so its pooled member is a value.
   (are [payload] (= payload (round-trip payload))
-    {:index (sorted-map [1 2 3] :old [4 5 6] :new) :again [1 2 3]}
+    {:index (sorted-map [1 2 3] [7 8 9] [4 5 6] :new) :again [7 8 9]}
     {:index (sorted-set [1 2 3] [4 5 6]) :again [1 2 3]}))
+
+;; ---------------------------------------------------------------------------
+;; A map KEY is never pooled. JSON renders a collection key as one string in
+;; the server's own spelling, so a reference in its place would decode on a
+;; JSON reader to a key neither server sent.
+;; ---------------------------------------------------------------------------
+
+(def ^:private path-key [:users 0 :name])
+
+(deftest a-payload-whose-only-repeat-is-a-collection-key-ships-unwrapped
+  ;; The 3-element path vector is a key twice and a value once: no repeat
+  ;; outside key position, so there is nothing to pool.
+  (let [v {:by-path {path-key "ada"} :edits {path-key 3} :sel path-key}]
+    (is (identical? v (rf.mcp-base.dedup/dedup-value v true)))))
+
+(deftest a-repeated-collection-key-stays-a-key-beside-pooled-equal-values
+  (let [payload {:by-path {path-key "ada"} :edits {path-key 3}
+                 :sel     path-key           :again path-key}
+        cache   (table payload)
+        root    (get cache (rf.mcp-base.dedup/make-cache-element 0))]
+    (is (= [path-key] (keys (:by-path root)) (keys (:edits root)))
+        "each key is still the vector itself, at every occurrence")
+    (is (= #{(rf.mcp-base.dedup/make-cache-element 1)} (set [(:sel root) (:again root)]))
+        "control: the equal VALUES still pool")
+    (is (= payload (rf.mcp-base.dedup/expand cache)))))
+
+(deftest nothing-inside-a-key-is-pooled-either
+  (let [inner   [:a :b :c]
+        payload {:index {{:at inner} 1} :x inner :y inner}
+        root    (get (table payload) (rf.mcp-base.dedup/make-cache-element 0))]
+    (is (= [{:at inner}] (keys (:index root))))
+    (is (= payload (round-trip payload)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Caller metadata is not encoder bookkeeping: a caller's own `:cache-id`
@@ -244,15 +277,15 @@
                        ;; THIS spelling: every original entry must be read
                        ;; before any rebuilt one is written over it.
                        :de-dupe.cache/!cache-1 :already-escaped
-                       [4 5 6]                 :pooled-key)
-        payload {:record rec :again [7 8 9] :also [4 5 6]}
+                       ;; Never pooled, though equal values beside it are.
+                       [4 5 6]                 :vector-key)
+        payload {:record rec :again [7 8 9] :also [4 5 6] :more [4 5 6]}
         cache   (table payload)
-        slot-of (fn [v] (some (fn [[k cv]] (when (= v cv) k)) cache))
         encoded (:record (get cache (rf.mcp-base.dedup/make-cache-element 0)))]
     (is (= #{:x
              :de-dupe.cache/!cache-1 'de-dupe.cache/!cache-1 "de-dupe.cache/!cache-1"
              :de-dupe.cache/!!cache-1
-             (slot-of [4 5 6])}
+             [4 5 6]}
            (set (keys encoded)))
         "each key appears once, in its wire spelling")
     (is (= [:kw :already-escaped]

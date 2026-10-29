@@ -43,24 +43,45 @@ test('nested acyclic refs through arrays + objects reconstruct correctly', () =>
   });
 });
 
-// `expand` decodes both halves of every map entry, so a de-duped key arrives
-// as a reference too. A JS key must be a string: a structured key takes its
-// JSON form, a string key is used as itself.
-test('map keys decode like values: a de-duped key, structured or string, and an escaped key', () => {
+// The encoder never pools a map key, so a key keeps the server's own JSON
+// spelling — Cheshire's for a collection key — and sheds only an escape.
+// Transcribed from a real `dedup-value` encode serialised with Cheshire: the
+// repeated path-vector KEY rides verbatim while the equal values pool.
+const PATH_KEY_ORIGINAL =
+  '{"by-path":{"[:users 0 :name]":"ada"},"edits":{"[:users 0 :name]":3},' +
+  '"sel":["users",0,"name"],"again":["users",0,"name"]}';
+
+const PATH_KEY_WIRE =
+  '{"rf.mcp/dedup-table":{' +
+  '"de-dupe.cache/cache-1":["users",0,"name"],' +
+  '"de-dupe.cache/cache-0":{"by-path":{"[:users 0 :name]":"ada"},' +
+  '"edits":{"[:users 0 :name]":3},' +
+  '"sel":"de-dupe.cache/cache-1","again":"de-dupe.cache/cache-1"}}}';
+
+test('a map key decodes verbatim: a collection key keeps its raw JSON spelling, and an escaped key sheds one marker', () => {
+  assert.deepEqual(
+    decodeDedupEnvelope(JSON.parse(PATH_KEY_WIRE)),
+    JSON.parse(PATH_KEY_ORIGINAL),
+  );
   const cache = {
-    [cacheId(0)]: {
-      [cacheId(1)]: 'under-a-structured-key',
-      [cacheId(2)]: 'under-a-string-key',
-      [escaped('cache-1')]: 'under-a-look-alike-key',
-    },
-    [cacheId(1)]: ['a', 'b'],
-    [cacheId(2)]: 'plain-string-key',
+    [cacheId(0)]: { [escaped('cache-1')]: 'under-a-look-alike-key', a: cacheId(1), b: cacheId(1) },
+    [cacheId(1)]: ['repeat', 'me'],
   };
   assert.deepEqual(decodeDedupEnvelope(envelope(cache)), {
-    '["a","b"]': 'under-a-structured-key',
-    'plain-string-key': 'under-a-string-key',
     'de-dupe.cache/cache-1': 'under-a-look-alike-key',
+    a: ['repeat', 'me'],
+    b: ['repeat', 'me'],
   });
+});
+
+// A reference in key position could only decode to this decoder's spelling
+// of the expanded key, which no server sends, so the table is malformed.
+test('a cache reference in map-KEY position THROWS: the encoder never pools a key', () => {
+  const cache = {
+    [cacheId(0)]: { [cacheId(1)]: 'under-a-pooled-key' },
+    [cacheId(1)]: ['a', 'b'],
+  };
+  assert.throws(() => decodeDedupEnvelope(envelope(cache)), /map key .* is a cache reference/);
 });
 
 // `decompress-cache` expands every entry before reading the root, so a real
