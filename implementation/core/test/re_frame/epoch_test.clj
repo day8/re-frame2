@@ -1304,6 +1304,31 @@
                   (mapv #(select-keys % [:halt-reason :db-before :db-after])))))
       (is (= [] (rf.epoch/epoch-history :test/main))))))
 
+(deftest live-halted-destroy-keeps-the-last-settled-records-classification
+  (testing "the :halted-destroy record is assembled once its frame no longer
+            resolves, over the frame-state the last settled record committed,
+            so it keeps that record's classification policy: its rollup sees
+            the declared secret both db slots hold, and its projection still
+            redacts it"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-classification ::auth {:sensitive [[:auth :token]]})
+    (let [records (atom [])
+          secret  "halted-destroy-secret"]
+      (rf/register-listener! :epoch ::watch-classified #(swap! records conj %))
+      (rf/reg-fx :destroy-main (fn [_ _] (rf.frame/destroy-frame! :test/main)))
+      (rf/reg-event :sign-in-then-destroy
+        (fn [{:keys [db]} _] {:db (assoc db :auth {:token secret}) :fx [[:destroy-main]]}))
+      (rf/reg-event :sibling (fn [_ _] {}))
+      (rf/reg-event :spawn
+        (fn [_ _] {:fx [[:dispatch [:sign-in-then-destroy]] [:dispatch [:sibling]]]}))
+      (rf/dispatch-sync [:spawn] {:frame :test/main})
+      (let [halted (some #(when (= :halted-destroy (:outcome %)) %) @records)]
+        (is (= [secret true 0]
+               [(get-in halted [:db-before :auth :token])
+                (:rf.epoch/sensitive? halted)
+                (:rf.epoch/redacted-modified-paths-count halted)]))
+        (is (not (str/includes? (pr-str (rf/project-egress halted)) secret)))))))
+
 ;; ---- configure! validates at the boundary -------------------------------
 
 (deftest configure-drops-an-invalid-value-and-keeps-the-prior-one

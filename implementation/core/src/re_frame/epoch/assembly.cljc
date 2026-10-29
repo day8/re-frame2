@@ -110,15 +110,16 @@
 ;;   1. The captured trace stream already stamps `:sensitive?` per
 ;;      handler-meta scope — if any event in `:trace-events` carries the
 ;;      stamp, the record's cascade involved sensitive material.
-;;   2. The frame's classification names app-db paths that hold sensitive
-;;      data; if any such path
-;;      resolves to a non-nil leaf in `:db-before` or `:db-after`, the
-;;      record's app-db state carries sensitive material.
+;;   2. The classification policy the record keeps — the one its projection
+;;      redacts under — names app-db paths that hold sensitive data; if any
+;;      such path resolves to a non-nil leaf in `:db-before` or `:db-after`,
+;;      the record's app-db state carries sensitive material.
 ;;
 ;; Either signal is sufficient. The check runs once at record-assembly
 ;; time so listeners and the projection helper read the rollup
 ;; without re-walking the record. Production builds elide the entire
 ;; record-assembly path — the rollup is dev-only by construction.
+;; Security.md §Epoch privacy posture: one reader, one declaration source.
 ;;
 ;; Each signal is also public on its own, because the two answer different
 ;; questions: the trace-event signal says the CASCADE handled sensitive
@@ -142,6 +143,11 @@
   (try (keys (rf.elision/sensitive-declarations frame-id))
        (catch #?(:clj Throwable :cljs :default) _ nil)))
 
+(defn- policy-sensitive-paths
+  "The app-db paths classification `policy` claims `:sensitive`."
+  [policy]
+  (keys (get-in policy [:app-db :sensitive])))
+
 (defn- sensitive-leaves
   "The non-nil values each sensitive declaration reaches in `db`, as
   `{decl-path {concrete-path value}}`. Read through the egress walker's own
@@ -163,33 +169,40 @@
   [db sensitive-paths]
   (boolean (seq (sensitive-leaves db sensitive-paths))))
 
+(defn- holds-sensitive-leaf?
+  "True when one of `sensitive-paths` reaches a non-nil leaf in `db-before` or
+  `db-after`."
+  [sensitive-paths db-before db-after]
+  (boolean
+    (and (seq sensitive-paths)
+         (or (any-sensitive-leaf? db-before sensitive-paths)
+             (any-sensitive-leaf? db-after  sensitive-paths)))))
+
 (defn sensitive-db?
-  "The app-db signal: true when a path `frame-id` classifies `:sensitive`
-  holds a non-nil leaf in `db-before` or `db-after`. The leaf check walks only
-  the subtrees a declaration can reach."
+  "The app-db signal under frame `frame-id`'s current classification: true
+  when a path it classifies `:sensitive` holds a non-nil leaf in `db-before`
+  or `db-after`. A record's own rollup reads the policy the record keeps
+  instead (`sensitive-rollup`). The leaf check walks only the subtrees a
+  declaration can reach."
   [frame-id db-before db-after]
-  (let [sensitive-paths (sensitive-paths-for frame-id)]
-    (boolean
-      (and (seq sensitive-paths)
-           (or (any-sensitive-leaf? db-before sensitive-paths)
-               (any-sensitive-leaf? db-after  sensitive-paths))))))
+  (holds-sensitive-leaf? (sensitive-paths-for frame-id) db-before db-after))
 
 (defn sensitive-rollup
   "Compute the record-level `:rf.epoch/sensitive?` rollup for the
-  assembled record: `sensitive-trace?` OR `sensitive-db?`. Returns `true`
+  assembled record: `sensitive-trace?` OR the app-db signal under `policy`,
+  the classification policy the record keeps. Returns `true`
   when the record's content overlaps a sensitive area — either via a stamped
-  trace event or via a frame-declared sensitive path that holds a non-nil
+  trace event or via a path `policy` declares sensitive that holds a non-nil
   leaf in the recorded db. Returns `false` otherwise (always a strict
   boolean — consumers branch on `(true? ...)` / `(false? ...)`).
 
   Runs once per dequeued event. The trace-event check runs first and
-  short-circuits at the first stamped event; `sensitive-paths-for` then reads
-  the frame's classification policy once. For the common case (no
-  frame-declared sensitive paths, no sensitive handlers in scope) the cost is
+  short-circuits at the first stamped event. For the common case (no
+  declared sensitive paths, no sensitive handlers in scope) the cost is
   one keys-of-empty call plus one sequence-with-no-work walk."
-  [frame-id db-before db-after events]
+  [policy db-before db-after events]
   (or (sensitive-trace? events)
-      (sensitive-db? frame-id db-before db-after)))
+      (holds-sensitive-leaf? (policy-sensitive-paths policy) db-before db-after)))
 
 ;; ---- redacted-modified-paths-count ----------------------------------------
 ;;
@@ -202,26 +215,25 @@
 
 (defn redacted-modified-paths-count
   "Compute the record-level `:rf.epoch/redacted-modified-paths-count`
-  rollup for the assembled record. Returns the integer count of
-  frame-declared sensitive paths whose value differs between
+  rollup for the assembled record. Returns the integer count of the
+  sensitive paths `policy` — the classification policy the record keeps —
+  declares whose value differs between
   `db-before` and `db-after` — for a collection declaration, the whole set
   of leaves it reaches (`sensitive-leaves`).
 
-  Runs once per dequeued event. `sensitive-paths-for` reads
-  the frame's classification policy once, and each side is walked only along
+  Runs once per dequeued event. Each side is walked only along
   the subtrees a declaration can reach. For the common case (no
-  frame-declared sensitive paths) the cost is one keys-of-empty call.
+  declared sensitive paths) the cost is one keys-of-empty call.
 
   Returns `0` when:
-    - No paths are classified sensitive (the frame classifies no
-      `:sensitive` app-db path), OR
+    - `policy` classifies no `:sensitive` app-db path, OR
     - No classified-sensitive path's value differs across the cascade.
 
   Halted records: `db-before` and/or `db-after` may be `nil` on the
   `:halted-destroy` path. A nil db reaches no leaf, so a path holding a
   value on the other side counts as a change."
-  [frame-id db-before db-after]
-  (let [sensitive-paths (sensitive-paths-for frame-id)]
+  [policy db-before db-after]
+  (let [sensitive-paths (policy-sensitive-paths policy)]
     (if (empty? sensitive-paths)
       0
       (let [before (sensitive-leaves db-before sensitive-paths)
@@ -229,6 +241,18 @@
         (count (remove #(= (get before %) (get after %)) sensitive-paths))))))
 
 ;; ---- record assembly ------------------------------------------------------
+
+(defn- policy-for-record
+  "The classification policy a record of frame `frame-id` keeps: the frame's
+  current policy, with the one its before snapshot `frame-state-before` was
+  taken under (`re-frame.elision/record-policy-for`). A `:halted-destroy`
+  record is assembled once its frame no longer resolves, over the frame-state
+  the last settled record committed, so it keeps that record's policy. Spec 015
+  §Retained values keep their recorded classification."
+  [frame-id frame-state-before outcome]
+  (or (when (= :halted-destroy outcome)
+        (some-> (peek (rf.epoch.state/history-for frame-id)) rf.elision/recorded-policy))
+      (rf.elision/record-policy-for frame-id frame-state-before)))
 
 (defn- with-flow-definitions
   "`record` carrying, in metadata, the flow definitions frame `frame-id`'s flow
@@ -313,11 +337,14 @@
          (rf.epoch.capture/find-trigger-event events)
          ;; One fused walk produces all structured projections.
          {:keys [sub-runs renders effects]} (rf.epoch.capture/project-all events)
+         ;; The record's classification: the projection redacts under it and
+         ;; both app-db signals below read it.
+         policy (policy-for-record frame-id frame-state-before outcome)
          ;; Listener and egress consumers can branch on one record-level slot.
          ;; Sensitive declarations target app-db paths, so it reasons over
          ;; the app-db projection (`db-before` / `db-after`).
-         sensitive? (sensitive-rollup frame-id db-before db-after events)
-         ;; Count frame-declared sensitive
+         sensitive? (sensitive-rollup policy db-before db-after events)
+         ;; Count declared sensitive
          ;; paths whose value differs between :db-before / :db-after.
          ;; Surfaces the suppressed signal directly on the record, so Xray
          ;; can show that something changed when both sides redact to an
@@ -325,7 +352,7 @@
          ;; projection substitutes the sentinel (parallel to the
          ;; :rf.epoch/sensitive? rollup above).
          redacted-modified-path-count (redacted-modified-paths-count
-                                        frame-id db-before db-after)]
+                                        policy db-before db-after)]
      (cond-> {;; The record's own DISCRIMINATOR. `rf/project-egress`
               ;; dispatches RECORD KINDS on this slot, so the epoch arm resolves
               ;; its per-kind projector through the late-bound
@@ -402,15 +429,12 @@
        ;; `:rf.cofx` above.
        fx-overrides (assoc :fx-overrides fx-overrides)
        interceptor-overrides (assoc :interceptor-overrides interceptor-overrides)
-       ;; The static classification policy current as the record is assembled,
-       ;; with the one its before snapshot was taken under, kept by reference
-       ;; in metadata: the record's app-db slots egress under the
-       ;; classification they were recorded with after a `reg-classification`
-       ;; is replaced, or a flow output the event itself vacated leaves the
-       ;; live policy (Spec 015 §Retained values keep their recorded
-       ;; classification).
-       :always (rf.elision/record-policy
-                 (rf.elision/record-policy-for frame-id frame-state-before))
+       ;; The record's classification policy, kept by reference in metadata:
+       ;; the record's app-db slots egress under the classification they were
+       ;; recorded with after a `reg-classification` is replaced, or a flow
+       ;; output the event itself vacated leaves the live policy (Spec 015
+       ;; §Retained values keep their recorded classification).
+       :always (rf.elision/record-policy policy)
        ;; The flow definitions each snapshot was computed under, for a
        ;; restore to re-seed (Spec 013 §Re-registration).
        :always (with-flow-definitions frame-id frame-state-before)))))
