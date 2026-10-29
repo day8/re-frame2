@@ -20,14 +20,14 @@
   `js/document`; `npm run test:browser` is where it asserts."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.views :as rf.views]
             [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser? react-act]]))
 
 (def ^:private test-frame :ssr-reg-view-hydration-adoption/frame)
 (def ^:private test-view-id :adoption-demo/card)
@@ -46,13 +46,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
      :init-fn init!}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
-(defn- get-act []
-  (when (exists? (.-act React)) (.-act React)))
 
 ;; The values the CLIENT reg-view render stamps for `test-view-id` — read
 ;; off the SAME shared formatters the JVM emitter uses, so the GREEN server
@@ -89,7 +82,7 @@
     (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
     (set! (.-error js/console) record!)
     (set! (.-warn js/console) record!)
-    (let [act-fn      (get-act)
+    (let [act-fn      (react-act)
           root        (atom nil)
           server-node (.querySelector container "div.card")]
       (try

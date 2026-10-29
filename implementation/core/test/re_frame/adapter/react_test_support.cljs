@@ -10,13 +10,48 @@
   accessor; pulling the whole suite into the `:browser-test-prod-elision`
   build (`:advanced` + goog.DEBUG=false) just to share that accessor would
   drag the suite's heavy transitive deps — and its compile warnings — into
-  a build that otherwise compiles two small files. This ns holds only the
-  zero-dependency helpers, so both the suite and the elision-prod twins can
-  reference it without bloating either build. `re-frame.late-bind` is the one
-  `:require` beyond `clojure.string`, and it is free: core machinery that
-  `re-frame.core` already pulls into both builds."
-  (:require [clojure.string :as str]
+  a build that otherwise compiles two small files. This ns holds only
+  helpers whose requires every test build already loads — React,
+  `cljs.test`, `clojure.string` and `re-frame.late-bind` — so both the suite
+  and the elision-prod twins can reference it without bloating either build."
+  (:require ["react" :as React]
+            [cljs.test :refer-macros [is]]
+            [clojure.string :as str]
             [re-frame.late-bind :as rf.late-bind]))
+
+;; ---- the browser lane and React's act ---------------------------------------
+;;
+;; `-dom-cljs-test` namespaces load under `:node-test` as well as `:browser-test`
+;; (see the two builds in shadow-cljs.edn), so a DOM row gates on `browser?` and
+;; records a pass where there is no DOM. The browser lane compiles React's
+;; development build, which always exports `act`. A missing `act` there is a
+;; broken lane, so `react-act` throws instead of letting a row skip with no
+;; assertion run.
+
+(defn browser?
+  "True on a real DOM host; false under `:node-test`."
+  []
+  (and (exists? js/document)
+       (some? (.-createElement js/document))))
+
+(defn react-act
+  "React's `act`. It drives StrictMode's double-invoke and flushes pending
+  concurrent work deterministically, which `flushSync` does not. Throws when
+  React does not export it."
+  []
+  (or (.-act React)
+      (throw (js/Error. (str "React.act is unreachable: the :browser-test lane "
+                             "must load React's development build")))))
+
+(defn with-browser-act
+  "Call `(f act)` on a DOM host, with React's act environment switched on so
+  `act` neither warns nor no-ops. Without a DOM, record a pass and skip `f`."
+  [f]
+  (if (browser?)
+    (let [act (react-act)]
+      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+      (f act))
+    (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")))
 
 (defn adapter-wrap-view
   "The installed adapter's source-coord wrapper, reached through the

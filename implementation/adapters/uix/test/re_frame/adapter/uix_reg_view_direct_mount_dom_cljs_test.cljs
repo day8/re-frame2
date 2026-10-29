@@ -1,31 +1,13 @@
 (ns re-frame.adapter.uix-reg-view-direct-mount-dom-cljs-test
   "Registry-keyed mounts preserve CLJS props, children, and frame-bound hooks before or after init."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             [uix.core :refer-macros [defui $]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.adapter.uix :as rf.adapter.uix]
-            [re-frame.test-support :as rf.test-support]))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
-(defn- get-act []
-  (when (exists? (.-act React)) (.-act React)))
-
-(defn- with-browser-act
-  "Run with React act in a browser."
-  [f]
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises the assertions")
-    (let [act-fn (get-act)]
-      (if (nil? act-fn)
-        (is true "act() not reachable from this runner; skipping")
-        (do (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (f act-fn))))))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [with-browser-act]]))
 
 (defn- capture-render-diagnostics
   "Capture console and window errors, restoring both channels even if rendering throws."

@@ -58,7 +58,8 @@
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.views]
-            [re-frame.views.frame-boundary :as rf.views.frame-boundary])
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary]
+            [re-frame.adapter.react-test-support :refer [browser? react-act]])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; MAP-FORM fixture (`:async? true`): a fn-form fixture's teardown would run
@@ -81,25 +82,9 @@
 
 ;; ---- browser gate ----------------------------------------------------------
 
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
-
 (defn- make-mount-node! []
   (when (browser?)
     (.createElement js/document "div")))
-
-(defn- get-act
-  "Return React's act() if available, else nil. React 19 — the adapter
-  floor — hosts act on the React namespace proper. Absent only from
-  React's production bundle, which omits act by design. Used by
-  Scenario 7 (concurrent re-render flush) and the ENSURE StrictMode /
-  hot-reload scenarios (act drives React's effect double-invoke
-  deterministically — `flushSync` does NOT run the StrictMode
-  passive-effect cleanup/re-setup synchronously, so the StrictMode
-  reuse-no-reseed contract only surfaces under act)."
-  []
-  (when (exists? (.-act React)) (.-act React)))
 
 ;; ---- deferred-teardown await ----------------------------------
 ;;
@@ -521,75 +506,72 @@
             ;; changed :initial-events would instead be a fail-loud reconfiguration.
             tree       (React/createElement (.-StrictMode React) nil
                                             (React/cloneElement ensure-el #js {:key "v1"}))
-            act-fn     (get-act)]
-        (if (nil? act-fn)
-          (do (is true "act() not reachable from this runner; scenario-6-frame-root skipped")
-              (done!))
-          ;; `act` flushes passive + layout effects + drives StrictMode's effect
-          ;; double-invoke on the same fiber. Await the returned thenable so the
-          ;; StrictMode passes flush, then advance two macrotasks before
-          ;; asserting. Every exit funnels through the guarded `done!`.
-          (-> (js/Promise.resolve (act-fn (fn [] (.render root tree))))
-              (.then
-                (fn [_]
-                  ;; (1) Sanity: the commit-phase ensure created the frame +
-                  ;; seeded durable state.
-                  (is (= [true {:n 7}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
-                      "frame-root created the frame at COMMIT (useLayoutEffect), and :initial-events seeded the durable app-db ONCE")
-                  (js/Promise.resolve
-                    (js/Promise.
-                      (fn [resolve _]
-                        (js/setTimeout
-                          (fn [] (js/setTimeout (fn [] (resolve nil)) 4))
-                          4))))))
-              (.then
-                (fn [_]
-                  ;; After the StrictMode cycle + macrotask window the frame
-                  ;; survives (frame-root has no destroy effect; StrictMode did
-                  ;; not corrupt it or re-seed it — the double-invoked effect's
-                  ;; second make-frame was idempotent, not a replay).
-                  (is (= [true {:n 7}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
-                      (str "the frame-root frame is STILL LIVE after the StrictMode cycle (no "
-                           "destroy-on-unmount), its durable app-db not re-seeded by the effect "
-                           "double-invoke"))
-                  ;; (2) Mutate durable state so the hot-reload remount has
-                  ;; something distinct to preserve.
-                  (rf/dispatch-sync [:rf/set-db {:n 42}] {:frame target})
-                  ;; (3) Simulate a :dev/after-load hot-reload remount: a FRESH
-                  ;; frame-root instance (KEYED v2, so React unmounts v1 and
-                  ;; mounts a fresh one — the keyed-remount path) under the SAME
-                  ;; id, with a RE-SEEDING :initial-events. The fresh instance's
-                  ;; commit re-ensures under the same :id (idempotent make-frame),
-                  ;; so durable {:n 42} is preserved, NOT re-seeded to {:n 999}.
-                  (let [reload-child (React/createElement "div" #js {} "frame-root-reload")
-                        reload-el    (rf.views.frame-boundary/frame-root-react-element
-                                       {:id target :initial-events [[:rf/set-db {:n 999}]]}
-                                       reload-child
-                                       'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
-                        reload-tree  (React/createElement (.-StrictMode React) nil
-                                                          (React/cloneElement reload-el #js {:key "v2"}))]
-                    (js/Promise.resolve (act-fn (fn [] (.render root reload-tree)))))))
-              (.then
-                (fn [_]
-                  (is (= [true {:n 42}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
-                      (str "REUSE-NO-RESEED: the frame is REUSED across the hot-reload remount, "
-                           "its durable {:n 42} surviving — the re-seeding :initial-events "
-                           "[[:rf/set-db {:n 999}]] was RE-RECORDED but NOT replayed"))
-                  nil))
-              ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block`
-              ;; a continuation that runs the WHOLE remainder of the run
-              ;; synchronously, so a rejection handler downstream of the step
-              ;; that finished the row claims whatever a LATER namespace throws,
-              ;; prints it against this row's label, and fires `done` a second
-              ;; time. The CAS in `done!` swallows that second call;
-              ;; it cannot swallow the misattributed `is false`.
-              (.catch
-                (fn [err]
-                  (is false (str "scenario-6-frame-root threw: " (pr-str err)))
-                  nil))
-              ;; Both arms cleaned up identically, so it rides the single
-              ;; trailing step: written once, run once per path.
-              (.then (fn [_] (cleanup!) (done!)))))))))
+            act-fn     (react-act)]
+        ;; `act` flushes passive + layout effects + drives StrictMode's effect
+        ;; double-invoke on the same fiber. Await the returned thenable so the
+        ;; StrictMode passes flush, then advance two macrotasks before
+        ;; asserting. Every exit funnels through the guarded `done!`.
+        (-> (js/Promise.resolve (act-fn (fn [] (.render root tree))))
+            (.then
+              (fn [_]
+                ;; (1) Sanity: the commit-phase ensure created the frame +
+                ;; seeded durable state.
+                (is (= [true {:n 7}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                    "frame-root created the frame at COMMIT (useLayoutEffect), and :initial-events seeded the durable app-db ONCE")
+                (js/Promise.resolve
+                  (js/Promise.
+                    (fn [resolve _]
+                      (js/setTimeout
+                        (fn [] (js/setTimeout (fn [] (resolve nil)) 4))
+                        4))))))
+            (.then
+              (fn [_]
+                ;; After the StrictMode cycle + macrotask window the frame
+                ;; survives (frame-root has no destroy effect; StrictMode did
+                ;; not corrupt it or re-seed it — the double-invoked effect's
+                ;; second make-frame was idempotent, not a replay).
+                (is (= [true {:n 7}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                    (str "the frame-root frame is STILL LIVE after the StrictMode cycle (no "
+                         "destroy-on-unmount), its durable app-db not re-seeded by the effect "
+                         "double-invoke"))
+                ;; (2) Mutate durable state so the hot-reload remount has
+                ;; something distinct to preserve.
+                (rf/dispatch-sync [:rf/set-db {:n 42}] {:frame target})
+                ;; (3) Simulate a :dev/after-load hot-reload remount: a FRESH
+                ;; frame-root instance (KEYED v2, so React unmounts v1 and
+                ;; mounts a fresh one — the keyed-remount path) under the SAME
+                ;; id, with a RE-SEEDING :initial-events. The fresh instance's
+                ;; commit re-ensures under the same :id (idempotent make-frame),
+                ;; so durable {:n 42} is preserved, NOT re-seeded to {:n 999}.
+                (let [reload-child (React/createElement "div" #js {} "frame-root-reload")
+                      reload-el    (rf.views.frame-boundary/frame-root-react-element
+                                     {:id target :initial-events [[:rf/set-db {:n 999}]]}
+                                     reload-child
+                                     'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
+                      reload-tree  (React/createElement (.-StrictMode React) nil
+                                                        (React/cloneElement reload-el #js {:key "v2"}))]
+                  (js/Promise.resolve (act-fn (fn [] (.render root reload-tree)))))))
+            (.then
+              (fn [_]
+                (is (= [true {:n 42}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                    (str "REUSE-NO-RESEED: the frame is REUSED across the hot-reload remount, "
+                         "its durable {:n 42} surviving — the re-seeding :initial-events "
+                         "[[:rf/set-db {:n 999}]] was RE-RECORDED but NOT replayed"))
+                nil))
+            ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block`
+            ;; a continuation that runs the WHOLE remainder of the run
+            ;; synchronously, so a rejection handler downstream of the step
+            ;; that finished the row claims whatever a LATER namespace throws,
+            ;; prints it against this row's label, and fires `done` a second
+            ;; time. The CAS in `done!` swallows that second call;
+            ;; it cannot swallow the misattributed `is false`.
+            (.catch
+              (fn [err]
+                (is false (str "scenario-6-frame-root threw: " (pr-str err)))
+                nil))
+            ;; Both arms cleaned up identically, so it rides the single
+            ;; trailing step: written once, run once per path.
+            (.then (fn [_] (cleanup!) (done!))))))))
 
 ;; ---- Scenario 6 (frame-root): genuine unmount LEAVES the frame live -------
 ;;
@@ -620,46 +602,43 @@
                          {:id target :initial-events [[:rf/set-db {:n 3}]]}
                          child
                          'scenario-6-frame-root-genuine-unmount-leaves-frame-live)
-            act-fn     (get-act)]
-        (if (nil? act-fn)
-          (do (is true "act() not reachable from this runner; genuine-unmount scenario skipped")
-              (done!))
-          ;; Mount under act so the FC commits (and the layout effect runs), then
-          ;; unmount under act. There is no destroy effect, so the unmount is a
-          ;; no-op for the frame; advance the macrotask window anyway to prove no
-          ;; deferred teardown lurks.
-          (-> (js/Promise.resolve (act-fn (fn [] (.render root ensure-el))))
-              (.then
-                (fn [_]
-                  ;; Genuine unmount — frame-root does NOT destroy.
-                  (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
-              ;; AWAITED rather than fired-and-forgotten. A bare `js/setTimeout`
-              ;; returns a NUMBER, so this step would settle the chain
-              ;; immediately and the assertions below would run OFF THE END of
-              ;; it — where the handler could not see a throw, and a throw would
-              ;; leave `done!` uncalled and hang the lane with no diagnostic at
-              ;; all. The same double-macrotask window, expressed as a promise
-              ;; the chain can wait on.
-              (.then
-                (fn [_]
-                  (js/Promise.
-                    (fn [resolve _]
-                      (js/setTimeout
-                        (fn [] (js/setTimeout (fn [] (resolve nil)) 4))
-                        4)))))
-              (.then
-                (fn [_]
-                  (is (= [true {:n 3}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
-                      "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount), its durable app-db intact")
-                  nil))
-              ;; Reports; it does NOT finish — as above.
-              (.catch
-                (fn [err]
-                  (is false (str "frame-root genuine-unmount scenario threw: " (pr-str err)))
-                  nil))
-              ;; Both arms cleaned up identically, so it rides the single
-              ;; trailing step: written once, run once per path.
-              (.then (fn [_] (cleanup!) (done!)))))))))
+            act-fn     (react-act)]
+        ;; Mount under act so the FC commits (and the layout effect runs), then
+        ;; unmount under act. There is no destroy effect, so the unmount is a
+        ;; no-op for the frame; advance the macrotask window anyway to prove no
+        ;; deferred teardown lurks.
+        (-> (js/Promise.resolve (act-fn (fn [] (.render root ensure-el))))
+            (.then
+              (fn [_]
+                ;; Genuine unmount — frame-root does NOT destroy.
+                (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
+            ;; AWAITED rather than fired-and-forgotten. A bare `js/setTimeout`
+            ;; returns a NUMBER, so this step would settle the chain
+            ;; immediately and the assertions below would run OFF THE END of
+            ;; it — where the handler could not see a throw, and a throw would
+            ;; leave `done!` uncalled and hang the lane with no diagnostic at
+            ;; all. The same double-macrotask window, expressed as a promise
+            ;; the chain can wait on.
+            (.then
+              (fn [_]
+                (js/Promise.
+                  (fn [resolve _]
+                    (js/setTimeout
+                      (fn [] (js/setTimeout (fn [] (resolve nil)) 4))
+                      4)))))
+            (.then
+              (fn [_]
+                (is (= [true {:n 3}] [(some? (rf.frame/frame target)) (rf/app-db-value target)])
+                    "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount), its durable app-db intact")
+                nil))
+            ;; Reports; it does NOT finish — as above.
+            (.catch
+              (fn [err]
+                (is false (str "frame-root genuine-unmount scenario threw: " (pr-str err)))
+                nil))
+            ;; Both arms cleaned up identically, so it rides the single
+            ;; trailing step: written once, run once per path.
+            (.then (fn [_] (cleanup!) (done!))))))))
 
 ;; ---- Scenario 6 (frame-root): a DISCARDED render creates NO frame ---------
 ;;
@@ -737,37 +716,34 @@
             ;; Error boundary so the thrown render error is contained (React
             ;; unwinds to the boundary rather than crashing the test host).
             boundary   (react-error-boundary subtree)
-            act-fn     (get-act)]
-        (if (nil? act-fn)
-          (do (is true "act() not reachable; discarded-render scenario skipped")
-              (done!))
-          (-> (js/Promise.resolve (act-fn (fn [] (.render root boundary))))
-              ;; AWAITED rather than fired-and-forgotten, for the reason given
-              ;; on the genuine-unmount scenario above: a bare `js/setTimeout`
-              ;; returns a NUMBER, so the assertion below would run off the
-              ;; end of a chain that had already settled.
-              (.then
-                (fn [_]
-                  (js/Promise. (fn [resolve _] (js/setTimeout (fn [] (resolve nil)) 8)))))
-              (.then
-                (fn [_]
-                  (is (nil? (rf.frame/frame target))
-                      (str "GHOST-FRAME FIX: an aborted (never-committed) render "
-                           "created NO frame under " (pr-str target)
-                           " (frame-root ensures at commit, not during render)"))
-                  nil))
-              (.catch
-                (fn [_err]
-                  ;; A thrown render may reject the act() thenable depending on the
-                  ;; error-boundary timing; the invariant still holds — no frame.
-                  ;; This arm ASSERTS rather than merely reports, and it still
-                  ;; does not finish: the single `done!` is on the tail below.
-                  (is (nil? (rf.frame/frame target))
-                      "aborted render created NO frame (error path)")
-                  nil))
-              ;; Both arms cleaned up identically, so it rides the single
-              ;; trailing step: written once, run once per path.
-              (.then (fn [_] (cleanup!) (done!)))))))))
+            act-fn     (react-act)]
+        (-> (js/Promise.resolve (act-fn (fn [] (.render root boundary))))
+            ;; AWAITED rather than fired-and-forgotten, for the reason given
+            ;; on the genuine-unmount scenario above: a bare `js/setTimeout`
+            ;; returns a NUMBER, so the assertion below would run off the
+            ;; end of a chain that had already settled.
+            (.then
+              (fn [_]
+                (js/Promise. (fn [resolve _] (js/setTimeout (fn [] (resolve nil)) 8)))))
+            (.then
+              (fn [_]
+                (is (nil? (rf.frame/frame target))
+                    (str "GHOST-FRAME FIX: an aborted (never-committed) render "
+                         "created NO frame under " (pr-str target)
+                         " (frame-root ensures at commit, not during render)"))
+                nil))
+            (.catch
+              (fn [_err]
+                ;; A thrown render may reject the act() thenable depending on the
+                ;; error-boundary timing; the invariant still holds — no frame.
+                ;; This arm ASSERTS rather than merely reports, and it still
+                ;; does not finish: the single `done!` is on the tail below.
+                (is (nil? (rf.frame/frame target))
+                    "aborted render created NO frame (error path)")
+                nil))
+            ;; Both arms cleaned up identically, so it rides the single
+            ;; trailing step: written once, run once per path.
+            (.then (fn [_] (cleanup!) (done!))))))))
 
 ;; ---- Scenario 7: concurrent rendering / suspense + act --------------------
 ;;
@@ -801,70 +777,67 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done
       (let [target :rf-22ds-7-concurrent
-            act-fn (get-act)]
-        (if (nil? act-fn)
-          (do (is true "act() not reachable from this test runner; scenario-7 skipped")
-              (done))
-          (let [_ (rf/make-frame {:id target :doc "scenario-7 concurrent frame"})
-                _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
-                _ (rf/reg-event :inc-7  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-                _ (rf/dispatch-sync [:seed-7] {:frame target})
-                _ (rf/reg-sub :scenario-7/n (fn [db _] (:n db)))
-                observed-frames (atom [])
-                observed-values (atom [])
-                _ (rf/reg-view* :rf.22ds-7/probe
-                                (fn []
-                                  (swap! observed-frames conj (rf/current-frame-id))
-                                  (swap! observed-values conj @(rf/subscribe [:scenario-7/n]))
-                                  [:div "concurrent"]))
-                render-fn  (rf/view :rf.22ds-7/probe)
-                mount-node (make-mount-node!)
-                root       (rdc/create-root mount-node)
-                finish     (fn [] (teardown-and-done! root done))
-                ;; Reports; it does NOT finish. `finish` closes over `done`, so
-                ;; calling it from a rejection handler downstream of the step
-                ;; that already called it claims a LATER namespace's throw as
-                ;; this row's and fires `done` a second time. A
-                ;; closure is invisible to a scanner looking for a literal
-                ;; `(done)` or for a helper that TAKES `done`; it finishes the
-                ;; row just the same.
-                report!    (fn [e]
-                             (is false (str "scenario-7 threw: " (pr-str e)))
-                             nil)
-                ;; The SYNCHRONOUS terminal path only — a throw before the
-                ;; chain exists has no trailing step to finish on.
-                fail!      (fn [e] (report! e) (finish))]
-            (try
-              ;; Render 1 — wrap the call in act() so pending React work
-              ;; commits before we read the observed-* atoms.
-              (act-fn (fn []
-                        (rdc/render root [rf/frame-provider {:frame target}
-                                          [render-fn]])))
-              (is (= [target 1] [(some #{target} @observed-frames) (some #{1} @observed-values)])
-                  "first render saw the wrapped frame and the seeded value n=1")
-              ;; Mutate the wrapped frame's app-db. The mounted probe's
-              ;; subscription re-renders on the reactive substrate's SCHEDULED
-              ;; flush (batched, not synchronous with dispatch-sync). Await that
-              ;; settle so the re-render commits before asserting — this is what
-              ;; makes the concurrent re-render deterministic when the ns runs
-              ;; ALONE (in-suite the substrate happened to already be warm). No
-              ;; explicit re-render needed: reactivity drives it.
-              (rf/dispatch-sync [:inc-7] {:frame target})
-              (-> (settle-macrotasks 3)
-                  (.then
-                    (fn [_]
-                      (is (= [target 2] [(last @observed-frames) (some #{2} @observed-values)])
-                          (str "the post-dispatch re-render still observes the wrapped frame (provider "
-                               "boundary held) and the incremented value n=2; got "
-                               (pr-str @observed-values)))
-                      nil))
-                  (.catch report!)
-                  ;; Await the deferred teardown. The
-                  ;; single exit, on the single trailing step, with nothing
-                  ;; after it.
-                  (.then (fn [_] (finish))))
-              (catch :default e
-                (fail! e)))))))))
+            act-fn (react-act)
+            _ (rf/make-frame {:id target :doc "scenario-7 concurrent frame"})
+            _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
+            _ (rf/reg-event :inc-7  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+            _ (rf/dispatch-sync [:seed-7] {:frame target})
+            _ (rf/reg-sub :scenario-7/n (fn [db _] (:n db)))
+            observed-frames (atom [])
+            observed-values (atom [])
+            _ (rf/reg-view* :rf.22ds-7/probe
+                            (fn []
+                              (swap! observed-frames conj (rf/current-frame-id))
+                              (swap! observed-values conj @(rf/subscribe [:scenario-7/n]))
+                              [:div "concurrent"]))
+            render-fn  (rf/view :rf.22ds-7/probe)
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)
+            finish     (fn [] (teardown-and-done! root done))
+            ;; Reports; it does NOT finish. `finish` closes over `done`, so
+            ;; calling it from a rejection handler downstream of the step
+            ;; that already called it claims a LATER namespace's throw as
+            ;; this row's and fires `done` a second time. A
+            ;; closure is invisible to a scanner looking for a literal
+            ;; `(done)` or for a helper that TAKES `done`; it finishes the
+            ;; row just the same.
+            report!    (fn [e]
+                         (is false (str "scenario-7 threw: " (pr-str e)))
+                         nil)
+            ;; The SYNCHRONOUS terminal path only — a throw before the
+            ;; chain exists has no trailing step to finish on.
+            fail!      (fn [e] (report! e) (finish))]
+        (try
+          ;; Render 1 — wrap the call in act() so pending React work
+          ;; commits before we read the observed-* atoms.
+          (act-fn (fn []
+                    (rdc/render root [rf/frame-provider {:frame target}
+                                      [render-fn]])))
+          (is (= [target 1] [(some #{target} @observed-frames) (some #{1} @observed-values)])
+              "first render saw the wrapped frame and the seeded value n=1")
+          ;; Mutate the wrapped frame's app-db. The mounted probe's
+          ;; subscription re-renders on the reactive substrate's SCHEDULED
+          ;; flush (batched, not synchronous with dispatch-sync). Await that
+          ;; settle so the re-render commits before asserting — this is what
+          ;; makes the concurrent re-render deterministic when the ns runs
+          ;; ALONE (in-suite the substrate happened to already be warm). No
+          ;; explicit re-render needed: reactivity drives it.
+          (rf/dispatch-sync [:inc-7] {:frame target})
+          (-> (settle-macrotasks 3)
+              (.then
+                (fn [_]
+                  (is (= [target 2] [(last @observed-frames) (some #{2} @observed-values)])
+                      (str "the post-dispatch re-render still observes the wrapped frame (provider "
+                           "boundary held) and the incremented value n=2; got "
+                           (pr-str @observed-values)))
+                  nil))
+              (.catch report!)
+              ;; Await the deferred teardown. The
+              ;; single exit, on the single trailing step, with nothing
+              ;; after it.
+              (.then (fn [_] (finish))))
+          (catch :default e
+            (fail! e)))))))
 
 ;; ---- Namespaced frame-ids survive the React-context round trip -------------
 ;;

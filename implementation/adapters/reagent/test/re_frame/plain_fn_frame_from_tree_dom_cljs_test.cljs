@@ -23,7 +23,8 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.use-frame :as rf.adapter.use-frame]
             [re-frame.epoch]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 (rf/reg-event ::seed (fn [_ [_ label]] {:db {:label label}}))
 (rf/reg-event ::mark (fn [{:keys [db]} _] {:db (assoc db :marked? true)}))
@@ -36,10 +37,6 @@
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
      :async?        true}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- frames! [& ids]
   (doseq [id ids]

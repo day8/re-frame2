@@ -21,12 +21,9 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views])
+            [re-frame.views]
+            [re-frame.adapter.react-test-support :refer [browser?]])
   (:require-macros [re-frame.core :refer [reg-view]]))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (reg-view ^{:rf/id :rf.keydom/row} keydom-row [n]
   [:div {:data-testid (str "keydom-row-" n)} "row-" n])

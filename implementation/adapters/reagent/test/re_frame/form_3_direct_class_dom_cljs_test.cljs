@@ -32,13 +32,10 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views]))
+            [re-frame.views]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 (def ^:private frame-id ::direct-class-frame)
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- get-act []
   ;; Synchronous flush — a deftest that is not `async` must not be handed a

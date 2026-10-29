@@ -15,12 +15,9 @@
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.views])
+            [re-frame.views]
+            [re-frame.adapter.react-test-support :refer [browser?]])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- make-mount-node! []
   (when (browser?)

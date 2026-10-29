@@ -10,16 +10,13 @@
             [reagent.dom.server :as rds]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
-            [re-frame.test-support :as rf.test-support]))
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.adapter.react-test-support :refer [browser?]]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
-
-(defn- browser? []
-  (and (exists? js/document)
-       (some? (.-createElement js/document))))
 
 (defn- disclosure
   "A disclosure panel holding its own open flag, keyed by the `ikey` it is
