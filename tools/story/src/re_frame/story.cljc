@@ -14,12 +14,15 @@
   `snapshot-identity`), and the shell mount/unmount surface
   (`mount-shell!` / `unmount-shell!` / `active-shell`, CLJS-only).
 
-  The implementation weight for three cohesive surfaces lives in
+  The implementation weight for two cohesive surfaces lives in
   dedicated internal namespaces:
 
   - `re-frame.story.query` — the registry query API
   - `re-frame.story.canonical` — canonical-vocabulary boot
-  - `re-frame.story.lifecycle` — variant lifecycle facade
+
+  The variant lifecycle verbs delegate straight to their owning modules
+  (`re-frame.story.runtime`, `re-frame.story.frames`,
+  `re-frame.story.loaders`).
 
   Every public symbol on the facade resolves under its name; the bodies
   are thin re-exports / delegators.
@@ -131,7 +134,9 @@
             ;; `story/is` blocks on the JVM run promise +
             ;; chains the CLJS one (the headless-test bridge).
             [re-frame.story.async       :as rf.story.async]
-            [re-frame.story.lifecycle   :as rf.story.lifecycle]
+            [re-frame.story.frames      :as rf.story.frames]
+            [re-frame.story.loaders     :as rf.story.loaders]
+            [re-frame.story.runtime     :as rf.story.runtime]
             [re-frame.story.query       :as rf.story.query]
             ;; The variant-plan compiler (re-exported as
             ;; `variant-plan` / `explain`) + the `render-variant` workshop
@@ -987,10 +992,9 @@
 
 ;; ---- variant lifecycle surface ------------------------------------------
 ;;
-;; Bodies live in `re-frame.story.lifecycle` — variant→EDN serialisation,
-;; the four-phase variant lifecycle (loaders → events → render → play),
-;; snapshot-identity, frame teardown / enumeration, and lifecycle-state
-;; probe. The facade re-exports each public symbol.
+;; Variant→EDN serialisation, the four-phase variant lifecycle (loaders →
+;; events → render → play), snapshot-identity, frame teardown / enumeration
+;; and the lifecycle-state probe, each delegating to its owning module.
 
 (defn variant->edn
   "Per `002-Runtime.md` §Programmatic API — return the registered body of the variant as
@@ -1000,12 +1004,12 @@
 
   Returns nil when the variant is unregistered."
   [variant-id]
-  (rf.story.lifecycle/variant->edn variant-id))
+  (rf.story.registrar/handler-meta :variant variant-id))
 
 (defn workspace->edn
   "Per `002-Runtime.md` §Programmatic API — same for workspaces."
   [workspace-id]
-  (rf.story.lifecycle/workspace->edn workspace-id))
+  (rf.story.registrar/handler-meta :workspace workspace-id))
 
 (defn valid-variant-id?
   "Per /spec/007-Stories.md §Canonical id grammar — true iff the DECOMPOSED
@@ -1033,13 +1037,13 @@
   See `re-frame.story.result` and spec/017 §Unified run result for the
   result contract. Rendering is driven separately through `render-variant`
   or the UI shell."
-  ([variant-id]       (rf.story.lifecycle/run-variant variant-id))
-  ([variant-id opts]  (rf.story.lifecycle/run-variant variant-id opts)))
+  ([variant-id]       (rf.story.runtime/run-variant variant-id nil))
+  ([variant-id opts]  (rf.story.runtime/run-variant variant-id opts)))
 
 (defn reset-variant
   "Tear down + re-run `variant-id`. Per `002-Runtime.md` §Programmatic API."
-  ([variant-id]       (rf.story.lifecycle/reset-variant variant-id))
-  ([variant-id opts]  (rf.story.lifecycle/reset-variant variant-id opts)))
+  ([variant-id]       (rf.story.runtime/reset-variant variant-id nil))
+  ([variant-id opts]  (rf.story.runtime/reset-variant variant-id opts)))
 
 (defn watch-variant
   "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
@@ -1047,7 +1051,7 @@
   `{:frame-id <id> :from <state> :to <state> :event <inner-event>}`
   on every transition. Returns a 0-arity unsubscribe fn."
   [variant-id callback]
-  (rf.story.lifecycle/watch-variant variant-id callback))
+  (rf.story.runtime/watch-variant variant-id callback))
 
 (defn snapshot-identity
   "Per `002-Runtime.md` §Programmatic API + §Snapshot-identity computation.
@@ -1057,8 +1061,8 @@
 
   Returns `{:variant-id ... :active-modes [...] :substrate ...
   :content-hash \"<8-char hex>\"}`."
-  ([variant-id]       (rf.story.lifecycle/snapshot-identity variant-id))
-  ([variant-id opts]  (rf.story.lifecycle/snapshot-identity variant-id opts)))
+  ([variant-id]       (rf.story.runtime/snapshot-identity variant-id))
+  ([variant-id opts]  (rf.story.runtime/snapshot-identity variant-id opts)))
 
 ;; ---- canonicalization / fingerprinting ----------------------------------
 ;;
@@ -1361,25 +1365,25 @@
   "Tear down a variant frame allocated via `run-variant`. Per
   `002-Runtime.md` §Per-variant frame allocation — the caller (UI shell / test fixture) owns teardown."
   [variant-id]
-  (rf.story.lifecycle/destroy-variant! variant-id))
+  (rf.story.frames/destroy! variant-id))
 
 (defn variant-frames
   "Return every registered variant frame id. The UI shell uses this
   to lay out the active variant pane."
   []
-  (rf.story.lifecycle/variant-frames))
+  (rf.story.frames/variant-frames))
 
 (defn variant-frame?
   "True iff `frame-id` is a variant frame."
   [frame-id]
-  (rf.story.lifecycle/variant-frame? frame-id))
+  (rf.story.frames/variant-frame? frame-id))
 
 (defn lifecycle-state
   "Return the lifecycle's current discrete state for the variant's
   frame (`:pre-mount`, `:mounting`, `:loading`, `:ready`, `:error`).
   Returns `:pre-mount` if the variant hasn't been run yet."
   [variant-id]
-  (rf.story.lifecycle/lifecycle-state variant-id))
+  (rf.story.loaders/current-state variant-id))
 
 ;; ---- public assertion + play helpers ------------------------------------
 
@@ -1585,8 +1589,8 @@
   ([target]      (run target nil))
   ([target opts]
    (if (map? target)
-     (rf.story.lifecycle/run-inline-plan target opts)
-     (rf.story.lifecycle/run-variant target opts))))
+     (rf.story.runtime/run-inline-plan target opts)
+     (rf.story.runtime/run-variant target opts))))
 
 ;; ---- variant-plan / explain / render-variant ----------------------------
 ;;
@@ -1708,15 +1712,14 @@
   `(async done …)` form) and call `(story/report-result! result)` when it
   resolves. `report-result!` is the pure-report seam both runtimes share.
 
-  ## `:timeout-ms` — the JVM block bound
+  ## `:timeout-ms` — the JVM bound
 
-  `opts` MAY carry `:timeout-ms` — the JVM blocking-deref bound, in
-  milliseconds (default `30000`). A run that does not resolve inside the
-  window throws a `java.util.concurrent.TimeoutException` rather than
-  hanging the test JVM. The opt is JVM-only by construction: it bounds the
-  blocking deref, and CLJS never blocks (it returns the promise, so the
-  caller's own `(cljs.test/async done …)` deadline governs). The opt is
-  inert on CLJS — `story/is` reads it on the `:clj` branch only.
+  `opts` MAY carry `:timeout-ms` (default `30000`). A JVM run executes
+  synchronously — a `[:wait]` is an inline sleep — so `is` runs it on a
+  worker thread, and once the bound elapses interrupts it and throws a
+  `java.util.concurrent.TimeoutException` rather than hanging the test JVM.
+  CLJS never blocks, so there the caller's own async deadline governs
+  (spec/017 §Public execution API).
 
   A `target` that is ALREADY a unified run-result map (a `:status`-bearing
   map) is reported directly — the sync path for tests that ran the variant
@@ -1730,12 +1733,9 @@
          target)
 
      :else
-     ;; `:timeout-ms` bounds the JVM blocking deref (default
-     ;; 30000), read on the `:clj` branch only (CLJS never blocks). Strip
-     ;; it from the opts threaded into `run` so the runner / plan-compiler
-     ;; does not see a key it does not own.
-     (let [run-opts (not-empty (dissoc opts :timeout-ms))
-           p        (run target run-opts)]
+     ;; `:timeout-ms` is `is`'s own opt, so the runner / plan-compiler
+     ;; never sees it.
+     (let [run-opts (not-empty (dissoc opts :timeout-ms))]
        ;; Both branches pass `(:variant/id result)`, matching
        ;; the already-resolved sync branch above. `emit-reports!` ignores
        ;; its first arg, and all three call sites supply the same shape (a
@@ -1743,17 +1743,26 @@
        ;; arg can become load-bearing (e.g. stamping the variant id onto
        ;; each report's message) without the call sites disagreeing.
        #?(:clj
-          (let [result (rf.story.async/deref-blocking p (get opts :timeout-ms 30000))]
+          (let [timeout-ms (get opts :timeout-ms 30000)
+                worker     (future-call
+                             (bound-fn [] (rf.story.async/deref-blocking (run target run-opts))))
+                result     (try (deref worker timeout-ms ::timed-out)
+                                (catch java.util.concurrent.ExecutionException e
+                                  (throw (or (.getCause e) e))))]
+            (when (= ::timed-out result)
+              (future-cancel worker)
+              (throw (java.util.concurrent.TimeoutException.
+                       (str "story/is: " (pr-str target) " did not settle within "
+                            timeout-ms " ms"))))
             (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
             result)
           :cljs
           ;; CLJS run is async; report when it resolves and hand the
           ;; promise back so a `(cljs.test/async done …)` test can await it.
-          ;; `:timeout-ms` is inert here — the caller's own async deadline
-          ;; governs (the JVM is the only path that blocks).
-          (rf.story.async/then p (fn [result]
-                          (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
-                          result)))))))
+          (rf.story.async/then (run target run-opts)
+                               (fn [result]
+                                 (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
+                                 result)))))))
 
 (defn report-result!
   "Per spec/017 §Public execution API — fire the per-assertion clojure.test

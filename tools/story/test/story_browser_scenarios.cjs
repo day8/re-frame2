@@ -615,7 +615,7 @@ module.exports = {
     // There is no browser scenario for Spec 008 four-phase ordering: Story
     // has no actions panel (Xray's Event-tab cascade view + filtered Trace
     // tab cover that ground). The four-phase ordering contract is
-    // validated by the JVM/CLJS unit suite for `re-frame.story.lifecycle`
+    // validated by the JVM/CLJS unit suite for `re-frame.story.runtime`
     // directly; cross-variant isolation is covered by
     // `substrate-decorator-and-frame-isolation` above. A browser
     // equivalent reading the spine projection belongs in

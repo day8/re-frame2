@@ -13,7 +13,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story     :as rf.story]
-            [re-frame.story.async :as rf.story.async]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]))
 
 (defn- reset-rf! [test-fn]
@@ -88,21 +87,25 @@
       (is (= [:error] (mapv :type reports)))
       (is (= :some/why (:actual (ex-data (:actual (first reports)))))))))
 
-(deftest story-is-accepts-a-timeout-ms-opt
-  (testing ":timeout-ms bounds the JVM blocking deref and is stripped from the
-            opts the runner receives"
+(deftest story-is-timeout-ms-bounds-the-run
+  (testing "a JVM run executes synchronously, so the bound must release the
+            caller while the run is still sleeping"
+    (rf.story/reg-variant :story.is/slow {:tags #{:test} :script [[:wait 3000]]})
+    (let [t0     (System/currentTimeMillis)
+          thrown (try (rf.story/is :story.is/slow {:timeout-ms 100})
+                      nil
+                      (catch java.util.concurrent.TimeoutException e e))]
+      (is (instance? java.util.concurrent.TimeoutException thrown))
+      (is (< (- (System/currentTimeMillis) t0) 2000)
+          "released at the bound, not when the run ends")))
+  (testing ":timeout-ms is stripped from the opts the runner receives"
     (rf.story/reg-variant :story.is/timeout
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :loaded]]
                          [:assert-db [:status] :loaded]]}})
-    (let [bounds     (atom [])
-          run-opts   (atom [])
-          real-deref rf.story.async/deref-blocking
-          real-run   rf.story/run]
-      (with-redefs [rf.story.async/deref-blocking
-                    (fn [p ms] (swap! bounds conj ms) (real-deref p ms))
-                    rf.story/run
+    (let [run-opts (atom [])
+          real-run rf.story/run]
+      (with-redefs [rf.story/run
                     (fn [target opts] (swap! run-opts conj opts) (real-run target opts))]
         (capture-reports #(rf.story/is :story.is/timeout {:timeout-ms 5000})))
-      (is (= [5000] @bounds) "the custom bound reached deref-blocking")
       (is (= [nil] @run-opts) "the runner never saw :timeout-ms"))))
