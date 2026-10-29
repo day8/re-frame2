@@ -35,7 +35,7 @@
               validation instead.
 
     :print    (fn [schema-value] canonical-string)
-              — per Spec 010 §Schema digest line 491, the registered
+              — per Spec 010 §Digest algorithm step 1, the registered
               validator's `schema-print` companion. Serialises a
               schema value to the byte-stable UTF-8 string the digest
               pipeline hashes. The default mirrors the Malli-EDN
@@ -217,8 +217,13 @@
   default-schema-fns)`."
   (assoc rf.schemas.malli/bundle :print default-edn-print))
 
+;; The five atoms are private: `set-schema-fns!` / `schema-fns` are the port's
+;; surface, and the never-nil printer holds only because every write goes
+;; through the setter (Spec 010 §Test-support).
+
 (defonce
-  ^{:doc "The currently-registered validator fn — `(fn [schema value]
+  ^{:private true
+    :doc "The currently-registered validator fn — `(fn [schema value]
           truthy?)`. Default delegates to Malli; apps swap it via
           `set-schema-fns!`'s `:validate` key. An explicit `nil`
           disables validation everywhere (every `validate-*!` call
@@ -227,7 +232,8 @@
   (atom (:validate default-schema-fns)))
 
 (defonce
-  ^{:doc "The currently-registered explainer fn — `(fn [schema value]
+  ^{:private true
+    :doc "The currently-registered explainer fn — `(fn [schema value]
           explanation)`. Populates the failure trace's `:explain`
           key. Default delegates to Malli's `explain`; nil means no
           explanation is attached."}
@@ -235,7 +241,8 @@
   (atom (:explain default-schema-fns)))
 
 (defonce
-  ^{:doc "The currently-registered humanizer fn — `(fn [explanation]
+  ^{:private true
+    :doc "The currently-registered humanizer fn — `(fn [explanation]
           readable)`. Populates the failure trace's `:explain-humanized`
           key from the explainer's output. Default is Malli's `humanize`
           in development builds and nil in production; nil means the
@@ -244,7 +251,8 @@
   (atom (:humanize default-schema-fns)))
 
 (defonce
-  ^{:doc "The currently-registered schema compiler — `(fn [schema] _)`,
+  ^{:private true
+    :doc "The currently-registered schema compiler — `(fn [schema] _)`,
           called at development registration so a malformed schema throws
           at the call that wrote it. Default compiles through the Malli
           bundle's cache; nil skips the check."}
@@ -252,8 +260,9 @@
   (atom (:compile default-schema-fns)))
 
 (defonce
-  ^{:doc "The currently-registered schema-print fn — `(fn [schema-value]
-          canonical-string)`. Per Spec 010 §Schema digest line 491,
+  ^{:private true
+    :doc "The currently-registered schema-print fn — `(fn [schema-value]
+          canonical-string)`. Per Spec 010 §Digest algorithm step 1,
           the registered validator's `schema-print` companion. The
           digest pipeline (`re-frame.schemas.digest`) hashes the
           UTF-8 bytes of this fn's return value. Default is
@@ -299,11 +308,13 @@
                undefined for a present schema set.
 
   Per Spec 010 §Locked rules an installed validator must be pure
-  (same `(schema, value)` returns the same result) and must be
-  production-elidable alongside `re-frame.interop/debug-enabled?` —
-  every call site is already gated on `debug-enabled?`, so the
-  validator's body is unreachable in `:advanced` + `goog.DEBUG=false`
-  builds.
+  (same `(schema, value)` returns the same result). Most validation
+  sites elide in `:advanced` + `goog.DEBUG=false` builds, but the checks
+  that hold in every build — `:boundary? true`, recordable coeffect
+  values, route and resource params — call the validator there too, and
+  the explainer when they report their failure tags. So both must be
+  production-safe, with no reliance on development-only code (Spec 010
+  §Production builds).
 
   Writes are last-write-wins per key and are NOT transactional — the
   `reset!`s are separate, and configuration is expected to be
@@ -371,15 +382,12 @@
    :compile  @compiler-fn
    :print    @printer-fn})
 
-(defn run-validator
-  "Hot-path entry — invoke the registered validator fn against a
-  `(schema, value)` pair. Returns true (pass) when no validator is
-  registered (nil) so the call sites treat 'no validator' as 'no
-  validation' rather than 'every value fails'."
-  [schema value]
-  (if-let [f @validator-fn]
-    (f schema value)
-    true))
+(defn validator
+  "The installed `:validate` fn, or nil when validation is disabled. Each
+  validation site reads it once, treats nil as pass, and calls it under its
+  own throw isolation, because what a throw means differs by site."
+  []
+  @validator-fn)
 
 (defn run-explainer
   "Hot-path entry — invoke the registered explainer fn against a
@@ -412,7 +420,7 @@
 
 (defn run-printer
   "Hot-path entry — invoke the registered schema-print companion against
-  a single schema value. Per Spec 010 §Schema digest line 491 the digest
+  a single schema value. Per Spec 010 §Digest algorithm step 1 the digest
   pipeline (`re-frame.schemas.digest`) hashes this fn's UTF-8 bytes.
   `printer-fn` is never nil: its only write site (`set-schema-fns!`'s
   `:print` key) coerces a nil `:print` to `default-edn-print`, so the

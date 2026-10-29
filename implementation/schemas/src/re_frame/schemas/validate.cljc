@@ -54,7 +54,8 @@
   with `:explain` (present as the `:rf/redacted` sentinel on sensitive
   failures, not omitted).
 
-  On a sensitive app-db failure `:path` keeps the registered path and the
+  On a sensitive app-db failure, whether the schema's marks or the frame's
+  classification make it so, `:path` keeps the registered path and the
   leading `:in` segments that are keys the schema declares on a `:map`
   (`walker/declared-key-prefix`), and every later segment is `:rf/redacted`:
   a `:set` element, a `:map-of` key or a closed map's extra key is the
@@ -220,34 +221,31 @@
   classification — the one `:rf.sub/run` and `:rf.flow/computed` apply at
   emit — so a path classified there (a `reg-classification`, a flow's own
   output marks) needs no second `:sensitive?` on its schema. Runs after the schema-driven
-  redaction, which stays an additional way to mark a slot.
+  redaction, which stays an additional way to mark a slot. `classified?` is
+  `rf.schemas.storage/classification-sensitive?` of the registered value,
+  which the caller has already used to redact `:path`.
 
     - `:value`, narrowed to the failing leaf, is walked at the leaf's own
       path (`leaf-path`), so it is path-precise like every wire slot. A slot
       the schema already redacted or size-elided is left alone.
     - `:explain` / `:explain-humanized` re-ship the whole registered value
       and are not path-anchored, so they cannot be walked like `:value`.
-      When the classification makes anything in that value sensitive they
-      are redacted whole and the trace is stamped `:sensitive? true`;
-      otherwise, when it makes anything large, a size marker stands in for
-      them.
+      When `classified?` they are redacted whole and the trace is stamped
+      `:sensitive? true`; otherwise, when the classification makes anything
+      large, a size marker stands in for them.
 
   The walker fails closed: a frame it cannot resolve redacts the whole value,
   which reads here as sensitive."
-  [tags frame-id registered-path registered-value leaf-path leaf-value]
-  (let [walk       (fn [v path extra]
-                     (rf.elision/elide-wire-value
-                       v (merge {:frame frame-id :path path} extra)))
-        sensitive? (not= registered-value
-                         (walk registered-value registered-path {:rf.egress/include-large? true}))
-        large?     (and (not sensitive?)
-                        (boolean (some rf.elision/marker?
-                                       (tree-seq coll? seq (walk registered-value registered-path nil)))))]
+  [tags frame-id classified? registered-path registered-value leaf-path leaf-value]
+  (let [walk   (fn [v path] (rf.elision/elide-wire-value v {:frame frame-id :path path}))
+        large? (and (not classified?)
+                    (boolean (some rf.elision/marker?
+                                   (tree-seq coll? seq (walk registered-value registered-path)))))]
     (cond-> tags
       (and (contains? tags :value) (= leaf-value (:value tags)))
-      (assoc :value (walk leaf-value leaf-path nil))
+      (assoc :value (walk leaf-value leaf-path))
 
-      sensitive?
+      classified?
       (-> (scrub-slots app-db-whole-slots) (assoc :sensitive? true))
 
       large?
@@ -607,20 +605,6 @@
 ;; artefact's own tests; every surface outside the artefact reaches
 ;; validation through the `:schemas/check!` hook instead.
 
-(defn validate-with-registered-fn
-  "Apply the registered validator to `(schema, value)` and answer the
-  verdict alone: true on conform, and when no validator is installed (a nil
-  `:validate` disables validation); false on a failure. A validator that
-  THROWS on a malformed schema answers false, so a verdict-only caller never
-  reads a broken schema as a pass. `check!` is the seam that tells the two
-  apart and reports them.
-
-  Does not consult `interop/debug-enabled?`."
-  [schema value]
-  (try
-    (boolean (rf.schemas.validator/run-validator schema value))
-    (catch #?(:clj Throwable :cljs :default) _ false)))
-
 (defn explain-with-registered-fn
   "Apply the registered explainer to `(schema, value)`: its explanation, or
   nil when no explainer is installed. A throwing explainer degrades to nil,
@@ -760,7 +744,7 @@
   caller's always-on error or thrown ex-data, without the development-only
   humanizer and reason."
   [{:keys [schema value tags-only?] :as request}]
-  (when-let [validate-fn @rf.schemas.validator/validator-fn]
+  (when-let [validate-fn (rf.schemas.validator/validator)]
     (let [verdict (validate-entry-result validate-fn schema value)]
       (when-not (true? verdict)
         (let [request (update request :recovery #(or % :no-recovery))
@@ -878,13 +862,13 @@
    ;; keyword, validator deref, and trace call. Production builds
    ;; return `true` unconditionally — candidate rejection is dev-only
    ;; (pre-install validation is gated by debug-enabled?, so no
-   ;; failure is observable to reject on). The `@validator-fn`
-   ;; check is a runtime atom deref and must NOT be combined into the
-   ;; gate predicate (the deref defeats Closure's reachability proof).
+   ;; failure is observable to reject on). The validator read is a
+   ;; runtime atom deref and must NOT be combined into the gate
+   ;; predicate (the deref defeats Closure's reachability proof).
    ;;
-   ;; Dereference the validator once outside the per-schema loop.
+   ;; Read the validator once outside the per-schema loop.
    (if rf.interop/debug-enabled?
-     (if-let [validate-fn @rf.schemas.validator/validator-fn]
+     (if-let [validate-fn (rf.schemas.validator/validator)]
        ;; A loop rather than doseq, so we can emit
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
@@ -966,12 +950,15 @@
                      leaf-value    (failing-leaf-value explanation in-path registered-value)
                      sensitive?    (or (rf.schemas.walker/schema-has-sensitive? schema)
                                        (rf.schemas.walker/schema-has-opaque-child? schema))
+                     classified?   (rf.schemas.storage/classification-sensitive?
+                                     frame-id registered-path registered-value)
                      large?        (and (not sensitive?)
                                         (rf.schemas.walker/schema-has-large? schema))
-                     ;; A sensitive failure's `:path` keeps the declared `:map`
+                     ;; A sensitive failure's `:path`, by the schema's marks or
+                     ;; the frame's classification, keeps the declared `:map`
                      ;; keys and redacts every later segment, which can be
                      ;; data. `:reason` is built from the same path.
-                     trace-in-path (if (and in-path sensitive?)
+                     trace-in-path (if (and in-path (or sensitive? classified?))
                                      (let [kept (rf.schemas.walker/declared-key-prefix schema in-path)]
                                        (into kept (repeat (- (count in-path) (count kept))
                                                           redacted-sentinel)))
@@ -1009,7 +996,7 @@
                                        ;; Then the frame's classification, at
                                        ;; the unredacted leaf path.
                                        (project-through-classification
-                                         frame-id
+                                         frame-id classified?
                                          registered-path registered-value
                                          (if in-path
                                            (into (vec registered-path) in-path)

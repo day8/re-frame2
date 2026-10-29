@@ -258,14 +258,14 @@
         (is (= rf.schemas/default-schema-fns (rf.schemas/schema-fns)))
         (is (= installed (rf.schemas/set-schema-fns! installed)))))))
 
-(deftest validate-with-registered-fn-bypasses-debug-gate
-  (testing "the boundary seam routes through the registered validator even
-            with debug-enabled? false"
+(deftest check-validates-with-debug-enabled-false-and-builds-no-tags
+  (testing "the seam the boundary check calls runs the registered validator
+            in a production build and answers the verdict without tags"
     (rf.schemas/set-schema-fns! {:validate (fn [_ v] (= v :good))})
     (with-redefs [rf.interop/debug-enabled? false]
-      (is (= [true false]
-             [(rf.schemas.validate/validate-with-registered-fn :keyword :good)
-              (rf.schemas.validate/validate-with-registered-fn :keyword :bad)])))))
+      (is (= [nil {:category :rf.error/schema-validation-failure}]
+             [(rf.schemas.validate/check! {:where :event :id :e/x :schema :keyword :value :good})
+              (rf.schemas.validate/check! {:where :event :id :e/x :schema :keyword :value :bad})])))))
 
 ;; ---- the `:boundary? true` production arm ------------------------------------
 ;;

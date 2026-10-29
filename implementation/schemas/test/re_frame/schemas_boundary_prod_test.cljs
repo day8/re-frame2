@@ -41,7 +41,7 @@
   the default `:browser-test` and `:node-test` builds (whose regexes
   match `-cljs-test$` / `cljs-test$`) do NOT pick this file up. The
   prod-mode assertions would fail under `goog.DEBUG=true` because the
-  boundary arm is unreachable in dev (per Spec 010 L145)."
+  boundary arm is unreachable in dev (per Spec 010 §Production builds)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
@@ -68,14 +68,14 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; ---- boundary interceptor under `:advanced` + `goog.DEBUG=false` ---------
+;; ---- the `:boundary? true` check under `:advanced` + `goog.DEBUG=false` --
 
 (deftest boundary-skips-handler-on-invalid-event-in-prod
   (testing "Per Spec 010 §Production builds: under `:advanced`
-            + `goog.DEBUG=false` the boundary interceptor takes its
-            production validation branch. A malformed event against the
-            handler's `:schema` causes `:rf/skip-handler?` to be set on
-            the context, and the handler is NOT invoked.
+            + `goog.DEBUG=false` the `:boundary? true` check still
+            validates the event vector at step 1. A malformed event
+            against the handler's `:schema` is refused there, and the
+            handler is NOT invoked.
 
             Under the same gate, the router's step-1 `validate-event!`
             DEV arm has DCE'd — the `:boundary? true` arm is the only
