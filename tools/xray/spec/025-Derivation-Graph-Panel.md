@@ -325,12 +325,13 @@ from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   COMPREHENSIVE coverage lives in the derivation-conformance egress arms
   (`g-*`); this suite proves the Xray delegate wires that algorithm through,
   across the frame-policy value walk and the resource-identity projection.
-  The **positive** off-box egress test: a sensitive node value
-  run through the frame's `project-egress` is elided **while** the node +
-  edge structure survives (the "redact value, keep edge" arm); large
-  elision → marker keeping
-  structure; per-frame policy (a non-classifying frame ships the same value
-  raw); frameless fail-closed — including the **nil-frame-under-an-ambient-
+  The **positive** off-box egress test: a route navigated for real, its
+  node composed by `live-derivation-graph`, egresses the param its route
+  declared `:sensitive` as `:rf/redacted` beside the raw undeclared sibling
+  **while** the node + edge structure survives (the "redact value, keep
+  edge" arm); large elision → marker keeping structure; per-frame policy (a
+  frame whose image holds no route ships the same param raw); frameless
+  fail-closed — including the **nil-frame-under-an-ambient-
   binding** arm: a nil frame-id while an ambient frame is bound
   must still redact, never borrow that ambient frame and ship raw. Plus one
   **identity-projection wiring smoke**: a live resource scoped key carrying a
