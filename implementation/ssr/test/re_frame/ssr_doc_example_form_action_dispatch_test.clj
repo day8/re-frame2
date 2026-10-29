@@ -166,9 +166,8 @@
           "[tag method action on-submit input-names no-on-change?]"))))
 
 (deftest the-registration-classifies-the-token-for-event-observation
-  (testing "the action's `:sensitive [[:csrf-token]]` redacts the token on the
-            dispatched event vector, which the schema's `:sensitive?` prop
-            does not reach"
+  (testing "the registration's `:sensitive [[:csrf-token]]` redacts the token
+            on the dispatched event vector"
     (install-action!)
     (is (= [:cart/add-item {:item-id "sku-1" :quantity 2 :csrf-token :rf/redacted}]
            (rf.classification/redact-event-by-registration
