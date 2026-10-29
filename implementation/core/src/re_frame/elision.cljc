@@ -272,6 +272,49 @@
   [v]
   (::recorded-policy (meta v)))
 
+;; An event's flow pass publishes its memo before the event's epoch record is
+;; assembled, so a flow output the pass vacates leaves the live policy while
+;; the record's before snapshot still holds it. The policy that snapshot was
+;; taken under is therefore retained beside it, and the record keeps both.
+
+(defonce ^:private snapshot-policies
+  ;; {frame-id [frame-state policy]}: the policy each frame's latest retained
+  ;; snapshot was taken under.
+  (atom {}))
+
+(defn- union-policy
+  "Every claim policy `a` or `b` makes."
+  [a b]
+  (if (or (nil? b) (identical? a b))
+    a
+    (let [axis #(merge-with into (get-in a [:app-db %]) (get-in b [:app-db %]))
+          roots (merge-with merge (:roots a) (:roots b))]
+      (cond-> {:app-db {:sensitive (or (axis :sensitive) {}) :large (or (axis :large) {})}}
+        (seq roots) (assoc :roots roots)))))
+
+(defn ^:no-doc retain-snapshot-policy!
+  "Keep frame `frame-id`'s current policy as the one `frame-state`, the
+  snapshot an in-flight event started from, was taken under. The first
+  retention for a snapshot wins, because it precedes every change the event
+  makes to the policy."
+  [frame-id frame-state]
+  (when (and (some? frame-state)
+             (not (identical? frame-state (first (get @snapshot-policies frame-id)))))
+    (let [policy (frame-policy frame-id)]
+      (swap! snapshot-policies assoc frame-id [frame-state policy])))
+  nil)
+
+(defn ^:no-doc record-policy-for
+  "The policy an epoch record of frame `frame-id` whose before snapshot is
+  `frame-state-before` keeps: the frame's current policy, with the one that
+  snapshot was retained under when it was. Spec 015 §Retained values keep their
+  recorded classification."
+  [frame-id frame-state-before]
+  (let [[state retained] (get @snapshot-policies frame-id)]
+    (cond-> (frame-policy frame-id)
+      (and (some? state) (identical? state frame-state-before))
+      (union-policy retained))))
+
 (defn- registry-of
   "The frame's egress classification, read as a SNAPSHOT: its static policy's
   app-db declarations (`with-policy`), and the subsystem claims the policy
@@ -433,6 +476,46 @@
      :cljs
      nil))
 
+;; ---- a seq the app has not forced ------------------------------------------
+;;
+;; Projecting a value must not change it, and realising a lazy seq is a
+;; change: it runs the app's code, and an endless one never returns. So no
+;; walk here realises a seq, and neither does measuring a large marker
+;; (Spec 015 §`elide-wire-value`).
+
+(defn- uncomputed-cell?
+  "True when seq cell `s` holds no element yet: a lazy cell whose body has not
+  run, or a range or repeat, which compute each element as it is read."
+  [s]
+  #?(:clj  (or (and (instance? clojure.lang.IPending s) (not (realized? s)))
+               (instance? clojure.lang.Range s)
+               (instance? clojure.lang.LongRange s)
+               (instance? clojure.lang.Repeat s))
+     :cljs (or (and (satisfies? IPending s) (not (realized? s)))
+               (instance? Range s)
+               (instance? IntegerRange s))))
+
+(defn- unforced-seq?
+  "True when walking seq `s` would compute an element the app has not. Each
+  cell is reached by `rest`, which on a computed cell hands back the next cell
+  without running it, so the check itself forces nothing."
+  [s]
+  (loop [s s]
+    (cond
+      (uncomputed-cell? s) true
+      (nil? (seq s))       false
+      :else                (recur (rest s)))))
+
+(defn- holds-unforced-seq?
+  "True when printing `v` would realise a seq the app has not forced: `v` is
+  one, or holds one at any depth. Visits only computed structure."
+  [v]
+  (cond
+    (seq? v)  (or (unforced-seq? v) (boolean (some holds-unforced-seq? v)))
+    (map? v)  (boolean (some (fn [[k vv]] (or (holds-unforced-seq? k) (holds-unforced-seq? vv))) v))
+    (coll? v) (boolean (some holds-unforced-seq? v))
+    :else     false))
+
 (defn ^:no-doc ->marker
   "Build the `:rf.size/large-elided` marker map for value `v` at `path`.
   `^:no-doc` public so `re-frame.classification/large-marker` builds the marker
@@ -441,22 +524,31 @@
 
   The `:handle` is always the two-element `[:rf.elision/at <path>]`, a
   live-path locator — the only shape Spec-Schemas `:rf/elision-marker` types
-  (there is no `:as-of-epoch` variant; the schema rejects one)."
+  (there is no `:as-of-epoch` variant; the schema rejects one).
+
+  A value holding a seq the app has not forced projects as `:rf/redacted`
+  instead, because its required `:bytes` cannot be measured without realising
+  the seq; the sentinel itself passes through, so projecting twice equals
+  projecting once (Spec 015 §`elide-wire-value`)."
   [v path {:keys [hint include-digests? reason]}]
-  (let [;; `:digest` is associated only when a digest string
-        ;; was actually computed; the browser build computes none, and an
-        ;; `:digest nil` both fails the schema and reads as a false "unchanged".
-        digest (when include-digests? (sha256-hex v))
-        body (cond-> {:path   (vec path)
-                      :bytes  (pr-str-bytes v)
-                      :type   (value-type v)
-                      ;; The declaring surface, defaulted to a
-                      ;; `reg-classification` when the caller names none.
-                      :reason (or reason :classification)
-                      :hint   hint
-                      :handle [:rf.elision/at (vec path)]}
-               (string? digest) (assoc :digest digest))]
-    {:rf.size/large-elided body}))
+  ;; `keyword?` first: `=` against a lazy seq realises its head.
+  (if (or (and (keyword? v) (= rf.privacy/redacted-sentinel v))
+          (holds-unforced-seq? v))
+    rf.privacy/redacted-sentinel
+    (let [;; `:digest` is associated only when a digest string
+          ;; was actually computed; the browser build computes none, and an
+          ;; `:digest nil` both fails the schema and reads as a false "unchanged".
+          digest (when include-digests? (sha256-hex v))
+          body (cond-> {:path   (vec path)
+                        :bytes  (pr-str-bytes v)
+                        :type   (value-type v)
+                        ;; The declaring surface, defaulted to a
+                        ;; `reg-classification` when the caller names none.
+                        :reason (or reason :classification)
+                        :hint   hint
+                        :handle [:rf.elision/at (vec path)]}
+                 (string? digest) (assoc :digest digest))]
+      {:rf.size/large-elided body})))
 
 (defn- marker-opts
   "The `->marker` option map for a declared-`:large` node — derived from the
@@ -510,35 +602,6 @@
     (let [bytes (pr-str-bytes s)]
       (when (> bytes threshold)
         (warn-large-unschema'd! frame-id path bytes)))))
-
-;; ---- a seq the app has not forced ------------------------------------------
-;;
-;; Projecting a value must not change it, and realising a lazy seq is a
-;; change: it runs the app's code, and an endless one never returns. So no
-;; walk here realises a seq (Spec 015 §`elide-wire-value`).
-
-(defn- uncomputed-cell?
-  "True when seq cell `s` holds no element yet: a lazy cell whose body has not
-  run, or a range or repeat, which compute each element as it is read."
-  [s]
-  #?(:clj  (or (and (instance? clojure.lang.IPending s) (not (realized? s)))
-               (instance? clojure.lang.Range s)
-               (instance? clojure.lang.LongRange s)
-               (instance? clojure.lang.Repeat s))
-     :cljs (or (and (satisfies? IPending s) (not (realized? s)))
-               (instance? Range s)
-               (instance? IntegerRange s))))
-
-(defn- unforced-seq?
-  "True when walking seq `s` would compute an element the app has not. Each
-  cell is reached by `rest`, which on a computed cell hands back the next cell
-  without running it, so the check itself forces nothing."
-  [s]
-  (loop [s s]
-    (cond
-      (uncomputed-cell? s) true
-      (nil? (seq s))       false
-      :else                (recur (rest s)))))
 
 (defn- oversized-strings
   "`[relative-path string]` for every string under `v` that `may-print-over?`
@@ -1383,4 +1446,5 @@
    :phase              #{:post-dead}
    :on-frame-destroyed (fn [frame-id _phase]
                          (swap! policy-cache dissoc frame-id)
+                         (swap! snapshot-policies dissoc frame-id)
                          (forget-frame-warnings! frame-id))})

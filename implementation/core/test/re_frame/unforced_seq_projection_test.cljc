@@ -1,6 +1,6 @@
 (ns re-frame.unforced-seq-projection-test
-  "A projection walk never realises a seq the app has not forced (Spec 015
-  §`elide-wire-value`). A frame that classifies anything walks a view's render
+  "A projection never realises a seq the app has not forced, neither by walking
+  it nor by measuring it for a large marker (Spec 015 §`elide-wire-value`). A frame that classifies anything walks a view's render
   args for its `:rf.view/rendered` trace, and a walk that realised an endless
   seq there would never return, so the render would hang.
 
@@ -21,6 +21,10 @@
 (def ^:private this-ns "re-frame.unforced-seq-projection-test")
 
 (rf/reg-classification ::classified {:sensitive [[:auth :token]]})
+
+;; `[:log]` is a large node holding a sensitive descendant, so its marker is
+;; measured after that descendant redacts.
+(rf/reg-classification ::large {:large [[:items] [:log]] :sensitive [[:log :token]]})
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -125,6 +129,55 @@
     (is (= redacted (rf.elision/elide-wire-value s {:frame frame}))
         "control: the default boundary fails closed on the same seq")
     (is (zero? @computed))))
+
+(deftest a-large-value-holding-an-unforced-seq-projects-as-redacted
+  (let [frame    (classified-frame!)
+        computed (atom 0)
+        g        #(guarded-endless computed)]
+    (testing "a render arg at a declared-large path"
+      (is (= [[{:items redacted}] 0]
+             [(project-render-args frame [{:items (g)}]) @computed])))
+    (testing "a large container holding one"
+      (is (= [[{:items redacted}] 0]
+             [(project-render-args frame [{:items {:rows (g)}}]) @computed])))
+    (testing "a large node measured after its sensitive descendant redacts: the
+              seq inside redacts in that walk, so the marker measures it unrealised"
+      (let [[arg] (project-render-args frame [{:log {:token "t" :rows (g)}}])]
+        (is (= [true 0] [(rf.elision/marker? (:log arg)) @computed]))))
+    (testing "a direct read at, inside and below a large path"
+      (is (= [redacted redacted redacted redacted 0]
+             [(rf.elision/elide-wire-value (g) {:frame frame :path [:items]})
+              (rf.elision/elide-wire-value {:rows (g)} {:frame frame :path [:items]})
+              (rf.elision/elide-wire-value (g) {:frame frame :path [:items :rows]})
+              (rf.elision/elide-wire-value (g) {:frame frame :path [:log :rows]})
+              @computed])))
+    (testing "projecting the result again changes nothing"
+      (is (= {:items redacted}
+             (rf.elision/elide-wire-value {:items redacted} {:frame frame}))))
+    (testing "a forced value at a large path is still marked and measured"
+      (is (= [7 7]
+             (mapv #(get-in (project-render-args frame [{:items %}])
+                            [0 :items :rf.size/large-elided :bytes])
+                   [[1 2 3] (doall (map inc [0 1 2]))]))))
+    (testing "the host's own endless seqs"
+      (if (zero? @computed)
+        (doseq [[label arg] [["range" {:items (range)}]
+                             ["iterate in a large container" {:items {:rows (iterate inc 0)}}]]]
+          (let [ok? (= [{:items redacted}] (within-time #(project-render-args frame [arg])))]
+            (is ok? label)))
+        (is false "not projected: a large marker realised a guarded seq, so these would hang")))))
+
+(deftest the-registration-classification-walk-marks-no-unforced-seq-large
+  (let [computed (atom 0)
+        g        #(guarded-endless computed)]
+    (is (= [{:items redacted} {:items redacted} {:items redacted} 0]
+           [(rf.classification/redact-with-paths {:items (g)} [] [[:items]])
+            (rf.classification/redact-with-paths {:items {:rows (g)}} [] [[:items]])
+            (rf.classification/redact-with-paths {:items {:token "t" :rows (g)}}
+                                                 [[:items :token]] [[:items]])
+            @computed]))
+    (is (rf.elision/marker? (:items (rf.classification/redact-with-paths {:items [1 2 3]} [] [[:items]])))
+        "control: a forced large value is still marked")))
 
 (deftest the-registration-classification-walk-follows-the-same-rule
   (let [computed (atom 0)

@@ -125,6 +125,57 @@
           "an unclassified sibling slot rides verbatim")
       (is (not (leaks? projected flow-secret))))))
 
+;; The event after the clear or the move is the one that vacates the old
+;; output: its flow pass drops the claim from the live policy before its own
+;; record is assembled, while that record's before slots still hold the value.
+
+(defn- flow-output-fixture!
+  "Register `::out` at `output-path`, run it in `:rf/default`, and seed it."
+  [output-path]
+  (rf/reg-event ::seed (fn [{:keys [db]} [_ s]] {:db (assoc db :src s)}))
+  (rf/reg-event ::touch (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
+  (rf/reg-flow ::out {:inputs [[:src]] :output-path output-path :sensitive [[:token]]}
+    (fn [s] {:token (str "secret-historic-flow-" s) :note "visible"}))
+  (rf/make-frame {:id :rf/default :flows [::out]})
+  (rf/dispatch-sync [::seed "output"]))
+
+(deftest ^:requires-debug the-event-vacating-a-cleared-flows-output-keeps-its-classification
+  (flow-output-fixture! [:out])
+  (rf/clear :flow ::out)
+  (rf/dispatch-sync [::touch])
+  (let [record     (record-for ::touch)
+        token-path [:out :token]]
+    (is (= [[:db-before flow-secret] [:frame-state-before flow-secret]]
+           (values-at record token-path))
+        "control: the vacating record holds the output in its before slots alone")
+    (is (not (contains? (rf.elision/sensitive-declarations :rf/default) token-path))
+        "the live policy has dropped the vacated output's claim")
+    (let [projected (rf/project-egress record)]
+      (is (= [[:db-before :rf/redacted] [:frame-state-before :rf/redacted]]
+             (values-at projected token-path))
+          "both before slots project under the policy they were taken under")
+      (is (= "visible" (get-in projected [:db-before :out :note])))
+      (is (not (leaks? projected flow-secret))))))
+
+(deftest ^:requires-debug the-event-moving-a-flows-output-keeps-the-old-paths-classification
+  (flow-output-fixture! [:out])
+  (rf/reg-flow ::out {:inputs [[:src]] :output-path [:moved] :sensitive [[:token]]}
+    (fn [s] {:token (str "secret-historic-flow-" s) :note "visible"}))
+  (rf/dispatch-sync [::touch])
+  (let [record (record-for ::touch)]
+    (is (= [[[:db-before flow-secret] [:frame-state-before flow-secret]]
+            [[:db-after flow-secret] [:frame-state-after flow-secret]]]
+           [(values-at record [:out :token]) (values-at record [:moved :token])])
+        "control: the old path is in the before slots, the new one in the after slots")
+    (is (not (contains? (rf.elision/sensitive-declarations :rf/default) [:out :token]))
+        "the live policy has dropped the old path's claim")
+    (let [projected (rf/project-egress record)]
+      (is (= [[[:db-before :rf/redacted] [:frame-state-before :rf/redacted]]
+              [[:db-after :rf/redacted] [:frame-state-after :rf/redacted]]]
+             [(values-at projected [:out :token]) (values-at projected [:moved :token])])
+          "each slot projects under the policy its snapshot was taken under")
+      (is (not (leaks? projected flow-secret))))))
+
 (deftest ^:requires-debug a-declassified-path-stays-redacted-on-records-made-while-classified
   (rf/reg-classification ::auth {:sensitive [[:auth :token]]})
   (rf/reg-event ::sign-in

@@ -8,6 +8,7 @@
   only the runaway family's internal work. A successful destroy claim is
   terminal: no later ordinary event or intermediate render begins."
   (:require [re-frame.frame :as rf.frame]
+            [re-frame.elision :as rf.elision]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.interceptor :as rf.interceptor]
@@ -876,10 +877,16 @@
       (rf.interceptor/execute-chain full-chain ctx))))
 
 (defn- publish-flow-memo!
-  "Advance the frame's flow memo to the rows the pass in `ctx` proposed, once
-  the candidate they describe has installed (Spec 013 §Failure semantics)."
-  [ctx]
+  "Advance `frame`'s flow memo to the rows the pass in `ctx` proposed, once
+  the candidate they describe has installed (Spec 013 §Failure semantics).
+  The policy the memo still describes governs the event's before snapshot, and
+  an output the pass vacated drops out of it here, so it is retained for the
+  event's epoch record first (Spec 015 §Retained values keep their recorded
+  classification)."
+  [ctx frame]
   (when-let [publish! (:publish! (:rf/flow-pass ctx))]
+    (when rf.interop/debug-enabled?
+      (rf.elision/retain-snapshot-policy! frame rf.frame/*run-frame-state-before*))
     (publish!)))
 
 (defn- settle-flows-after-walk!
@@ -908,7 +915,7 @@
               (when (commit-frame-effects!
                       (if (identical? (:db pass) db) {} {:db (:db pass)})
                       event-id event frame ctx)
-                (publish-flow-memo! ctx)))
+                (publish-flow-memo! ctx frame)))
             (catch #?(:clj Throwable :cljs :default) e
               (emit-flow-eval-exception! e event event-id frame start-ms))))))))
 
@@ -977,7 +984,7 @@
 
       :else
       (do
-        (publish-flow-memo! final-ctx)
+        (publish-flow-memo! final-ctx frame)
         (let [state-before-walk (rf.frame/frame-state-value frame)]
           (run-fx-effects! effects frame frame-record fx-overrides envelope)
           (settle-flows-after-walk!
