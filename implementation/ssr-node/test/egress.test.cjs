@@ -13,7 +13,8 @@
 //      refusal carries its type tag and none of its content;
 //   4. a module that THROWS is refused with service-owned wording, code and
 //      detail, and cannot choose its HTTP status;
-//   5. the same holds for an exception that ESCAPES the render call;
+//   5. the same holds for an exception that ESCAPES the render call, and
+//      an isolate that dies while idle is reported and replaced;
 //   6. a REPLACEMENT isolate that cannot boot tells a waiting caller nothing
 //      it authored, and ends the service rather than shrinking it;
 //   7. a rejection that is not a `Refusal` carries nothing the caller sent.
@@ -51,12 +52,16 @@ function scanForEgress(frames, sentinels) {
   return findings;
 }
 
-/** Install a capture on this process's stderr; returns `[captured, restore]`. */
-function captureStderr() {
+/**
+ * Install a capture on this process's stderr; returns `[captured, restore]`.
+ * `onChunk`, when given, sees each chunk as it is written.
+ */
+function captureStderr(onChunk = () => {}) {
   const captured = [];
   const realWrite = process.stderr.write;
   process.stderr.write = function (chunk, ...rest) {
     captured.push(String(chunk));
+    onChunk(String(chunk));
     return realWrite.call(this, chunk, ...rest);
   };
   return [captured, () => (process.stderr.write = realWrite)];
@@ -342,6 +347,36 @@ test('an escaped NULLISH throw is refused like any other, and the sidecar surviv
     const next = await refusalOf(() => service.renderToString(asyncReq('app/rejected')));
     assert.strictEqual(next.code, CODE.RENDER_THREW, 'the next render is answered by a live replacement isolate');
   });
+});
+
+test('an isolate that dies while IDLE is reported, leaves the ready count, and is replaced before anyone is handed it', async () => {
+  // A callback the render scheduled ends the thread after the render resolved.
+  for (const [entry, line] of [
+    ['app/throw-later', /\[rf\.ssr-node\] isolate \d+ died while idle: Error: dies-idle: a callback threw/],
+    ['app/exit-later', /\[rf\.ssr-node\] isolate \d+ exited while idle: code 0/],
+  ]) {
+    let service;
+    let readyAfterDeath;
+    // Read once the death has been handled and before the replacement can boot.
+    const [captured, restore] = captureStderr((chunk) => {
+      if (line.test(chunk)) setImmediate(() => (readyAfterDeath = service.stats().ready));
+    });
+    try {
+      await withService('dies-idle', { isolates: 1 }, async (booted) => {
+        service = booted;
+        const died = observed(await service.renderToString({ protocol: 1, entry })).threadId;
+        await waitFor(() => readyAfterDeath !== undefined, 5000, `${entry}: the idle death was not reported`);
+        assert.strictEqual(readyAfterDeath, 0, `${entry}: the dead isolate still counted as ready`);
+
+        const next = await service.renderToString({ protocol: 1, entry: 'app/root' });
+        assert.notStrictEqual(observed(next).threadId, died, `${entry}: the next caller was handed the dead isolate`);
+        assert.deepStrictEqual([service.stats().replacements, service.stats().ready], [1, 1], entry);
+      });
+    } finally {
+      restore();
+    }
+    assert.strictEqual(captured.filter((chunk) => line.test(chunk)).length, 1, `${entry}: one line per death`);
+  }
 });
 
 // ---------------------------------------------------------------------------

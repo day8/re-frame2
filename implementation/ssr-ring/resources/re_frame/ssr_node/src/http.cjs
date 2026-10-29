@@ -1,26 +1,12 @@
 'use strict';
-// ONE TRANSPORT OVER THE PROTOCOL.
+// ONE TRANSPORT OVER THE PROTOCOL — HTTP, because a JVM caller already
+// speaks it. It frames and unframes; every outcome is decided in
+// `protocol.cjs` and `service.cjs`.
 //
-// HTTP is what a JVM caller already speaks, so it is the transport this
-// package ships. It is deliberately thin and deliberately NOT the
-// interesting file: everything that decides an outcome lives in
-// `protocol.cjs` and `service.cjs`, and this one frames and unframes.
-// A Unix socket or a length-prefixed pipe would be a sibling of this
-// file and would touch nothing else.
-//
-// ## ONE BUFFERED RESPONSE
-//
-// A render is answered with one body: the `html` the service returned,
-// with a byte-accurate `Content-Length`, written once — or with a refusal
-// instead of it. No byte of a body leaves before the render has finished,
-// so there is never a status code already sent when a refusal arrives.
-//
-// ## CONTENT-LENGTH IS COUNTED IN BYTES
-//
-// `Buffer.byteLength(body, 'utf8')`, never `body.length`, which counts
-// UTF-16 code units. A `Content-Length` short by the width of one em dash
-// TRUNCATES the response, and what a truncated SSR body costs is the tail
-// of the markup and any hydration the client was going to do with it.
+// A render is answered with one body, written once after the render has
+// finished, so no status is ever sent before a refusal arrives. Its
+// `Content-Length` is `Buffer.byteLength`, never `body.length`: UTF-16 code
+// units undercount any non-ASCII byte and truncate the markup.
 
 const http = require('node:http');
 const { CODE, Refusal } = require('./protocol.cjs');
@@ -44,6 +30,9 @@ const STATUS = {
 
 const statusFor = (code) => STATUS[code] ?? 500;
 
+/** Slack a graceful close allows past the service's own answer bound, for writing the answer. */
+const CLOSE_MARGIN_MS = 100;
+
 function sendRefusal(res, refusal, requestId) {
   if (res.destroyed || res.writableEnded) return;
   const body = JSON.stringify(refusal.toFrame(requestId));
@@ -56,18 +45,10 @@ function sendRefusal(res, refusal, requestId) {
 }
 
 /**
- * Read the request body under a ceiling.
- *
- * OVER THE CEILING, THE BYTES ARE DISCARDED BUT THE REQUEST IS STILL
- * DRAINED. Destroying the socket the moment the ceiling is crossed is the
- * obvious move and it is wrong: the caller is still writing, so it never
- * reads the 413 and sees a broken connection instead — `UND_ERR_SOCKET` in
- * place of a status code, a transport fault where the service means to
- * give a diagnosable refusal.
- *
- * Draining is bounded rather than unbounded: memory is freed at the
- * ceiling, and a body still going at sixteen times it is past any
- * plausible caller mistake, so that one really does get the socket shut.
+ * Read the request body under a ceiling. Past the ceiling the bytes are
+ * discarded but the body is still drained, so the caller reads its 413
+ * rather than a broken socket; at sixteen times the ceiling the socket is
+ * shut.
  */
 function readBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
@@ -122,14 +103,9 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
     }
     requestId =
       typeof renderRequest?.requestId === 'string' ? renderRequest.requestId : undefined;
-    // THE ECHO IS A HEADER, AND NOT EVERY STRING IS ONE. An ellipsis, an
-    // emoji or a CR/LF in `requestId` is a valid protocol string that Node
-    // refuses at `writeHead` — which runs AFTER the render, so an
-    // unrepresentable token would come back as a `render-threw` 500 from a
-    // renderer that had succeeded. It is checked here instead, before an
-    // isolate is acquired, and refused as the caller fault it is. The
-    // in-process protocol's string domain is unaffected: this is a fact
-    // about HTTP, and the refusal body carries the token back.
+    // The echo is a header, and Node refuses an unrepresentable one at
+    // `writeHead`, after the render. Refused here, before an isolate is
+    // acquired, as the caller fault it is.
     if (requestId !== undefined) {
       try {
         http.validateHeaderValue('x-rf-ssr-request', requestId);
@@ -154,7 +130,6 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
     const complete = await service.renderToString(renderRequest);
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
-      // BYTES. See the header.
       'content-length': Buffer.byteLength(complete.html, 'utf8'),
       'x-rf-ssr-build': complete.buildId,
       'x-rf-ssr-render-ms': String(complete.renderMs),
@@ -185,17 +160,39 @@ function handleHealth(service, res) {
 
 /**
  * Start the HTTP transport. Resolves once the socket is listening, with
- * the node `Server` plus the port actually bound — which matters because
- * the tests bind port 0 and a fixed test port is a fixed test collision.
+ * the node `Server`, the port actually bound (the tests bind port 0), and
+ * `close`, which stops accepting, waits for the requests in flight to be
+ * answered — up to the service's own answer bound — and cuts whatever is
+ * left.
+ *
+ * Refuses a service whose `buildId` no HTTP header can carry: every 200
+ * names it in `x-rf-ssr-build`, and Node refuses the header at `writeHead`,
+ * after the render, so each render would be thrown away.
  */
 function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 << 20 }) {
+  try {
+    http.validateHeaderValue('x-rf-ssr-build', service.buildId);
+  } catch {
+    return Promise.reject(
+      new Refusal(
+        CODE.MALFORMED_MODULE,
+        `the render module's buildId ${JSON.stringify(service.buildId)} cannot be sent as an ` +
+          'HTTP header value; publish one with no control characters and nothing above U+00FF',
+        { buildId: service.buildId },
+      ),
+    );
+  }
+
+  let closing = false;
   const server = http.createServer((req, res) => {
-    // CONTAINED HERE, NOT BY THE PROCESS. Node's HTTP parser accepts
-    // request targets the WHATWG URL constructor refuses — `//`, or
-    // `http://[::1` — and this listener is synchronous with no catch above
-    // it, so an uncaught throw would let one caller's bad request line take
-    // the whole sidecar down, and every render in flight with it. It is a
-    // malformed request like any other, so it gets that refusal.
+    // While closing, a connection that has just answered is closed rather
+    // than kept alive for a request that would be refused.
+    res.on('finish', () => {
+      if (closing) server.closeIdleConnections();
+    });
+    // Node's parser accepts request targets the URL constructor refuses
+    // (`//`, `http://[::1`), and this listener has no catch above it, so an
+    // uncaught throw would take the whole sidecar down.
     let requestUrl;
     try {
       requestUrl = new URL(req.url, 'http://localhost');
@@ -223,18 +220,27 @@ function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 <
     res.end(body);
   });
 
+  const close = () => {
+    closing = true;
+    return closeServer(server, service.answerWithinMs + CLOSE_MARGIN_MS);
+  };
+
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
-      resolve({ server, port: server.address().port, host, close: () => closeServer(server) });
+      resolve({ server, port: server.address().port, host, close });
     });
   });
 }
 
-const closeServer = (server) =>
+const closeServer = (server, drainMs) =>
   new Promise((resolve) => {
-    server.closeAllConnections();
-    server.close(() => resolve());
+    const cut = setTimeout(() => server.closeAllConnections(), drainMs);
+    server.close(() => {
+      clearTimeout(cut);
+      resolve();
+    });
+    server.closeIdleConnections();
   });
 
 module.exports = { serve, statusFor, STATUS };

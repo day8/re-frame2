@@ -10,6 +10,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { fixture, post } = require('./_support.cjs');
+const { createService } = require('../src/service.cjs');
+const { serve } = require('../src/http.cjs');
 const manifest = require('../package.json');
 
 const LAUNCHER = path.join(__dirname, '..', 'bin', 'serve.cjs');
@@ -142,6 +144,34 @@ test('a module the service refuses at boot is exit 1, the refusal code on stderr
   assert.strictEqual(r.status, 1, r.stderr);
   assert.match(r.stderr, /:rf\.ssr-node\/malformed-render-module/);
   assert.strictEqual(r.stdout, '');
+});
+
+test('a module whose buildId no HTTP header can carry is exit 1 at boot, naming the id, with no ready line', () => {
+  // Every 200 names the build in a header, so this module could never answer one.
+  const r = spawnSync(process.execPath, [LAUNCHER, '--module', fixture('bad-header-build-id'), '--port', '0'], {
+    encoding: 'utf8',
+    timeout: BOOT_MS,
+  });
+  assert.strictEqual(r.status, 1, r.stderr);
+  assert.match(r.stderr, /:rf\.ssr-node\/malformed-render-module — the render module's buildId "bad-header-build-1\\n"/);
+  assert.strictEqual(r.stdout, '');
+});
+
+test('a graceful close lets the render in flight answer, then accepts nothing', async () => {
+  const service = await createService({ modulePath: fixture('reference'), isolates: 1 });
+  try {
+    const transport = await serve({ service, port: 0 });
+    const url = `http://127.0.0.1:${transport.port}/render`;
+    const inFlight = post(url, { protocol: 1, entry: 'app/root', state: { ':delay': '400' } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const closed = transport.close();
+    const answered = await inFlight;
+    assert.strictEqual(answered.status, 200, answered.text);
+    await withTimeout(closed, STOP_MS, 'the close did not finish');
+    await assert.rejects(post(url, { protocol: 1, entry: 'app/root' }), 'a closed transport refuses the connection');
+  } finally {
+    await service.close();
+  }
 });
 
 test('the manifest points its bin at this launcher and exports the two entry points', () => {

@@ -1,50 +1,27 @@
 'use strict';
 // THE SERVICE — validate, admit, render, release.
 //
-// ## ONE CALL, ONE BODY
-//
 // `renderToString` validates a request, borrows an isolate, and resolves
-// with the `complete` response: the body markup the render module
-// returned, beside the facts this service owns about the crossing. Or it
-// throws a `Refusal`. That is the whole API, because one buffered body is
-// the whole of what either side of this service reads — see
-// `protocol.cjs`.
-//
-// ## REFUSALS COME BEFORE THE ISOLATE
-//
-// `validateRequest` runs to completion before an isolate is acquired, so
-// every caller-fault refusal is delivered without one being borrowed.
-//
-// ## THE RESPONSE CARRIES NO APPLICATION DATA OUTSIDE `html`
-//
-// `renderToString` is the widest surface this package has: every transport
-// is an adapter over it and the in-process caller reads it raw, so
-// whatever it returns IS the egress. What it returns is `COMPLETE_FIELDS` —
-// the body markup in `html`, and nothing else the application's render
-// module authored. `test/egress.test.cjs` is that property's witness, and
-// it checks this response rather than the HTTP one, because HTTP dropping a
-// field is a fact about HTTP and not a guarantee about this.
+// with the `complete` response, or throws a `Refusal` and nothing else.
+// Every transport is an adapter over it and the in-process caller reads it
+// raw, so what it returns IS the egress: `COMPLETE_FIELDS`, of which only
+// `html` comes from the render module (`test/egress.test.cjs` pins it here,
+// not over HTTP).
 
 const {
   CODE,
+  PROTOCOL_VERSION,
   Refusal,
   RENDER_THREW_REFUSAL,
   validateRequest,
   completeFrame,
 } = require('./protocol.cjs');
 const { Pool } = require('./pool.cjs');
-const { PROTOCOL_VERSION } = require('./protocol.cjs');
 
 /**
- * The operator's copy of a render that rejected with something this
- * package's own contract does not describe.
- *
- * A fault reaching this is a fault in the SIDECAR rather than in the
- * application — every receiver between here and the module builds a
- * `Refusal`, so anything else got past all of them — and it is the one
- * class of failure nothing upstream will have logged. Without this the
- * wording handed to the caller would be the only copy in existence, which
- * is the trade `isolate.cjs`'s `reportIsolateFault` exists to refuse.
+ * The operator's line for a render that rejected with something other than
+ * a `Refusal` — a fault in the sidecar itself, which nothing upstream has
+ * logged.
  */
 function reportUncontractedFault(err) {
   const trace = err && err.stack ? err.stack : String(err);
@@ -67,6 +44,14 @@ class Service {
 
   get entries() {
     return this.pool.entries;
+  }
+
+  /**
+   * The longest a request admitted now waits for its answer: the admission
+   * budget, then the deadline ceiling. A graceful close drains for this long.
+   */
+  get answerWithinMs() {
+    return this.limits.admissionTimeoutMs + this.limits.maxTimeoutMs;
   }
 
   stats() {
@@ -100,33 +85,12 @@ class Service {
       rendered = await isolate.render(validatedRequest, { timeoutMs: validatedRequest.timeoutMs });
     } catch (error) {
       if (error instanceof Refusal) throw error;
-      // THE LAST RECEIVER, and it states the same law as the other three:
-      // the contract's wording, never `String(error)`. What arrives here is
-      // not guaranteed to be this package's own text. A request value that
-      // fails to structured-clone makes `postMessage` throw `DataCloneError`
-      // synchronously inside `render()`'s executor, which passes through no
-      // receiver that could make it a `Refusal` — and a `DataCloneError`
-      // names the value it choked on, so `String(error)` would interpolate
-      // the CALLER'S value into a message published on the widest surface
-      // this package has, the egress this file's header says does not exist.
-      //
-      // A caller cannot reach this that way: `validateRequest` reads every
-      // field exactly once and returns what it read, so a request that
-      // validates is a request that clones.
-      //
-      // BEING UNREACHABLE FROM A CALLER IS NOT A REASON TO REMOVE THE ARM.
-      // It is what guarantees `renderToString` throws nothing but a
-      // `Refusal`, which is the property every transport is written
-      // against; deleting it would let a raw `Error` reach `statusFor` with
-      // no code at all — and `isolate.cjs`'s `render` deliberately lets a
-      // `postMessage` that throws reject RAW rather than dressing it as a
-      // `Refusal`, precisely so this arm is what states the wording and
-      // writes the operator's copy.
+      // The last receiver, which keeps "throws nothing but a `Refusal`" true
+      // for every transport. Never `String(error)`: a `DataCloneError` from
+      // `postMessage` names the value it could not clone.
       reportUncontractedFault(error);
       throw new Refusal(CODE.RENDER_THREW, RENDER_THREW_REFUSAL, {});
     } finally {
-      // Whichever way the render went: a dead isolate is replaced by the
-      // pool, a live one is offered to the next caller.
       this.pool.release(isolate, validatedRequest.requestId);
     }
 
@@ -144,11 +108,9 @@ class Service {
 }
 
 /**
- * Boot a service against an application's server bundle.
- *
- * `modulePath` must be absolute — a relative path would resolve against
- * the worker file's directory rather than the caller's, which is the kind
- * of surprise that only shows up in someone else's deployment.
+ * Boot a service against an application's server bundle. `modulePath` must
+ * be absolute: a relative one would resolve against the worker file's
+ * directory, not the caller's.
  */
 async function createService({
   modulePath,
@@ -168,7 +130,7 @@ async function createService({
     admissionTimeoutMs,
     bootTimeoutMs,
   }).start();
-  return new Service(pool, { defaultTimeoutMs, maxTimeoutMs, maxRequestBytes });
+  return new Service(pool, { defaultTimeoutMs, maxTimeoutMs, maxRequestBytes, admissionTimeoutMs });
 }
 
 module.exports = { createService, Service };
