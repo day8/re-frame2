@@ -2070,9 +2070,9 @@
   that difference out of the comparison, where it would be a divergence
   the code under comparison did not cause.
 
-  A crossing is also how a foreign original reaches the frame at all. A
-  declared callback contract lowers an intent vector into a real function
-  closed over the mount's frame, so `props.onSave()` inside the original
+  A crossing is also how a foreign original reaches the frame at all. An
+  intent vector at an `on*` prop lowers into a real function closed over
+  the mount's frame, so `props.onSave()` inside the original
   dispatches into the original's OWN frame. There is deliberately no
   option here that hands a component a frame id: frames are isolated
   contexts, and a helper that passed one down a view would defeat the
