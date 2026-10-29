@@ -129,7 +129,8 @@ Each entry in `evals` carries:
 The positives target retro-on-a-pair-session prompts (including the harder
 post-error post-mortem branch); the negatives target vocab-only retros, the
 adjacent skills, the mid-pair error the user wants fixed (stays in
-`re-frame2-pair`), and out-of-scope Story-recorder retros. The post-error
+`re-frame2-pair`), out-of-scope Story-recorder retros, and framework
+feedback with no pair session behind it. The post-error
 positives (ids 4, 17, 18) score only whether an explicit post-mortem request
 activates the skill: trigger (b) proper — the unprompted one-line offer after
 a pair tool result — is not a prompt a `should_trigger` corpus can express, so
