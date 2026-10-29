@@ -65,9 +65,10 @@
                     nil
                     (tu/args->js {:pred #js {:event-id ":ev/login"} :limit 1}))
                   (.then (fn [result]
-                           ;; The pred VALUE rides as the JSON string it
-                           ;; arrived as; the runtime side coerces it.
-                           (is (= {:after-id :e1 :pred {:event-id ":ev/login"}}
+                           ;; The pred value is minted into the keyword
+                           ;; the runtime compares with `=`, and the cursor
+                           ;; carries it so page 2 filters the same way.
+                           (is (= {:after-id :e1 :pred {:event-id :ev/login}}
                                   (-> (tu/extract-edn result) :next-cursor cursor/decode-cursor
                                       (select-keys [:after-id :pred]))))
                            (done))))))))))

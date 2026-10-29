@@ -473,7 +473,7 @@
           (.then (fn [_]
                    (is (= 2 (count (:pending @conn))) "two distinct pending ids")
                    (is (= 2 (:writes @(:flags (first @sockets*)))) "both ops write to the one socket")
-                   (doseq [on-frame (vals (:pending @conn))]
+                   (doseq [{:keys [on-frame]} (vals (:pending @conn))]
                      (on-frame #js {"status" #js ["done"]}))
                    (js/Promise.all #js [p1 p2])))
           (.then (fn [_] (is (= {} (:pending @conn)) "both ops resolve and drain")))
