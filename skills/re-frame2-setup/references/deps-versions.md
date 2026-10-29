@@ -36,8 +36,9 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
 | `day8/re-frame2-http` | per-feature | When an event returns `[:rf.http/managed request]` in `:fx`; this is an effect, not an event to dispatch. |
 | `day8/re-frame2-ssr` | per-feature | When you call `render-to-string` server-side. |
+| `day8/re-frame2-resources` | per-feature | When you call `reg-resource` or `reg-mutation` ([Spec 016](https://github.com/day8/re-frame2/blob/main/spec/016-Resources.md)). |
 
-This table is what a greenfield project may add, not the release roster. (One niche local root — `re-frame2-ssr-ring` — rides the same version but isn't greenfield. `day8/re-frame2-resources`, Spec [016](https://github.com/day8/re-frame2/blob/main/spec/016-Resources.md) / EP-0003, is a post-v1 per-feature artefact; add it when you call `reg-resource`.) `day8/re-frame2-xray` is a tool, on its own tag (above).
+This table is what a greenfield project may add, not the release roster. (One niche local root — `re-frame2-ssr-ring` — rides the same version but isn't greenfield.) `day8/re-frame2-xray` is a tool, on its own tag (above).
 
 **Greenfield day-one shape.** Matching the generator template, the day-one set is **two** re-frame2 coords — `day8/re-frame2` (core) + the substrate adapter (`day8/re-frame2-reagent`, or `day8/re-frame2-uix` on explicit request) — plus the view library the adapter renders through (`reagent/reagent`, or `com.pitch/uix.core` alone — the adapter's `client-root` / `render!` mint the React Root, so neither route pins a DOM-mount library), pinned explicitly so a surprise transitive bump cannot change your rendering substrate. Story is the one tool that rides day one: `day8/re-frame2-story` sits on the `:dev` alias (a `:local/root` into a re-frame2 checkout until it is published). The scaffold's global `:deps` aliases put Story on both watch and release classpaths; the app's dev-only entry keeps it out of the **release bundle**, not dependency resolution. Everything else — schemas, Xray, the per-feature artefacts — stays **pay-as-you-go**: add it at the moment the author writes code that calls into it, so apps that don't use it don't pay the classpath cost.
 
@@ -84,6 +85,7 @@ Lockstep is automatic — both resolve from one checkout, one commit — and edi
 | `day8/re-frame2-flows` | `implementation/flows` |
 | `day8/re-frame2-http` | `implementation/http` |
 | `day8/re-frame2-ssr` | `implementation/ssr` |
+| `day8/re-frame2-resources` | `implementation/resources` |
 | `day8/re-frame2-story` (tool; on the scaffold's `:dev` alias) | `tools/story` |
 | `day8/re-frame2-xray` (tool) | `tools/xray` |
 
@@ -134,6 +136,7 @@ Add them **at the moment** the author writes code that calls into them — not b
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |
 | Server-side `render-to-string` for SSR | `day8/re-frame2-ssr` |
+| `(rf/reg-resource ...)` or `(rf/reg-mutation ...)` | `day8/re-frame2-resources` |
 
 (Epoch history and time-travel — `(rf.epoch/epoch-history ...)`, `(rf.epoch/restore-epoch! ...)` and `re-frame2-pair`'s live time-travel — ship in core: there is no coordinate to add.)
 
