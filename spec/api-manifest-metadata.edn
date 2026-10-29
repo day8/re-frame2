@@ -1341,6 +1341,11 @@
   ["re-frame.performance" "entry-id"]         {:tier :adapter :owner "009" :status "v1"}
   ["re-frame.performance" "build-name"]       {:tier :adapter :owner "009" :status "v1"}
   ["re-frame.performance" "mark-and-measure"] {:tier :adapter :owner "009" :status "v1"}
+  ;; The plain-atom adapter Var, which an app or test passes to `(rf/init! …)`
+  ;; itself — `:adapter` on the footing of the Reagent, UIx and Fresco
+  ;; `adapter` Vars, owned by Spec 006 §Plain-atom adapter (JVM, SSR,
+  ;; headless).
+  ["re-frame.substrate.plain-atom" "adapter"] {:tier :adapter :owner "006" :status "v1"}
   ;; Managed-HTTP reaches tests call through `re-frame.http.managed`: registry
   ;; and interceptor-chain snapshots, seeding and resets. Public for a
   ;; cross-namespace test reach only.

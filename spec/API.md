@@ -33,6 +33,7 @@
     | `re-frame.machines` | `day8/re-frame2-machines` (post-v1 scaffolding) | `reg-machine` / `defmachine` (registration), `machine-transition`, the `:rf.machine/spawn` / `:rf.machine/destroy` fx (per [§Machines](#machines)). |
     | `re-frame.epoch` | core | `epoch-history`, `current-epoch-id`, `restore-epoch!`, `replay-epoch!`, `replace-frame-state!`, called at home (per [§Epoch history](#epoch-history-per-tool-pair)); plus `(rf/configure! {:epoch-history ...})` and the epoch listener stream reached via `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`, which `re-frame.core` calls directly. `re-frame.core` loads the namespace, so no boot require is needed; a production build elides it (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)). |
     | `re-frame.adapter.uix` | `day8/re-frame2-uix` | UIx-specific surfaces (per [§UIx adapter](#uix-adapter-spec-006)). |
+    | `re-frame.substrate.plain-atom` | core | the headless `adapter` for JVM and Node tests, scripts and headless hosts (per [§Plain-atom adapter](#plain-atom-adapter-spec-006)). |
 
 - **Projection-maintenance rule.** This doc is a **non-canonical projection** — the canonical contract lives in the per-Spec docs cited in each row's Spec column. The projection MUST stay in sync with shipped artefacts. Every row carries: **owner** (Spec column) — the canonical spec doc; **artefact / namespace** — where the public-var lives (table above); **public-var status** — `v1` / `v1 (preserved)` / `post-v1 lib` / `post-v1 (planned, rf2-<id>)` for surfaces specced normatively but not yet shipped (the spec contract holds; the impl is tracked by the named bead); **verification pointer** — the conformance fixture, the per-artefact test, or the AI-Audit row that asserts the row holds. Rows that document a surface neither shipped nor on a tracking bead MUST be cut from this projection — the design's normative claim then lives only in the owner spec.
 
@@ -285,6 +286,18 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
 Per Decision 1 the hook is named `use-sub` — ONE value-hook name for every React function component, the same spelling `re-frame.fresco.native` publishes for a Fresco island: the VERB `subscribe` returns a subscription, the NOUN `use-sub` returns its value. The adapter publishes no raw `useContext` frame reader and no source-coord wrapper Var; `use-frame` answers "which frame am I in" and `reg-view*` is how a view reaches the `:adapter/wrap-view` late-bind hook. Per Decision 3 there is no auto-injection — UIx components read via the hook and hold frame ops via `use-frame` (capture-frame in hook position: `(let [{:keys [dispatch]} (use-frame)] …)`); capture-frame is THE hold primitive, and `reg-view` injection / `use-frame` are its two ergonomic spellings. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
 The shared React Context that backs `frame-provider` / `frame-root` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — the Reagent and UIx adapters both consume the same `createContext` object so a mixed-substrate app's frame-provider chain composes across substrates.
+
+---
+
+## Plain-atom adapter (Spec 006)
+
+The headless adapter lives in `re-frame.substrate.plain-atom` (core), a `.cljc` namespace that loads on both hosts. JVM and Node tests, scripts and headless hosts `:require [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]` and pass `rf.substrate.plain-atom/adapter` to `(rf/init! …)`, or to `make-reset-runtime-fixture` as its `:adapter`. The namespace's other public vars are adapter plumbing and are not rowed.
+
+<!-- api-manifest:generated re-frame.substrate.plain-atom -->
+
+| API | M/Fn | Signature | Status | Tier | Spec | Notes |
+|---|---|---|---|---|---|---|
+| `re-frame.substrate.plain-atom/adapter` | Var (map) | the adapter spec map `{:kind :make-state-container :read-container :replace-container! :subscribe-container :make-derived-value :render :render-to-string :register-context-provider :dispose-adapter!}`, plus `:add-on-dispose!` / `:dispose!` on CLJS. `app-db` is a `clojure.core/atom`; derived values recompute on every read and cache nothing; there is no `:flush-render!`, and `:render` throws `:rf.error/render-on-headless-adapter`. `(:kind (rf/current-adapter))` reads `:rf.adapter/plain-atom` (per [Spec 006 §Plain-atom adapter](006-ReactiveSubstrate.md#plain-atom-adapter-jvm-ssr-headless)) | v1 | adapter | 006 |  |
 
 ---
 
