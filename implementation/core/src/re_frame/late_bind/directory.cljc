@@ -166,6 +166,9 @@
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch
     :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router calls the five-argument arity `[frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]`. Skips an empty buffer (rejected/aborted dispatch). Late-bound because re-frame.epoch requires re-frame.router."}
+   {:key         :epoch/discard-event!
+    :producer-ns 're-frame.epoch
+    :description "Drop one dequeued event's buffered capture traces by its dispatch id and commit nothing. The router calls it as `[frame-id dispatch-id]` when that event's processing throws, since no :epoch/settle! follows a throw; left buffered, the thrown run's :rf.event/run-start would read as a cascade in flight for the frame's life and keep post-settle renders, sub-runs and unmounts from back-filling. A queued child's marker carries its own dispatch id and stays. Late-bound because re-frame.epoch requires re-frame.router."}
    {:key         :epoch/commit-halt-record!
     :producer-ns 're-frame.epoch
     :description "Commit a :halted-* epoch record for a drain halt whose halting event never ran (the per-event depth-exceed boundary). Unlike :epoch/settle! it does NOT skip an empty buffer — under per-event epochs the already-settled events each harvested their own buffer, so the buffer is empty at halt; this synthesises the halting event's :halted-depth record from an explicit trigger. Already-settled siblings are durable (no whole-drain rollback). The router's depth halt calls it on the drain with six arguments `[frame-id frame-state-after committed-at outcome halt-reason trigger-event]`. Late-bound because re-frame.epoch requires re-frame.router."}
