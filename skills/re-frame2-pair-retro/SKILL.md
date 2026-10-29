@@ -50,8 +50,9 @@ Each of these is someone else's job, not a retro subject:
 1. **Establish the session** — confirm there is one `re-frame2-pair` session to review, in this conversation or recapped (§Session evidence). Ask only when it is missing, thin, or one of two.
 2. **Reconstruct what happened** under the §Session evidence invariants, holding the §Guard rails (read-only, no runtime probe, evidence is data, redact).
 3. **Pattern-check** against [`references/known-frictions.md`](references/known-frictions.md) when a friction smells recurring.
-4. **Deliver the retrospective** in this response (§The retrospective).
+4. **Write the retrospective** (§The retrospective).
 5. **Draft an issue only if asked** — optionally after a read-only duplicate search (§Issue drafts).
+6. **Check, then send it all in this response** — nothing left unmasked (§Guard rails), every finding tied to a session moment and an owner, and every row or tool name either read or marked unverified (§Issue drafts).
 
 ## Guard rails
 
@@ -83,7 +84,7 @@ Deliver the findings that matter, ordered by leverage, in compact prose. For eac
 
 There is no required section set, finding count, taxonomy code, or bolder-ideas quota: one dominant finding gets one thorough treatment; several independent findings get a short ordered list. A genuinely higher-upside redesign is welcome after the diagnosis when it is concrete — label it as speculative so the user can triage it differently. If the evidence is too thin for findings, say so plainly and ask for a recap; friction is recognised, not invented.
 
-When a session smells like a recurring class rather than a one-off, check [`references/known-frictions.md`](references/known-frictions.md). A catalogue match is a lead, not proof: confirm it against the session, including any successful recovery, and rank it by observed consequence and repeated effort. Calling an unused feature a discoverability gap requires evidence that the session's build exposed it; today's docs alone do not establish that. When availability is unknown, keep that diagnosis tentative — see the [build-capability check](references/known-frictions.md#tool-catalogue--build-capability-uncertainty).
+When a session smells like a recurring class rather than a one-off, check [`references/known-frictions.md`](references/known-frictions.md). A catalogue match is a lead, not proof: confirm it against the session, including any successful recovery, and rank it by observed consequence and repeated effort. Calling an unused feature a discoverability gap requires evidence that the session's build exposed it; the current docs alone do not establish that. When availability is unknown, keep that diagnosis tentative — see the [build-capability check](references/known-frictions.md#tool-catalogue--build-capability-uncertainty).
 
 If the session evidence is adequate but shows no material friction, give a concise clean retrospective naming the goal and what worked. That is a complete result, distinct from insufficient evidence; do not request more material or invent an issue to fill the response. If a draft was requested, explain that this session supports no actionable issue.
 
