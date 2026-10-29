@@ -386,18 +386,23 @@
   (try (thunk) ::no-throw
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
-(defn- with-schemas-seam-unbound
-  "Run `thunk` as in an app that never loaded `re-frame.schemas`, where a
-  `:boundary? true` handler throws `:rf.error/schemas-artefact-missing` after
-  its run-start."
-  [thunk]
-  (let [hooks [:schemas/validate-event! :schemas/check!]
-        saved (mapv rf.late-bind/get-fn hooks)]
+(defn- with-event-emit-fault
+  "Run `thunk` with the always-on event-emit hook throwing for `event-id`. The
+  router calls that hook from the pipeline trailers, after the event's
+  run-start, so the throw leaves a run-start buffered; `seen` receives the
+  frame's buffered operations at the throw."
+  [event-id frame-id seen thunk]
+  (let [emit! (rf.late-bind/get-fn :event-emit/dispatch-on-event)]
     (try
-      (doseq [hook hooks] (rf.late-bind/set-fn! hook nil))
+      (rf.late-bind/set-fn! :event-emit/dispatch-on-event
+        (fn [event & more]
+          (when (= event-id (first event))
+            (reset! seen (mapv :operation (rf.epoch.state/buffer-for frame-id)))
+            (throw (ex-info "event-emit fault" {:rf.error/id ::event-emit-fault})))
+          (when emit! (apply emit! event more))))
       (thunk)
       (finally
-        (doseq [[hook f] (map vector hooks saved)] (rf.late-bind/set-fn! hook f))))))
+        (rf.late-bind/set-fn! :event-emit/dispatch-on-event emit!)))))
 
 (defn- after-a-good-event
   "Settle `[:good]` on `frame-id`, then emit a post-settle render; what the
@@ -431,12 +436,13 @@
 
 (deftest thrown-event-after-run-start-leaves-nothing-buffered
   (rf/make-frame {:id :test/main})
-  (rf/reg-event :thrown/boundary {:schema [:cat [:= :thrown/boundary] :int] :boundary? true}
-    (fn [_ _] {}))
+  (rf/reg-event :thrown/late (fn [{:keys [db]} _] {:db (assoc db :late true)}))
   (rf/reg-event :good (fn [{:keys [db]} _] {:db (assoc db :good true)}))
-  (is (= :rf.error/schemas-artefact-missing
-         (with-schemas-seam-unbound
-           #(throw-id (fn [] (rf/dispatch-sync [:thrown/boundary 1] {:frame :test/main}))))))
+  (let [seen (atom nil)]
+    (is (= ::event-emit-fault
+           (with-event-emit-fault :thrown/late :test/main seen
+             #(throw-id (fn [] (rf/dispatch-sync [:thrown/late] {:frame :test/main}))))))
+    (is (some #{:rf.event/run-start} @seen) "the throw landed after the run-start"))
   (is (= [] (rf.epoch.state/buffer-for :test/main))
       "the thrown run's traces, its run-start included, are discarded")
   (is (= clean-good-event (after-a-good-event :test/main))
