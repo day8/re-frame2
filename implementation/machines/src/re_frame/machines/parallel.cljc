@@ -1613,7 +1613,11 @@
           ;; effects-map contract (`{:data .. :fx ..}`). A bare keyword /
           ;; map without `:action` is a no-op data-wise but still suppresses
           ;; auto-destroy (the author opted into "stay done, don't destroy").
-          (let [on-done-r (rf.machines.transition/apply-on-done-action machine snap on-done)
+          ;; The action's declared `:rf.cofx/requires` are ensured first: no
+          ;; event's ensure-set names this slot, since any event can be the
+          ;; one that finishes the last region.
+          (let [machine   (rf.machines.transition/ensure-raised-cofx machine snap [:rf.machine/done []])
+                on-done-r (rf.machines.transition/apply-on-done-action machine snap on-done)
                 drained   (if (and (rf.machines.result/ok? on-done-r)
                                    (seq (first (split-raises (rf.machines.result/fx on-done-r)))))
                             (drain-parent-queue machine snap nil on-done-r)

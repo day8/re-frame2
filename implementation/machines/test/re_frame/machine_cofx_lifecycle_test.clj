@@ -2,7 +2,7 @@
   "A named `:entry` / `:exit` action's `:rf.cofx/requires` is ensured before
   the cascade runs it: on a transition, at birth, and through every synthetic
   slot."
-  (:require [clojure.test :refer [are deftest is use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
@@ -41,6 +41,94 @@
                        :states  {:inner {:entry :descent-stamp}}}}})
   (rf/dispatch-sync [:lifecycle/descent-gen [:rf.machine/start]])
   (is (= {:d 11} (rf.machines.test-support/machine-data :lifecycle/descent-gen))))
+
+;; The root's own `:entry`, a parallel root's `:entry` and a region body's
+;; `:entry` all run at birth, so the birth ensure-set covers them as it covers
+;; the initial descent.
+(deftest root-and-region-body-entry-actions-read-generated-facts
+  (rf/reg-cofx :test/root-gen {:recordable? true} (fn [] 13))
+  (let [acts   {:stamp (stamp :v :test/root-gen)}
+        region {:initial :x :states {:x {}}}]
+    (rf/reg-machine :lifecycle/root-entry
+      {:initial :idle :data {} :actions acts :entry :stamp :states {:idle {}}})
+    (rf/reg-machine :lifecycle/parallel-root-entry
+      {:type :parallel :data {} :actions acts :entry :stamp
+       :regions {:a region :b region}})
+    (rf/reg-machine :lifecycle/region-body-entry
+      {:type :parallel :data {} :actions acts
+       :regions {:a (assoc region :entry :stamp) :b region}})
+    (doseq [id [:lifecycle/root-entry :lifecycle/parallel-root-entry :lifecycle/region-body-entry]]
+      (rf/dispatch-sync [id [:rf.machine/start]])
+      (is (= {:v 13} (rf.machines.test-support/machine-data id)) (str id)))))
+
+;; A parallel root's `:on-done` action runs when the last region settles final,
+;; inside the event that finished it.
+(deftest parallel-root-on-done-action-reads-generated-fact
+  (rf/reg-cofx :test/done-gen {:recordable? true} (fn [] 17))
+  (let [region {:initial :x :states {:x {:on {:finish :f}} :f {:final? true}}}]
+    (rf/reg-machine :lifecycle/parallel-on-done
+      {:type :parallel :data {} :actions {:stamp (stamp :v :test/done-gen)}
+       :on-done {:action :stamp}
+       :regions {:a region :b region}})
+    (rf/dispatch-sync [:lifecycle/parallel-on-done [:rf.machine/start]])
+    (rf/dispatch-sync [:lifecycle/parallel-on-done [:finish]])
+    (is (= {:v 17} (rf.machines.test-support/machine-data :lifecycle/parallel-on-done)))))
+
+;; A transition into a `:type :history` pseudo-state enters the leaf the
+;; history restores, so that leaf's `:entry` is ensured.
+(deftest history-restore-ensures-the-restored-leaf-entry
+  (rf/reg-cofx :test/history-gen {:recordable? true} (fn [] 19))
+  (rf/reg-machine :lifecycle/history
+    {:initial :c
+     :data    {}
+     :actions {:stamp (stamp :v :test/history-gen)
+               :clear (fn [{:keys [data]}] {:data (dissoc data :v)})}
+     :states  {:c   {:initial :a
+                     :on      {:leave {:target :out :action :clear}}
+                     :states  {:a {:on {:next :b}}
+                               :b {:entry :stamp}
+                               :h {:type :history}}}
+               :out {:on {:resume [:c :h]}}}})
+  (doseq [ev [[:next] [:leave] [:resume]]]
+    (rf/dispatch-sync [:lifecycle/history ev]))
+  (is (= {:state [:c :b] :data {:v 19}}
+         (select-keys (rf.machines.test-support/snapshot :lifecycle/history) [:state :data]))))
+
+;; Every leaf a history pseudo-state can restore, and its `:default-target`,
+;; joins the ensure-set — whichever route reaches the pseudo-state.
+(deftest every-history-route-ensures-the-restorable-entries
+  (rf/reg-cofx :audit/hist {:recordable? true} (fn [] 1))
+  (let [acts {:capture (stamp :t :audit/hist)}
+        ids  (fn [m snap ev]
+               (set (map :id (rf.machines.cofx-attach/ensure-set-for
+                               (rf.machines.cofx-attach/index-ensure-sets m) snap ev))))]
+    (are [m snap ev] (= #{:audit/hist} (ids m snap ev))
+      ;; shallow: a direct child's initial descent
+      {:initial :out :actions acts
+       :states  {:c   {:initial :a :states {:a {} :b {:initial :b1 :states {:b1 {:entry :capture}}}
+                                            :h {:type :history}}}
+                 :out {:on {:resume [:c :h]}}}}
+      {:state :out} [:resume]
+      ;; deep: any descendant
+      {:initial :out :actions acts
+       :states  {:c   {:initial :a :states {:a {} :b {:initial :b1 :states {:b1 {} :b2 {:entry :capture}}}
+                                            :h {:type :history :deep? true}}}
+                 :out {:on {:resume [:c :h]}}}}
+      {:state :out} [:resume]
+      ;; an `:always` hop into the pseudo-state
+      {:initial :out :actions acts
+       :states  {:c   {:initial :a :states {:a {} :b {:entry :capture} :h {:type :history}}}
+                 :out {:on {:go :mid}}
+                 :mid {:always {:target [:c :h]}}}}
+      {:state :out} [:go])
+    (testing "a compound whose :initial names its history enters the :default-target at birth"
+      (is (= #{:audit/hist}
+             (set (map :id (rf.machines.cofx-attach/bootstrap-ensure-set-for
+                             (rf.machines.cofx-attach/index-ensure-sets
+                               {:initial :c :actions acts
+                                :states  {:c {:initial :h
+                                              :states  {:h {:type :history :default-target :a}
+                                                        :a {:entry :capture}}}}})))))))))
 
 ;; Each synthetic slot hands its target to the same closure the :on walk uses,
 ;; so a named :entry on the target is ensured, not only its :always.

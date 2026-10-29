@@ -1389,15 +1389,21 @@
   registration — validated, ensure-indexed and carrying its region cache —
   serves the type's singleton and every spawned instance alike.
 
+  The type's opts `:sensitive` / `:large` / `:large?` classify the events its
+  handler serves, so they ride along: core's trace egress reads an actor's
+  event classification off this meta (Spec 005 §Privacy).
+
   The rest of the registration describes the TYPE and stays behind. Its opts
   `:schema` validates an outer event vector headed by the type id, which an
   actor's messages never carry, and its `:interceptors`, `:doc` and source
   coordinates belong to that registration. So the actor's meta is the
-  `{:rf/machine? true :rf/machine <spec>}` stamp and the handler behind an
-  empty interceptor prefix, in the shape `rf.events/event-handler-meta`
-  builds and `process-event*` runs unchanged."
+  `{:rf/machine? true :rf/machine <spec>}` stamp plus that classification, and
+  the handler behind an empty interceptor prefix, in the shape
+  `rf.events/event-handler-meta` builds and `process-event*` runs unchanged."
   [registration]
-  (rf.events/event-handler-meta {:rf/machine? true :rf/machine (:rf/machine registration)}
+  (rf.events/event-handler-meta (assoc (select-keys registration [:sensitive :large :large?])
+                                       :rf/machine? true
+                                       :rf/machine  (:rf/machine registration))
                                 []
                                 (:handler-fn registration)))
 
