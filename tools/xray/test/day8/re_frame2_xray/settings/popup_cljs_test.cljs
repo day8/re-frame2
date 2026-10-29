@@ -72,6 +72,29 @@
                 (some? (find-by-testid rendered "rf-xray-settings-editor-override-custom-input"))])
             (pr-str override))))))
 
+(deftest events-retained-commits-on-blur-or-enter-not-per-keystroke
+  ;; The knob resizes every trace ring at once, so a per-keystroke commit
+  ;; would cut the ring to the first digit typed.
+  (setup!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/settings-open])
+    (rf/dispatch-sync [:rf.xray/settings-select-tab :buffer]))
+  (let [committed (atom [])
+        attrs     (rf/with-frame :rf/xray
+                    (second (find-by-testid (modal-trees/settings-popup-tree
+                                              (fn [ev] (swap! committed conj ev)))
+                                            "rf-xray-settings-buffer-events-retained")))
+        field     (js-obj "target" (js-obj "value" "100") "key" "Enter")]
+    (is (nil? (:on-change attrs)) "no per-keystroke writer")
+    (is (= "50" (:default-value attrs)))
+    ((:on-blur attrs) field)
+    ((:on-key-down attrs) field)
+    ((:on-key-down attrs) (js-obj "target" (js-obj "value" "7") "key" "1"))
+    (is (= [[:rf.xray/settings-update :buffer :events-retained 100]
+            [:rf.xray/settings-update :buffer :events-retained 100]]
+           @committed)
+        "blur and Enter commit; a digit key does not")))
+
 ;; ---- open / close -------------------------------------------------------
 
 (deftest open-resets-active-tab-to-general

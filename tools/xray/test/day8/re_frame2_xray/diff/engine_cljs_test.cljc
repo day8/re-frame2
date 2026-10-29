@@ -307,3 +307,16 @@
   ;; `[[[:v] :r [5 6 7 {:a 2}]]]`: the map element diffs key by key.
   (let [p (engine/project {:v [1 2 3 {:a 1}]} {:v [5 6 7 {:a 2}]})]
     (is (= {:op :modified :before 1 :after 2} (engine/entry-at p [:v 3 :a])))))
+
+(deftest many-changed-vector-elements-stay-fast
+  ;; A* alone takes seconds on this shape (every element of a 200-vector
+  ;; gains a field); the engine's `:quick`-first diff answers it in tens of
+  ;; milliseconds with the same per-path classification.
+  (let [b  {:todos (vec (for [i (range 200)] {:id i :title (str "t" i)}))}
+        a  {:todos (vec (for [i (range 200)] {:id i :title (str "t" i) :seen? true}))}
+        t0 #?(:clj (System/currentTimeMillis) :cljs (.now js/Date))
+        p  (engine/project b a)
+        ms (- #?(:clj (System/currentTimeMillis) :cljs (.now js/Date)) t0)]
+    (is (= :added (engine/op-at p [:todos 0 :seen?])))
+    (is (= :added (engine/op-at p [:todos 199 :seen?])))
+    (is (< ms 3000) (str "projected in " ms " ms"))))

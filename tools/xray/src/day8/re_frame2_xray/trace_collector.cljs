@@ -288,10 +288,11 @@
   Returns nothing."
   []
   (when rf.interop/debug-enabled?
-    (when (some? (rf.frame/frame defaults/default-frame-id))
+    (when-let [targets (seq (filter rf.frame/frame (defaults/instance-frame-ids)))]
       (let [snapshot (snapshot-from-rings)]
-        (rf/with-frame defaults/default-frame-id
-          (rf/dispatch-sync [:rf.xray/sync-trace-buffer snapshot])))))
+        (doseq [own targets]
+          (rf/with-frame own
+            (rf/dispatch-sync [:rf.xray/sync-trace-buffer snapshot]))))))
   nil)
 
 (defn- request-mirror-sync!
@@ -438,8 +439,8 @@
   (when rf.interop/debug-enabled?
     (rf/clear-trace-buffer!)
     (clear-frameless-ring!)
-    (when (some? (rf.frame/frame defaults/default-frame-id))
-      (rf/with-frame defaults/default-frame-id
+    (doseq [own (filter rf.frame/frame (defaults/instance-frame-ids))]
+      (rf/with-frame own
         (rf/dispatch [:rf.xray/clear-trace-buffer])
         (rf/dispatch [:rf.xray/sync-epoch-history []])))
     (config/reset-suppressed-count!))

@@ -27,6 +27,33 @@
   require cycle. Re-exported as `shell/default-frame-id`."
   :rf/xray)
 
+(defonce ^:private instance-frames
+  ;; Every own frame a shell or panel mount seated (`mount/ensure-seated!`,
+  ;; `mount/ensure-xray-frame!`).
+  (atom #{}))
+
+(defn note-instance-frame!
+  "Record `frame-id` as one of Xray's own frames, so the trace and epoch
+  mirrors deliver into it as well as into `default-frame-id`."
+  [frame-id]
+  (swap! instance-frames conj frame-id)
+  nil)
+
+(defn forget-instance-frames!
+  "Drop every recorded own frame. Test fixtures that wipe the frame
+  registry call it through `mount/reset-for-test!`."
+  []
+  (reset! instance-frames #{})
+  nil)
+
+(defn instance-frame-ids
+  "Xray's own frames: `default-frame-id` and every frame a mount seated. The
+  mirror drains (`install/drain-epoch-frames!`, the trace-buffer sync, the
+  suppressed-count drain) dispatch into each one that is still registered,
+  so a second shell on its own frame keeps updating."
+  []
+  (conj @instance-frames default-frame-id))
+
 (defn close-event-for
   "The event the chrome `✕` dispatches for click `e`: `:rf.xray/close-popout`
   when the click landed inside the pop-out window's shell (its root carries

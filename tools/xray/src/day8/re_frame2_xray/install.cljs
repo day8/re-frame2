@@ -97,7 +97,11 @@
   "Dispatch one `:rf.xray/epoch-recorded` per DISTINCT frame-id that has
   recorded an epoch since the last drain, then clear the pending set.
 
-  PRE-MOUNT / POST-TEARDOWN NO-OP: when the `:rf/xray` frame is not
+  The ingest goes to every registered own frame
+  (`defaults/instance-frame-ids`), so a second shell on its own frame
+  updates too.
+
+  PRE-MOUNT / POST-TEARDOWN NO-OP: when no own frame is
   registered the pending set is cleared and nothing is dispatched —
   first mount seeds history from the framework ring, so records produced
   during that window are still visible. The liveness check is taken HERE,
@@ -112,14 +116,17 @@
   `next-tick` — the same posture `trace-collector/refresh-trace-rings!`
   keeps for the trace mirror."
   []
-  (let [frames (first (reset-vals! pending-epoch-frames #{}))]
-    (if (rf.frame/frame defaults/default-frame-id)
+  (let [frames  (first (reset-vals! pending-epoch-frames #{}))
+        targets (filter rf.frame/frame (defaults/instance-frame-ids))]
+    (if (seq targets)
       (do
-        ;; Wrap the dispatch in the Xray shell frame so the registry's
-        ;; handler writes to Xray's app-db, not the host's.
-        (rf/with-frame defaults/default-frame-id
-          (doseq [frame-id frames]
-            (rf/dispatch [:rf.xray/epoch-recorded frame-id])))
+        ;; Each own frame gets the ingest: every one keeps its own
+        ;; `:target-frame` and `:epoch-history`, and the handler writes the
+        ;; frame it runs in, never the host's.
+        (doseq [own targets]
+          (rf/with-frame own
+            (doseq [frame-id frames]
+              (rf/dispatch [:rf.xray/epoch-recorded frame-id]))))
         frames)
       #{})))
 

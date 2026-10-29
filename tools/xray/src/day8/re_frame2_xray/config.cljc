@@ -936,10 +936,12 @@
      Returns the counts dispatched (`{}` on a no-op). Public so tests can
      drive the drain deterministically without waiting on `next-tick`."
      []
-     (let [counts (first (reset-vals! pending-suppressed-counts {}))]
-       (if (and (seq counts) (rf.frame/frame defaults/default-frame-id))
-         (do (rf/dispatch [:rf.xray/note-sensitive-suppressed counts]
-                          {:frame defaults/default-frame-id})
+     (let [counts  (first (reset-vals! pending-suppressed-counts {}))
+           targets (filter rf.frame/frame (defaults/instance-frame-ids))]
+       (if (and (seq counts) (seq targets))
+         (do (doseq [own targets]
+               (rf/dispatch [:rf.xray/note-sensitive-suppressed counts]
+                            {:frame own}))
              counts)
          {}))))
 
@@ -1003,16 +1005,16 @@
    (reset! suppressed-counters {})
    #?(:cljs (reset! pending-suppressed-counts {}))
    #?(:cljs
-      (when (rf.frame/frame defaults/default-frame-id)
-        (rf/with-frame defaults/default-frame-id
+      (doseq [own (filter rf.frame/frame (defaults/instance-frame-ids))]
+        (rf/with-frame own
           (rf/dispatch [:rf.xray/reset-suppressed-counters]))))
    nil)
   ([frame-id]
    (swap! suppressed-counters dissoc (or frame-id :global))
    #?(:cljs (swap! pending-suppressed-counts dissoc (or frame-id :global)))
    #?(:cljs
-      (when (rf.frame/frame defaults/default-frame-id)
-        (rf/with-frame defaults/default-frame-id
+      (doseq [own (filter rf.frame/frame (defaults/instance-frame-ids))]
+        (rf/with-frame own
           (rf/dispatch [:rf.xray/reset-suppressed-counters frame-id]))))
    nil))
 
