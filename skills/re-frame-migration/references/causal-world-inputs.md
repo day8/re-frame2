@@ -12,6 +12,17 @@ Normative home: [`spec/002-Frames.md` §Recordable coeffects](https://github.com
 
 <a id="triage-in-handler-reads-by-source"></a>
 
+## Contents
+
+- Triage — split an in-handler ambient read by source
+- The classification — three buckets, only one is forced
+- Identify — the up-front grep
+- Route time → declare `:rf/time-ms`
+- UUID / random / browser / storage → event payloads or recordable facts
+- Effect-handler boundary + reply completion facts
+- What this does NOT touch (leave ambient)
+- Reporting
+
 ## Triage — split an in-handler ambient read by source
 
 Before routing a host fact below, classify an ambient read found **inside a `reg-event` handler**, or an interceptor body on its chain, by its **source** — the two sources take different routes, and only one of them touches this reference's host-fact buckets:

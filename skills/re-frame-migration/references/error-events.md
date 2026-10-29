@@ -4,6 +4,16 @@ The **single source of truth** for re-frame2's error / warning / advisory event 
 
 When an agent migrating a v1 codebase needs to answer *"is this error name old or new?"* or *"which listener surface do I wire production error monitoring on?"* — the answer is one click away in the spec, and this leaf points the way. (There is **no** app-steering frame-level `:on-error` recovery policy to "intercept" anything — recovery is framework-owned; see below.)
 
+## Contents
+
+- Why this leaf exists
+- Namespace prefixes (the closed set)
+- Where v1's `reg-event-error-handler` went (M-13 / M-26)
+- Trace listener vs. observability sink (dev-only vs. always-on)
+- Production elision — what elides and what stays always-on
+- Stale advice the migration agent will encounter
+- When to point an author at this leaf
+
 ## Why this leaf exists
 
 The migration touches three surfaces that hand-off to the error event stream:
