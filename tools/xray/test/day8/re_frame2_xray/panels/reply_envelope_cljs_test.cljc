@@ -212,9 +212,14 @@
     (is (= {:work-id [:rf.work/resource :k 2]
             :work-kind :resource :status :running :live? true :frame :f
             :owners [[:dashboard/opened :a]] :cancellable? true :started-at 1000
-            :deadline-at nil :attempt 2 :transport :rf.http/managed :outcome nil}
-           (dissoc row :causes)))
+            :deadline-at nil :attempt nil :transport :rf.http/managed :outcome nil}
+           (dissoc row :causes))
+        "a resource attempt's :generation is a registry counter, never shown as an attempt")
     (is (= ["vector"] (mapv :type (:causes row))) "causes are summarized"))
+  (is (= 3 (:attempt (re/ledger-row ["w-http-6" {:work/id [:rf.work/http :req 6]
+                                                 :generation 40 :attempt 3
+                                                 :status :running}])))
+      "a family that numbers its retries shows the attempt it carries")
   (is (= "map" (:type (:outcome (re/ledger-row (find ledger "w-res-1")))))
       "a terminal row's outcome is summarized")
   (is (= :http (:work-kind (re/ledger-row (find ledger "w-http-5"))))

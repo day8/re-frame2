@@ -43,18 +43,19 @@
   accent but never gate classification. A node carrying an unknown FUTURE
   refinement still renders + classifies off its superkind.
 
-  ## ON-BOX raw, OFF-BOX redacted
+  ## ON-BOX local-redacted, OFF-BOX redacted
 
-  On-box rendering shows raw value summaries (Security.md permits on-box;
-  the developer is entitled to their own app's values —
-  raw-on-box is the in-process truth). `derivation-graph-helpers/summarize`
-  bounds value previews for display ergonomics only, NOT for privacy. The
-  OFF-BOX egress boundary — where a tool ships the graph to a remote agent
-  or a serialized capture — is `derivation-graph-helpers/redact-graph-for-
-  egress`, which projects each node's value-bearing fields through the
-  frame's `rf/project-egress` policy (per-frame, fail-closed), preserving
-  edge + node structure. This panel renders on-box, so it
-  reads the RAW graph.
+  On-box rendering takes the default every Xray panel renders under
+  (`:rf.egress/local-redacted`, Spec 015 §Projection profiles): live node
+  values are projected through `local-render` before they are summarised, so
+  a value the frame declared `:sensitive` reads `:rf/redacted` here as it
+  does on the Routing tab (`derivation-graph-helpers/project-live-values`).
+  `derivation-graph-helpers/summarize` then bounds previews for display
+  ergonomics. The OFF-BOX egress boundary — where a tool ships the graph to
+  a remote agent or a serialized capture — is
+  `derivation-graph-helpers/redact-graph-for-egress`, which projects each
+  node's value-bearing fields through the frame's `rf/project-egress` policy
+  (per-frame, fail-closed), preserving edge + node structure.
 
   ## The contributor seam — all five families
 
@@ -301,7 +302,7 @@
        [:span {:data-testid (str testid "-parametric")
                :style {:color (:advisory tokens)}}
         "parametric"])
-     ;; ON-BOX value summaries (raw-permitting; bounded previews)
+     ;; ON-BOX value summaries (projected upstream; bounded previews)
      (for [[k summary] (:summaries node)]
        [:span {:key (name k)
                :style {:display "inline-flex" :gap "4px" :align-items "baseline"}}
@@ -375,9 +376,10 @@
   its own.
 
   Renders the header (mode toggle + counts), the per-family node sections
-  (grouped + classified by superkind), and the edges section. Reads the
-  ON-BOX raw graph (Security.md permits on-box); off-box egress redaction
-  is `helpers/redact-graph-for-egress`, exercised by tooling that ships the
+  (grouped + classified by superkind), and the edges section. Live values
+  arrive already projected under Xray's on-box local-redacted default
+  (`helpers/tab-data`); off-box egress redaction is
+  `helpers/redact-graph-for-egress`, exercised by tooling that ships the
   graph off the developer's box.
 
   Split out of `Panel` because `Panel` is a Fresco boundary,
@@ -495,18 +497,16 @@
 
     - `:rf.xray/derivation-graph-mode` — `:static` | `:live` toggle slot
       (default `:static`). Settable via `:rf.xray/set-derivation-graph-mode`.
-    - `:rf.xray/derivation-graph-override` — test override for the assembled
-      graph (so JVM/CLJS tests drive a fixture graph without a full runtime).
     - `:rf.xray/derivation-graph` — the assembled `DerivationGraph`. In
       `:static` mode, `derivation-graph` over `xray-contributors`
       (process-global). In `:live` mode, `live-derivation-graph` for the
       OBSERVED target frame (`:rf.xray/target-frame`). Re-runs when the trace
       buffer ticks (the registration / cache surface may have changed) or the
       observed frame switches.
-    - `:rf.xray/derivation-graph-tab-data` — the view-facing composite:
-      summarizes node value fields for ON-BOX display, groups by family,
-      classifies by superkind, and carries the summary header data. The
-      single read the Panel subscribes.
+    - `:rf.xray/derivation-graph-tab-data` — the view-facing composite
+      (`h/tab-data`): projects live node values for on-box render, summarizes
+      them, groups by family, classifies by superkind, and carries the
+      summary header data. The single read the Panel subscribes.
 
   Read-only: assembling the graph reads the registrar + the observed frame's
   runtime-db decoupled; it dispatches nothing and pins nothing."
@@ -534,12 +534,7 @@
   (rf/reg-sub :rf.xray/derivation-graph-tab-data
     {:inputs [[:rf.xray/derivation-graph]]}
     (fn [[graph] _]
-      (let [summarized (h/summarize-graph graph)]
-        {:mode      (:mode graph)
-         :silent?   (h/empty-graph? graph)
-         :summary   (h/graph-summary graph)
-         :by-family (h/group-by-family summarized)
-         :edges     (:edges graph)})))
+      (h/tab-data graph)))
 
   ;; Register the Dynamic Derivation-Graph tab with the internal L4 tab
   ;; registry. Order 8 — after Resources (order 7), keeping the cross-feature

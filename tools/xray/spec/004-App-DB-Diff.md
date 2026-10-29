@@ -644,6 +644,32 @@ host that classified nothing draws **no chip at all** rather than a
 is worth less than an honest silence, and re-proposing the heuristic
 should start from that.
 
+## A past epoch keeps the classification it was recorded with
+
+The focused record is projected once, through the record-level door
+(`rf/project-egress` on the `:rf/epoch-record`, via
+`local-render/local-render-record-state`), so each epoch's `:db-before` /
+`:db-after` and runtime-db pair are redacted under the classification that
+epoch was RECORDED with
+([Spec 015 §Retained values keep their recorded classification](../../../spec/015-Data-Classification.md#retained-values-keep-their-recorded-classification)).
+A route left or a machine destroyed since still covers what it recorded: a
+token a route declared `:sensitive` reads `:rf/redacted` in the `:rf/route`
+section of that route's epochs after the operator has navigated away. Only
+the cold-boot live value, with no epoch focused, projects under the live
+classification.
+
+## A focus with no value, and a whole-value redaction
+
+A pin on an epoch evicted from the ring renders "This epoch has been evicted
+from the history buffer.", and a pin on a bundle that settled no epoch
+renders "The selected event settled no epoch." (`:status` on
+`:rf.xray/app-db-current+diff`, the shared focus resolver's answer; see
+[021 §10.7](./021-Dynamic-Panel-Designs.md#107-evicted-epoch-placeholder)).
+Neither shows the live db in the pinned epoch's place. An observed frame
+that is nil or gone fails closed and redacts the whole value; the TOP section
+then renders the redaction chip rather than reading as an app-db with no
+keys.
+
 ## Read-only
 
 The app-db panel is **read-only forever** (lock #3 in

@@ -28,10 +28,10 @@
 
   ## Why a separate `.cljc` ns
 
-  The panel view in `trace.cljs` paints the arc and dispatches into the
+  The panel view in `trace.cljs` paints the list and dispatches into the
   Xray frame; the *logic* — projecting raw events into rows, classifying
-  each op's phase / area / verb / target, banding the rows into the arc
-  shape, and classifying the empty state — is pure data → data. The
+  each op's stage / area / verb / target, and classifying the empty
+  state — is pure data → data. The
   algebra lives here as `.cljc` so it runs under the JVM unit-test
   target (`clojure -M:test`).
 
@@ -402,8 +402,8 @@
 ;; ---- target / detail (spec/023 §3 · §5) ---------------------------------
 ;;
 ;; Per spec/023 §3 the target/detail column carries the op's SUBJECT:
-;; the event vector, `fx-id → arg`, `sub-id old→new`, `view-id ← cause-
-;; sub`, route id, path, etc. It is the flexible column that truncates
+;; the event vector, `fx-id → arg`, `sub-id old→new`, `view-id ←
+;; triggered-by`, route id, path, etc. It is the flexible column that truncates
 ;; first (spec/023 §14). We derive it per-area from the reliably-present
 ;; tags; an op with no recognised subject renders an em-dash.
 
@@ -430,11 +430,13 @@
   subject (spec/023 §3 / §5). Per-area:
 
     :event    → the dispatched event vector
-    :db       → `[path] old → new`
+    :db       → nil: `:rf.event/db-changed` carries no path, so the
+                per-path list beneath the row carries `path old → new`
+                (spec/023 §10.1)
     :fx       → `fx-id → arg`
-    :flow     → `flow-id → [path]` (or the value delta)
-    :sub      → `sub-id old → new` / `sub-id`
-    :view     → `view-id ← cause-sub` / render-key
+    :flow     → `flow-id → [path]`
+    :sub      → `sub-id old → new` on a recompute, `sub-id` on a first run
+    :view     → `view-id ← triggered-by` / render-key
     :machine  → `machine-id from → to`
     :coeffect → `cofx-id → value`
     :routing  → route-id / fragment
@@ -453,16 +455,6 @@
       :event
       (when ev-vec (pr-str-safe ev-vec))
 
-      :db
-      (let [path (or (:rf.db/path tags) (:path tags))
-            old  (get tags :rf.db/old tags-absent)
-            new  (get tags :rf.db/new tags-absent)]
-        (cond
-          (and path (not= old tags-absent) (not= new tags-absent))
-          (str (pr-str-safe path) "  " (pr-str-safe old) " → " (pr-str-safe new))
-          path (pr-str-safe path)
-          :else nil))
-
       :fx
       ;; The framework emits effect arguments under the
       ;; CANONICAL PLURAL `:rf.fx/args` (`re-frame.fx`, on the handled,
@@ -472,32 +464,39 @@
       ;; Presence is by KEY, not truthiness: `false` and `nil` are valid
       ;; effect arguments, so only a genuinely absent key falls back to
       ;; the id-only form.
-      (when-let [fx-id (or (:rf.fx/id tags) (:rf.fx/effect-id tags))]
+      (when-let [fx-id (:rf.fx/id tags)]
         (let [args (get tags :rf.fx/args tags-absent)]
           (str fx-id
                (when-not (= args tags-absent)
                  (str " → " (pr-str-safe args))))))
 
       :flow
-      (let [flow-id (or (:rf.flow/id tags) (:flow-id tags))
-            path    (or (:rf.flow/path tags) (:path tags))]
+      (let [flow-id (:flow-id tags)
+            path    (:path tags)]
         (when flow-id
           (str flow-id (when path (str " → " (pr-str-safe path))))))
 
       :sub
+      ;; `:rf.sub/run` stamps `:rf.sub/prev-value` (nil on a first run,
+      ;; flagged by `:rf.sub/first-run?`) and `:rf.sub/value`. Presence is by
+      ;; KEY, so a nil or false value still renders as a pair.
       (let [sub-id (:rf.sub/id tags)
-            old    (get tags :rf.sub/old tags-absent)
-            new    (get tags :rf.sub/new tags-absent)]
+            old    (get tags :rf.sub/prev-value tags-absent)
+            new    (get tags :rf.sub/value tags-absent)]
         (when sub-id
           (str sub-id
-               (when (and (not= old tags-absent) (not= new tags-absent))
+               (when (and (not (:rf.sub/first-run? tags))
+                          (not= old tags-absent) (not= new tags-absent))
                  (str "  " (pr-str-safe old) " → " (pr-str-safe new))))))
 
       :view
+      ;; `:rf.view/triggered-by` names the one sub in the view's read-set
+      ;; whose value change caused this render; it is absent on a mount or a
+      ;; props-driven re-render.
       (let [vid   (or (:rf.view/id tags)
                       (when-let [rk (:rf.view/render-key tags)]
                         (pr-str-safe rk)))
-            cause (:rf.view/cause-sub tags)]
+            cause (:rf.view/triggered-by tags)]
         (when vid
           (str vid (when cause (str " ← " cause)))))
 

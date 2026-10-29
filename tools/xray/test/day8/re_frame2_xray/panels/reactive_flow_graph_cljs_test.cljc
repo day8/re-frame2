@@ -3,8 +3,7 @@
   Figma `ViewsPanel`).
 
   Covers `layout` (the node + edge geometry the Views panel renders as
-  inline SVG), including the shared-subscription detector `shared-sub-set`
-  through the `:shared-count` it stamps on each node.
+  inline SVG), including the `:shared-count` it stamps on each sub node.
   JVM-runnable — no re-frame frame, no browser."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test    :refer-macros [are deftest is testing]])
@@ -37,15 +36,37 @@
       (is (= {:triggered-by :sub/x :elapsed-ms 1.5 :action :rerender}
              (select-keys (-> out :nodes :view first) [:triggered-by :elapsed-ms :action]))))))
 
-(deftest layout-marks-shared-count-only-on-multi-reader-subs
-  (testing "a sub read by two or more views carries :shared-count, its
-            reader count; a single-reader sub carries none"
-    (are [readers expected]
+(deftest layout-chain-columns-run-left-to-right
+  (testing "a chain :a → :b → :c puts each derived sub one column past its
+            deepest input, so every sub→sub edge runs rightward and the
+            view column sits past the last sub column"
+    (let [out   (g/layout {:level-1-subs [{:sub-id :a :changed? true}]
+                           :level-2-subs [{:sub-id :b :changed? true :inputs [:a]
+                                           :input-query-vs [[:a]]}
+                                          {:sub-id :c :changed? true :inputs [:b]
+                                           :input-query-vs [[:b]]}]
+                           :view-rows    [{:view-id :v :action :rerender}]})
+          x     (into {} (map (juxt :id :x)) (concat (-> out :nodes :l1) (-> out :nodes :l2)))
+          edges (filter #(= :sub-sub (:kind %)) (:edges out))]
+      (is (< (x :a) (x :b) (x :c) (-> out :nodes :view first :x)))
+      (is (= [[:a :b] [:b :c]] (mapv (juxt :from-id :to-id) edges)))
+      (is (every? #(< (:x1 %) (:x2 %)) edges) "no edge is drawn backwards")))
+  (testing "CONTROL — two Level-2 subs reading only Level-1 share one column"
+    (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}]
+                         :level-2-subs [{:sub-id :b :changed? true :inputs [:a]}
+                                        {:sub-id :c :changed? true :inputs [:a]}]})]
+      (is (apply = (map :x (-> out :nodes :l2)))))))
+
+(deftest layout-marks-shared-count-from-the-nodes-own-view-edges
+  (testing "a sub node with edges to two or more view instances carries
+            :shared-count, that edge count; one edge carries none"
+    (are [views expected]
          (= expected
-            (let [out (g/layout {:level-1-subs [{:sub-id :s :changed? true :readers readers}]})]
+            (let [out (g/layout {:level-1-subs [{:sub-id :s :changed? true :readers [:v1 :v2]}]
+                                 :view-rows    views})]
               (:shared-count (-> out :nodes :l1 first))))
-      [:v1]     nil
-      [:v1 :v2] 2)))
+      [{:view-id :v1 :action :rerender}]                                  nil
+      [{:view-id :v1 :action :rerender} {:view-id :v2 :action :rerender}] 2)))
 
 ;; ---- layout: edges -----------------------------------------------------
 
@@ -140,6 +161,28 @@
           "instance i drives view instance i, one edge per view box")
       (is (every? #(= (:y2 %) (centre (get by-key (:to-key %)))) sub-view)
           "each edge ends on the box it names"))))
+
+(deftest layout-shared-count-is-per-instance
+  (testing "three instances of one parametric sub, each read by one view
+            instance, are not shared, though one registration has several
+            readers; one instance read by three view instances is"
+    (is (= [nil nil nil]
+           (mapv :shared-count
+                 (-> (g/layout {:level-1-subs (for [i [1 2 3]]
+                                                {:sub-id :todo/by-id :query-v [:todo/by-id i]
+                                                 :changed? true
+                                                 :readers [:todo/row-a :todo/row-b :todo/row-c]})
+                                :view-rows (for [[v i] [[:todo/row-a 1] [:todo/row-b 2] [:todo/row-c 3]]]
+                                             {:view-id v :render-key [v i] :action :rerender
+                                              :deref-subs [[:todo/by-id i]]})})
+                     :nodes :l1))))
+    (is (= [3] (mapv :shared-count
+                     (-> (g/layout {:level-1-subs [{:sub-id :app/user :query-v [:app/user]
+                                                    :changed? true :readers [:app/row]}]
+                                    :view-rows (for [i (range 3)]
+                                                 {:view-id :app/row :render-key [:app/row i]
+                                                  :action :rerender :deref-subs [[:app/user]]})})
+                         :nodes :l1))))))
 
 (deftest layout-level-2-edge-starts-at-the-declared-input-instance
   (testing "a Level-2 row carrying its declared input query-vs draws its

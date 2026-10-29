@@ -88,12 +88,11 @@
             is the muted, NEUTRAL en-dash 'n/a'"
     (is (= {:ok         ["✓" :success]
             :error      ["✗" :error]
-            :rollback   ["✗" :error]
             :overridden ["↺" :accent]
             :skipped    ["–" :text-tertiary]}
            (into {} (map (juxt identity (juxt badge/fx-row-status-glyph
                                                badge/fx-row-status-token-key)))
-                 [:ok :error :rollback :overridden :skipped])))))
+                 [:ok :error :overridden :skipped])))))
 
 (deftest overridden-hover-names-the-replacement-test
   (testing "the ↺ row's hover names the replacement"

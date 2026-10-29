@@ -14,16 +14,12 @@
   ## Shape
 
   Input is a `wire-timing` map per
-  `panels/managed-fx-helpers/http-wire-timing`:
+  `panels/managed-fx-helpers/wire-timing`:
 
-      {:phases   [[:dns     2]
-                  [:connect 15]
-                  [:ssl     22]
-                  [:request 1]
-                  [:ttfb    180]
-                  [:download 30]]
-       :total-ms 250
-       :synthesised? false}
+      {:phases   [[:issued 0]
+                  [:elapsed 80]]
+       :total-ms 80
+       :synthesised? true}
 
   Each phase is `[<phase-keyword> <duration-ms>]`. The renderer normalises
   bar widths against `:total-ms` (or against the sum of phase durations

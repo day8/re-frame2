@@ -212,7 +212,7 @@
       unchanged row is filtered out of `visible-rows` BEFORE
       `subscriptions-table` sees it and its inline violation never renders.
     * the two violations split per-row vs step-level ON `:failing-id` alone.
-      `attach-to-sub-row` attaches to the row whose `:sub-id` matches, and
+      `attach-violations` attaches to the row whose `:sub-id` matches, and
       falls back to the step-level bucket when none does — so the second
       violation names a sub that recomputed nowhere in this cascade, which
       is the real shape it models (an indirect recompute outside the
@@ -255,7 +255,7 @@
              :value             "bad"
              :explain-humanized {:preview ["should be an int"]}}}
      ;; STEP-LEVEL violation — `:failing-id` matches NO row, so
-     ;; `attach-to-sub-row` falls back to the step-level bucket.
+     ;; `attach-violations` falls back to the step-level bucket.
      {:id 5 :time 50 :operation :rf.error/schema-validation-failure
       :tags {:where             :sub-return
              :failing-id        :cart/indirect
@@ -280,7 +280,7 @@
   "epoch/error-ex-data/rf-xray-epoch-error-interceptor-row-0-0")
 
 (def ^:private sub-row-violation-site
-  "epoch/violation-explain/:sub-row-preview/0")
+  "epoch/violation-explain/:sub-row-0/0")
 
 (def ^:private sub-step-violation-site
   "epoch/violation-explain/:subscriptions/0")
@@ -715,7 +715,7 @@
             ;; ---- controls, taken from the target ------------------------
             (is (some? (some-> (:container left)
                                (.querySelector
-                                 "[data-testid=\"rf-xray-epoch-violations-sub-row-preview\"]")))
+                                 "[data-testid=\"rf-xray-epoch-violations-sub-row-0\"]")))
                 "control: the PER-ROW violation block rendered. It rides the
                  table's `:row-extras`, which only runs for a VISIBLE row —
                  the default `:changed` filter drops an unchanged one before
@@ -725,7 +725,7 @@
                                  "[data-testid=\"rf-xray-epoch-violations-subscriptions\"]")))
                 "control: and the STEP-LEVEL block rendered — its violation
                  names a sub that recomputed nowhere in this cascade, which
-                 is what makes `attach-to-sub-row` fall back to the
+                 is what makes `attach-violations` fall back to the
                  step-level bucket rather than attaching to a row")
             (is (some? (some-> (:container left)
                                (.querySelector

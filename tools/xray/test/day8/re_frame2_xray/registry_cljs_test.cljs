@@ -91,7 +91,6 @@
    :rf.xray/editor-host-default
    :rf.xray/epoch-history
    :rf.xray/epoch-pipeline
-   :rf.xray.epoch/expanded-rows
    :rf.xray/focused-epoch-record
    :rf.xray.epoch/parent-epoch-index
    :rf.xray.epoch/subs-filter-mode
@@ -112,7 +111,6 @@
    :rf.xray/machine-inspector-data
    :rf.xray/machine-transitions-for-focused-event
    :rf.xray/machine-focused-epoch-cascade
-   :rf.xray/machine-scrubber-position
    :rf.xray/machine-snapshots
    :rf.xray/managed-fx-for-focused-event
    :rf.xray/managed-fx-expanded-sections
@@ -127,6 +125,7 @@
    :rf.xray/palette-results
    :rf.xray/registered-machines
    :rf.xray/registered-routes
+   :rf.xray/observed-frame-routes
    :rf.xray/current-route-slice
    :rf.xray/routing-tab-data
    :rf.xray/registered-resources
@@ -156,7 +155,6 @@
    :rf.xray.static.interceptors/registry
    :rf.xray.static.interceptors/tab-data
    :rf.xray/reset-flash
-   :rf.xray/selected-epoch-record
    :rf.xray/selected-machine-id
    :rf.xray/modal-positioning
    :rf.xray/mute-manager-open?
@@ -219,7 +217,6 @@
    :rf.xray/cancellation-cascade-toggle-expand
    :rf.xray/clear-reset-flash
    :rf.xray/clear-trace-buffer
-   :rf.xray/clear-trace-expand
    :rf.xray/close-edit-popup
    :rf.xray/close-shell
    :rf.xray.edn-inspector/reset-expansion
@@ -238,8 +235,6 @@
    :rf.xray/editor-hint-show
    :rf.xray/editor-hint-dismiss
    :rf.xray/editor-hint-open-settings
-   :rf.xray.epoch/toggle-row-expand
-   :rf.xray.epoch/clear-row-expand
    :rf.xray.epoch/set-subs-filter-mode
    :rf.xray/epoch-recorded
    :rf.xray/filter-by-fx
@@ -318,7 +313,6 @@
    :rf.xray/set-event-list-col-width
    :rf.xray/set-panel-width-px
    :rf.xray/set-events-list-height-px
-   :rf.xray/set-scrubber-position
    :rf.xray/machine-focus-prev
    :rf.xray/machine-focus-next
    :rf.xray/set-target-frame

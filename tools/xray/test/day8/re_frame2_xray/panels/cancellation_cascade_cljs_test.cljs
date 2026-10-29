@@ -113,15 +113,46 @@
 
 ;; ---- the row jump -------------------------------------------------------
 
-(deftest focus-trace-entry-lands-on-a-live-tab
-  ;; `:epoch` is the live Dynamic tab the `:rf.xray/select-dispatch-id` pin
-  ;; drives; an unregistered id would land the shell's unknown-tab stub.
+(deftest focus-trace-entry-jumps-focus-to-the-rows-dispatch
+  ;; The jump pins the row's dispatch in its host frame, switches to the
+  ;; Epoch tab and closes the popover. It starts from a NON-default tab with
+  ;; the popover open and no stored pin, so each assertion can only hold if
+  ;; the jump's dispatches ran.
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (seed-trace! cancel-cascade-buffer)
+    (rf/dispatch-sync [:rf.xray/select-tab :trace])
+    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+    (is (= [:trace true nil]
+           [@(rf/subscribe [:rf.xray/selected-tab])
+            @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])
+            (get-in (rf.frame/frame-app-db-value :rf/xray) [:focus :dispatch-id])])
+        "PRECONDITION: another tab, popover open, nothing pinned")
     (rf/dispatch-sync [:rf.xray/focus-trace-entry
                        {:dispatch-id 7 :frame :rf/default :trace-id 1}])
-    (is (= :epoch @(rf/subscribe [:rf.xray/selected-tab])))))
+    (is (= :epoch @(rf/subscribe [:rf.xray/selected-tab])))
+    (is (= [7 :rf/default]
+           ((juxt :dispatch-id :frame)
+            (get (rf.frame/frame-app-db-value :rf/xray) :focus)))
+        "the row's dispatch is pinned in its host frame")
+    (is (false? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?]))
+        "the popover closes on the jump")))
+
+(deftest cascade-rows-carry-their-host-frame-into-the-jump
+  ;; `select-dispatch-id` needs the frame because dispatch ids are unique
+  ;; only within one, so every clickable row hands its trace's frame over.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (seed-trace! cancel-cascade-buffer)
+    (rf/dispatch-sync [:rf.xray/select-machine-id :user-session])
+    (let [rows (find-all-by-testid-prefix (side-panel-tree)
+                                          "rf-xray-cancellation-cascade-abort-row-")
+          seen (atom [])]
+      (with-redefs [rf/dispatch (fn [ev _opts] (swap! seen conj ev))]
+        (doseq [[_ attrs] rows] ((:on-click attrs) nil)))
+      (is (= 2 (count @seen)) "PRECONDITION: both abort rows are clickable")
+      (is (every? #(= :rf/default (:frame (second %))) @seen)
+          (str "a row jump dropped its host frame: " (pr-str @seen))))))
 
 ;; ---- modal positioning --------------------------------------------------
 

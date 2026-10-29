@@ -299,7 +299,8 @@
      :actor-id       (or (:actor-id tags) (:machine-id tags) (:spawned-id tags))
      :correlation-id (or (:request-id tags) (:correlation-id tags))
      :trace-id       (:id ev)
-     :dispatch-id    (:rf.trace/dispatch-id tags)}))
+     :dispatch-id    (:rf.trace/dispatch-id tags)
+     :frame          (:frame tags)}))
 
 (defn- teardown-row
   "Build one child-teardown row from a destroy trace event."
@@ -314,7 +315,8 @@
      :last-state     (:last-state tags)
      :inflight-count nil  ;; populated downstream from the gathered aborts
      :trace-id       (:id ev)
-     :dispatch-id    (:rf.trace/dispatch-id tags)}))
+     :dispatch-id    (:rf.trace/dispatch-id tags)
+     :frame          (:frame tags)}))
 
 (defn- decision-row
   "Build the parent-decision row from a `:rf.event/dispatched` trace
@@ -326,7 +328,8 @@
        :t           (:time ev)
        :machine-id  (or (:machine-id tags) (:handler-id tags))
        :dispatch-id (:rf.trace/dispatch-id tags)
-       :trace-id    (:id ev)})))
+       :trace-id    (:id ev)
+       :frame       (:frame tags)})))
 
 ;; ---- cascade extraction -------------------------------------------------
 

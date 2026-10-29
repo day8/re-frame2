@@ -7,7 +7,7 @@
             [day8.re-frame2-xray.filters.error-override :as eo]))
 
 ;; A bundle is errored iff its `:other` bucket carries an error trace —
-;; `:op-type :error`, or any `:rf.error/*` operation.
+;; `:op-type :error`, the severity every `:rf.error/*` producer stamps.
 
 (def ^:private errored-out
   {:event [:auth/login {}] :dispatch-id 1 :other [{:op-type :error}]})
@@ -19,7 +19,8 @@
   {:event [:mouse/move {}] :dispatch-id 3 :other []})
 
 (def ^:private errored-in-non-match
-  {:event [:order/retry {}] :dispatch-id 4 :other [{:operation :rf.error/handler-threw}]})
+  {:event [:order/retry {}] :dispatch-id 4
+   :other [{:op-type :error :operation :rf.error/handler-exception}]})
 
 (deftest re-adds-an-errored-bundle-an-OUT-pill-dropped
   (testing "every errored bundle a filter dropped comes back tagged, in its

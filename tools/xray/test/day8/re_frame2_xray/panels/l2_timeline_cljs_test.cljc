@@ -61,5 +61,5 @@
     false {:other [(ev :rf.machine/transition :op-type :rf.machine)
                    (ev :rf.frame/created      :op-type :rf.frame)]}
     true  {:other [(ev :rf.error/handler-exception :op-type :error)]}
-    ;; the :errors slot alone lights it too
-    true  {:errors [{:operation :rf.error/no-such-fx}]}))
+    ;; a warning lights it too
+    true  {:other [(ev :rf.ssr/hydration-mismatch :op-type :warning)]}))

@@ -98,25 +98,26 @@
 ;; ---- extract-cascade ----------------------------------------------------
 
 (deftest extract-single-abort
-  ;; Every row carries the canonical :rf.trace/dispatch-id, and the abort
-  ;; pairs on its request-id.
+  ;; Every row carries the canonical :rf.trace/dispatch-id and the host
+  ;; frame its trace came from (the row jump needs both, since dispatch ids
+  ;; are unique only within a frame), and the abort pairs on its request-id.
   (is (= {:parent-decision  {:event-vec [:auth/logout] :t 1000 :machine-id nil
-                             :dispatch-id 42 :trace-id 1}
+                             :dispatch-id 42 :trace-id 1 :frame :app/main}
           :child-teardowns  [{:child-id :user-session :spawned-id nil :parent-id nil
                               :invoke-id nil :t 1010 :reason :explicit
                               :last-state nil :inflight-count 1
-                              :trace-id 2 :dispatch-id 42}]
+                              :trace-id 2 :dispatch-id 42 :frame :app/main}]
           :effect-aborts    [{:fx :http :req {:request-id :req-1 :url "/api/profile"}
                               :t 1020 :cancel-cause :actor-destroyed
                               :request-id :req-1 :url "/api/profile"
                               :actor-id :user-session :correlation-id :req-1
-                              :trace-id 3 :dispatch-id 42}]
+                              :trace-id 3 :dispatch-id 42 :frame :app/main}]
           :total-elapsed-ms 20
           :empty-kind       nil}
          (h/extract-cascade
-           [(dispatched-ev [:auth/logout] {:dispatch-id 42 :time 1000 :id 1})
-            (destroy-ev {:machine-id :user-session :dispatch-id 42 :time 1010 :id 2})
-            (http-abort-ev {:url "/api/profile" :dispatch-id 42 :time 1020 :id 3})]))))
+           [(dispatched-ev [:auth/logout] {:dispatch-id 42 :time 1000 :id 1 :frame :app/main})
+            (destroy-ev {:machine-id :user-session :dispatch-id 42 :time 1010 :id 2 :frame :app/main})
+            (http-abort-ev {:url "/api/profile" :dispatch-id 42 :time 1020 :id 3 :frame :app/main})]))))
 
 (deftest extract-counts-an-actor-destroy-abort-once
   ;; Destroying an actor with one in-flight request emits the registry's

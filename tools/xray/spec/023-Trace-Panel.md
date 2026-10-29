@@ -219,9 +219,10 @@ The `:rf.event/db-changed` trace event carries only `:event` + `:frame` — **no
 ### §10.2 Privacy — what reaches this panel, and what is withheld
 
 This panel prints raw application values: event vectors, effect arguments, subscription `old → new` pairs and
-app-db per-path diffs. Every one of them is projected from the focused **epoch record**, so the gate standing
+app-db per-path diffs. Outside an `:ungrouped` focus (the **At the ring read** bullet) every one of them is
+projected from the focused **epoch record**, so the gate standing
 in front of *these cells* is the **At history read** one below. The two gates before it act earlier and at a
-different grain, on paths this panel does not print from; they are listed because they share one predicate with
+different grain, on paths this panel prints from for that one focus alone; they are listed because they share one predicate with
 it, and because a section naming only the nearest gate would invite the reader to assume the rest of the
 pipeline is ungated. [`013` §One policy](./013-Trace-Consumer.md#one-policy-three-ingress-paths-rf2-y8doi13)
 owns the ingress contract; this section says only which of those gates reaches this panel.
@@ -242,9 +243,13 @@ owns the ingress contract; this section says only which of those gates reaches t
   so `:rf.xray/event-bundles`. `bundles-for-frame` applies it per **bundle**: a bundle carrying any suppressed
   event is dropped **whole**, because scrubbing the one row is unsafe — a non-sensitive sub recompute or view
   render in the same cascade can structurally reveal the value, and the bundle's `:subs` / `:renders` /
-  `:effects` slots are projections of the very events a scrub would remove. **Neither read feeds the rows this
-  panel prints.** The bundle read serves the Fresco advisor and its causal slice; this panel's only use of the
-  event-bundle path is §2's 3px status stripe, which carries a lifecycle colour and no text.
+  `:effects` slots are projections of the very events a scrub would remove. **The bundle read feeds this
+  panel's rows for one focus only**: a focus pinning the `:ungrouped` pseudo-bundle (traces fired outside any
+  event, a hydration mismatch among them) settles no epoch, so the panel lists that bundle's own trace events
+  (`trace_helpers/project-feed-from-ungrouped`), and what protects those rows is this per-bundle drop. Every
+  other focus prints from the epoch record; there the bundle read serves the Fresco advisor and its causal
+  slice, and this panel's only other use of the event-bundle path is §2's 3px status stripe, which carries a
+  lifecycle colour and no text.
 - **At history read — dropped whole, not scrubbed.** `epoch/redact-history` drops an epoch record when
   **either** signal fires: the framework-stamped `:rf.epoch/sensitive?` rollup, or a suppressed event in the
   record's own `:trace-events` — the same `config/suppress-sensitive?` predicate the ingest gate applies, here
@@ -382,7 +387,7 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.cofx` (inject) | COEFFECT | COEFFECT | run | cofx-id → value | dur? |
 | `:rf.cofx/skipped-on-platform` | COEFFECT | COEFFECT | skipped-on-platform | cofx-id | — |
 | `:rf.event/run-start`+`run-end` | EVENT HANDLER | EVENT | handler ran | handler flavour (`:rf.event/sync?` flag if dispatch-sync) | dur (run-end−run-start) |
-| `:rf.event/db-changed` | EFFECT HANDLERS | DB | changed | path old → new | — |
+| `:rf.event/db-changed` | EFFECT HANDLERS | DB | changed | — (the op carries no path; the per-path list beneath the row carries `path old → new`, §10.1) | — |
 | `:rf.event/db-noop` | EFFECT HANDLERS | DB | unchanged | returned unchanged db — nothing committed | — |
 | `:rf.machine/event-received` | EVENT HANDLER | MACHINE | event-received | event | — |
 | `:rf.machine/guard-evaluated` | EVENT HANDLER | MACHINE | guard-evaluated | guard-id ✓/✗ | — |
@@ -409,12 +414,12 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.machine.spawn/spawned` · `:rf.machine.spawn/cancelled-on-join-resolution` · `:rf.machine.spawn-all/*` | EFFECT HANDLERS | MACHINE | spawned / spawn-cancelled / spawn-all-started/completed/failed | invoke-id | — (↗ child) |
 | `:rf.machine/after` · `done` · `finished` | EFFECT HANDLERS | MACHINE | after / done / finished | delay / output | — |
 | `:rf.sub/create` | SUBSCRIPTIONS | SUB | created | sub-id | — |
-| `:rf.sub/run` (`:rf.sub/value-changed?` ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new | dur? |
+| `:rf.sub/run` (`:rf.sub/value-changed?` ✓) | SUBSCRIPTIONS | SUB | recalculated | sub-id  old → new (`:rf.sub/prev-value` → `:rf.sub/value`; sub-id alone on a first run) | dur? |
 | `:rf.sub/run` (`:rf.sub/value-changed?` ✗) | SUBSCRIPTIONS | SUB | ran-unchanged | sub-id | dur? |
 | `:rf.sub/skip` | SUBSCRIPTIONS | SUB | cache-hit | sub-id · `:reason :input-value-equal` | — |
 | `:rf.sub/dispose` | SUBSCRIPTIONS | SUB | disposed | sub-id · query-v · `:reason` (closed set `:no-more-derefers / :hot-reload / :cache-clear`) · frame | — |
 | `:rf.view/render` (the render-START marker) | VIEWS | VIEW | render | render-key + `:frame` — its only tags | — |
-| `:rf.view/rendered` (`:rf.view/mount?` ✗) | VIEWS | VIEW | re-rendered | view-id ← cause-sub | `elapsed-ms` |
+| `:rf.view/rendered` (`:rf.view/mount?` ✗) | VIEWS | VIEW | re-rendered | view-id ← `:rf.view/triggered-by` (absent on a props-driven re-render) | `elapsed-ms` |
 | `:rf.view/rendered` (`:rf.view/mount?` ✓) | VIEWS | VIEW | mounted | view-id | `elapsed-ms` |
 | `:rf.view/unmounted` | VIEWS | VIEW | unmounted | view-id | — |
 | `:rf.view/dropped-after` · `rendered-cap-reached` | VIEWS | VIEW | dropped / cap-reached | view-id | — |

@@ -22,13 +22,23 @@
     (catch :default _
       (str v))))
 
+(defn- realised-sequential?
+  "True for the sequentials whose elements are already realised: a vector
+  or a list. Any other seq — lazy, `(range)`, a `cons` over a lazy tail —
+  is a leaf here and is left for the edn-inspector, which bounds it itself:
+  walking it would realise it, running app code inside the devtool or
+  hanging the page on an endless one."
+  [v]
+  (or (vector? v) (and (list? v) (counted? v))))
+
 (defn- needs-elision?
   "Pre-scan `v` for any string leaf exceeding the display ceiling. When
   no leaf needs elision the whole tree can pass through `display-value`
   unchanged — preserving structural identity downstream.
 
   Short-circuits on the first hit: any large string anywhere in the
-  subtree returns `true` immediately."
+  subtree returns `true` immediately. An uncounted seq is a leaf (see
+  `realised-sequential?`)."
   [v]
   (cond
     (string? v)
@@ -37,7 +47,7 @@
     (map? v)
     (some (fn [[_ value]] (needs-elision? value)) v)
 
-    (or (vector? v) (set? v) (sequential? v))
+    (or (set? v) (realised-sequential? v))
     (some needs-elision? v)
 
     :else
@@ -47,9 +57,9 @@
 ;; rewrite allocates a fresh tree on every call, even when nothing
 ;; needs eliding; that would defeat the `(identical? before after)`
 ;; short-circuit in `engine/project` and force the diff
-;; engine into a full A* walk on every render. Together with the
-;; edn-inspector's projection memo this keeps renders O(1) rather than
-;; O(tree-size) when inputs are stable.
+;; engine into a full A* walk on every render. The pre-scan itself is a
+;; walk of the tree per call; what the cache and the identity short-circuit
+;; save is the rewrite and the diff walk downstream.
 ;;
 ;; The fast path (`needs-elision?` → false) returns the input as-is and
 ;; preserves identity natively — no cache lookup needed. The slow path
@@ -89,7 +99,7 @@
     (set? v)
     (into (empty v) (map rewrite) v)
 
-    (sequential? v)
+    (realised-sequential? v)
     (doall (map rewrite v))
 
     :else

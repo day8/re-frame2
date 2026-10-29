@@ -170,13 +170,11 @@
 ;; Source of the issue traces on an event-bundle record: every non-domino trace
 ;; event (errors / warnings / …) lands in the event-bundle's `:other` bucket
 ;; (`re-frame.trace.projection/group-by-event` · `domino-bucket` →
-;; `:other`); the event-bundle's `:errors` slot is checked too for
-;; defence in depth (synthetic fixtures / older traces that populated it
-;; directly).
+;; `:other`).
 
 (defn event-bundle-has-issue?
   "True iff this event-bundle's epoch CONTAINS AN ISSUE — i.e. any trace event
-  in the event-bundle's `:other` bucket (or its `:errors` slot) is an issue per
+  in the event-bundle's `:other` bucket is an issue per
   the canonical `issues-ribbon-helpers/issue-event?` predicate (errors +
   warnings — the SAME set the Issues ribbon/feed aggregates, reused
   rather than re-enumerated). Drives the L2 row's light-pink
@@ -186,5 +184,4 @@
   [event-bundle]
   (boolean
     (when (map? event-bundle)
-      (or (some issues/issue-event? (:other event-bundle))
-          (seq (:errors event-bundle))))))
+      (some issues/issue-event? (:other event-bundle)))))

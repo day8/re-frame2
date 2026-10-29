@@ -245,6 +245,29 @@
       (is (= [[:http :rf.http/managed] [:ssr-fx :rf.server/set-header]]
              (mapv (juxt :surface :fx-id) (h/event-bundle->managed-fx-records cascade)))))))
 
+(deftest cascade-walker-records-the-failing-fx
+  (testing "a throwing handler, an unregistered id and a platform skip each
+            replace the `:rf.fx/handled` row with an `:error` / `:warning` row
+            the trace projection buckets under `:other`; each is still the
+            fx's record, in trace order beside the handled one"
+    (let [outcome (fn [id op op-type fx-id args]
+                    {:id id :operation op :op-type op-type :time 1000
+                     :tags {:rf.fx/id fx-id :rf.fx/args args :frame :rf/default
+                            :rf.trace/dispatch-id 7}})
+          cascade {:dispatch-id 7
+                   :frame :rf/default
+                   :effects [(assoc (fx-handled :rf.ws/connect {:socket-id "s1"}) :id 2)]
+                   :other [(outcome 3 :rf.error/fx-handler-exception :error
+                                    :rf.machine/spawn {:machine-id :m})
+                           (outcome 4 :rf.fx/skipped-on-platform :warning
+                                    :rf.server/set-header {:name "x"})
+                           (outcome 5 :rf.error/no-such-fx :error
+                                    :rf.ws/send {:socket-id "s1"})
+                           (surface-ev :rf.ws/connected {:socket-id "s1"})]}]
+      (is (= [[:rf.ws/connect :ok] [:rf.machine/spawn :error]
+              [:rf.server/set-header :skipped] [:rf.ws/send :error]]
+             (mapv (juxt :fx-id :status) (h/event-bundle->managed-fx-records cascade)))))))
+
 (deftest cascade-walker-paths-untracked-without-diff-feed
   (testing "no diff feed (what production passes) leaves :paths-touched nil —
             UNTRACKED — never [], which means measured-and-unchanged and would

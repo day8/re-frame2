@@ -197,10 +197,9 @@
 (deftest needs-ticking?-only-while-a-ring-on-screen-has-a-deadline
   ;; A crossed ring has a deadline (its retention window), so it keeps the
   ;; clock alive exactly as long as prune-timers keeps it on screen.
-  (are [timers scrub now-ms ticking?] (= ticking? (h/needs-ticking? timers scrub now-ms))
-    [{:status :armed}] :present 1000                                true
-    []                 :present 1000                                false
-    [{:status :armed}] 3        1000                                false ; retro freezes every ring
-    [cancelled-ring]   :present (+ 2000 h/cancelled-retention-ms)   true
-    [cancelled-ring]   :present (+ 2000 h/cancelled-retention-ms 1) false
-    [cancelled-ring]   :present nil                                 true)) ; no clock yet: the first tick ages it
+  (are [timers now-ms ticking?] (= ticking? (h/needs-ticking? timers now-ms))
+    [{:status :armed}] 1000                                true
+    []                 1000                                false
+    [cancelled-ring]   (+ 2000 h/cancelled-retention-ms)   true
+    [cancelled-ring]   (+ 2000 h/cancelled-retention-ms 1) false
+    [cancelled-ring]   nil                                 true)) ; no clock yet: the first tick ages it

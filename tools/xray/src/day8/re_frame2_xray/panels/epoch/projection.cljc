@@ -61,11 +61,6 @@
   [ev]
   (:operation ev))
 
-(defn- op-ns
-  "Namespace of the operation keyword, or nil for non-keyword ops."
-  [ev]
-  (when (keyword? (op ev)) (namespace (op ev))))
-
 (defn- find-op
   "First event whose `:operation` equals `op-kw`. Returns nil when
   none match."
@@ -76,6 +71,27 @@
   "All events whose `:operation` equals `op-kw`, in trace order."
   [events op-kw]
   (filterv #(= op-kw (op %)) events))
+
+(defn- actor-of
+  "The machine instance a machine trace addresses. Machine traces name the
+  live instance under `:actor-id` (`:machine-id` is the registered type);
+  traces and fixtures that stamp only `:machine-id` fall back to it."
+  [ev]
+  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id)))
+
+(defn- terminal-do-fx
+  "The router's `:rf.fx/do-fx` marker for the handler's own `:fx` walk —
+  the one stamping `:rf.event/fx`. Nested walks (a machine `:exit`
+  cascade's fx, a resource release) emit a bare marker earlier in the
+  stream (`re-frame.fx/do-fx`, Spec 002 §`:fx` ordering), so the first
+  marker is not the handler's. Falls back to the first marker for a
+  stream with no stamped one."
+  [events]
+  (or (some #(when (and (= :rf.fx/do-fx (op %))
+                        (contains? (:tags %) :rf.event/fx))
+               %)
+            events)
+      (find-op events :rf.fx/do-fx)))
 
 ;; ---- DISPATCH row --------------------------------------------------------
 
@@ -451,17 +467,13 @@
 ;; `:rf.event/run-end :rf.event/coeffects` stamp.
 
 (def system-cofx-ids
-  "Coeffect ids the substrate stages on every event handler from the fold's
-  own arguments / framework context keys — the user did not register them
-  via `reg-cofx` and the operator does not benefit from seeing them.
-  Filtered out of the COEFFECT step at projection time.
-
-  Mirrors `re-frame.fx/framework-coeffect-keys`; the substrate
-  filters these out of the `:rf.event/run-end :rf.event/coeffects`
-  stamp, and filtering here too is a belt-and-braces
-  defence — test fixtures that supply a raw cofx-map
-  through the fallback get clean output."
-  #{:db :event :frame :source :trace-id})
+  "The coeffect keys the runtime supplies itself — the same members as
+  `re-frame.fx/framework-coeffect-keys`, which the projection test pins.
+  The substrate drops them from the `:rf.event/run-end :rf.event/coeffects`
+  stamp; the COEFFECT step drops them too, so a raw coeffects map reads
+  the same as a stamped one."
+  #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
+    :rf.cofx/mint-policy})
 
 (defn- user-cofx?
   "True iff `id` is a user-defined coeffect (i.e. not a system-injected
@@ -590,26 +602,21 @@
   WHAT MARKS A MACHINE MACROSTEP. The authoritative signal is
   `:rf.machine/transition`: the substrate's `commit-or-finalize`
   (machines · lifecycle_fx · registration.cljc) emits ONE transition
-  summary per macrostep UNCONDITIONALLY — for action-firing transitions,
-  pure state moves, entry-cascade-only transitions (whose `:entry`
-  actions are NOT traced as `:rf.machine/action-ran`),
-  AND the bootstrap `:initial-entry`. Keying
-  ONLY on `:rf.machine/action-ran` would let any
-  macrostep that fires no action (HVAC `:hvac/power-cycle` entry cascade,
-  bootstrap) fall through to `:effectful` — the machine handler always
-  rides a `:rf.fx/do-fx` (its snapshot write) — and render the raw `:db`
-  diff with NO machine section.
+  summary per macrostep that changed something — action-firing or not.
+  The two macrosteps that emit none are marked by their own traces
+  below: an unhandled event's no-op, and an eager start.
+
+  `:rf.machine/action-ran` alone is NOT a marker: a plain `reg-event`
+  whose `:fx` destroys a machine runs that actor's `:exit` cascade
+  synchronously, so its stream carries action rows and no macrostep. That
+  handler stays `:effectful`, keeping its source block and `:db` diff, and
+  `handler-row` attaches the cascade rows beside them.
 
   The machine predicates MUST precede the `:rf.fx/do-fx` check: a machine
   handler always rides a do-fx, so do-fx must never win for a macrostep."
   [events]
   (cond
-    ;; A `:rf.machine/transition` summary marks a machine
-    ;; macrostep (action-firing or not, including the bootstrap
-    ;; :initial-entry). This is the authoritative, action-independent
-    ;; signal; it subsumes the narrow action-ran check below.
     (some #(= :rf.machine/transition (op %)) events) :reg-machine
-    (some #(= :rf.machine/action-ran (op %)) events) :reg-machine
     ;; A cascade whose ONLY machine activity is the benign
     ;; unhandled-event no-op (an event that matched no transition, so no
     ;; action ran AND — since the source suppresses the no-change {X}→{X}
@@ -637,7 +644,7 @@
   declaration order. Empty when no do-fx fired or the fx vector is
   empty/missing."
   [events]
-  (when-let [do-fx (find-op events :rf.fx/do-fx)]
+  (when-let [do-fx (terminal-do-fx events)]
     (let [fx (common/tag-of do-fx :rf.event/fx)]
       (cond
         ;; map form: {:db ... :fx [...] :navigate ...}
@@ -662,25 +669,6 @@
 ;; cascade, so the HANDLER body's `:fx` sub-section would never render
 ;; against the live substrate — while reading GREEN against synthetic
 ;; fixtures that pass a MAP, a shape the runtime never emits.
-;;
-;; ## Why there is no `other`-effects diagnostic
-;;
-;; A diagnostic reporting `:other-effects` — the return map MINUS a
-;; hand-copied closed key set — as ":skipped, an effect the runtime
-;; ignored" has an EMPTY TRUE-POSITIVE POPULATION: a FOREIGN top-level key
-;; (`{:db … :legacy/persist {…}}`) — the population such a diagnostic would
-;; target, a classification key returned beside `:db` included — is REFUSED
-;; pre-commit. Its ops run `:rf.event/dispatched → :rf.event/run-start →
-;; :rf.event/db-pending → :rf.error/effect-map-shape → :rf.event/run-end`:
-;; NO `:rf.fx/do-fx` at all, nothing committed. So it never reaches a do-fx
-;; reader, and nothing is left such a diagnostic could truthfully report.
-;;
-;; The refusal IS surfaced, in band and by the framework:
-;; `attach-unclassified-errors` routes `:rf.error/effect-map-shape` onto the
-;; SIDE EFFECTS step. And nothing here hand-copies the framework's closed
-;; effect-key set — the authority is
-;; `re-frame.events/closed-effect-map-keys` (`:db`, `:rf.db/runtime`,
-;; `:fx`), and a copy of it that nothing keeps in step drifts.
 
 (defn- handler-fx-vec
   "The canonical `:fx` vector-of-vectors the handler returned, read off the
@@ -700,7 +688,7 @@
   The view renders this as the HANDLER body's `:fx` sub-section, `seq`-
   conditioned, so nil and empty both render nothing."
   [events]
-  (when-let [do-fx (find-op events :rf.fx/do-fx)]
+  (when-let [do-fx (terminal-do-fx events)]
     (let [fx (common/tag-of do-fx :rf.event/fx)]
       (cond
         (sequential? fx) (vec fx)
@@ -867,9 +855,7 @@
            :guard-id    (common/tag-of ev :guard-id)
            :outcome     (common/tag-of ev :outcome)
            :duration-ms (common/tag-of ev :duration-ms)
-           ;; guard-evaluated addresses the live actor under `:actor-id`;
-           ;; fall back to `:machine-id` for fixtures that stamp only that.
-           :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))}
+           :machine-id  (actor-of ev)}
     (common/tag-of ev :spec-path)
     (assoc :spec-path (common/tag-of ev :spec-path))
     (common/tag-of ev :exception)
@@ -904,9 +890,7 @@
              :outcome     outcome
              :threw?      (= :rf.error/action-threw outcome)
              :duration-ms (common/tag-of ev :duration-ms)
-             ;; action-ran addresses the live actor under `:actor-id`;
-             ;; fall back to `:machine-id` for fixtures that stamp only that.
-             :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+             :machine-id  (actor-of ev)
              :input       input}
       ;; The substrate stamps the selected transition's EXACT
       ;; spec-path discriminator (`:transition-slot`) on the action-ran
@@ -951,9 +935,7 @@
   (let [before (common/tag-of ev :before)
         after  (common/tag-of ev :after)]
     {:kind         :transition
-     ;; The transition trace carries the live actor instance under
-     ;; `:actor-id`; fall back to `:machine-id` for fixtures that stamp only that.
-     :machine-id   (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+     :machine-id   (actor-of ev)
      :event        (common/tag-of ev :event)
      :before       before
      :after        after
@@ -981,9 +963,8 @@
   [ev]
   (when-let [region (common/tag-of ev :region)]
     {:kind        :microstep
-     ;; Addressed by the live actor INSTANCE (`:actor-id`); the
-     ;; parent owns the round, so every co-selected region shares it.
-     :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+     ;; The parent owns the round, so every co-selected region shares it.
+     :machine-id  (actor-of ev)
      :region      region
      :round-index (common/tag-of ev :microstep-index)
      :from-state  (common/tag-of ev :from)
@@ -999,9 +980,7 @@
   :on-supersede / :on-frame-destroy`)."
   [ev]
   {:kind        :timer
-   ;; The timer/cancelled trace carries the owning actor instance under
-   ;; `:actor-id`; fall back to `:machine-id` for fixtures that stamp only that.
-   :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+   :machine-id  (actor-of ev)
    :state       (common/tag-of ev :state)
    :delay       (common/tag-of ev :delay)
    :reason      (common/tag-of ev :reason)
@@ -1018,9 +997,7 @@
   `machine-cascade-rows` stamps below)."
   [ev]
   {:kind       :no-op
-   ;; unhandled-no-op addresses the live actor under `:actor-id`;
-   ;; fall back to `:machine-id` for fixtures that stamp only that.
-   :machine-id (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+   :machine-id (actor-of ev)
    :event      (common/tag-of ev :event)
    :state      (common/tag-of ev :state)})
 
@@ -1118,11 +1095,8 @@
   (->> events
        (filter (fn [ev] (= :rf.machine.history/restored (op ev))))
        (mapv (fn [ev]
-               ;; History rows address the live actor under
-               ;; `:actor-id` (the join key to the transition row, which also
-               ;; carries `:actor-id`); fall back to `:machine-id` for
-               ;; fixtures that stamp only that.
-               {:machine-id      (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+               ;; The actor is the join key to the transition row.
+               {:machine-id      (actor-of ev)
                 :compound-path   (common/tag-of ev :compound-path)
                 :kind            (common/tag-of ev :kind)
                 :source          (common/tag-of ev :source)
@@ -1146,10 +1120,7 @@
   (->> events
        (filter (fn [ev] (= :rf.machine.history/recorded (op ev))))
        (mapv (fn [ev]
-               ;; Live actor under `:actor-id` (join key to the
-               ;; transition row); fall back to `:machine-id` for
-               ;; fixtures that stamp only that.
-               {:machine-id      (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+               {:machine-id      (actor-of ev)
                 :compound-path   (common/tag-of ev :compound-path)
                 :kind            (common/tag-of ev :kind)
                 :recorded-config (common/tag-of ev :recorded-config)
@@ -1630,6 +1601,30 @@
       (no-db-effect-with-flow? events) db-before
       :else                            nil)))
 
+(def ^:private fx-outcome-op->status
+  "Map a per-fx trace op → the fx-row `:status`. Closed set — a
+  `:fx`-vector entry surfaces
+  exactly one of these ops per `re-frame.fx/handle-one-fx`."
+  {:rf.fx/handled                 :ok
+   :rf.fx/override-applied        :overridden
+   :rf.fx/skipped-on-platform     :skipped
+   :rf.error/fx-handler-exception :error
+   :rf.error/no-such-fx           :error})
+
+(def ^:private fx-walk-ops
+  "Ops the `:fx` walk emits: one outcome op per entry, plus the
+  `:rf.fx/do-fx` marker."
+  (conj (set (keys fx-outcome-op->status)) :rf.fx/do-fx))
+
+(defn- handler-commit-window
+  "The trace events before the `:fx` walk starts. The handler's own `:db`
+  install commits before its `:fx` run (Spec 002 §`:fx` ordering and
+  atomicity guarantees), so a `:rf.event/db-changed` / `:rf.event/db-noop`
+  after the first walk op is a post-walk flow settle's commit, not the
+  handler's."
+  [events]
+  (take-while #(not (contains? fx-walk-ops (op %))) events))
+
 (defn handler-wrote-db?
   "True iff the handler actually wrote a `:db` effect this cascade.
   The discriminator off the trace stream:
@@ -1652,14 +1647,15 @@
   AT ALL' question the view needs to choose between a diff and the
   no-write placeholder."
   [events]
-  (or (some? (db-pending-t1 events))
-      (some? (find-op events :rf.event/db-changed))
-      ;; An unchanged-db `:db` commit emits :rf.event/db-noop
-      ;; (the complement of db-changed) instead of db-changed. The handler
-      ;; DID return a `:db` (it just didn't change app-db), so the HANDLER
-      ;; step's `:db` section must still show the returned db rather than the
-      ;; no-write placeholder.
-      (some? (find-op events :rf.event/db-noop))))
+  (let [window (handler-commit-window events)]
+    (or (some? (db-pending-t1 events))
+        (some? (find-op window :rf.event/db-changed))
+        ;; An unchanged-db `:db` commit emits :rf.event/db-noop
+        ;; (the complement of db-changed) instead of db-changed. The handler
+        ;; DID return a `:db` (it just didn't change app-db), so the HANDLER
+        ;; step's `:db` section must still show the returned db rather than the
+        ;; no-write placeholder.
+        (some? (find-op window :rf.event/db-noop)))))
 
 (defn handler-row
   "Build the step-N HANDLER row. ALWAYS present (every epoch has a
@@ -1669,6 +1665,9 @@
   - `:db-only`     → :db (post-handler snapshot)
   - `:effectful`   → :db + :fx
   - `:reg-machine` → :db + :fx + :machine {:cascade …}
+
+  `:machine` also rides a plain handler whose `:fx` ran machine cascade
+  rows (a destroy's `:exit` actions).
 
   The HANDLER `:db` sub-section is rendered from `:db-post-handler`
   (the effective post-handler / pre-flow snapshot) diffed against the
@@ -1685,7 +1684,8 @@
   (let [flavour     (handler-flavour events)
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
-        do-fx       (find-op events :rf.fx/do-fx)
+        do-fx       (terminal-do-fx events)
+        cascade     (machine-cascade-rows events)
         ;; The substrate stamps the per-handler wall-clock
         ;; duration as `:rf.event/elapsed-ms` on `:rf.event/run-end`
         ;; (`re-frame.router/emit-run-end-trace`); spec
@@ -1740,20 +1740,14 @@
                      ;; (see `handler-fx-vec`). nil when
                      ;; the handler returned no `:fx`; the view
                      ;; conditions the render on `seq`.
-                     ;;
-                     ;; There is no `:other-effects` slot beside this
-                     ;; one: a top-level key outside the framework's
-                     ;; closed effect-map set is refused pre-commit and
-                     ;; never reaches do-fx, and every key INSIDE it is
-                     ;; legal, so such a slot has no truthful population.
                      :fx-vec         (handler-fx-vec events)}]
+    ;; `:cascade` is the time-ordered row vector the view renders, the
+    ;; single source of truth for the machine section. A plain handler
+    ;; carries one too when its `:fx` ran a machine cascade (a destroy's
+    ;; `:exit` actions); see `handler-flavour`.
     (cond-> base
-      (= :reg-machine flavour)
-      (assoc :machine
-             ;; `:cascade` is the time-ordered row vector the
-             ;; view layer renders, the SINGLE source of truth for the
-             ;; machine section.
-             {:cascade (machine-cascade-rows events)})))))
+      (or (= :reg-machine flavour) (seq cascade))
+      (assoc :machine {:cascade cascade})))))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -1813,8 +1807,6 @@
 ;;            `[fx-id arg]` with the open-code chip + a per-effect
 ;;            tick (✓ ran / ✗ threw / ↺ overridden / – skipped-on-platform).
 ;;
-;; There is no `other` tier; see `side-effects-step`.
-;;
 ;; SETTLE-FIRST (confirmed against the live substrate):
 ;;
 ;; - PER-`:fx` SUCCESS IS RECORDED. Every entry in the `:fx`
@@ -1836,60 +1828,35 @@
 ;;   step at all; keying off `:rf.event/db-changed` keeps the
 ;;   ALWAYS-APPEARS contract tool-side.
 ;;
-;; - A FOREIGN TOP-LEVEL EFFECT KEY IS REFUSED, NOT DROPPED.
-;;   `re-frame.events/effect-map-defect`
-;;   validates the FINAL effects map's top level, and the router's
-;;   FINAL-effects boundary emits `:rf.error/effect-map-shape` in-band
-;;   and ABORTS the event pre-commit: `restore!`, outcome `:error`, no
-;;   `:db`, no `:rf.db/runtime`, no `:fx`.
-;;   `reg-event`'s own docstring puts it flatly — "Any other top-level
-;;   key REFUSES the event pre-commit … nothing is committed, and
-;;   nothing is silently dropped."
-;;
-;;   That refusal is WHY this panel has `attach-unclassified-errors`:
-;;   the refusal's trace is not one of the seven ops
-;;   `cascade-exception-ops` names, so without it the trace would be read
-;;   and discarded.
-;;
-;;   The legal top level is `events/closed-effect-map-keys`,
-;;   `#{:db :rf.db/runtime :fx}`; a classification key returned beside
-;;   `:db` is foreign like any other, refused with a `:reason` naming
-;;   `reg-classification`. The set is the AUTHORITY, and this panel keeps
-;;   no copy of it and no `other` diagnostic, which could only report a key
-;;   the router already refused. The reasoning is recorded above
-;;   `handler-fx-vec`.
+;; - A FOREIGN TOP-LEVEL EFFECT KEY IS REFUSED, NOT DROPPED: the router
+;;   emits `:rf.error/effect-map-shape` and aborts the event pre-commit
+;;   (`re-frame.events/effect-map-defect`). That trace is not one of
+;;   `cascade-exception-ops`, which is why `attach-unclassified-errors`
+;;   exists, and why the ledger has no `other` tier (`side-effects-step`).
 
-(def ^:private fx-outcome-op->status
-  "Map a per-fx trace op → the fx-row `:status`. Closed set — a
-  `:fx`-vector entry surfaces
-  exactly one of these ops per `re-frame.fx/handle-one-fx`."
-  {:rf.fx/handled                 :ok
-   :rf.fx/override-applied        :overridden
-   :rf.fx/skipped-on-platform     :skipped
-   :rf.error/fx-handler-exception :error
-   :rf.error/no-such-fx           :error})
-
-(defn- fx-attribution-map
-  "Build the `{fx-id → {:action-id … :phase …}}` per-action attribution
-  map for a cascade. Each entry maps a fx-id (first element
-  of a machine action's emitted fx tuple) to the FIRST action that
-  emitted it (cascade order). Empty map for non-machine cascades."
+(defn- fx-attribution-queues
+  "Build the `{fx-id → [{:action-id … :phase …} …]}` per-action
+  attribution queues for a cascade: for each fx-id (first element of a
+  machine action's emitted fx tuple), every emitting action in cascade
+  order. The machine walks its actions' fx in that same order, so the
+  Nth `:fx` row for an id belongs to the Nth action that emitted it.
+  Empty map for non-machine cascades."
   [events]
   (reduce
     (fn [acc ev]
       (if (and (= :rf.machine/action-ran (op ev))
                (map? (common/tag-of ev :outcome)))
         (let [{:keys [fx]} (common/tag-of ev :outcome)
-              action-id    (common/tag-of ev :action-id)
-              phase        (common/tag-of ev :phase)]
+              attribution  {:action-id (common/tag-of ev :action-id)
+                            :phase     (common/tag-of ev :phase)}]
           (reduce
             (fn [a entry]
               (let [fx-id (cond
                             (and (vector? entry) (pos? (count entry)))
                             (first entry)
                             (keyword? entry) entry)]
-                (if (and fx-id (not (contains? a fx-id)))
-                  (assoc a fx-id {:action-id action-id :phase phase})
+                (if fx-id
+                  (update a fx-id (fnil conj []) attribution)
                   a)))
             acc
             (or fx [])))
@@ -1900,11 +1867,9 @@
 (def ^:private candidate-passed-ops
   "Ops proving an event's own candidate transition passed validation: the
   change traces of its install, and the `:fx` walk, which runs only after
-  an install and emits one outcome op per entry plus the terminal
-  `:rf.fx/do-fx` marker."
-  (into #{:rf.event/db-changed :rf.event/db-noop
-          :rf.event/frame-state-changed :rf.fx/do-fx}
-        (keys fx-outcome-op->status)))
+  an install."
+  (into #{:rf.event/db-changed :rf.event/db-noop :rf.event/frame-state-changed}
+        fx-walk-ops))
 
 (defn- candidate-rejected-at?
   "True iff validation rejected the event's OWN candidate transition at the
@@ -1928,7 +1893,7 @@
   `:where :app-db` boundary (`candidate-rejected-at?`), so the handler's
   write never installed and app-db was never touched. `:rollback? true` is
   the stable public vocabulary for that rejection. The `:db` row paints ✗
-  and the reason attaches to it via `attach-to-fx-db-row`."
+  and the reason attaches to it (`violation-owners`)."
   [events]
   (candidate-rejected-at? events :app-db))
 
@@ -1942,9 +1907,10 @@
   rollback (db-rolled-back?) take precedence — a cascade fires exactly
   one of db-changed / db-noop for a `:db`-bearing commit."
   [events]
-  (and (some? (find-op events :rf.event/db-noop))
-       (not (some? (find-op events :rf.event/db-changed)))
-       (not (db-rolled-back? events))))
+  (let [window (handler-commit-window events)]
+    (and (some? (find-op window :rf.event/db-noop))
+         (not (some? (find-op window :rf.event/db-changed)))
+         (not (db-rolled-back? events)))))
 
 (defn db-commit?
   "True iff this cascade attempted a `:db` commit. Three
@@ -1968,11 +1934,15 @@
   (`emit-handled!` always stamps `:rf.fx/id`), so keying off one would
   show the `:db` row only on rollback. Keying off `:rf.event/
   db-changed` is what makes the SIDE EFFECTS step ALWAYS appear on a
-  bare `:db`."
+  bare `:db`.
+
+  (a) and (c) count only inside `handler-commit-window`: a post-walk flow
+  settle commits after the `:fx` walk, and its write is not the handler's."
   [events]
-  (or (db-rolled-back? events)
-      (some? (find-op events :rf.event/db-changed))
-      (some? (find-op events :rf.event/db-noop))))
+  (let [window (handler-commit-window events)]
+    (or (db-rolled-back? events)
+        (some? (find-op window :rf.event/db-changed))
+        (some? (find-op window :rf.event/db-noop)))))
 
 (defn db-effect-row
   "The synthesised `:db` row — the handler's app-db write, leading the
@@ -2115,8 +2085,9 @@
       acc)))
 
 (defn fx-effect-rows
-  "The `:fx` sub-step rows — one per entry in the handler's `:fx` vector.
-  Each row carries `:fx-id`, `:status` (`:ok / :overridden /
+  "The `:fx` sub-step rows — one per fx outcome op in the cascade: the
+  handler's `:fx` entries, and any fx a machine action or nested walk
+  ran inside it. Each row carries `:fx-id`, `:status` (`:ok / :overridden /
   :skipped / :error` per `fx-outcome-op->status`), `:args`,
   `:duration-ms`, and — for machine cascades — `:attributed-to`.
   Each row's `fx-id` carries the
@@ -2133,39 +2104,45 @@
   reads `:overridden` and carries `:override-to` (the redirect target, or
   `:re-frame.fx/fn-value`); a redirected one is keyed on the id the
   handler EMITTED. The override row itself is provenance, never a row of
-  its own, and a failure row keeps its `✗`: an override never hides one."
+  its own, and a failure row keeps its `✗`: an override never hides one.
+
+  Only the closed `fx-outcome-op->status` ops make rows. Any other
+  `:rf.fx/*` op an fx handler emits about its own work (a navigation's
+  `:rf.fx/push-url-failed`) is not an outcome, and its entry's outcome op
+  follows it."
   [events]
-  (let [attribution-map (fx-attribution-map events)
-        fn-overridden   (fn-value-overrides events)]
-    (vec
-      (for [[i ev] (map-indexed vector events)
-            :let [o     (op ev)
-                  from  (when (= :rf.fx/handled o) (common/tag-of ev :rf.fx/from))
-                  to    (if (some? from)
-                          (common/tag-of ev :rf.fx/id)
-                          (get fn-overridden i))
-                  fx-id (or from (common/tag-of ev :rf.fx/id))]
-            :when (and (not= :rf.fx/override-applied o)
-                       (or (= "rf.fx" (op-ns ev))
-                           (contains? #{:rf.error/fx-handler-exception
-                                        :rf.error/no-such-fx} o))
-                       (some? fx-id))]
-        (cond-> {:fx-id       fx-id
-                 :status      (if (some? to)
-                                :overridden
-                                (get fx-outcome-op->status o :ok))
-                 :args        (common/tag-of ev :rf.fx/args)
-                 ;; The substrate stamps the per-fx-handler
-                 ;; invocation duration as `:rf.fx/elapsed-ms` on
-                 ;; `:rf.fx/handled` (`re-frame.fx`;
-                 ;; spec 009 §241). `:duration-ms` is read
-                 ;; as a fixture-compat fallback.
-                 :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
-                                  (common/tag-of ev :duration-ms))}
-          (some? to)
-          (assoc :override-to to)
-          (get attribution-map fx-id)
-          (assoc :attributed-to (get attribution-map fx-id)))))))
+  (let [fn-overridden (fn-value-overrides events)]
+    (loop [evs (map-indexed vector events)
+           queues (fx-attribution-queues events)
+           rows []]
+      (if-let [[i ev] (first evs)]
+        (let [o     (op ev)
+              from  (when (= :rf.fx/handled o) (common/tag-of ev :rf.fx/from))
+              to    (if (some? from)
+                      (common/tag-of ev :rf.fx/id)
+                      (get fn-overridden i))
+              fx-id (or from (common/tag-of ev :rf.fx/id))]
+          (if (and (contains? fx-outcome-op->status o)
+                   (not= :rf.fx/override-applied o)
+                   (some? fx-id))
+            (let [attribution (first (get queues fx-id))]
+              (recur (rest evs)
+                     (cond-> queues attribution (update fx-id subvec 1))
+                     (conj rows
+                           (cond-> {:fx-id       fx-id
+                                    :status      (if (some? to)
+                                                   :overridden
+                                                   (fx-outcome-op->status o))
+                                    :args        (common/tag-of ev :rf.fx/args)
+                                    ;; `:rf.fx/elapsed-ms` on `:rf.fx/handled`
+                                    ;; (Spec 009 §241); `:duration-ms` is a
+                                    ;; fixture-compat fallback.
+                                    :duration-ms (or (common/tag-of ev :rf.fx/elapsed-ms)
+                                                     (common/tag-of ev :duration-ms))}
+                             (some? to)   (assoc :override-to to)
+                             attribution  (assoc :attributed-to attribution)))))
+            (recur (rest evs) queues rows)))
+        rows))))
 
 (defn side-effects-step
   "The SIDE EFFECTS step (not a `:db` / `:fx` / other sub-step
@@ -2212,8 +2189,7 @@
   ## Single-source-of-truth row shape
 
   The step carries ONE flat `:rows` slot in execution order. This is
-  load-bearing: the attachment machinery
-  (`attach-to-fx-db-row` / `attach-to-fx-row` / `attach-to-fx-error-row`)
+  load-bearing: the attachment machinery (`attach-to-matching-rows`)
   runs in `project` AFTER this builder and mutates the step's `:rows` to
   attach schema violations + exceptions by matching `:failing-id` against
   a row's `:fx-id`. The flat ledger renders the SAME `:rows`, so an
@@ -2752,6 +2728,10 @@
       ;; reads this slot. Absent on surfaces whose trace carries no such tag.
       (some? (:registered-path tags))
       (assoc :registered-path (:registered-path tags))
+      ;; A `:sub-return` failure names the query that failed, so it can
+      ;; attach to that instance's row (`sub-row-matcher`).
+      (some? (:rf.sub/query-v tags))
+      (assoc :query-v (:rf.sub/query-v tags))
       (= :rf.schema/violation op-kw)
       (assoc :pre-reload-schema  (:pre-reload-schema tags)
              :post-reload-schema (:post-reload-schema tags)))))
@@ -2773,97 +2753,45 @@
 ;; `panels/issues_ribbon_helpers.cljc` harvests by `:op-type` and so
 ;; picks the drift up as a `:warning` row.
 
-;; The attachment mapping:
-;;
-;;   :where slot    | owning step
-;;   ---------------|-----------------------------------------------
-;;   :event         | DISPATCH (one step)
-;;   :app-db        | SIDE EFFECTS step :db row (the handler db write)
-;;   :fx-args       | SIDE EFFECTS step (row-level :fx-id match)
-;;   :sub-return    | SUBSCRIPTIONS step (row-level :sub-id match)
-;;   :hot-reload    | issues ribbon only — no pipeline step
-
 (defn- attach-step-violation
   "Append `row` to `step`'s `:violations` vec when `step` is non-nil."
   [step row]
   (when step
     (update step :violations (fnil conj []) row)))
 
-(defn- attach-row-violation
-  "Update `row`'s `:violations` vec, appending `violation`."
-  [row violation]
-  (update row :violations (fnil conj []) violation))
-
-
-(defn- attach-to-fx-row
-  "When `step` is the SIDE EFFECTS step + the violation's `:failing-id`
-  matches an `fx-id` in the step's flat `:rows` slot, attach the
-  violation to that row's `:violations` vec. Otherwise attach to the
-  step-level `:violations`. Returns the updated step."
-  [step row]
-  (let [fx-id (:failing-id row)]
-    (if (some #(= fx-id (:fx-id %)) (:rows step))
-      (update step :rows
-              (fn [rows]
-                (mapv (fn [r]
-                        (if (= fx-id (:fx-id r))
-                          (attach-row-violation r row)
-                          r))
-                      rows)))
-      (attach-step-violation step row))))
-
-(defn- attach-to-fx-db-row
-  "Attach a `:where :app-db` schema-violation
-  to the SIDE EFFECTS step's `:db` row (the handler's app-db write).
-  Falls back to the step-level `:violations` when the step has no `:db`
-  row, as when the handler wrote no `:db` and its post-walk flow settle
-  was rejected (Spec 013 §Sequencing): the settle's write has no row of
-  its own, so its violation lands on the step."
-  [step row]
-  (if (some #(= :db (:fx-id %)) (:rows step))
+(defn- attach-to-matching-rows
+  "Append `row` to the `slot` vec (`:violations` / `:errors`) of every row
+  in `step`'s `:rows` that `match?` accepts, or to the step's own `slot`
+  when none does — a failure always lands somewhere visible."
+  [step slot row match?]
+  (if (some match? (:rows step))
     (update step :rows
             (fn [rows]
-              (mapv (fn [r]
-                      (if (= :db (:fx-id r))
-                        (attach-row-violation r row)
-                        r))
-                    rows)))
-    (attach-step-violation step row)))
+              (mapv #(if (match? %) (update % slot (fnil conj []) row) %) rows)))
+    (update step slot (fnil conj []) row)))
 
-(defn- attach-to-runtime-db-row
-  "Per EP-0001 — attach a `:where :machine-data` schema-
-  violation to the SIDE EFFECTS step's `:rf.db/runtime` row (the handler's
-  runtime-db partition write). The runtime-db sibling of
-  `attach-to-fx-db-row`. Falls back to the step-level `:violations` if the
-  runtime-db row isn't present (shouldn't happen — a `:machine-data`
-  violation implies a runtime-db commit attempted)."
-  [step row]
-  (if (some #(= :rf.db/runtime (:fx-id %)) (:rows step))
-    (update step :rows
-            (fn [rows]
-              (mapv (fn [r]
-                      (if (= :rf.db/runtime (:fx-id r))
-                        (attach-row-violation r row)
-                        r))
-                    rows)))
-    (attach-step-violation step row)))
+(defn- sub-row-matcher
+  "A `:sub-return` violation names the failing query (`:query-v`, from the
+  trace's `:rf.sub/query-v`), so it lands on that instance's row alone:
+  `[:item 1]` and `[:item 2]` share a sub id. A violation without one
+  matches every row of its sub id."
+  [{:keys [failing-id query-v]}]
+  (if (some? query-v)
+    #(= query-v (:sub-vec %))
+    #(= failing-id (:sub-id %))))
 
-(defn- attach-to-sub-row
-  "When `step` is the SUBSCRIPTIONS step + the violation's `:failing-id`
-  matches a `sub-id` in the step's `:rows`, attach to that row.
-  Otherwise attach to the step-level `:violations` (the edge case of an
-  indirect recompute outside the cascade's surfaced rows)."
-  [step row]
-  (let [sub-id (:failing-id row)]
-    (if (some #(= sub-id (:sub-id %)) (:rows step))
-      (update step :rows
-              (fn [rows]
-                (mapv (fn [r]
-                        (if (= sub-id (:sub-id r))
-                          (attach-row-violation r row)
-                          r))
-                      rows)))
-      (attach-step-violation step row))))
+(def ^:private violation-owners
+  "`:where` → `[owning step, (fn [violation] row-matcher)]`; a nil matcher
+  attaches to the step itself. `:app-db` / `:machine-data` land on the
+  SIDE EFFECTS `:db` / `:rf.db/runtime` rows, and fall back to the step
+  when the handler wrote no such row (a rejected post-walk flow settle,
+  Spec 013 §Sequencing). `:hot-reload` drift has no pipeline step; the
+  issues ribbon owns it."
+  {:event        [:dispatch nil]
+   :app-db       [:side-effects (fn [_] #(= :db (:fx-id %)))]
+   :machine-data [:side-effects (fn [_] #(= :rf.db/runtime (:fx-id %)))]
+   :fx-args      [:side-effects (fn [v] #(= (:failing-id v) (:fx-id %)))]
+   :sub-return   [:subscriptions sub-row-matcher]})
 
 (defn- index-of
   "First index in `coll` for which `pred` is truthy, or nil."
@@ -2891,79 +2819,28 @@
 (defn attach-violations
   "Take a projected step vector + a vec of schema-violation rows (post-
   `schema-violation-rows`) and return the step vector with each
-  violation attached to its owning step (per the attachment mapping
-  above). Returns `steps` unchanged when `rows` is
-  empty.
+  violation attached to its owning step (`violation-owners`). Returns
+  `steps` unchanged when `rows` is empty.
 
-  The hot-reload subset is NOT attached here. Hot-reload drift is a
-  dev-time event rather than a cascade event, and there is no
-  SCHEMA-HOT-RELOAD step for it to ride: the issues ribbon
-  owns it exclusively, harvesting it by `:op-type :warning` off the
-  trace stream. Those rows are dropped from this pass DELIBERATELY and
-  are the ONE kind that is.
+  Hot-reload drift is dropped here: it is a dev-time event with no
+  pipeline step, and the issues ribbon owns it.
 
-  EVERY OTHER ROW LANDS SOMEWHERE. Each branch below
-  resolves an owning step; a branch that returned the step vector
-  untouched when it found none, or a `:where` the `case` did not name,
-  would let a violation whose owning step is absent from
-  this cascade, or one carrying a `:where` the framework grows later,
-  vanish with the panel reading `:ok`. The catch-all is the same
-  one `attach-exceptions` uses: fall back to the HANDLER step, where the
-  operator at least sees that something failed and what it said. A
-  violation attached anywhere makes `step-status` read `:error` (it
-  scans `:violations`), so the epoch outcome is not green either."
+  EVERY OTHER ROW LANDS SOMEWHERE. A violation whose owning step is absent
+  from this cascade, or whose `:where` the table does not name (one the
+  framework grows later), falls back to the HANDLER step, the catch-all
+  `attach-exceptions` uses too — so the panel never reads `:ok` over a
+  failure (`step-status` scans `:violations`)."
   [steps rows]
   (if (empty? rows)
     steps
     (reduce
       (fn [s row]
-        (case (:where row)
-          :event
-          (let [i (index-of #(= :dispatch (:step %)) s)]
-            (if i
-              (update s i attach-step-violation row)
-              (attach-violation-to-handler s row)))
-
-          :app-db
-          ;; :where :app-db violations
-          ;; attach to the SIDE EFFECTS step's :db row (the handler's
-          ;; app-db write). The :db row leads the flat ledger and
-          ;; carries the `:fx-id :db` marker, so the row-level attach
-          ;; (`attach-to-fx-db-row`) matches `:fx-id :db` over the flat
-          ;; `:rows`.
-          (let [i (index-of #(= :side-effects (:step %)) s)]
-            (if i
-              (update s i attach-to-fx-db-row row)
-              (attach-violation-to-handler s row)))
-
-          :machine-data
-          ;; EP-0001 — `:where :machine-data` violations are
-          ;; the runtime-db partition's post-commit boundary; attach to
-          ;; the SIDE EFFECTS step's `:rf.db/runtime` row (the runtime-db
-          ;; sibling of the :app-db → :db row attach).
-          (let [i (index-of #(= :side-effects (:step %)) s)]
-            (if i
-              (update s i attach-to-runtime-db-row row)
-              (attach-violation-to-handler s row)))
-
-          :fx-args
-          (let [i (index-of #(= :side-effects (:step %)) s)]
-            (if i
-              (update s i attach-to-fx-row row)
-              (attach-violation-to-handler s row)))
-
-          :sub-return
-          (let [i (index-of #(= :subscriptions (:step %)) s)]
-            (if i
-              (update s i attach-to-sub-row row)
-              (attach-violation-to-handler s row)))
-
-          ;; An unrecognised `:where`. There is no standalone hot-reload
-          ;; step for it to ride, so it attaches to HANDLER rather than
-          ;; being discarded. A `:where` the framework
-          ;; grows later reaches this branch by construction, which is
-          ;; exactly when the panel must not go quiet.
-          (attach-violation-to-handler s row)))
+        (let [[step-kw matcher] (get violation-owners (:where row))
+              i                 (when step-kw (index-of #(= step-kw (:step %)) s))]
+          (cond
+            (nil? i)  (attach-violation-to-handler s row)
+            matcher   (update s i attach-to-matching-rows :violations row (matcher row))
+            :else     (update s i attach-step-violation row))))
       steps
       (remove #(= :hot-reload (:where %)) rows))))
 
@@ -3145,9 +3022,7 @@
       ;; vs a named transition. The `:rf/via-wildcard?` flag rides the
       ;; transition map (stamped by `transition/match-on-clause`).
       (= :rf.error/machine-action-exception (op ev))
-      ;; The throwing action's row addresses the live actor under
-      ;; `:actor-id`; fall back to `:machine-id` for fixtures that stamp only that.
-      (assoc :machine-id   (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
+      (assoc :machine-id   (actor-of ev)
              :action-id    (common/tag-of ev :action-id)
              :event        (common/tag-of ev :event)
              :state-path   (common/tag-of ev :state-path)
@@ -3563,23 +3438,6 @@
               steps))
       steps)))
 
-(defn- attach-to-fx-error-row
-  "Attach an fx exception row to the SIDE EFFECTS step's matching
-  `:fx-id` row. When `:failing-id` matches a
-  row's `:fx-id`, attach there; otherwise attach to the step-level
-  `:errors`. Mirrors `attach-to-fx-row` for schema violations."
-  [step row]
-  (let [fx-id (:failing-id row)]
-    (if (some #(= fx-id (:fx-id %)) (:rows step))
-      (update step :rows
-              (fn [rows]
-                (mapv (fn [r]
-                        (if (= fx-id (:fx-id r))
-                          (update r :errors (fnil conj []) row)
-                          r))
-                      rows)))
-      (update step :errors (fnil conj []) row))))
-
 (defn- coeffect-exception-target
   "Index of the COEFFECT step a `:rf.error/coeffect-exception` row attaches
   to. Prefers the step whose `:id` == the row's `:failing-id`
@@ -3652,7 +3510,8 @@
             (update s i
                     (fn [step]
                       (-> (if (= :side-effects target-step)
-                            (attach-to-fx-error-row step row)
+                            (attach-to-matching-rows step :errors row
+                                                     #(= (:failing-id row) (:fx-id %)))
                             (update step :errors (fnil conj []) row))
                           (assoc :status :error))))
             ;; No owning step in the cascade (e.g. a flow-eval throw with

@@ -930,9 +930,10 @@ surfaced — see [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md)
    recordable grade rides §1a above. **Silent when zero** (the section is
    ABSENT entirely, NOT '(none)'). Reads the per-supplier `:rf.cofx/run` op
    plus the `:rf.event/run-end :rf.event/coeffects` stamp (the runtime
-   stamps the declared subset; the fold-argument / framework-context keys
-   `:db` `:event` `:frame` `:source` `:trace-id` are filtered at the
-   substrate). Mirrors the INTERCEPTORS section's filter-out-framework-
+   stamps the declared subset; the runtime's own coeffect keys,
+   `re-frame.fx/framework-coeffect-keys` — `:db` `:event` `:source`
+   `:trace-id` `:rf.db/runtime` `:rf.frame/id` `:rf.cofx`
+   `:rf.cofx/mint-policy` — are filtered at the substrate). Mirrors the INTERCEPTORS section's filter-out-framework-
    defaults posture. Each row: `<:cofx-id>  <inspected-value>`.
 4. **INTERCEPTORS** — non-standard chain only, **silent when zero**
    (the section is ABSENT entirely, NOT '(none)'). Reads

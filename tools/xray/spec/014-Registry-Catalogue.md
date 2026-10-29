@@ -28,7 +28,7 @@ production `install!` path (rf2-e8330v).
 > cross-cutting epoch primitives that outlived the panel
 > (`:rf.xray/select-epoch`, `:rf.xray/reset-to-epoch`,
 > `:rf.xray/set-target-frame`, `:rf.xray/sync-epoch-history`,
-> `:rf.xray/selected-epoch-record`, `:rf.xray.fx/restore-epoch`) remain,
+> `:rf.xray.fx/restore-epoch`) remain,
 > matched against `registry_cljs_test`'s enumerations. The subsection is
 > now normative again.
 >
@@ -363,9 +363,10 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 
 ### Subscriptions
 
-| Sub | Returns | Notes |
-|---|---|---|
-| `:rf.xray/selected-epoch-record` | `:rf/epoch-record` or `nil`. | Resolved from history + the spine focus epoch (`:rf.xray/focus-epoch-id`). |
+None of its own: no sub answers a raw `:rf/epoch-record`. The focused
+epoch reaches the App-DB tab projected through
+`:rf.xray/app-db-current+diff` and the Epoch panel projected through
+`:rf.xray/epoch-pipeline`.
 
 ### Events
 
@@ -397,16 +398,16 @@ epoch-history; the body shows the focused epoch's `:db-after`
 > `:rf.xray/selected-epoch-flow-writes` /
 > `:rf.xray/selected-epoch-redacted-modified-count` inputs) had no
 > production view consumer and was removed. The Epoch panel's `:db`
-> diff reads `:rf.xray/selected-epoch-record`; an out-of-process diff read
-> projects directly through `diff.engine/project`. The catalogue
-> rows are gone; this note is the audit trail.
+> diff reads the projected record on `:rf.xray/epoch-pipeline`; an
+> out-of-process diff read projects directly through
+> `diff.engine/project`. The catalogue rows are gone; this note is the
+> audit trail.
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/selected-epoch-record` | The focused epoch's `:rf/epoch-record` (the Epoch panel's `:db` diff source), or `nil`. |
-| `:rf.xray/app-db-current+diff` | Atomic `{:value :before :epoch-id}` — the focused epoch's `:db-after` / `:db-before` / id (cold boot → `:value` falls back to the live db, `:before`/`:epoch-id` nil). The app-db tab's primary read-model (rf2-yng0y / rf2-02j4r). |
+| `:rf.xray/app-db-current+diff` | Atomic `{:status :value :before :runtime-value :runtime-before :epoch-id :redacted-modified}` — the focused epoch's `:db-after` / `:db-before` / runtime-db pair / id, each projected for on-box render under the classification the epoch was RECORDED with (`local-render/local-render-record-state`); cold boot → the live db projected under the live classification, `:before` / `:epoch-id` nil. `:status` is the shared focus resolver's: an `:epoch-evicted` or `:no-epoch` focus carries no value and the body renders that status's placeholder. The app-db tab's primary read-model. |
 | `:rf.xray/app-db-state` | Current-state section model derived from `:rf.xray/app-db-current+diff` — TOP user-domain section + one section per reserved `:rf/*` area, with the focused epoch's `:db-before` threaded as the inline diff pre-image. |
 
 ### No panel-owned events
@@ -532,7 +533,6 @@ the scope, and the per-row payload-expand affordance is the drill-down.
 | Event | Vector shape | Behaviour |
 |---|---|---|
 | `:rf.xray/toggle-trace-row-expand` | `[_ row-id]` | Toggle a row's inline payload expansion membership. |
-| `:rf.xray/clear-trace-expand` | `[_]` | Drop every expanded trace-row id. |
 
 ## Routes panel
 
@@ -547,11 +547,12 @@ Routes, not this event-coupled lens.
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-routes` | `(rf/registrations {:kind :route})`. Test override via `:registered-routes-override`. |
+| `:rf.xray/registered-routes` | `(rf/registrations {:kind :route})`, the shared registry the Static Routes panel lists. Test override via `:registered-routes-override`. |
+| `:rf.xray/observed-frame-routes` | The routes the OBSERVED frame resolves — `(rf/registrations {:frame <observed> :kind :route})`, its own image; the shared registry when no frame is observed or the frame-targeted query refuses the frame. The table the Routes tab lists. Test override via `:registered-routes-override`. |
 | `:rf.xray/registered-routes-override` | Test override slot. |
 | `:rf.xray/current-route-slice` | The current route from the target frame's routing runtime-db. |
 | `:rf.xray/current-route-slice-override` | Test override slot. |
-| `:rf.xray/routing-tab-data` | Topology-plus-navigation projection from `routing_helpers/project-topology-data`, using registered routes, current route, event bundles, the complete focus map, and the focused epoch record's post-state route slice (epoch history + observed frame). |
+| `:rf.xray/routing-tab-data` | Topology-plus-navigation projection from `routing_helpers/project-topology-data`, using the observed frame's routes, current route, event bundles, the complete focus map, and the focused epoch record's post-state route slice (epoch history + observed frame). |
 
 ### Events
 
@@ -635,14 +636,13 @@ which is why several ids below are named "for-focused-event" /
 |---|---|
 | `:rf.xray/registered-machines` | Vector of machine-ids — `(rf/registrations {:kind :event})` filtered on `:rf/machine?`. Wrapped in `try` so future API changes collapse to `[]` rather than throwing. |
 | `:rf.xray/machine-definitions` | `{machine-id meta}` — each registered machine's definition. Input: `:rf.xray/registered-machines`. |
-| `:rf.xray/machine-snapshots` | `{machine-id <snapshot>}`, read from the target frame's **runtime-db at `[:rf.runtime/machines :snapshots]`** (EP-0001 runtime-db partition) — **not** from a `:rf/machines` app-db slot. Inputs: `:rf.xray/target-frame`, `:rf.xray/target-frame-runtime-db`. **EGRESS-REDACTED (rf2-kq8nac / EP-0005)**: the runtime-db value is live frame state, not a trace, so it has not passed the trace-path redactor. Each snapshot is therefore routed through the same `project-trace-event` chokepoint as a synthetic `:rf.machine/snapshot-updated` event stamped with the target frame — a frame-declared sensitive `:data` path lands as `:rf/redacted`, a large one as the size marker, plain siblings ride verbatim (EP-0025, rf2-398kql — `:data` classification is frame-owned). A frame declaring no matching path leaves the snapshot reference-identical. |
+| `:rf.xray/machine-snapshots` | `{machine-id <snapshot>}`, read from the target frame's **runtime-db at `[:rf.runtime/machines :snapshots]`** (EP-0001 runtime-db partition) — **not** from a `:rf/machines` app-db slot. Inputs: `:rf.xray/observed-frame`, `:rf.xray/target-frame-runtime-db`. **EGRESS-REDACTED (rf2-kq8nac / EP-0005)**: the runtime-db value is live frame state, not a trace, so it has not passed the trace-path redactor. Each snapshot is therefore routed through the same `project-trace-event` chokepoint as a synthetic `:rf.machine/snapshot-updated` event stamped with the target frame — a frame-declared sensitive `:data` path lands as `:rf/redacted`, a large one as the size marker, plain siblings ride verbatim (EP-0025, rf2-398kql — `:data` classification is frame-owned). A frame declaring no matching path leaves the snapshot reference-identical. |
 | `:rf.xray/selected-machine-id` | The picker slot, or `nil`. Kept post-collapse as the focus the Static Machines surfaces and `:rf.xray/cancellation-cascade-for-focused-machine` read; the Dynamic panel itself binds to the focused epoch, not to this slot. |
 | `:rf.xray/machine-inspector-data` | Composite — `{:selected-machine-id :empty-kind}`. `:selected-machine-id` is the raw selection slot, nil when the operator has chosen none; `:empty-kind` is `:no-machines` when none is registered. |
 | `:rf.xray/machine-transitions-for-focused-event` | Per-machine transition sections for the focused epoch, each carrying that epoch's fired-edge-ids (rf2-qeemm G3) so traversed chart arms paint. Inputs: `:rf.xray/focus`, `:rf.xray/epoch-history`, `:rf.xray/machine-definitions`. |
-| `:rf.xray/machine-focused-epoch-cascade` | `{:cascade :event-id}` — the numbered machine-cascade rows for the focused epoch, projected by the SAME `machine-cascade-rows` the Epoch panel's HANDLER row uses, so the two surfaces agree byte-for-byte. |
-| `:rf.xray/machine-scrubber-position` | `:present` or an integer index; defaults to `:present`. The scrubber UI itself went with rf2-y9xmf, but the slot survives because the `:after`-rings overlay gates ring rendering on it. |
+| `:rf.xray/machine-focused-epoch-cascade` | `{:cascade}` — the numbered machine-cascade rows for the focused epoch, projected by the SAME `machine-cascade-rows` the Epoch panel's HANDLER row uses, so the two surfaces agree byte-for-byte. Inputs: `:rf.xray/focus`, `:rf.xray/epoch-history`. |
 | `:rf.xray/machine-tab-fit-signal` | Monotonic counter (default `0`) bumped by `:rf.xray/select-tab :machines` **and** `:rf.xray.static/select-tab :machines`. Forwarded as `MachineChart`'s `:fit-signal` so tab entry re-fits the topology; the layout-key auto-fit deliberately preserves manual zoom/pan, and this is the orthogonal entry-fit escape hatch. Registered in `registry.cljs`, read by both the Dynamic and Static machine surfaces. |
-| `:rf.xray/active-timers-for-focused-machine` | Vector of timer records — `:armed` for live rings, `:cancelled` for fading/crossed-out ones. Inputs: `:rf.xray/trace-buffer`, `:rf.xray/machine-transitions-for-focused-event`, `:rf.xray/target-frame`, `:rf.xray/selected-machine-id`. The machine is picked by `pick-focused-transition`, the same rule the chart picks its record by, so rings and chart cannot drift (rf2-y8doi.23). **`:rf.xray/selected-machine-id` is an input for exactly that reason** (rf2-mj4jp): the rule takes the operator's explicit selection as an argument, so a consumer that calls the shared fn without it has not shared the rule — it has only shared the function name, and would fold rings for one machine while the chart drew another. **`:rf.xray/now-ms` is deliberately NOT an input** — with the clock as an input the whole-buffer fold re-ran at ~60 Hz; the now-keyed filter now runs in `overlay-tree` where the clock already is, which also makes retro-mode eviction honest. |
+| `:rf.xray/active-timers-for-focused-machine` | Vector of timer records — `:armed` for live rings, `:cancelled` for fading/crossed-out ones. Inputs: `:rf.xray/trace-buffer`, `:rf.xray/machine-transitions-for-focused-event`, `:rf.xray/target-frame`, `:rf.xray/selected-machine-id`. The machine is picked by `pick-focused-transition`, the same rule the chart picks its record by, so rings and chart cannot drift. **`:rf.xray/selected-machine-id` is an input for exactly that reason**: the rule takes the operator's explicit selection as an argument, so a consumer that calls the shared fn without it has not shared the rule — it has only shared the function name, and would fold rings for one machine while the chart drew another. **`:rf.xray/now-ms` is deliberately NOT an input** — with the clock as an input the whole-buffer fold would re-run at ~60 Hz; the now-keyed filter runs in `overlay-tree`, where the clock already is. The overlay draws nothing while `:rf.xray/focus` is `:retro` (003 §M.2). |
 | `:rf.xray/now-ms` | Wall-clock ms from the `:rings/now-ms` slot — the reactive driver for ring animation, written by `:rf.xray/timer-tick`. |
 | `:rf.xray/cancellation-cascade-for-focused-machine` | The cancellation cascade for the selected machine, or a `:no-trigger` shape when nothing is selected. Inputs: `:rf.xray/trace-buffer`, `:rf.xray/selected-machine-id`. Registered in `cancellation_cascade_subs.cljs`. |
 
@@ -654,8 +654,7 @@ which is why several ids below are named "for-focused-event" /
 | `:rf.xray/machine-focus-prev` | `[_]` | Steps the spine focus back to the adjacent epoch whose cascade targets the currently-viewed machine, skipping epochs that touched only other machines. |
 | `:rf.xray/machine-focus-next` | `[_]` | As above, forwards. |
 | `:rf.xray/machine-state-clicked` | `[_ payload]` | Click-on-state in the topology view. Registered no-op slot — it exists so the chart's dispatch lands on a known handler instead of emitting a `:rf.warning/no-handler` trace. |
-| `:rf.xray/set-scrubber-position` | `[_ position]` | Sets the scrubber slot. `:present` and integers are stored; the companion read defaults to `:present`. |
-| `:rf.xray/timer-tick` | `[_ t]` | `:rf.trace/no-emit? true` (rf2-qsjda — the rAF tick would otherwise bomb Xray's own trace buffer 60×/second). Writes `t`, or `(.now js/Date)`, into `:rings/now-ms`. |
+| `:rf.xray/timer-tick` | `[_ t]` | `:rf.trace/no-emit? true`, because the rAF tick would otherwise flood Xray's own trace buffer 60×/second. Writes `t`, or `(.now js/Date)`, into `:rings/now-ms`. Dispatched by one tick loop per frame, which runs only while an overlay is mounted in that frame, a ring has a deadline, and the focus is not `:retro`. |
 | `:rf.xray/timer-hover` | `[_ payload]` | Sets or (on `nil`) clears the hovered-timer slot `:rings/hover`. No sub reads it. |
 | `:rf.xray/filter-by-machine` | `[_ machine-id]` | Appends an `:in` filter pill scoped to `machine-id`; a duplicate add collapses to a no-op. Registered in `filters.cljs`. |
 

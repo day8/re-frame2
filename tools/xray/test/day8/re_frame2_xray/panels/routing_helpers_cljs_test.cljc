@@ -305,15 +305,15 @@
 
 (deftest project-topology-depth-and-shape-test
   (testing "every route once, children after their parent at depth + 1, roots and
-            siblings sorted by path, with the last-sibling, has-children and cycle flags"
-    (is (= [[:route/root     0 false false false]
-            [:route/admin    0 false false false]
-            [:route/cart     0 false false false]
-            [:route/checkout 0 true  true  false]
-            [:route/confirm  1 false false false]
-            [:route/payment  1 true  false false]]
+            siblings sorted by path, with the has-children and cycle flags"
+    (is (= [[:route/root     0 false false]
+            [:route/admin    0 false false]
+            [:route/cart     0 false false]
+            [:route/checkout 0 true  false]
+            [:route/confirm  1 false false]
+            [:route/payment  1 false false]]
            (topology-rows (h/project-topology parented-routes)
-                          :depth :last-at-depth? :has-children? :cycle-root?)))))
+                          :depth :has-children? :cycle-root?)))))
 
 (deftest project-topology-orphan-parent-test
   (testing "a row whose :parent is unregistered becomes a depth-0 root"
@@ -336,20 +336,6 @@
            (topology-rows (h/project-topology {:route/a (route "/a" :parent :route/b)
                                                :route/b (route "/b" :parent :route/a)})
                           :depth :cycle-root?)))))
-
-;; ---- epoch-routing-activity -------------------------------------------
-
-(deftest epoch-routing-activity-events-test
-  (testing "events list carries root event vector + downstream dispatches"
-    (let [downstream {:id 8 :op-type :rf.event :operation :rf.event/dispatched
-                      :tags {:rf.event/v [:cart/route-entered]}}
-          c (cascade 7 [:rf.route/navigate {:to :route/cart}]
-              :other [(nav-allocated-trace :route/cart "nav-1")
-                      downstream])
-          activity (h/epoch-routing-activity c {:route-id :route/cart})]
-      (is (= [[:rf.route/navigate {:to :route/cart}]
-              [:cart/route-entered]]
-             (:events activity))))))
 
 ;; ---- a HISTORICAL navigation's params -----------------------------------
 

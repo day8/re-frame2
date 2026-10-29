@@ -2,8 +2,8 @@
   "CLJS-side wiring tests for Xray's Machine Inspector `:after`
   countdown rings: the `:rf.xray/active-timers-for-focused-machine` sub
   (which machine, which frame) and the overlay's
-  hiccup (`overlay-tree`) — retention eviction, the retro now-ms anchor,
-  the node a ring sits on, and the frame its hover dispatch lands on."
+  hiccup (`overlay-tree`) — retention eviction, the retro-focus blank, the
+  node a ring sits on, and the frame its hover dispatch lands on."
   (:require [cljs.test :refer-macros [async deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -202,11 +202,10 @@
   inside `(rf/with-frame :rf/xray ...)`."
   []
   (after-rings/overlay-tree
-    {:timers         @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
-     :live-now       @(rf/subscribe [:rf.xray/now-ms])
-     :scrub          @(rf/subscribe [:rf.xray/machine-scrubber-position])
-     :focused-detail @(rf/subscribe [:rf.xray/focused-event-bundle-detail])
-     :frame          (rf/current-frame-id)}))
+    {:timers   @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
+     :live-now @(rf/subscribe [:rf.xray/now-ms])
+     :mode     (:mode @(rf/subscribe [:rf.xray/focus]))
+     :frame    (rf/current-frame-id)}))
 
 (defn- delegated-props
   "The props the overlay hands the machines-viz overlay, past the
@@ -217,8 +216,7 @@
 
 (deftest overlay-evicts-a-cancelled-ring-once-its-retention-window-passes
   ;; The sub is buffer-keyed; the overlay ages a crossed ring out against
-  ;; the anchor `resolve-now-ms` picks, so a retro chart ages it at the
-  ;; instant it is frozen at.
+  ;; the clock it renders with.
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
@@ -274,35 +272,33 @@
            (mapv (juxt :node-id :cancelled?) (-> (overlay-tree) delegated-props :ring-specs)))
         "so does the crossed ring that closes it")))
 
-(defn- dispatch-trace-ev
-  "A `:rf.event/dispatched` trace, so the L2 projector builds ONE focusable
-  event-bundle carrying a real `:dispatched :time`."
-  [id event-vec time-ms]
-  {:id        id
-   :time      time-ms
-   :op-type   :rf.event
-   :operation :rf.event/dispatched
-   :tags      {:rf.event/v          event-vec
-               :frame               :rf/default
-               :rf.trace/dispatch-id id}})
+(defn- reg-pin-focus-mode!
+  "Register `::pin-focus-mode`, which seeds the stored focus `:mode` —
+  the slot the spine's own reducers write `:retro` into, and which
+  `compose-focus` honours ahead of head-tracking."
+  []
+  (rf/reg-event ::pin-focus-mode
+    (fn [{:keys [db]} [_ mode]]
+      {:db (update db :focus (fnil assoc {}) :mode mode)})))
 
-(deftest overlay-retro-mode-anchors-tick-to-focused-cascade-timestamp
-  ;; xray/003 §M.2: off `:present`, the ring is static at the focused
-  ;; cascade's timestamp, not wherever the live clock last sat.
+(deftest overlay-draws-nothing-while-the-focus-is-pinned-to-a-past-event
+  ;; xray/003 §M.2: the timer fold reads the whole buffer, so over a past
+  ;; epoch it would show the present's timers. Retro draws no ring.
   (setup-xray-frame!)
+  (reg-pin-focus-mode!)
   (rf/with-frame :rf/xray
     (override-machines!    [:auth/login])
     (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login 1)
-    (pin-now-ms! 9999)
+    (focus-machine!        :auth/login)
+    (pin-now-ms! 2000)
     (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:some/event] 4242))
-    (rf/dispatch-sync [:rf.xray/set-scrubber-position 3])
-    (is (= 4242 (-> (overlay-tree) delegated-props :tick))
-        "retro: the focused cascade's dispatched time, not the live 9999")
-    (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
-    (is (= 9999 (-> (overlay-tree) delegated-props :tick))
-        "back at :present, the live clock")))
+    (is (= 2000 (-> (overlay-tree) delegated-props :tick))
+        "NON-VACUITY: live, the armed ring draws against the live clock")
+    (rf/dispatch-sync [::pin-focus-mode :retro])
+    (is (= :retro (:mode @(rf/subscribe [:rf.xray/focus])))
+        "precondition: the composed focus reads retro")
+    (is (nil? (overlay-tree))
+        "retro: the overlay layer drops out")))
 
 (deftest hover-dispatch-lands-on-the-render-frame
   ;; A real mouseenter fires after render has unwound, with no ambient

@@ -86,8 +86,7 @@
   classification, the stage column + edge colour (via
   `panels.epoch.badge`), epoch-scoped feed, empty-state classification —
   lives in `trace_helpers.cljc` so the algebra runs under the JVM
-  unit-test target. (The band-projection helpers there are covered by
-  their unit tests; the flat panel does not render them.)"
+  unit-test target."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -1314,12 +1313,6 @@
                (if (contains? current row-id)
                  (disj current row-id)
                  (conj current row-id))))}))
-
-  ;; The flat list has no collapsible phase bands; the expand set is the
-  ;; only per-row UI state to clear.
-  (rf/reg-event :rf.xray/clear-trace-expand
-    (fn [{:keys [db]} _event]
-      {:db (dissoc db :trace-expanded-row-ids)}))
 
   ;; Register the Dynamic Trace tab with the internal L4 tab registry,
   ;; with its `t` mnemonic + order-3 placement.

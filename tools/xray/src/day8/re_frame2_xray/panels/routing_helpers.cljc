@@ -28,10 +28,10 @@
 
   Per-focused-event highlighting:
 
-  - `◆ HERE` on the current matched route (always — orientation;
-    read off the LIVE slice).
-  - `◆ FROM` / `◆ TO` arrow when the focused event-bundle caused
-    navigation. Both ids come from the FOCUSED event-bundle's own trace
+  - `:here` on the current matched route (always — orientation;
+    read off the LIVE slice; the view paints it as the `◀ current` row).
+  - `:from` / `:to` when the focused event-bundle caused navigation (the
+    view's `◇ FROM` / `◉ TO` glyphs). Both ids come from the FOCUSED event-bundle's own trace
     events — the `:rf.route.nav-token/allocated` emit gives TO (the
     newly matched route) and the `:rf.route/deactivated` emit gives
     FROM (the prior route). Reading FROM from the event-bundle — not the
@@ -588,12 +588,12 @@
 ;; their `:parent` meta) and the focused epoch's nav-token activity
 ;; overlays as a `:to` / `:from` / `:here` marker on the relevant nodes.
 ;;
-;; The projection produces a vector of `{:row :depth :children}` entries
-;; suitable for textual `├─ └─ │` tree rendering (per §7.1 density note —
-;; most route trees are shallow ≤ 4 levels, so the textual tree is denser
-;; than xyflow). `:parent`-less routes become tree roots; orphaned
-;; `:parent` references (parent route-id not in the registrar) also
-;; become roots so the projection never drops a row.
+;; The projection produces a depth-decorated vector of entries the view
+;; indents by depth (per §7.1 density note — most route trees are shallow
+;; ≤ 4 levels, so an indented list is denser than xyflow). `:parent`-less
+;; routes become tree roots; orphaned `:parent` references (parent route-id
+;; not in the registrar) also become roots so the projection never drops a
+;; row.
 
 (defn- children-by-parent
   "Group `rows` (already projected by `project-routes`) by their
@@ -624,8 +624,6 @@
                                     ;; the view turns depth into a left
                                     ;; indent (RoutesPanel
                                     ;; `paddingLeft: level * 2 + 0.5rem`)
-             :last-at-depth? <bool> ;; true when this row is the last
-                                    ;; sibling at its depth
              :has-children? <bool>  ;; true when this route is a parent
                                     ;; of nested routes — the view paints
                                     ;; a `▾` disclosure chevron (Figma
@@ -666,62 +664,53 @@
         ;; threads across sibling roots AND the appended cycle roots —
         ;; a node placed under one root (or in an earlier cycle
         ;; component) is never re-emitted by a later walk.
-        walk (fn walk [row depth visited last-sibling? cycle-root?]
+        walk (fn walk [row depth visited cycle-root?]
                (let [id (:route-id row)]
                  (if (contains? visited id)
                    ;; Cycle protection — drop the re-entry.
                    [[] visited]
                    (let [children (get kids id [])
-                         last-idx (dec (count children))
                          [child-rows visited']
                          (reduce
-                           (fn [[acc vis] [i child]]
-                             (let [[entries vis'] (walk child (inc depth) vis
-                                                        (= i last-idx) false)]
+                           (fn [[acc vis] child]
+                             (let [[entries vis'] (walk child (inc depth) vis false)]
                                [(into acc entries) vis']))
                            [[] (conj visited id)]
-                           (map-indexed vector children))]
+                           children)]
                      [(into [{:row            row
                               :depth          depth
-                              :last-at-depth? (boolean last-sibling?)
                               :has-children?  (boolean (seq children))
                               :cycle-root?    (boolean cycle-root?)}]
                             child-rows)
                       visited']))))
         ;; Phase 1: ordinary roots (parent nil or orphaned).
-        last-root-idx (dec (count roots))
         [root-entries visited-after-roots]
-        (reduce (fn [[acc vis] [i root]]
-                  (let [[entries vis'] (walk root 0 vis (= i last-root-idx) false)]
+        (reduce (fn [[acc vis] root]
+                  (let [[entries vis'] (walk root 0 vis false)]
                     [(into acc entries) vis']))
                 [[] #{}]
-                (map-indexed vector roots))
+                roots)
         ;; Phase 2: any registered row a root walk never reached is a
         ;; member of a rootless cycle component — append it as a
         ;; cycle-marked depth-0 root. Sorted by :path for determinism.
         cycle-rows (->> rows
                         (remove #(contains? visited-after-roots (:route-id %)))
                         (sort-by :path))
-        last-cycle-idx (dec (count cycle-rows))
         [cycle-entries _]
-        (reduce (fn [[acc vis] [i row]]
+        (reduce (fn [[acc vis] row]
                   (if (contains? vis (:route-id row))
                     [acc vis]
-                    (let [[entries vis'] (walk row 0 vis (= i last-cycle-idx) true)]
+                    (let [[entries vis'] (walk row 0 vis true)]
                       [(into acc entries) vis'])))
                 [[] visited-after-roots]
-                (map-indexed vector cycle-rows))]
+                cycle-rows)]
     (into root-entries cycle-entries)))
 
 ;; ---- per-epoch routing-activity projection ------------------
 ;;
-;; The "This epoch" block (per spec/021 §7.2) reads four short lines:
-;;
-;;     Phase     :on-match
-;;     From      /
-;;     To        /cart
-;;     Match     {:route :cart}
-;;     Events    [:rf.route/handle-url-change] [:cart/route-entered]
+;; The NAVIGATION THIS EPOCH row (per spec/021 §7.2) reads FROM ──► TO, the
+;; navigation's params, and an outcome chip (`routing.cljs`
+;; `navigation-section`).
 ;;
 ;; The phase derives from the trace-event mix in the focused event-bundle:
 ;;   - event-bundle carries :rf.route.nav-token/allocated → :on-match
@@ -735,10 +724,8 @@
 ;;   - event-bundle carries :rf.route/fragment-changed → :fragment-changed
 ;;   - otherwise → nil (no routing activity this epoch)
 ;;
-;; The phase + from/to + matched-params + the event-vector list go into
-;; the "This epoch" block; when the projection returns nil for everything
-;; the view renders the "No route activity in this epoch." caption per
-;; spec §7.2 empty-state branch.
+;; When the projection returns nil the view renders the "No route activity
+;; in this epoch." caption per spec §7.2 empty-state branch.
 
 (def ^:private routing-phase-ops
   "Trace operations that indicate a routing-related phase. Order is
@@ -749,28 +736,6 @@
    [:rf.route/navigation-blocked  :navigation-blocked]
    [:rf.route/entry-denied        :entry-denied]
    [:rf.route/fragment-changed    :fragment-changed]])
-
-(defn- event-bundle-event-vectors
-  "Collect raw event vectors from an event-bundle. The event-bundle's top-level
-  `:event` slot is the root event; the `:effects` and `:other` buckets
-  may carry `:rf.event/dispatched` trace records whose `:tags :rf.event/v`
-  carries downstream event vectors. Returns a vector of event vectors
-  in insertion order, de-duplicated by identity."
-  [event-bundle]
-  (when event-bundle
-    (let [root       (:event event-bundle)
-          downstream (->> (event-bundle-trace-events event-bundle)
-                          (keep (fn [ev]
-                                  (when (and (map? ev)
-                                             (= :rf.event/dispatched
-                                                (:operation ev)))
-                                    (get-in ev [:tags :rf.event/v])))))
-          all        (cond->> downstream
-                       root (cons root))]
-      (->> all
-           (filter some?)
-           distinct
-           vec))))
 
 (defn- navigation-params
   "The params the focused navigation committed, from whichever slice IS that
@@ -798,7 +763,7 @@
       (:params focused-slice))))
 
 (defn epoch-routing-activity
-  "Derive a `{:phase :events :match}` map describing what the focused
+  "Derive a `{:phase :match}` map describing what the focused
   event-bundle did to the route system this epoch. Returns nil when the
   event-bundle is nil OR carries no routing-related trace events (the
   view's 'No route activity' branch).
@@ -806,8 +771,6 @@
   `:phase` is one of
   `#{:on-match :navigation-blocked :entry-denied :fragment-changed}`
   per the trace-event mix.
-  `:events` is the event-bundle's event-vector list (root + downstream
-  dispatches), useful for the spec §7.2 'Events' row.
   `:match` is the params the focused navigation committed when phase is
   `:on-match`, read off the slice that IS that navigation — the live
   `current-slice`, or the focused epoch's post-state `focused-slice` — and
@@ -829,7 +792,6 @@
                           routing-phase-ops)]
        (when phase
          {:phase  phase
-          :events (event-bundle-event-vectors event-bundle)
           :match  (when (= :on-match phase)
                     (navigation-params
                       (some-> (nav-token-allocated-in-event-bundle event-bundle)
@@ -846,7 +808,7 @@
   Returns:
 
       {:silent?    <bool>                 ;; true when no routes registered
-       :topology   [{:row :depth :last-at-depth? :marker} ...]
+       :topology   [{:row :depth :has-children? :cycle-root? :marker} ...]
                                           ;; the full route tree, depth-decorated
        :current    <route-slice>          ;; the active :rf/route slice
        :from-id    <route-id-or-nil>      ;; nav origin this epoch — or, for
@@ -857,7 +819,7 @@
                                           ;;   it asked for
        :navigated? <bool>                 ;; true iff focused event-bundle navigated
        :activity   <map-or-nil>}          ;; per-epoch routing activity
-                                          ;; (phase + events + match);
+                                          ;; (phase + match);
                                           ;; nil ⇒ \"no route activity in this
                                           ;; epoch\" branch per spec §7.2
 

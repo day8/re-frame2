@@ -25,14 +25,14 @@
       (is (= :idle (get-in (e2e/sub-xray [:rf.xray/machine-snapshots])
                           [:deep/main :state]))))))
 
-(deftest xray-machine-inspector-data-resolves-shape
-  (testing ":rf.xray/machine-inspector-data composite resolves"
+(deftest xray-machine-inspector-data-sees-the-host-machine
+  (testing ":rf.xray/machine-inspector-data reports no empty state once the
+            host registers a machine, and no selection the operator never made"
     (e2e/with-host-and-xray-frames
       {:install-host deep-machine/install-and-init!}
       (fn []
-        (let [data (e2e/sub-xray [:rf.xray/machine-inspector-data])]
-          (is (map? data)
-              ":rf.xray/machine-inspector-data did not return a map"))))))
+        (is (= {:selected-machine-id nil :empty-kind nil}
+               (e2e/sub-xray [:rf.xray/machine-inspector-data])))))))
 
 ;; ---- focused-event lens populates for a REAL machine ---------------------
 ;;

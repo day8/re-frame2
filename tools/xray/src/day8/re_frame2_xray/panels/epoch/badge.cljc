@@ -78,10 +78,8 @@
   HANDLER + FLOW share `:accent` — the Figma export's single-accent
   identity.
 
-  Schema violations render as an inline per-step sub-block. The
-  SCHEMA-HOT-RELOAD entry (`:warning`) resolves a badge no projected
-  step emits — hot-reload drift surfaces on the issues ribbon, and
-  `projection/badge-set` omits it.
+  Schema violations render as an inline per-step sub-block and carry no
+  badge; hot-reload drift surfaces on the issues ribbon.
   INTERCEPTOR pulls `:accent` (the same blue as HANDLER —
   the interceptor chain WRAPS the handler; they read as one identity
   family in the cascade, the chain around the handler body)."
@@ -106,8 +104,7 @@
    :FLOW              :accent
    :SIDE-EFFECTS      :orange
    :SUBSCRIPTIONS     :magenta-pink
-   :VIEWS             :success
-   :SCHEMA-HOT-RELOAD :warning})
+   :VIEWS             :success})
 
 (def ^:private badge->label
   "Map from badge keyword → uppercase label rendered in the badge
@@ -121,8 +118,7 @@
    :FLOW              "FLOW"
    :SIDE-EFFECTS      "EFFECT HANDLERS"
    :SUBSCRIPTIONS     "SUBSCRIPTIONS"
-   :VIEWS             "VIEWS"
-   :SCHEMA-HOT-RELOAD "SCHEMA HOT-RELOAD"})
+   :VIEWS             "VIEWS"})
 
 (defn token-key
   "Return the theme-token KEYWORD for `badge` (e.g. `:accent` for
@@ -383,10 +379,9 @@
 ;; statuses the projection produces (`fx-outcome-op->status`):
 ;;
 ;;   :ok         → ✓ (success)   — fx handler ran ok / :db committed
-;;   :error      → ✗ (error)     — fx handler threw / no-such-fx
-;;   :rollback   → ✗ (error)     — :db schema-fail rollback (red, same as
-;;                                 :error; the row's reason box carries the
-;;                                 "rolled back" detail)
+;;   :error      → ✗ (error)     — fx handler threw / no-such-fx, or a
+;;                                 `:db` write rejected before install (the
+;;                                 row's reason box carries the detail)
 ;;   :overridden → ↺ (accent)    — fx override applied
 ;;   :skipped    → – (tertiary)  — :skipped-on-platform (gated, didn't run
 ;;                                 here) OR a dropped `other` effect. A
@@ -431,9 +426,9 @@
 (defn fx-row-status-glyph
   "Single-char leading glyph for a flat SIDE EFFECTS ledger row.
   Closed set over the `fx-outcome-op->status` outcomes plus
-  the synthesised `:db` row's `:ok` / `:rollback` / `:noop`:
+  the synthesised `:db` row's `:ok` / `:error` / `:noop`:
     :ok / :db-commit → ✓
-    :error / :rollback → ✗
+    :error           → ✗
     :overridden      → ↺
     :skipped         → – (muted en-dash, NEUTRAL)
     :noop            → ∅ (empty-set, NEUTRAL — db unchanged)
@@ -441,7 +436,6 @@
   [status]
   (case status
     :error      "✗"
-    :rollback   "✗"
     :overridden "↺"
     :skipped    skipped-glyph
     :noop       noop-glyph
@@ -451,7 +445,6 @@
   "Theme-token keyword for a flat SIDE EFFECTS ledger row's glyph colour:
     :ok         → :success
     :error      → :error
-    :rollback   → :error
     :overridden → :accent
     :skipped    → :text-tertiary  (muted/tertiary — NEUTRAL)
     :noop       → :text-tertiary  (muted/tertiary — NEUTRAL)
@@ -459,7 +452,6 @@
   [status]
   (case status
     :error      :error
-    :rollback   :error
     :overridden :accent
     :skipped    :text-tertiary
     :noop       :text-tertiary

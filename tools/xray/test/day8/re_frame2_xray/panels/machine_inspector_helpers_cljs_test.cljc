@@ -113,54 +113,6 @@
               (is (= (get defs spawn-child-type) (:definition rec))
                   "and it is the registered TYPE's spec"))))))))
 
-(deftest project-focused-event-attaches-guard-and-action-traces
-  (testing "guard-evaluated / action-ran traces attach to the transition
-            record of the same machine"
-    (let [events [(t-event 1 :auth/login :idle :authing [:auth/submit])
-                  {:id 2 :time 11 :operation :rf.machine/guard-evaluated
-                   :tags {:machine-id :auth/login
-                          :guard-id   :user-has-credentials?
-                          :input      {:user "ada"}
-                          :outcome    :pass}}
-                  {:id 3 :time 12 :operation :rf.machine/action-ran
-                   :tags {:machine-id :auth/login
-                          :action-id  :issue-token
-                          :input      {:user "ada"}
-                          :outcome    :ok}}]]
-      (is (= [{:guards  [{:guard-id :user-has-credentials? :input {:user "ada"}
-                          :outcome :pass :time 11}]
-               :actions [{:action-id :issue-token :input {:user "ada"}
-                          :outcome :ok :time 12}]}]
-             (mapv #(select-keys % [:guards :actions])
-                   (h/project-focused-event-transitions events)))))))
-
-(deftest project-focused-event-attaches-history-restore-and-record
-  (testing "a history restore attaches as :history-restored"
-    (let [events [(t-event 1 :media/deep [:player :stopped] [:player :playing :mid-track]
-                           [:insert])
-                  {:id 2 :time 11 :operation :rf.machine.history/restored
-                   :tags {:machine-id :media/deep :compound-path [:player]
-                          :kind :deep :source :recorded
-                          :restored-config [:player :playing :mid-track]
-                          :resolved-leaf [:player :playing :mid-track]}}]]
-      (is (= [{:compound-path   [:player]
-               :kind            :deep
-               :source          :recorded
-               :fallback        nil
-               :restored-config [:player :playing :mid-track]
-               :resolved-leaf   [:player :playing :mid-track]}]
-             (-> (h/project-focused-event-transitions events) first :history-restored)))))
-  (testing "a history record attaches as :history-recorded"
-    (let [events [(t-event 1 :media/deep [:player :playing :mid-track] [:tray] [:eject])
-                  {:id 2 :time 11 :operation :rf.machine.history/recorded
-                   :tags {:machine-id :media/deep :compound-path [:player]
-                          :kind :deep :recorded-config [:player :playing :mid-track]}}]]
-      (is (= [{:compound-path   [:player]
-               :kind            :deep
-               :recorded-config [:player :playing :mid-track]
-               :prev-config     nil}]
-             (-> (h/project-focused-event-transitions events) first :history-recorded))))))
-
 ;; ---- machine BIRTH (`:rf.machine/started`) ------------------------------
 ;;
 ;; A pure start emits `:rf.machine/started` and NO `:rf.machine/transition`.
@@ -198,8 +150,6 @@
              :id          1
              :dispatch-id "s-1"
              :microstep?  false
-             :guards      []
-             :actions     []
              :definition  {:initial :closed}}]
            (h/project-focused-event-transitions
              [(started-event 1 :door/main :closed {:open? false} :explicit)]
@@ -248,8 +198,6 @@
              :id          1
              :dispatch-id "n-1"
              :microstep?  false
-             :guards      []
-             :actions     []
              :definition  {:initial :closed}}]
            (h/project-focused-event-transitions
              [(no-op-event 1 :door/main :open [:door/close])]

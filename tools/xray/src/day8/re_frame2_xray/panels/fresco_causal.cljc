@@ -208,7 +208,20 @@
 
 (defn- link-event
   [frame-id bundle dispatch-id frames]
-  (if (nil? bundle)
+  (cond
+    ;; An empty window walks no dispatch: there is no id to name, and the
+    ;; ring still cannot say whether one fell off it.
+    (nil? dispatch-id)
+    {:id :event :ordinal 1 :label "event"
+     :seam "Spec 009's per-frame retained ring"
+     :basis :cap :evidenced? false
+     :holds hh/unknown
+     :loss  {:reason :cap :dropped hh/unknown}
+     :says  (str "The retained window holds no dispatch, so there is no event "
+                 "to walk. The ring holds `:rf.trace/events-retained` runs and "
+                 "cannot say what fell off it.")}
+
+    (nil? bundle)
     {:id :event :ordinal 1 :label "event"
      :seam "Spec 009's per-frame retained ring"
      :basis :cap :evidenced? false
@@ -218,6 +231,8 @@
                  " is retained. The ring holds `:rf.trace/events-retained` "
                  "runs and cannot say what fell off it — so this is a capped "
                  "window, not a dispatch that never happened.")}
+
+    :else
     {:id :event :ordinal 1 :label "event"
      :seam "Spec 009's per-frame retained ring"
      :basis :observation :evidenced? true

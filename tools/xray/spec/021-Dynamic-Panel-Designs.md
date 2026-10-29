@@ -1568,7 +1568,7 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 | From | Reads |
 |---|---|
 | Focused event bundle | The route ops in the focused event bundle — `:rf.xray/event-bundles` + `:rf.xray/focus`, resolved frame-strictly by `routing_helpers/focused-event-bundle` (not the focused epoch record's `:trace-events`). The panel maps them to its own phase set `#{:on-match :navigation-blocked :entry-denied :fragment-changed}`, first match wins: `:rf.route.nav-token/allocated` → `:on-match` (and names TO), `:rf.route/navigation-blocked` → `:navigation-blocked` (a `:can-leave` refusal), `:rf.route/entry-denied` → `:entry-denied` (a `:can-enter` refusal — TERMINAL per EP-0037 R4; unlike a leave block it parks no pending value), `:rf.route/fragment-changed` → `:fragment-changed`. `:rf.route/deactivated` names FROM. The panel does not read `:rf.route/activated` |
-| Registries | Route tree — `(rf/registrations {:kind :route})` |
+| Registries | Route tree — the OBSERVED frame's routes, `(rf/registrations {:frame <observed> :kind :route})` (`:rf.xray/observed-frame-routes`), so a frame loaded with a subset of routes lists only the routes it can resolve, as Views topology and Frames read the observed frame's image. With no frame observed, the shared registry |
 | Per-frame state | The target frame's route slice at `[:rf.runtime/routing :current]` (runtime-db — CURRENT ROUTE and the current-row highlight) |
 | Focused epoch record | Its `:frame-state-after` route slice, for NAVIGATION THIS EPOCH's params only. The trace names no params, but every committed slice carries its `:nav-token`: the row takes the params of the live slice when it carries the focused navigation's token, else of this post-state slice when it carries that token AND names the live route (it is projected under the observed frame's classification, which is the live route's), else shows none (rf2-3x7nj.23.1) |
 
@@ -3044,10 +3044,9 @@ anchor, excluded by design — do not false-positive.)
 #### §9.1.6.3 DISPATCH source-kind enrichment (rf2-5qp4g · consuming rf2-ejtpd)
 
 The DISPATCH step's source label adapts to the closed-set substrate-
-internal `:source` values introduced in rf2-ejtpd (`:after-timer`,
-`:always`, `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`).
-Each kind paints richer chrome than the bare `from <source>` label
-the pre-rf2-5qp4g renderer produced for every value — the operator
+internal `:source` values (`:after-timer`, `:machine-spawn`,
+`:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`). Each kind
+paints richer chrome than the bare `from <source>` label — the operator
 reads the specific timer/delay/state-path, the spawned actor's
 identity, or the parent-epoch link in the same numbered-cascade
 rhythm without leaving the panel.
@@ -3056,20 +3055,24 @@ rhythm without leaving the panel.
 
 | `:source`            | Rendered label                                                | Click affordance |
 |----------------------|---------------------------------------------------------------|------------------|
-| `:after-timer`       | `from :after timer · 250ms on [:active :authenticating]`      | the state-path is click-to-source on the state-node's co-located `:source-coords` (rf2-vqja2); falls through to a plain monospace span when no coord captured |
-| `:machine-spawn`     | `from machine spawn · :child-actor-id`                        | none (the actor-id is gensym'd; resolving its spec is a follow-on enrichment) |
-| `:fx-dispatch`       | `from fx :dispatch · parent epoch #142`                       | the parent-epoch chip is click-to-navigate via `:rf.xray/focus-epoch <epoch-id>` (registered in `spine.cljs`'s `install!` per rf2-5qp4g) |
+| `:after-timer`       | `from :after timer · 250ms on [:active :authenticating]`      | the state-path is click-to-source on the state-node's co-located `:source-coords`; falls through to a plain monospace span when no coord captured |
+| `:machine-spawn`     | `from machine spawn · :child-actor-id`                        | none (the actor-id is gensym'd) |
+| `:machine-action`    | `from machine action · parent epoch #142`, with a `500ms` chip for a machine-emitted `:dispatch-later` | same parent-epoch navigation as `:fx-dispatch` |
+| `:fx-dispatch`       | `from fx :dispatch · parent epoch #142`                       | the parent-epoch chip is click-to-navigate via `:rf.xray/focus-epoch <epoch-id>` (registered in `spine.cljs`'s `install!`) |
 | `:fx-dispatch-later` | `from fx :dispatch-later · 500ms · parent epoch #142`         | same parent-epoch navigation; the `500ms` chip surfaces when the trace carries the optional `:rf.event/source-detail :ms` tag |
-| `:always`            | `from :always`                                                | defensive — `:always` rides the microstep trace, not `:rf.event/dispatched`; the renderer covers it so the closed set is fully exhaustive |
-| `:ui` / `:frame-init` / `:test-harness` / `:unknown` | `from <source>` (unchanged from §9.1.6.1) | the source word itself is click-to-source on the dispatch call-site (rf2-80u5a) |
+| `:ui` / `:frame-init` / `:test-harness` / `:unknown`, and an enrichment-less `:after-timer` / `:machine-spawn` | `from <source>` (§9.1.6.1) | the source word itself is click-to-source on the dispatch call-site |
+
+`:always` is not a dispatch source: it rides the
+`:rf.machine.microstep/transition` trace, which has no dispatch
+envelope.
 
 **Projection.** `dispatch-row` (in `panels/epoch/projection.cljc`)
 attaches a `:source-enrichment` map to the row whose shape depends
 on `:source` — `{:machine-id :delay-ms :source-state-path}` for
 `:after-timer`, `{:spawned-actor-id}` for `:machine-spawn`,
-`{:parent-dispatch-id :delay-ms?}` for the fx-dispatch variants.
-Vanilla sources carry no enrichment; the renderer falls through to
-the pre-rf2-5qp4g call-site link.
+`{:parent-dispatch-id :delay-ms?}` for `:machine-action` and the
+fx-dispatch variants. Vanilla sources carry no enrichment; the renderer
+falls through to the call-site link.
 
 **Parent-epoch resolution.** The view layer resolves
 `:parent-dispatch-id → :parent-epoch-id` against a precomputed
@@ -3095,8 +3098,8 @@ operator still sees the lineage.
   - `rf-xray-epoch-dispatch-after-timer-delay` /
     `rf-xray-epoch-dispatch-after-timer-state-path` (`:after-timer`)
   - `rf-xray-epoch-dispatch-machine-spawn-actor` (`:machine-spawn`)
-  - `rf-xray-epoch-dispatch-fx-later-delay` (`:fx-dispatch-later`
-    delay chip)
+  - `rf-xray-epoch-dispatch-fx-later-delay` (the `:fx-dispatch-later`
+    and `:machine-action` delay chip)
   - `rf-xray-epoch-dispatch-parent-epoch-link` /
     `rf-xray-epoch-dispatch-parent-epoch-unresolved` (fx-dispatch
     parent-epoch chrome — clickable variant + muted-unresolved
@@ -3177,16 +3180,10 @@ kick, or a non-machine handler). `fmt/orientation-value` formats each value
 
 ### §9.1.7 Composition with the edn-inspector widget
 
-Per the bead body's §Implementation Notes, expandable rows mount the
-edn-inspector widget with `:zoomable? true` (rf2-h71e0) and
-`:header "<step-name>"` (rf2-okq7p) so nested data drill-down composes
-naturally with the §10 widget's contract. The initial landing of
-the panel renders default-visible content for every step (the
-cascade's punch is its always-visible rhythm); per-row drill-down
-state lives on the `:epoch-panel-expanded-rows` app-db slot (sub
-`:rf.xray.epoch/expanded-rows`) via the
-`:rf.xray.epoch/toggle-row-expand` event, ready for the follow-on
-rich-expansion pass.
+Every step renders its content visible — the cascade's punch is its
+always-visible rhythm — so there is no per-row expansion state. Nested
+data drills down inside the step bodies' own edn-inspector widgets
+(§10), which carry their own expansion and zoom.
 
 ### §9.1.8 Pure-data projection (testable in isolation)
 
@@ -3211,15 +3208,12 @@ presentation boundary reads as one named ns the view imports.
 | `:rf.xray/epoch-pipeline` | `:rf.xray/focused-epoch-record` · `:rf.xray/observed-frame` (rf2-y8doi.19 — LAYERED. The history-dependent half is now `:rf.xray/focused-epoch-record`, which resolves `:rf.xray/focus` against `:rf.xray/epoch-history` through the shared `panels.shared.focus-resolver`; it still recomputes per settle, but its value is `=`-equal across settles while pinned, so the propagation collapse stops there and the expensive projection below does not re-run. `:rf.xray/observed-frame` is the REDACTION seam, not a data axis: it names the frame whose `:sensitive` policy governs the record's app-db snapshots, and it derives from focus + target-frame, so nothing in the settle path invalidates the pipeline through it) | `{:status :no-focus ｜ :no-epoch ｜ :focused ｜ :epoch-evicted, :epoch-id, :record, :steps, :outcome :ok｜:error}` — `:record`'s `:db-before` / `:db-after` are EGRESS-PROJECTED here (rf2-y8doi.19), so no consumer of this sub can render a declared-sensitive value the App-DB tab redacts. `:outcome` is the rf2-ahhgn tool-side outcome (`projection/epoch-outcome`; `:error` when any step carries an exception or violation), NOT the framework epoch-record slot (§9.1.10.5) |
 | `:rf.xray/focused-epoch-record` | `:rf.xray/focus` · `:rf.xray/epoch-history` (through `panels.shared.focus-resolver`, passing focus's `:dispatch-id` so a pinned bundle that settled no epoch reads `:no-epoch` rather than falling back to the head) | `{:status, :epoch-id, :record}` — the history-dependent half of `:rf.xray/epoch-pipeline` (rf2-y8doi.19); `=`-equal across settles while focus is pinned |
 | `:rf.xray.epoch/parent-epoch-index` | `:rf.xray/epoch-history`; query arg = the cascade's parent dispatch ids (`proj/parent-dispatch-ids`) | `{parent-dispatch-id → epoch-id}` restricted to those ids — `{}` without walking the ring when there are none (rf2-y8doi.19; feeds §9.1.6.3's parent-epoch chip) |
-| `:rf.xray.epoch/expanded-rows` | `:epoch-panel-expanded-rows` slot | `#{[step-kw row-id] …}` |
 | `:rf.xray.epoch/subs-filter-mode` | `:epoch-panel-subs-filter-mode` slot | keyword `:all / :changed / :unchanged` (rf2-tzmmf — SUBSCRIPTIONS step's `[all][changed][unchanged]` button-bar; supersedes rf2-kfh1v's boolean `subs-show-unchanged?`. Default `:changed` preserves the rf2-kfh1v hide-unchanged-by-default rationale) |
 
 ### §9.1.10 Events
 
 | Event | Effect |
 |-------|--------|
-| `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
-| `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
 | `:rf.xray.epoch/set-subs-filter-mode mode` | set the SUBSCRIPTIONS filter mode (rf2-tzmmf — closed set `:all / :changed / :unchanged`; supersedes rf2-kfh1v's `toggle-subs-show-unchanged`. The button-bar replaces both the prior boolean toggle AND the badge-adjacent `N recomputed (M changed, K unchanged)` summary text — Mike pair-debug 2026-05-26: no coexistence, pre-alpha posture) |
 | `:rf.xray/focus-epoch epoch-id` | pivot the spine's `:rf.xray/focus` to the supplied epoch-id (rf2-5qp4g). Resolves the matching record's settling `:dispatch-id` via `spine/dispatch-id-for-epoch` and defers to `focus-event-bundle-reducer`. Drives the DISPATCH step's parent-epoch navigation chip on `:fx-dispatch` / `:fx-dispatch-later` dispatches (§9.1.6.3). When the epoch-id has no matching dispatch-id in the buffer (trace elided, record-only fixture), the event still pins `:focus :epoch-id` so panels pivoting on it (App-DB diff, Views, Machine Inspector) follow the navigation; the cascade's `:dispatch-id` resolves on the next live tick. |
 
@@ -3304,9 +3298,9 @@ unchanged); only the aggregation moved.
 |-----------------|-----------------------------------------------------|--------------------------|
 | `:event`        | DISPATCH                                            | step-level               |
 | `:app-db`       | SIDE EFFECTS step `:db` row (the handler's app-db write) — per rf2-8resu / rf2-kt6js | row-level         |
-| `:machine-data` | SIDE EFFECTS step `:rf.db/runtime` row (the handler's runtime-db partition write — EP-0001 rf2-ff9b0d, the runtime-db sibling of the `:app-db` → `:db` attach, via `attach-to-runtime-db-row`). The runtime-db partition carries durable machine snapshots, so its post-commit boundary is `:where :machine-data`. When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is also signalled via the §Rollback blast-radius mute pass; the violation itself stays attached to the runtime-db row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
+| `:machine-data` | SIDE EFFECTS step `:rf.db/runtime` row (the handler's runtime-db partition write — EP-0001 rf2-ff9b0d, the runtime-db sibling of the `:app-db` → `:db` attach). The runtime-db partition carries durable machine snapshots, so its post-commit boundary is `:where :machine-data`. When the violation triggered full-cascade rollback (`:rollback? true`), the rollback fact is also signalled via the §Rollback blast-radius mute pass; the violation itself stays attached to the runtime-db row. Per rf2-jbbp7 (see [spec/005 §Schema validation](../../../spec/005-StateMachines.md#schema-validation), [spec/010 §Per-step recovery row 7](../../../spec/010-Schemas.md#per-step-recovery)). | row-level (fallback step) |
 | `:fx-args`      | SIDE EFFECTS step, row whose `:fx-id` = `:failing-id` | row-level (fallback step)|
-| `:sub-return`   | SUBSCRIPTIONS step, row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
+| `:sub-return`   | SUBSCRIPTIONS step, the row whose query vector is the trace's `:rf.sub/query-v` (two instances of one sub share a `:sub-id`); a violation carrying no query vector matches every row whose `:sub-id` = `:failing-id` | row-level (fallback step) |
 
 Hot-reload drift no longer attaches to a cascade step — rf2-7gf7v
 retired the standalone `SCHEMA HOT-RELOAD` tail step, and the drift
@@ -3867,8 +3861,7 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
   returned the db unchanged (`:rf.event/db-noop` — nothing committed,
   rf2-ekq28v); `✗` when candidate validation rejected the handler's
   write before install (`db-rolled-back?`) — the `:where :app-db`
-  violation reason box attaches to the `:db` row via
-  `attach-to-fx-db-row`. The rejection that counts is the event's own: a
+  violation reason box attaches to the `:db` row. The rejection that counts is the event's own: a
   `:rollback? true` failure at `:where :app-db`, from a value that failed
   its schema (`:rf.error/schema-validation-failure`) or a schema that
   could not be evaluated (`:rf.error/malformed-schema`), emitted before
@@ -3895,8 +3888,8 @@ present] + [:fx rows, in order]` — there is no fourth `other` tier
   validation rejected the event's own candidate at the runtime-db boundary
   (the `:where :machine-data` validator — runtime-db carries durable
   machine snapshots), by the same rule as the `:db` row
-  (`runtime-db-rolled-back?`), with the violation reason box attaching to the row via
-  `attach-to-runtime-db-row`. The row appears whenever the runtime-db
+  (`runtime-db-rolled-back?`), with the violation reason box attaching to the
+  row. The row appears whenever the runtime-db
   partition was committed, **including a runtime-ONLY commit** (no `:db`,
   no `:fx`). The `:db`-commit signal (`:rf.event/db-changed`) is
   **APP-DB-ONLY** (EP-0001 Mike ruling #6) — a runtime-only commit emits
@@ -3941,7 +3934,7 @@ rows.
 **Exceptions.** A row that threw is a `✗` row whose expand is wnvid's
 shared "Exception Thrown" card (collapsible details — stack + ex-data —
 no redundant source link; the owning row provides context).
-`attach-to-fx-error-row` matches the throwing fx by `:fx-id` against the
+`attach-exceptions` matches the throwing fx by `:fx-id` against the
 flat `:rows`; an unmatched fx exception (e.g. no-such-fx) attaches to the
 step level. This per-row rendering is compatible with rf2-yz57h's
 exception-under-step rendering.
@@ -5418,8 +5411,12 @@ When the operator scrubs onto an epoch evicted from the buffer, each
 panel renders its own focus-resolver `:epoch-evicted` copy rather than
 one shared placeholder — the Epoch panel's "The selected epoch was
 evicted from the history buffer. Pick a more recent event."
-(`panels/epoch/view.cljs`), the Trace panel's "This epoch has been
-evicted from the history buffer." (`panels/trace.cljs`). The retention
+(`panels/epoch/view.cljs`), and "This epoch has been evicted from the
+history buffer." on the Trace, App-DB and Views panels
+(`panels/trace.cljs`, `panels/app_db_diff_state.cljs`,
+`panels/reactive_panel_view.cljs`). A pin on a bundle that settled no
+epoch (`:no-epoch`) reads "The selected event settled no epoch." on each
+of them. No panel passes the live state off as the pinned epoch's. The retention
 knob is Settings → General → Epoch history (`:general :epoch-history`,
 default 50).
 

@@ -283,6 +283,7 @@
                             (rf/dispatch
                               [:rf.xray/focus-trace-entry
                                {:dispatch-id (:dispatch-id decision)
+                                :frame       (:frame decision)
                                 :trace-id    (:trace-id decision)}]
                               {:frame frame})))
            :style       (if clickable?
@@ -305,7 +306,8 @@
 (defn- teardown-row
   "`row-key` is React's key for this row, in the ATTRIBUTE MAP rather than
   on the returned vector's metadata — see [[body]]."
-  [{:keys [child-id t inflight-count reason dispatch-id trace-id]} row-key]
+  [{:keys [child-id t inflight-count reason dispatch-id trace-id]
+    host-frame :frame} row-key]
   (let [frame      (rf/current-frame-id)
         clickable? (boolean dispatch-id)]
     [:div {:key         row-key
@@ -316,6 +318,7 @@
                             (rf/dispatch
                               [:rf.xray/focus-trace-entry
                                {:dispatch-id dispatch-id
+                                :frame       host-frame
                                 :trace-id    trace-id}]
                               {:frame frame})))
            :style       (if clickable?
@@ -345,6 +348,7 @@
   on the returned vector's metadata — see [[body]]."
   [{:keys [fx t cancel-cause url correlation-id
            dispatch-id trace-id]
+    host-frame :frame
     :as row}
    last? row-key]
   (let [frame      (rf/current-frame-id)
@@ -359,6 +363,7 @@
                             (rf/dispatch
                               [:rf.xray/focus-trace-entry
                                {:dispatch-id dispatch-id
+                                :frame       host-frame
                                 :trace-id    trace-id}]
                               {:frame frame})))
            :style       (if clickable?

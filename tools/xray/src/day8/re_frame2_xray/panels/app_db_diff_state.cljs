@@ -2,7 +2,8 @@
   "Current-state inspector sections for the app-db tab.
 
   The app-db tab is a CURRENT-STATE inspector — the re-frame-10x look —
-  NOT a diff. This ns renders the section model
+  with the focused epoch's changes annotated inline. This ns renders the
+  section model
   `app-db-diff-helpers/current-state-sections` produces:
 
     - a TOP section — the app-db MINUS every reserved `:rf*` key (the
@@ -261,9 +262,9 @@
   annotation when a pre-image is supplied (spec/021 §4.3). `render-id`
   keeps adjacent renders' testids independent across the panel.
 
-  The 5-arity's `instance-id` is `Panel`'s optional per-instance name;
-  see the block comment above for what it separates and why. The 4-arity
-  is the single-mount call and composes ids with no instance.
+  `instance-id` is `Panel`'s optional per-instance name, nil for the
+  single-mount call; see the block comment above for what it separates
+  and why.
 
   `f/display-value` runs first so giant string leaves collapse to the
   `:rf.size/large-elided` display marker before rendering — a
@@ -299,8 +300,6 @@
   slice present in the pre-image and gone now. The body passes the
   inspector's absent-value marker as `:value` beside the real `:before`,
   which the inspector draws as a struck-through removed ghost."
-  ([value before render-id title]
-   (value-body value before render-id title nil))
   ([value before render-id title instance-id]
   (let [;; The caller's per-instance name, or nil for the
         ;; single-mount default. Normalised (and type-refused) ONCE here so
@@ -478,18 +477,14 @@
   projection time and never reach the renderer; only the TOP carries
   an empty-state body.
 
-  The 3-arity carries `Panel`'s optional `:instance-id` down
-  to the value body; see the block comment above [[instance-token]].
+  `instance-id` is `Panel`'s optional `:instance-id`, carried down to the
+  value body; see the block comment above [[instance-token]].
 
-  The 4-arity carries the focused epoch's
-  `:redacted-modified` count, which rides in the section TITLE as a muted
+  `redacted-modified` is the focused epoch's count, which rides in the section TITLE as a muted
   chip (see [[redacted-modified-chip]]). The title is used on BOTH
   branches below — as the section-shell H3 on the empty branch and as the
   edn-inspector's card `:header` otherwise — so one placement covers the
   whole top card. Nothing else in the panel reads the count."
-  ([top] (top-section top h/no-diff))
-  ([top before] (top-section top before nil))
-  ([top before instance-id] (top-section top before instance-id nil))
   ([top before instance-id redacted-modified]
    (let [;; `conj` only when there IS a chip, rather than letting a nil
          ;; child ride: with no count this title is exactly
@@ -530,8 +525,7 @@
   snapshot in place. The section-shell H3 is suppressed — the
   edn-inspector card's own header ribbon carries the title.
 
-  The 3-arity carries `Panel`'s optional `:instance-id`."
-  ([area inst] (instance-section area inst nil))
+  `instance-id` is `Panel`'s optional `:instance-id`."
   ([area {:keys [id value] :as inst} instance-id]
    (let [title [:span
                 (area-label area)
@@ -557,8 +551,7 @@
   (`current-state-sections` omits `:empty?` entries) so this fn is
   only invoked for populated registries; no empty-state branch.
 
-  The 2-arity carries `Panel`'s optional `:instance-id`."
-  ([area-entry] (instances-area area-entry nil))
+  `instance-id` is `Panel`'s optional `:instance-id`."
   ([{:keys [area instances]} instance-id]
   (into [:div {:data-testid (str "rf-xray-app-db-state-area-" (pr-str area))}]
         (for [{:keys [id] :as inst} instances]
@@ -586,8 +579,7 @@
   section-shell H3 is suppressed — the edn-inspector card's own header
   ribbon carries the title.
 
-  The 2-arity carries `Panel`'s optional `:instance-id`."
-  ([area-entry] (singleton-area area-entry nil))
+  `instance-id` is `Panel`'s optional `:instance-id`."
   ([{:keys [area value] :as area-entry} instance-id]
    (let [title (area-label area)]
      (section-shell
@@ -605,8 +597,7 @@
   on its `:kind`. Only invoked for non-empty areas — empty entries are
   filtered at projection time.
 
-  The 2-arity carries `Panel`'s optional `:instance-id`."
-  ([area-entry] (area-section area-entry nil))
+  `instance-id` is `Panel`'s optional `:instance-id`."
   ([{:keys [kind] :as area-entry} instance-id]
    (case kind
      :instances (instances-area area-entry instance-id)
@@ -616,6 +607,24 @@
      (singleton-area area-entry instance-id))))
 
 ;; ---- panel body ----------------------------------------------------------
+
+(def ^:private placeholder-style
+  "The focus-status placeholder body (padded muted prose)."
+  {:padding     "16px"
+   :font-family sans-stack
+   :font-size   "13px"
+   :color       (:text-tertiary tokens)})
+
+(defn- focus-status-placeholder
+  "The copy for a focus this panel has no value for, or nil when it has one.
+  A pinned epoch evicted from the ring and a pinned bundle that settled no
+  epoch each get their own line rather than the live db passed off as the
+  selected event's (tools/xray/spec/021 §10.7)."
+  [status]
+  (case status
+    :epoch-evicted "This epoch has been evicted from the history buffer."
+    :no-epoch      "The selected event settled no epoch."
+    nil))
 
 (defn state-body
   "Render the full current-state inspector body for the section model
@@ -627,7 +636,9 @@
   lens or plain-browse lens.
 
   Pure hiccup; nil-safe (a nil model degrades to an empty TOP + no
-  areas).
+  areas). A model whose `:status` names a focus with no value
+  (`:epoch-evicted`, `:no-epoch`) renders that status's placeholder line
+  instead of any section.
 
   The 2-arity takes `Panel`'s optional `:instance-id` and
   threads it to every section, which is what lets two `Panel`s under ONE
@@ -635,14 +646,19 @@
   the single-mount call and composes ids with no instance; see
   the block comment above `instance-token`."
   ([model] (state-body model nil))
-  ([{:keys [top areas redacted-modified] :as model} instance-id]
-   (let [before-top (get model :before-top h/no-diff)]
-     (into [:div {:data-testid "rf-xray-app-db-state"}
-            ;; `:redacted-modified` is a record-level
-            ;; rollup, not a section: it rides on the model beside
-            ;; `:top` / `:areas` and goes to the TOP card's header only.
-            (top-section top before-top instance-id redacted-modified)]
-           (for [{:keys [area] :as area-entry} areas]
-             ;; Keyed fragment; see `instances-area` above.
-             [:<> {:key (pr-str area)}
-              (area-section area-entry instance-id)])))))
+  ([{:keys [status top areas redacted-modified] :as model} instance-id]
+   (if-let [placeholder (focus-status-placeholder status)]
+     [:div {:data-testid "rf-xray-app-db-state"}
+      [:div {:data-testid (str "rf-xray-app-db-state-" (name status))
+             :style       placeholder-style}
+       placeholder]]
+     (let [before-top (get model :before-top h/no-diff)]
+       (into [:div {:data-testid "rf-xray-app-db-state"}
+              ;; `:redacted-modified` is a record-level
+              ;; rollup, not a section: it rides on the model beside
+              ;; `:top` / `:areas` and goes to the TOP card's header only.
+              (top-section top before-top instance-id redacted-modified)]
+             (for [{:keys [area] :as area-entry} areas]
+               ;; Keyed fragment; see `instances-area` above.
+               [:<> {:key (pr-str area)}
+                (area-section area-entry instance-id)]))))))

@@ -257,6 +257,46 @@
    (rf/project-egress v (assoc (local-render-opts frame-id raw?)
                                :query-v [sub-id]))))
 
+(def ^:private record-state-slots
+  "The epoch-record slots holding recorded frame state — the app-db pair and
+  the whole frame-state pair, whose `:rf.db/runtime` partition carries the
+  route slice, machine snapshots and resource entries."
+  [:db-before :db-after :frame-state-before :frame-state-after])
+
+(defn local-render-record-state
+  "Project `record`'s recorded frame-state slots (`record-state-slots`) for an
+  on-box render, each under the classification it was RECORDED with, and leave
+  every other slot as it is.
+
+  A past epoch's state must not be walked as a bare value: that walk reads the
+  frame's LIVE classification, so a route or machine that declared a path
+  `:sensitive` and has since been left or destroyed no longer covers the value
+  it recorded. The record-level door, `rf/project-egress` on an
+  `:rf/epoch-record`, keeps the recorded classification (Spec 015 §Retained
+  values keep their recorded classification); this hands it only the state
+  slots, because the trace, effect and sub-run slots are not panel-rendered
+  frame state and the door would reduce their args.
+
+  `frame-id` is stamped as `:frame`, as every arm here does: the recorded
+  classification applies when it is the record's own frame, and anything else
+  falls closed under that frame's live classification. `overrides` overlays
+  the `:rf.egress/*` opts — the Epoch panel passes
+  `{:rf.egress/include-large? false}` so its pre-image is elided exactly as the
+  emit-time trace snapshot it is diffed against. The runtime-db partition is
+  always projected rather than withheld (`:rf.egress/include-runtime-db?`):
+  Xray renders it on-box. An absent slot stays absent. nil record in, nil out."
+  ([record frame-id] (local-render-record-state record frame-id nil))
+  ([record frame-id overrides]
+   (when (some? record)
+     (let [state     (-> (select-keys record (conj record-state-slots :frame))
+                         (assoc :kind :rf/epoch-record)
+                         (with-meta (meta record)))
+           projected (rf/project-egress state
+                                        (merge (local-render-opts frame-id)
+                                               {:rf.egress/include-runtime-db? true}
+                                               overrides))]
+       (merge record (select-keys projected record-state-slots))))))
+
 (def route-slice-classified-projections
   "The route slice keys the route CLASSIFICATION CONTRACT covers, mapped to
   the framework route read sub whose seed path re-roots them.

@@ -227,6 +227,13 @@
       (is (= :uncorrelated (:reason (:loss s)))))
     (release)))
 
+(deftest an-empty-window-names-no-dispatch
+  (testing "with no retained dispatch the event link says there is nothing to
+            walk, rather than naming a nil dispatch the ring dropped"
+    (let [says (:says (link (causal/slice {:envelopes {} :windows {}}) :event))]
+      (is (string/includes? says "holds no dispatch"))
+      (is (not (string/includes? says "nil"))))))
+
 ;; ---------------------------------------------------------------------------
 ;; MUTATION 1 — the event seam: Spec 009's retained ring
 ;; ---------------------------------------------------------------------------

@@ -9,8 +9,13 @@
   with its CLJS props map carried by identity. W1 asserts the foreign
   component's OWN committed DOM, which exists only if that crossing
   worked, and that the boundary's read lands in the frame the enclosing
-  `frame-provider` named. W5 asserts the overlay's `:ref` callback clears
-  the rAF tick loop's `:mounted?` liveness on unmount.
+  `frame-provider` named. W5 asserts the overlay's `:ref` callback counts
+  the overlay into its frame's tick-loop mount gate on mount and out
+  again on unmount.
+
+  The rows mount the boundary itself — the very component
+  `machine-canvas/Chart-view` heads — through a test-local
+  `rf.fresco/as-component`, so they need no xyflow chart underneath.
 
   The hover interaction is `machine_after_rings_cljs_test`'s
   `hover-dispatch-lands-on-the-render-frame`: the machines-viz overlay
@@ -25,6 +30,7 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
@@ -118,10 +124,15 @@
             :epoch 0}})
   nil)
 
+(def ^:private overlay-component
+  "The overlay boundary as a React component a Reagent root can mount.
+  Declared once: a fresh `as-component` per render is a fresh element
+  type, which would remount the subtree every pass."
+  (rf.fresco/as-component after-rings/AfterRingsOverlay))
+
 (defn- mount-overlay!
-  "Mount the overlay the way `machine-canvas/Chart` does — through the
-  public `AfterRingsOverlay-bridge` — inside a `frame-provider` scoping
-  `frame`. Committed synchronously: React 19's `root.render` is async."
+  "Mount the overlay boundary inside a `frame-provider` scoping `frame`.
+  Committed synchronously: React 19's `root.render` is async."
   [frame]
   (let [container (.createElement js/document "div")
         root      (rdc/create-root container)]
@@ -129,7 +140,7 @@
     (react-dom/flushSync
       (fn []
         (rdc/render root [rf/frame-provider {:frame frame}
-                          [after-rings/AfterRingsOverlay-bridge]])))
+                          [:> overlay-component {}]])))
     {:container container :root root}))
 
 (defn- teardown!
@@ -152,11 +163,13 @@
   (or (:ref-count (get (cache-of frame-id) query-v)) 0))
 
 (defn- mounted-flag
-  "The rAF tick loop's `:mounted?` liveness. TWO derefs: `@#'v` unwraps the
-  Var to the atom, the second reads its map — with one, every key reads
-  nil and W5's closed-gate assertions would pass measuring nothing."
+  "Whether `:rf/xray`'s tick-loop mount gate is open. TWO derefs: `@#'v`
+  unwraps the Var to the atom, the second reads its map — with one, every
+  key reads nil and W5's closed-gate assertions would pass measuring
+  nothing."
   []
-  (:mounted? @@#'day8.re-frame2-xray.panels.machine-after-rings/tick-state))
+  (pos? (get-in @@#'day8.re-frame2-xray.panels.machine-after-rings/tick-state
+                [:rf/xray :mounts] 0)))
 
 (deftest w1-overlay-paints-through-the-seam-and-reads-the-named-frame
   (testing "the machines-viz Reagent component behind the substrate seam
@@ -188,8 +201,8 @@
             (teardown! root container)))))))
 
 (deftest w5-unmount-clears-the-tick-loop-mount-gate
-  (testing "mounting the boundary arms the rAF clock's `:mounted?` liveness
-            and unmounting CLEARS it, because Fresco carried the `:ref`
+  (testing "mounting the boundary opens its frame's tick-loop mount gate
+            and unmounting CLOSES it, because Fresco carried the `:ref`
             callback through to React. Without it the off-render 60Hz loop
             outlives its panel."
     (if-not (browser?)

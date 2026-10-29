@@ -4,16 +4,13 @@
   Closes the wall-clock-time visualisation gap on the chart per
   `spec/019-Cross-Cutting-Insight.md` §Wall-clock time is under-served:
   every armed `:after` timer draws a countdown ring AROUND its bearing
-  state-node. In live mode the ring sweeps from full → empty in real
-  time; in retrospective mode (scrubber not at `:present`) it freezes
-  at the elapsed-fraction the timer had reached at the FOCUSED
-  CASCADE's timestamp (xray/003 §M.2) — `AfterRingsOverlay` resolves
-  the `now-ms` anchor via `machine-after-rings-helpers/resolve-now-ms`:
-  the rAF-bumped live clock in `:present`/LIVE mode, the focused
-  event-bundle's dispatched time otherwise. Feeding the live clock in
-  unconditionally would freeze a retro ring wherever the clock happened
-  to last sit when the loop stopped, not at the cascade the operator is
-  actually looking at.
+  state-node, sweeping from full → empty in real time.
+
+  The rings are a LIVE-mode surface: while the spine focus is pinned to a
+  past event (`:mode :retro`) the overlay draws nothing and the clock
+  stops. The timer fold reads the whole trace buffer, which already holds
+  every timer's later fate, so drawing it over a past epoch's chart would
+  show the present's timers on the past's states (xray/003 §M.2).
 
   ## Architecture
 
@@ -26,8 +23,8 @@
        records + the ring-fraction maths + the
        `timers->ring-specs` projection into machines-viz overlay
        specs. JVM-runnable.
-    2. **This ns** — installs the sub/event family, drives the single
-       per-chart rAF tick loop (Lock #8), and is the DATA owner: it
+    2. **This ns** — installs the sub/event family, drives one rAF tick
+       loop per frame (never one per ring), and is the DATA owner: it
        projects the trace buffer into presentation-ready ring-specs
        and delegates positioning + paint to (3).
     3. **`day8.re-frame2-machines-viz.chart.overlays.after-rings`** —
@@ -67,16 +64,15 @@
 
   ## rAF tick driver
 
-  A single `requestAnimationFrame` loop ticks at the browser's natural
-  frame rate (~60fps). On each tick we bump `:rf.xray/now-ms` —
+  One `requestAnimationFrame` loop per frame ticks at the browser's
+  natural frame rate (~60fps). On each tick we bump `:rf.xray/now-ms` —
   every consumer of the ring-fraction sub re-fires on the standard
   reactive path. The loop self-gates: when nothing on screen has a
   DEADLINE left — no armed timer counting down and no `:cancelled`
-  ring still inside its retention window — OR the
-  scrubber is in retrospective mode, the next rAF is not scheduled;
-  the loop resumes when a fresh `:scheduled` event arrives (the panel
-  re-evaluates `needs-ticking?` on every render and kicks the loop
-  when truthy).
+  ring still inside its retention window — OR the focus is pinned to a
+  past event, OR no overlay is mounted in its frame, the next rAF is
+  not scheduled; the loop resumes when an overlay mounts or a mounted
+  overlay re-renders over a ring that has a deadline.
 
   If rAF creates perf issues under many concurrent timers, the throttle
   knob lives in `*tick-min-delta-ms*` — bump it to skip-frame when
@@ -86,7 +82,7 @@
   ## Substrate
 
   [[AfterRingsOverlay]] is an `rf.fresco/defview` — a real React
-  function component whose four reads are `rf.fresco/sub`, recorded by
+  function component whose three reads are `rf.fresco/sub`, recorded by
   Fresco's own collector rather than by the installed adapter's
   observer, so the overlay's OBSERVATION is not coupled to the adapter.
   Frame isolation comes from the enclosing
@@ -113,7 +109,6 @@
             [re-frame.fresco :as rf.fresco]
             [re-frame.interop :as rf.interop]
             [day8.re-frame2-xray.substrate :as substrate]
-            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as mv-after-rings]
@@ -232,9 +227,7 @@
   ;; — ~60 Hz for as long as ANY timer stays armed — to answer a question
   ;; only the final now-keyed filter needs. The filter runs where the
   ;; clock already is: `overlay-tree` applies `rings-h/prune-timers`
-  ;; against the anchor `resolve-now-ms` picks, which also keeps retro
-  ;; mode honest — evicting against the LIVE clock would age rings even
-  ;; while the chart is frozen at the focused cascade's instant.
+  ;; against the clock it renders with.
   (rf/reg-sub :rf.xray/active-timers-for-focused-machine
     {:inputs [[:rf.xray/trace-buffer]
               [:rf.xray/machine-transitions-for-focused-event]
@@ -291,46 +284,50 @@
 
 ;; ---- rAF tick driver ----------------------------------------------------
 ;;
-;; A single rAF loop that bumps `:rf.xray/timer-tick` per frame when
-;; `needs-ticking?` says so. The loop self-gates so it stops when:
+;; One rAF loop PER FRAME bumps `:rf.xray/timer-tick` in that frame while
+;; `needs-ticking?` says so. Each loop self-gates, stopping when:
 ;;
 ;;   - every timer has fired, and every cancelled ring has aged past its
 ;;     retention window (a `:cancelled` ring is NOT static:
 ;;     it has a deadline, so the clock outlives the last armed timer by
 ;;     at most `cancelled-retention-ms`, then stops)
-;;   - the scrubber leaves `:present`
-;;   - the `AfterRingsOverlay` UNMOUNTS — the loop is
-;;     MOUNT-gated, not only DATA-gated. Gated on data alone, an
-;;     ALREADY-RUNNING loop would be self-sustaining on app-db data:
-;;     switching away from the Machine Inspector while an `:after` timer
-;;     stays armed + the scrubber sits at `:present` would leave the loop
-;;     dispatching `:rf.xray/timer-tick` ~60×/s in the background,
-;;     outliving its panel (unbounded CPU / battery drain). The overlay
-;;     owns a `:mounted?` liveness flag (set true on
-;;     render via `kick-tick!`, cleared on unmount via the `overlay-ref!`
-;;     React ref callback); `tick-loop!` requires it before dispatching /
-;;     re-scheduling, so unmount stops the loop within one frame. Remount
-;;     re-arms via `kick-tick!`.
+;;   - the frame's spine focus is pinned to a past event (`:mode :retro`)
+;;   - the frame's LAST mounted overlay unmounts. The loop is MOUNT-gated,
+;;     not only DATA-gated: gated on data alone, a running loop would be
+;;     self-sustaining on app-db data, and switching away from the Machine
+;;     Inspector while an `:after` timer stays armed would leave it
+;;     dispatching `:rf.xray/timer-tick` ~60×/s in the background.
+;;
+;; The mount gate is a COUNT per frame, kept by the overlay's React ref
+;; ([[overlay-ref]]): two overlays in one frame share its clock, so the
+;; first to unmount must not freeze the other, and two frames each keep
+;; their own clock and their own dispatch target. The ref is also what
+;; ARMS the loop on mount, because only a mounted overlay has a ref to
+;; disarm it again — an overlay that renders no ring draws no element, so
+;; it can never arm a loop nothing would stop.
 ;;
 ;; The throttle knob lives in `*tick-min-delta-ms*`. It is 0 (no
 ;; skip-frame); raise it if many-timer scenarios show jank.
 
 (defonce ^:private tick-state
-  ;; `{:running? bool :last-now-ms long :frame <frame-id> :mounted? bool}`
-  ;;   :running? — true while a rAF is queued and undrained.
+  ;; `{frame-id {:mounts int :running? bool :last-now-ms long}}`
+  ;;   :mounts — how many overlays are mounted in the frame; the
+  ;;     [[overlay-ref]] callback counts them in and out.
+  ;;   :running? — true while the frame's rAF is queued and undrained.
   ;;   :last-now-ms — last bumped value; the next tick can skip-frame
   ;;     if (- now last) < *tick-min-delta-ms*.
-  ;;   :frame — the surrounding instance frame captured by
-  ;;     the overlay at `kick-tick!` time, so the off-render
-  ;;     rAF tick dispatch lands on it (defaults to default-frame-id).
-  ;;   :mounted? — the overlay's liveness. `kick-tick!` sets it
-  ;;     true (called only from the mounted overlay's render); the
-  ;;     `overlay-ref!` React ref callback clears it on unmount. `tick-loop!`
-  ;;     requires it, so the loop can never outlive the panel.
-  (atom {:running?    false
-         :last-now-ms 0
-         :frame       defaults/default-frame-id
-         :mounted?    false}))
+  (atom {}))
+
+(defn- mounted?
+  "True while at least one overlay is mounted in `frame`."
+  [frame]
+  (pos? (get-in @tick-state [frame :mounts] 0)))
+
+(defn- retro?
+  "True when `frame`'s spine focus is pinned to a past event, where the
+  rings are not drawn (see the ns docstring)."
+  [frame]
+  (= :retro (:mode @(rf/subscribe [:rf.xray/focus] {:frame frame}))))
 
 (def ^:dynamic *tick-min-delta-ms*
   "Minimum gap (ms) between consecutive `:rf.xray/timer-tick`
@@ -352,42 +349,22 @@
     :else                              (rf.interop/next-tick f)))
 
 (defn- tick-loop!
-  "One iteration of the rAF tick loop. Reads the active-timers sub +
-  scrubber sub; bumps `now-ms` when ticking is warranted; re-schedules
-  itself iff still needed AND the overlay is still mounted.
+  "One iteration of `frame`'s rAF tick loop. Bumps `now-ms` in `frame`
+  when ticking is warranted; re-schedules itself iff still needed AND an
+  overlay is still mounted there. A frame with no mounted overlay, or a
+  focus pinned to a past event, stops the loop with NO dispatch and NO
+  reschedule.
 
-  MOUNT gate. The loop is gated on the overlay's
-  `:mounted?` liveness, not only on app-db data (`needs-ticking?`). An
-  UNMOUNTED overlay stops the loop IMMEDIATELY — no dispatch, no reschedule
-  — even if an `:after` timer stays armed + the scrubber sits at `:present`.
-  A loop gated on data alone would be self-sustaining on app-db state and
-  keep dispatching `:rf.xray/timer-tick` ~60×/s in the background after the
-  panel unmounted (switch to another L3 tab). The overlay owns `:mounted?` via
-  `kick-tick!` (sets true on render) + `overlay-ref!` (clears on unmount).
-
-  The loop runs as a rAF/next-tick callback, OFF-render:
-  there is no established frame scope (no `with-frame`, no enclosing
-  Provider, no carried `*current-frame*` stamp), so the ambient
-  1-arity `rf/subscribe` has NO `:rf/default` floor and raises
-  `:rf.error/no-frame-context` (subs.cljc, frame.cljc) — which the `catch`
-  below would swallow every tick, silently killing the loop
-  after its first iteration. So the two reads below use the PUBLIC
-  explicit-frame opts form `(rf/subscribe query-v {:frame frame})`
-  (subs.cljc §Lookup algorithm), targeting the frame captured in
-  `tick-state` at `kick-tick!` time — the same frame the
-  dispatch below targets."
-  []
+  The loop runs as a rAF/next-tick callback, OFF-render, so there is no
+  frame scope and an ambient 1-arity `rf/subscribe` raises
+  `:rf.error/no-frame-context`, which the `catch` below would swallow
+  every tick. Every read and the dispatch therefore name `frame`
+  explicitly (Spec 002 §Frame target resolution — the carried invariant)."
+  [frame]
   (try
-    (if-not (:mounted? @tick-state)
-      ;; The overlay unmounted (e.g. the user switched L3 tab).
-      ;; Stop the loop with NO dispatch + NO reschedule even while an :after
-      ;; timer stays armed + the scrubber sits at :present, so the loop can
-      ;; never outlive its panel. A remount re-arms via `kick-tick!`.
-      (swap! tick-state assoc :running? false)
-      (let [frame    (:frame @tick-state)
-            scrub    @(rf/subscribe [:rf.xray/machine-scrubber-position]
-                                    {:frame frame})
-            now      (now-ms)
+    (if (or (not (mounted? frame)) (retro? frame))
+      (swap! tick-state assoc-in [frame :running?] false)
+      (let [now      (now-ms)
             ;; The sub is buffer-keyed, so the
             ;; now-keyed eviction runs here, exactly as it does in
             ;; `overlay-tree`. Without it the loop would keep ticking on
@@ -397,74 +374,69 @@
                           [:rf.xray/active-timers-for-focused-machine]
                           {:frame frame})
                        now)
-            last-now (:last-now-ms @tick-state)
+            last-now (get-in @tick-state [frame :last-now-ms] 0)
             due?     (or (zero? *tick-min-delta-ms*)
                          (>= (- now last-now) *tick-min-delta-ms*))]
         (when due?
-          ;; The rAF tick loop runs outside the render scope;
-          ;; dispatch into the frame captured at `kick-tick!` (the
-          ;; surrounding instance frame at the time the overlay armed the
-          ;; clock), not a `{:frame :rf/xray}` literal.
-          (rf/dispatch [:rf.xray/timer-tick now]
-                       {:frame frame})
-          (swap! tick-state assoc :last-now-ms now))
+          (rf/dispatch [:rf.xray/timer-tick now] {:frame frame})
+          (swap! tick-state assoc-in [frame :last-now-ms] now))
         ;; Re-schedule only while STILL mounted AND still data-warranted.
         ;; `now` is the same instant `timers` was pruned against
         ;; above, so a `:cancelled` ring still in the vector is still inside
         ;; its window and the loop keeps running until it ages out.
-        (if (and (:mounted? @tick-state)
-                 (rings-h/needs-ticking? timers scrub now))
-          (raf! tick-loop!)
-          (swap! tick-state assoc :running? false))))
+        (if (and (mounted? frame) (rings-h/needs-ticking? timers now))
+          (raf! #(tick-loop! frame))
+          (swap! tick-state assoc-in [frame :running?] false))))
     (catch :default _e
-      ;; Defensive: a frame error must not strand the loop in
-      ;; `:running? true` (would block future kicks).
-      (swap! tick-state assoc :running? false))))
+      ;; A frame error must not strand the loop in `:running? true`, which
+      ;; would block every later kick.
+      (swap! tick-state assoc-in [frame :running?] false))))
 
 (defn kick-tick!
-  "Start the rAF tick loop iff not already running. Idempotent —
-  callers (the rings overlay component, mounted per render) call this
-  on every render; the `:running?` sentinel prevents duplicate loops.
+  "Start `frame`'s rAF tick loop iff an overlay is mounted there and the
+  loop is not already running. Idempotent — the mounted overlay calls it
+  on every render that has a deadline on screen, and the `:running?`
+  sentinel collapses the duplicates. With nothing mounted it arms
+  nothing: the mount itself arms the loop, from [[overlay-ref]]."
+  [frame]
+  (let [[before after]
+        (swap-vals! tick-state
+                    (fn [s]
+                      (if (and (pos? (get-in s [frame :mounts] 0))
+                               (not (get-in s [frame :running?])))
+                        (assoc-in s [frame :running?] true)
+                        s)))]
+    (when (and (get-in after [frame :running?])
+               (not (get-in before [frame :running?])))
+      (raf! #(tick-loop! frame)))))
 
-  `kick-tick!` is only ever called from the MOUNTED overlay's
-  active render, so it stamps `:mounted? true` (the overlay is live). This
-  also closes the boot race: on the first render the `overlay-ref!` callback
-  fires only after React commits, so `:mounted? true` is set here BEFORE the
-  first off-render `tick-loop!` iteration runs. The `overlay-ref!` callback
-  clears `:mounted?` on unmount.
+(def ^:private overlay-ref
+  "The React ref callback for an overlay rendered in `frame`: React calls
+  it with the element on MOUNT and with nil on UNMOUNT, and each call
+  counts the overlay in or out of `frame`'s mount gate. A mount also arms
+  the frame's loop, whose first iteration decides whether it is needed.
 
-  `frame` is the surrounding instance frame the overlay
-  captured at render; stashed so the off-render tick dispatch
-  lands on it. Defaults to `defaults/default-frame-id` for the test
-  seam / direct callers."
-  ([] (kick-tick! defaults/default-frame-id))
-  ([frame]
-   ;; Record the captured frame + live liveness before arming so `tick-loop!`
-   ;; reads them (a render IS a mount signal).
-   (swap! tick-state assoc :frame frame :mounted? true)
-   (when (compare-and-set!
-           tick-state
-           (assoc @tick-state :running? false)
-           (assoc @tick-state :running? true))
-     (raf! tick-loop!))))
-
-(defn- overlay-ref!
-  "React ref callback owning the overlay's `:mounted?` liveness in
-  `tick-state`. React invokes it with the DOM node on MOUNT and
-  `nil` on UNMOUNT. A stable top-level fn identity means React calls it ONLY on
-  mount / unmount (never on a re-render), so it is a clean lifecycle signal.
-  Clearing `:mounted?` on unmount is what lets `tick-loop!` stop the rAF loop
-  within one frame even while an `:after` timer stays armed — the loop can
-  never outlive the panel."
-  [el]
-  (swap! tick-state assoc :mounted? (some? el)))
+  Memoised so each frame gets ONE stable fn: React re-invokes a ref
+  callback whose identity changes on every render, which would read as an
+  unmount and a mount per render. Returns nil, because React treats a
+  returned FUNCTION as the cleanup to run instead of the nil call."
+  (memoize
+    (fn [frame]
+      (fn [el]
+        (if (some? el)
+          (do (swap! tick-state update-in [frame :mounts] (fnil inc 0))
+              (kick-tick! frame))
+          (swap! tick-state update-in [frame :mounts]
+                 (fn [n] (max 0 (dec (or n 0))))))
+        nil))))
 
 (defn stop-tick!
-  "Force-stop the rAF tick loop. Tests use this to reset between
-  fixtures; production code never calls this directly (the loop
-  self-gates on `needs-ticking?` + the overlay's `:mounted?` liveness)."
+  "Force-stop every frame's rAF tick loop and forget every mount. Tests
+  use this to reset between fixtures; production code never calls it (each
+  loop self-gates on `needs-ticking?`, the focus mode and its frame's mount
+  count)."
   []
-  (swap! tick-state assoc :running? false))
+  (reset! tick-state {}))
 
 ;; ---- view: xyflow ring overlay -----------------------------------------
 ;;
@@ -519,9 +491,8 @@
                       BUFFER-keyed fold. This fn applies the now-keyed
                       eviction itself.
     :live-now       — `:rf.xray/now-ms`, the rAF-bumped live clock.
-    :scrub          — `:rf.xray/machine-scrubber-position`.
-    :focused-detail — `:rf.xray/focused-event-bundle-detail`; the
-                      retro-mode anchor source.
+    :mode           — the spine focus's `:mode` (`:rf.xray/focus`);
+                      `:retro` draws nothing (see the ns docstring).
     :frame          — the frame this tree renders in
                       (`rf/current-frame-id`). It arms the off-render
                       rAF clock through `kick-tick!` and is the frame
@@ -536,78 +507,68 @@
                       usual repairs — mount it as a head, or CALL it —
                       is available for a Reagent class.
 
-  Returns nil when the projection has no active timers (the overlay
-  layer drops out so unrelated chart hover handlers aren't shadowed).
+  Returns nil when the focus is pinned to a past event, or when the
+  projection has no active timers (the overlay layer drops out so
+  unrelated chart hover handlers aren't shadowed).
 
-  NOT side-effect free, deliberately: it kicks the single per-chart rAF
-  clock during render (Lock #8). Moving that out would change WHEN the
-  clock arms, which is a behaviour change wearing a tidy-up's clothes."
-  [{:keys [timers live-now scrub focused-detail frame as-child]
+  NOT side-effect free, deliberately: a re-render over a ring that still
+  has a deadline re-kicks the frame's rAF clock, which a mounted overlay
+  needs once its loop has stopped and a new timer arms."
+  [{:keys [timers live-now mode frame as-child]
     :or   {as-child identity}}]
-  (let [focused-ms (rings-h/focused-cascade-time-ms focused-detail)
-        now        (rings-h/resolve-now-ms scrub live-now focused-ms)
-        ;; The NOW-KEYED half of the rings projection. The
-        ;; sub hands over the buffer-keyed fold; the eviction runs HERE,
-        ;; against the anchor `resolve-now-ms` just resolved, so a
-        ;; retrospective chart ages its rings at the instant it is frozen
-        ;; at rather than at the live clock. It is also what bounds a
-        ;; `:cancelled` ring's life to `cancelled-retention-ms` and keeps
-        ;; one crossed ring per node, instead of one per visit stacked
-        ;; under the overlay's single `:node-id` React key.
-        timers     (rings-h/prune-timers timers now)
-        ;; `defview` binds NO name inside a body, so the frame-aware
-        ;; dispatcher is built here from the carried frame — the
-        ;; surrounding instance frame, never a `{:frame :rf/xray}` literal.
-        dispatch   (fn [event-v] (rf/dispatch event-v {:frame frame}))
-        ;; Kick the rAF loop iff ticking is needed (live mode + at
-        ;; least one armed timer). Cheap to call per render — the
-        ;; `:running?` sentinel collapses duplicate kicks. Per Lock #8
-        ;; this is the SINGLE per-chart clock (O(charts), not
-        ;; O(rings × charts)); the machines-viz overlay runs no clock
-        ;; of its own — it just re-measures the DOM when `:tick` bumps.
-        ;; `now` is the anchor `timers` was just pruned against,
-        ;; so a crossed ring that is still on screen still gets a clock.
-        _          (when (rings-h/needs-ticking? timers scrub now)
-                     (kick-tick! frame))
-        specs      (rings-h/timers->ring-specs timers ring-node-id now)]
-    (when (seq specs)
-      [:div {:data-rf-xray-after-rings-host ""
-             ;; The React ref that clears `:mounted?` on unmount
-             ;; so the off-render rAF tick loop stops when this overlay leaves
-             ;; the screen (switch away from the Machine Inspector) even while
-             ;; an `:after` timer stays armed. Stable fn identity ⇒ React fires
-             ;; it only on mount (node) / unmount (nil), never per re-render.
-             ;; Fresco's codec passes `:ref` through untouched, so the
-             ;; lifecycle is the same one under either renderer.
-             :ref overlay-ref!
-             :style {:display "contents"}}
-       (as-child
-         [mv-after-rings/AfterRingsOverlay
-          {:ring-specs specs
-           ;; `now` is the rAF-bumped (or scrubber-pinned) instant —
-           ;; bumping it on every frame forces the overlay to re-measure
-           ;; the DOM + repaint the swept arcs (Lock #8 60Hz-when-visible
-           ;; cadence, driven by THIS ns's clock, not the overlay's).
-           :tick       now
-           :testid     "rf-xray-machine-inspector-after-rings-overlay"
-           :on-hover   (fn [node-id] (timer-hovered! dispatch specs node-id))
-           :on-leave   (fn [_node-id]
-                         (dispatch [:rf.xray/timer-hover nil]))}])])))
+  (when-not (= :retro mode)
+    (let [now      live-now
+          ;; The NOW-KEYED half of the rings projection. The sub hands
+          ;; over the buffer-keyed fold; the eviction runs HERE. It is
+          ;; what bounds a `:cancelled` ring's life to
+          ;; `cancelled-retention-ms` and keeps one crossed ring per node,
+          ;; instead of one per visit stacked under the overlay's single
+          ;; `:node-id` React key.
+          timers   (rings-h/prune-timers timers now)
+          ;; `defview` binds NO name inside a body, so the frame-aware
+          ;; dispatcher is built here from the carried frame — the
+          ;; surrounding instance frame, never a `{:frame :rf/xray}` literal.
+          dispatch (fn [event-v] (rf/dispatch event-v {:frame frame}))
+          specs    (rings-h/timers->ring-specs timers ring-node-id now)]
+      (when (seq specs)
+        ;; One clock per frame, never one per ring; the machines-viz
+        ;; overlay runs none of its own and only re-measures the DOM when
+        ;; `:tick` bumps. `now` is the instant `timers` was just pruned
+        ;; against, so a crossed ring still on screen still gets a clock.
+        (when (rings-h/needs-ticking? timers now)
+          (kick-tick! frame))
+        [:div {:data-rf-xray-after-rings-host ""
+               ;; Counts this overlay in and out of the frame's tick-loop
+               ;; mount gate. Stable per frame, so React fires it only on
+               ;; mount (node) / unmount (nil), never per re-render; Fresco's
+               ;; codec passes `:ref` through untouched.
+               :ref   (overlay-ref frame)
+               :style {:display "contents"}}
+         (as-child
+           [mv-after-rings/AfterRingsOverlay
+            {:ring-specs specs
+             ;; Bumping `:tick` every frame makes the overlay re-measure
+             ;; the DOM and repaint the swept arcs.
+             :tick       now
+             :testid     "rf-xray-machine-inspector-after-rings-overlay"
+             :on-hover   (fn [node-id] (timer-hovered! dispatch specs node-id))
+             :on-leave   (fn [_node-id]
+                           (dispatch [:rf.xray/timer-hover nil]))}])]))))
 
 (rf.fresco/defview AfterRingsOverlay
   "Mounts the focused machine's `:after` countdown rings over the
-  xyflow chart. Subscribes to the active timers + now-ms + scrubber
-  internally; projects each timer into a presentation-ready ring-spec
-  (scrubber-aware fraction baked in — retrospective mode freezes the
-  ring at the scrubber's anchor instant); kicks the single per-chart
-  rAF clock in live mode; then delegates positioning + paint to the
-  machines-viz `AfterRingsOverlay`, which walks the xyflow node DOM.
+  xyflow chart. Subscribes to the active timers, the live clock and the
+  spine focus; projects each timer into a presentation-ready ring-spec;
+  keeps the frame's rAF clock running while a ring has a deadline; then
+  delegates positioning + paint to the machines-viz `AfterRingsOverlay`,
+  which walks the xyflow node DOM. Draws nothing while the focus is
+  pinned to a past event.
 
   It is a boundary rather than a plain fn because `machine_canvas`'s
   `Chart-view` heads it inside a Fresco tree, where a plain fn in head
   position raises `:rf.error/fresco-bad-head`. A boundary reads its
   frame from the same `re-frame.adapter.context` React context that
-  `rf/frame-provider` writes, so the four reads resolve through
+  `rf/frame-provider` writes, so the three reads resolve through
   `:rf/xray`. The reads are `rf.fresco/sub`, recorded by Fresco's
   collector rather than by the installed adapter's.
 
@@ -621,8 +582,9 @@
   It takes no positioned-graph / viewport-transform args
   (xyflow owns positions; the overlay reads them off the DOM).
 
-  Returns nil when the projection has no active timers (the overlay
-  layer drops out so unrelated chart hover handlers aren't shadowed).
+  Returns nil when the focus is pinned to a past event or the projection
+  has no active timers (the overlay layer drops out so unrelated chart
+  hover handlers aren't shadowed).
 
   ## DOM-rooted via `display: contents`
 
@@ -640,19 +602,11 @@
   `display: contents` element is not a positioning context). Same
   pattern as `shell.cljs`."
   [_props]
-  ;; The four reads, all unconditional. `rf.fresco/sub` records its edge
-  ;; WHERE THE READ HAPPENS, so all four live here in the body and the
-  ;; dependency set is exactly these four.
-  ;;
-  ;; xray/003 §M.2: in RETRO mode ('scrubber-driven') the
-  ;; ring must freeze at the elapsed-fraction the timer had reached at
-  ;; the FOCUSED CASCADE's timestamp, not wherever the live clock last
-  ;; sat when the tick loop stopped. `:rf.xray/focused-event-bundle-detail`
-  ;; is the same cross-panel primitive the Epoch / App-db-diff panels
-  ;; read to find "the event-bundle the spine is pointing at"; referenced
-  ;; by keyword (no ns require — re-frame's registrar resolves subs at
-  ;; runtime, not compile-time, keeping this ns out of the
-  ;; `registry.cljs` require cycle).
+  ;; The three reads, all unconditional. `rf.fresco/sub` records its edge
+  ;; WHERE THE READ HAPPENS, so all three live here in the body and the
+  ;; dependency set is exactly these three. `:rf.xray/focus` is read by
+  ;; keyword (the registrar resolves subs at runtime), keeping this ns out
+  ;; of the `registry.cljs` require cycle.
   ;;
   ;; `rf/current-frame-id` is one of core's PURE frame doors,
   ;; which `impl.intent/with-frame` answers with the boundary's DECLARED
@@ -661,50 +615,16 @@
   ;; and the hover / leave dispatches, and it is not a `:rf/xray`
   ;; literal.
   (overlay-tree
-    {:timers         (rf.fresco/sub [:rf.xray/active-timers-for-focused-machine])
-     :live-now       (rf.fresco/sub [:rf.xray/now-ms])
-     :scrub          (rf.fresco/sub [:rf.xray/machine-scrubber-position])
-     :focused-detail (rf.fresco/sub [:rf.xray/focused-event-bundle-detail])
-     :frame          (rf/current-frame-id)
+    {:timers   (rf.fresco/sub [:rf.xray/active-timers-for-focused-machine])
+     :live-now (rf.fresco/sub [:rf.xray/now-ms])
+     :mode     (:mode (rf.fresco/sub [:rf.xray/focus]))
+     :frame    (rf/current-frame-id)
      ;; The machines-viz overlay is a Reagent class, so it reaches React
      ;; as a finished React ELEMENT — a legal child anywhere per Fresco's
      ;; component ABI — rather than as a hiccup head. `substrate/as-element`
      ;; carries the hiccup vector itself, so the CLJS props map crosses
      ;; BY IDENTITY; see the ns docstring.
-     :as-child       substrate/as-element}))
-
-;; ---- the Reagent bridge -------------------------------------------------
-;;
-;; SCAFFOLDING WITH A DEFINED END. `Chart` in
-;; `panels/machine_canvas.cljs` is a `reg-view`, so it mounts this
-;; overlay from a REAGENT tree, and a boundary is not a Reagent render
-;; fn. `rf.fresco/as-component` is Fresco's own outward door for exactly
-;; that; the crossing is an EMPTY props map, which is the only shape that
-;; survives a Reagent parent's `convert-prop-value` (a payload does not).
-;; The overlay has no payload to cross, so nothing is given up here.
-;;
-;; Once `Chart`'s callers are themselves a Fresco tree, `Chart` can mount
-;; `AfterRingsOverlay` directly and neither of these is needed.
-;;
-;; The boundary keeps the NATURAL name and the caller is handed a PUBLIC
-;; bridge. Nothing mounts the boundary var by name from a file that cannot
-;; take the bridge, so nothing forces the opposite spelling: the sole
-;; caller is `machine_canvas/Chart`.
-
-(def ^:private AfterRingsOverlay-component
-  "The React component [[AfterRingsOverlay]] presents as, for a
-  non-Fresco parent. Declared ONCE at top level, as
-  `rf.fresco/as-component`'s own docstring requires — a fresh one per
-  render is a fresh element type and would remount the subtree on every
-  pass, taking the machines-viz overlay's measured state with it."
-  (rf.fresco/as-component AfterRingsOverlay))
-
-(defn AfterRingsOverlay-bridge
-  "Mount [[AfterRingsOverlay]] from a Reagent hiccup tree. Public
-  because its one consumer is `panels/machine_canvas.cljs`'s `Chart`,
-  a different namespace."
-  []
-  [:> AfterRingsOverlay-component {}])
+     :as-child substrate/as-element}))
 
 ;; ---- public install entry -----------------------------------------------
 

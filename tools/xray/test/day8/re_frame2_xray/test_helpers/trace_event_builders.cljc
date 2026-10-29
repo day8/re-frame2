@@ -628,7 +628,7 @@
 (defn fx-handler-exception-ev
   "`:rf.error/fx-handler-exception` trace — a registered
   fx-handler threw during the post-commit fx walk. The fx-id rides
-  `[:tags :rf.fx/id]` so the projection's `attach-to-fx-error-row` can
+  `[:tags :rf.fx/id]` so the projection's `attach-exceptions` can
   match it to the FX step's `:db`/user-fx rows; the message rides
   `[:tags :exception-message]`. Drives the FX step's inline error card
   (per-row when the fx-id matches, step-level otherwise)."

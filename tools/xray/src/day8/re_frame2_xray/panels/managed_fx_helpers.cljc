@@ -44,7 +44,7 @@
                                 | :in-flight | :overridden | :skipped
                                 | :stub
        :phase           :issued | :sent | :received | :completed
-                                | :failed | :aborted  ;; nil for :http
+                                | :failed             ;; nil for :http
        :correlation-id  <id-or-nil>         ;; request-id, machine
                                             ;; spawn id, …
        :cancel-cause    <kw-or-nil>         ;; :user / :actor-destroyed
@@ -387,7 +387,6 @@
   [fx-ev]
   (case (:operation fx-ev)
     :rf.fx/handled                 :ok
-    :rf.fx/override-applied        :overridden
     :rf.fx/skipped-on-platform     :skipped
     :rf.error/fx-handler-exception :error
     :rf.error/no-such-fx           :error
@@ -471,12 +470,11 @@
   "Project the most-advanced phase observed in the surface-events bag.
   Phases are coarse; the precise wall-clock waterfall belongs in
   `:wire`. Phases progress in this order:
-  `:issued → :sent → :received → :completed | :failed | :aborted`."
-  [fx-ev surface-events status]
+  `:issued → :sent → :received → :completed | :failed`. The HTTP adapter
+  replaces the phase with its cross-buffer join, so no surface reaching
+  this fn carries an HTTP abort row."
+  [_fx-ev _surface-events status]
   (cond
-    (some #(or (= (:operation %) :rf.http/aborted-on-actor-destroy)
-               (= (:operation %) :rf.http/aborted))
-          surface-events) :aborted
     (= status :error)     :failed
     (= status :ok)        :completed
     (= status :in-flight) :issued
@@ -531,45 +529,17 @@
       :ssr-fx         (:request-id args)
       nil)))
 
-;; ---- wire timing (HTTP only natively; others are nil) ------------------
+;; ---- wire timing --------------------------------------------------------
 
-(defn- http-wire-timing
-  "Pull a wire-timing map off the HTTP surface events. The runtime
-  does NOT emit per-phase timing (DNS / connect / SSL / request / TTFB
-  / download); when an fx event carries one, the shape is
-  `{:phases [[<phase-kw> <duration-ms>]] :total-ms <ms>}` and the panel
-  renders the waterfall.
+(defn- wire-timing
+  "The synthesised two-phase waterfall for one record, in the
+  `{:phases [[<phase-kw> <duration-ms>]] :total-ms <ms> :synthesised? true}`
+  shape `chart/timing-waterfall` renders. The runtime emits no per-phase
+  network timing, so the phases are the fx event's own time (`:issued`)
+  and the span to the last surface event (`:elapsed`).
 
-  Two synthetic phases the panel can always show:
-
-    - `:issued`   — fx event time
-    - `:elapsed`  — from the fx event to the last surface event (if any)
-
-  Pure fn. Returns nil when there's no time information at all so the
-  panel falls back to the `n/a` rendering."
-  [fx-ev surface-events]
-  (let [issued-ms (ms-of fx-ev)
-        last-ev   (last (sort-by ms-of (or surface-events [])))
-        last-ms   (when last-ev (ms-of last-ev))
-        explicit  (some-> fx-ev :tags :wire-timing)]
-    (cond
-      (and (map? explicit) (seq (:phases explicit)))
-      explicit
-
-      (and (number? issued-ms) (number? last-ms) (> last-ms issued-ms))
-      {:phases [[:issued 0]
-                [:elapsed (- last-ms issued-ms)]]
-       :total-ms (- last-ms issued-ms)
-       :synthesised? true}
-
-      :else
-      nil)))
-
-(defn- non-http-wire-timing
-  "Same synthesised two-phase waterfall (`:issued` → end of event-bundle) for
-  non-HTTP surfaces — used to show *some* timing even when the surface
-  doesn't carry native per-phase data. Returns nil when no end-event
-  is available so the panel renders `n/a`."
+  Pure fn. Returns nil when no later surface event is available, so the
+  panel renders `n/a`."
   [fx-ev surface-events]
   (let [issued-ms (ms-of fx-ev)
         last-ev   (last (sort-by ms-of (or surface-events [])))
@@ -633,8 +603,7 @@
      :correlation-id  (args-correlation-id surface args)
      :cancel-cause    cancel-cause
      :http-status     nil
-     :duration-ms     (when-let [w (or (http-wire-timing fx-ev surface-events)
-                                       (non-http-wire-timing fx-ev surface-events))]
+     :duration-ms     (when-let [w (wire-timing fx-ev surface-events)]
                         (:total-ms w))
      :failure         failure
      ;; nil means UNTRACKED, and is the default because no diff feed is
@@ -1055,7 +1024,7 @@
         rec            (common-record :websocket fx-ev surface-events)]
     (assoc rec
            :req args
-           :wire (non-http-wire-timing fx-ev surface-events))))
+           :wire (wire-timing fx-ev surface-events))))
 
 (defn machine-invoke-adapter
   "Machine `:spawn` adapter. The fx-args carry the registered TYPE under
@@ -1072,7 +1041,7 @@
         rec            (common-record :machine-invoke fx-ev surface-events)]
     (assoc rec
            :req args
-           :wire (non-http-wire-timing fx-ev surface-events)
+           :wire (wire-timing fx-ev surface-events)
            :res (when spawned (select-keys (:tags spawned)
                                             [:invoke-id :machine-id :spawned-id :state])))))
 
@@ -1087,7 +1056,7 @@
         rec            (common-record :ssr-fx fx-ev surface-events)]
     (assoc rec
            :req args
-           :wire (non-http-wire-timing fx-ev surface-events)
+           :wire (wire-timing fx-ev surface-events)
            ;; The 'response' for an SSR-fx is the contribution to the
            ;; per-request accumulator — the args map IS the
            ;; contribution.
@@ -1128,8 +1097,9 @@
         acc))))
 
 (defn- pair-override-rows
-  "Pair each FUNCTION-overridden `:rf.fx/handled` row with the
-  `:rf.fx/override-applied` row that replaced its handler:
+  "Pair each FUNCTION-overridden `:rf.fx/handled` row (or the
+  `:rf.error/fx-handler-exception` row, when the replacement threw) with
+  the `:rf.fx/override-applied` row that replaced its handler:
   `{<handled row :id> -> <override-applied row>}`.
 
   `re-frame.fx` emits override-applied immediately before the override
@@ -1146,18 +1116,42 @@
     (if-let [r (first rows)]
       (if (= :rf.fx/override-applied (:operation r))
         (recur (rest rows) (conj pending r) acc)
-        (let [hit (when (and (= :rf.fx/handled (:operation r))
+        (let [hit (when (and (contains? #{:rf.fx/handled :rf.error/fx-handler-exception}
+                                        (:operation r))
                              (nil? (tag r :rf.fx/from)))
                     (last (filter #(= (fx-id-of r) (tag % :rf.fx/from)) pending)))]
           (recur (rest rows) [] (if hit (assoc acc (:id r) hit) acc))))
       acc)))
 
+(def ^:private fx-outcome-other-operations
+  "The fx outcome rows `re-frame.fx` emits IN PLACE of `:rf.fx/handled`:
+  a throwing handler, an unregistered id, a platform skip. Each carries
+  `:rf.fx/id` and `:rf.fx/args`, but their op-type is `:error` /
+  `:warning`, so `re-frame.trace.projection/group-by-event` buckets them
+  under `:other` rather than `:effects`."
+  #{:rf.error/fx-handler-exception
+    :rf.error/no-such-fx
+    :rf.fx/skipped-on-platform})
+
+(defn- bundle-fx-rows
+  "The bundle's fx outcome rows in trace order: its `:effects`, plus the
+  `:other` rows that stand in for a `:rf.fx/handled` row
+  (`fx-outcome-other-operations`)."
+  [effects other]
+  (let [outcomes (filterv #(contains? fx-outcome-other-operations (:operation %))
+                          (or other []))]
+    (if (seq outcomes)
+      (vec (sort-by :id (into (vec (or effects [])) outcomes)))
+      (or effects []))))
+
 (defn event-bundle->managed-fx-records
   "Walk an event-bundle record (per `re-frame.trace.projection/group-by-event`)
-  and project one managed-fx record per `:rf.fx/handled` row whose id (per
-  `record-fx-id`, the id the handler emitted) classifies as a managed-fx
-  surface. An `:rf.fx/override-applied` row is PROVENANCE for such a
-  record — it marks it overridden — and never a record of its own.
+  and project one managed-fx record per fx outcome row (`bundle-fx-rows`:
+  `:rf.fx/handled`, or the exception / no-such-fx / skip row that stands
+  in for it) whose id (per `record-fx-id`, the id the handler emitted)
+  classifies as a managed-fx surface. An `:rf.fx/override-applied` row is
+  PROVENANCE for such a record — it marks it overridden — and never a
+  record of its own.
 
   Pure fn. Returns a vector of records in event-bundle order. Each record
   carries the surface-specific projection of `req` / `wire` / `res` /
@@ -1182,7 +1176,8 @@
   ([event-bundle paths-by-dispatch-id]
    (event-bundle->managed-fx-records event-bundle paths-by-dispatch-id nil))
   ([{:keys [effects other dispatch-id] :as _event-bundle} paths-by-dispatch-id join-context]
-   (let [fn-overrides  (pair-override-rows effects)
+   (let [fx-rows       (bundle-fx-rows effects other)
+         fn-overrides  (pair-override-rows fx-rows)
          fx-events     (into []
                              (comp (filter managed-fx-effect?)
                                    (map (fn [ev]
@@ -1190,7 +1185,7 @@
                                             (assoc ev ::override {:from (fx-id-of ev)
                                                                   :to   (tag o :rf.fx/to)})
                                             ev))))
-                             (or effects []))
+                             fx-rows)
          path-touched  (when paths-by-dispatch-id
                          (vec (get paths-by-dispatch-id dispatch-id [])))
          http-fx       (filterv #(= :http (classify-fx-id (record-fx-id %))) fx-events)

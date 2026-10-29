@@ -699,7 +699,7 @@
        :causes       [<summary> …]               ; what triggered it (summarized)
        :cancellable? true
        :started-at   …  :deadline-at …
-       :attempt      <n>
+       :attempt      <n-or-nil>                  ; nil: the family numbers no retries
        :transport    :rf.http/managed
        :outcome      <summary>}                  ; terminal outcome summary
 
@@ -727,19 +727,22 @@
      :cancellable? (boolean (:cancellable? record))
      :started-at   (:started-at record)
      :deadline-at  (or (:deadline-at record) (:deadline record))
-     :attempt      (or (:attempt record) (:generation record))
+     ;; nil on a resource or mutation attempt, which numbers no retries: its
+     ;; `:generation` is the resource registry's process-wide counter, not an
+     ;; attempt count (resources-helpers/work-row reads the same slots).
+     :attempt      (or (:attempt record) (:retry-attempt record))
      :transport    (:transport record)
      :outcome      (when (contains? record :outcome) (rh/summarize (:outcome record)))}))
 
 (defn project-ledger
   "Project a frame's attempts `{<key> <record>}` into the uniform
   cross-family work/reply rows, live (non-terminal) work first then the
-  terminal recent-races tail, each group newest-first by `:attempt`. Per
+  terminal recent-races tail, each group newest-first by `:started-at`. Per
   Managed-Effects §Attempt records. Pure."
   [ledger]
   (->> (or ledger {})
        (mapv ledger-row)
-       (sort-by (juxt (complement :live?) (comp - (fnil identity 0) :attempt)))
+       (sort-by (juxt (complement :live?) (comp - (fnil identity 0) :started-at)))
        vec))
 
 (defn latest-phase-by-work-id

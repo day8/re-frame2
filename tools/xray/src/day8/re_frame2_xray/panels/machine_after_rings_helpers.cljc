@@ -57,13 +57,10 @@
 
   ## Ring geometry
 
-  Live mode: `(ring-fraction timer now-ms) → [0.0 .. 1.0]`
+  `(ring-fraction timer now-ms) → [0.0 .. 1.0]`
   - 1.0 = just armed
   - 0.0 = about to fire
   - <0.0 = past deadline (delayed firing, clamped to 0)
-
-  Retrospective: caller passes the scrubber's anchor-time as `now-ms`;
-  the ring freezes at the position it occupied at that instant.
 
   ## Colours
 
@@ -609,10 +606,8 @@
   `chart.layout/highlight-ids` resolver; passed in to keep this ns free
   of a compile-time dep on the chart layout).
 
-  `now-ms` is the wall-clock instant the fraction freezes at — live
-  mode passes the rAF-bumped now; retrospective mode passes the
-  scrubber's anchor time, so the ring's swept arc reflects the
-  scrubbed instant (scrubber-aware retro-replay).
+  `now-ms` is the wall-clock instant the fraction is taken at — the
+  view passes the rAF-bumped clock.
 
   Returns nil when the node has no resolvable node-id."
   [timer id-fn now-ms]
@@ -646,13 +641,11 @@
 ;; ---- tick driver gating -------------------------------------------------
 
 (defn needs-ticking?
-  "True when the rings panel should run its rAF tick driver. False when:
-
-    - NOTHING ON SCREEN HAS A DEADLINE: no `:armed` timer is counting
-      down, and no `:cancelled` ring is still inside its retention
-      window ([[cancelled-ring-live?]]).
-    - The scrubber is NOT at `:present` (retrospective mode freezes
-      every ring at the scrubber's anchor time).
+  "True when the rings panel should run its rAF tick driver: something on
+  screen still has a DEADLINE — an `:armed` timer counting down, or a
+  `:cancelled` ring still inside its retention window
+  ([[cancelled-ring-live?]]). The retro-focus and mount gates are the
+  view's, not this predicate's.
 
   `:cancelled` rings are NOT static: they have a retention window, so a
   DEADLINE, and a deadline needs a clock to reach it. Both
@@ -667,53 +660,14 @@
   IT DOES STOP, which is the other half of the contract: the window
   is bounded, so once the last cancelled ring ages out this goes false
   and the loop stops re-scheduling. The clock outlives the last armed
-  timer by at most [[cancelled-retention-ms]] — one per chart, never
-  one per ring (Lock #8).
+  timer by at most [[cancelled-retention-ms]] — one clock per frame,
+  never one per ring.
 
   Pure fn — keeps the rAF gate testable. The view passes the result
   to a side-effect that starts / stops the loop."
-  [timers scrubber-position now-ms]
-  (and (= :present scrubber-position)
-       (boolean
-         (some (fn [t]
-                 (or (= :armed (:status t))
-                     (cancelled-ring-live? t now-ms)))
-               (or timers [])))))
-
-;; ---- retro now-ms anchor (xray/003 §M.2) ---------------------------------
-
-(defn focused-cascade-time-ms
-  "Pull the focused event-bundle's dispatched wall-clock time (ms) off
-  the `:rf.xray/focused-event-bundle-detail` composite value — the SAME
-  `[:dispatched :time]` slot the L2 event list's timestamp column reads
-  (`shell/event-bundle-dispatched-time-ms`). Returns nil when there is
-  no selected event-bundle, or its `:dispatched :time` is not a number
-  (defence — a synthetic event-bundle that omits the field must
-  not freeze the ring at a bogus anchor)."
-  [focused-event-bundle-detail]
-  (let [t (get-in focused-event-bundle-detail
-                  [:selected-event-bundle :dispatched :time])]
-    (when (number? t) t)))
-
-(defn resolve-now-ms
-  "Resolve the `now-ms` anchor `timers->ring-specs` should project
-  against.
-
-  - `:present` `scrubber-position` (LIVE mode): `live-now-ms` — the
-    rAF-bumped wall clock, so rings sweep in real time.
-  - Any other `scrubber-position` (RETRO mode): per xray/003 §M.2 'the
-    ring is static at the elapsed-fraction the timer had reached at
-    the focused-cascade's timestamp' — `focused-cascade-ms`. Falls
-    back to `live-now-ms` when the focused cascade carries no
-    timestamp (defence — a nil anchor would blank every fraction
-    calc rather than freeze it).
-
-  Feeding `live-now-ms` into `timers->ring-specs` UNCONDITIONALLY would
-  make leaving LIVE mode simply stop the clock wherever it last was
-  instead of anchoring to the focused cascade the spec promises. Pure
-  fn — the view supplies both candidate
-  timestamps; kept testable without a DOM/subscribe harness."
-  [scrubber-position live-now-ms focused-cascade-ms]
-  (if (= :present scrubber-position)
-    live-now-ms
-    (or focused-cascade-ms live-now-ms)))
+  [timers now-ms]
+  (boolean
+    (some (fn [t]
+            (or (= :armed (:status t))
+                (cancelled-ring-live? t now-ms)))
+          (or timers []))))

@@ -40,25 +40,7 @@
   absence is conveyed by omission, not an empty-state line. The
   vertical rail + numbered circles are positioned absolutely so they
   read as one continuous timeline regardless of which steps render.
-
-  ## Expansion state (registered, NOT wired by the renderer)
-
-  The orchestrator's `install!` registers a per-row EDN-expansion
-  surface — the `:rf.xray.epoch/expanded-rows` sub + the
-  `:rf.xray.epoch/toggle-row-expand` event, backed by a
-  `:epoch-panel-expanded-rows` set of `[step-kw row-id]` pairs in the
-  Xray app-db. The intended use is that clicking a
-  row's header mounts the edn-inspector widget (`:zoomable? true` +
-  `:header`) under the row body.
-
-  The view does NOT wire it: every `epoch-step-header` call
-  site passes `:expandable? false`, the view does not subscribe to
-  `:rf.xray.epoch/expanded-rows`, and nothing dispatches
-  `:rf.xray.epoch/toggle-row-expand`. The cascade renders
-  default-visible content for every step — its punch is the
-  always-visible rhythm. The sub/event infrastructure is registered but
-  unused, ready for a rich-expansion renderer (see the §expansion state
-  helpers comment below).
+  Every step's content is always visible; there is no per-row expansion.
 
   ## Hiccup, and who renders it
 
@@ -91,6 +73,7 @@
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
+            [day8.re-frame2-xray.panels.shared.view-highlight :as view-highlight]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]
@@ -99,13 +82,12 @@
 
 ;; ---- style hoists -------------------------------------------------------
 ;;
-;; Every literal `:style {...}` map in the renderers below is hoisted to
-;; ns-top defs. The Epoch panel renders ~10 step renderers, each
-;; emitting ~5-20 `:style {...}` maps; inline literals would mint ~200
-;; fresh JS objects per focused-epoch render to feed the React
-;; reconciler. `tokens` values resolve to `var(--rf-xray-*)` CSS strings at
-;; ns load — theme switching rides the CSS-variable seam (spec/007
-;; §UX-IA), so the hoisted maps follow light/dark without re-evaluation.
+;; The renderers' `:style` maps are named ns-top defs, so each style is
+;; defined once and read by name. They save no allocation: Fresco's codec
+;; builds a fresh `#js {}` style object per render either way. `tokens`
+;; values resolve to `var(--rf-xray-*)` CSS strings at ns load — theme
+;; switching rides the CSS-variable seam (spec/007 §UX-IA), so the defs
+;; follow light/dark without re-evaluation.
 ;;
 ;; Per-call variation rides:
 ;;   - small `assoc` / `cond->` overlays on a shared base map
@@ -209,10 +191,7 @@
    :color       text-primary-colour
    :user-select "none"})
 
-(def ^:private step-header-pointer-style
-  (assoc step-header-base-style :cursor "pointer"))
-
-(def ^:private step-header-default-cursor-style
+(def ^:private step-header-style
   (assoc step-header-base-style :cursor "default"))
 
 (def ^:private step-header-verb-style
@@ -227,12 +206,6 @@
    :overflow      "hidden"
    :text-overflow "ellipsis"
    :white-space   "nowrap"})
-
-(def ^:private step-header-expand-glyph-style
-  {:color       text-tertiary-colour
-   :font-family mono-stack
-   :font-size   "10px"
-   :margin-left "4px"})
 
 ;; -- sub-header -----------------------------------------------------------
 
@@ -918,10 +891,9 @@
 
 ;; -- db-diff rendering ----------------------------------------------------
 ;;
-;; There is no `[diff][full][full+diff]` mode toggle. FULL+DIFF is the
-;; single rendering;
-;; the HANDLER `:db` sub-section paints unconditionally via
-;; `handler-db-diff-block`.
+;; One rendering, FULL+DIFF, for the HANDLER `:db` sub-section and the
+;; SUBSCRIPTIONS value cells alike: the full value with inline diff
+;; annotations, unchanged subtrees auto-collapsed.
 
 (def ^:private handler-db-all-style
   {:padding-left "16px"})
@@ -1776,58 +1748,6 @@
 ;; Thrown' card). The panel root carries `data-rf-xray-outcome` for
 ;; tools / e2e.
 
-;; ---- expansion state helpers ---------------------------------------------
-;;
-;; The Epoch panel's row-expansion surface (`:rf.xray.epoch/toggle-
-;; row-expand` event + `:rf.xray.epoch/expanded-rows` sub) is
-;; registered by the orchestrator's `install!` but is NOT wired by the
-;; renderer (see the ns docstring's §Expansion state): every
-;; `epoch-step-header` call site passes `:expandable? false`, and the
-;; view neither subscribes to `:rf.xray.epoch/expanded-rows` nor
-;; dispatches the toggle. The view renders default-visible
-;; content for every step (the cascade's punch is its always-visible
-;; rhythm); the sub/event infrastructure is there for a rich-expansion
-;; renderer in which clicking a row's header mounts the edn-inspector
-;; widget under the body via `:zoomable? true` + `:header "<step>"`.
-
-;; ---- view-name hover-highlight ------------------------------------------
-;;
-;; Hovering a view-id in the VIEWS step toggles the
-;; `.rf-xray-view-highlight` class on the rendered view's root DOM node
-;; (matched by Spec 006's `data-rf-view` attribute) — the same pink
-;; diagonal-stripe affordance the Reactive panel's view-node carries.
-;; The class lives in
-;; `theme/global-styles` and is intentionally UNSCOPED so it reaches
-;; the host app's frame outside the Xray shell. Pure DOM side-effect;
-;; cleared on mouseleave; no layout perturbation.
-
-(def ^:private view-highlight-class "rf-xray-view-highlight")
-
-(defn- view-highlight-selector
-  "DOM selector for a view-id (Spec 006 stamps `data-rf-view (str id)`)."
-  [view-id]
-  (str "[data-rf-view='" view-id "']"))
-
-(defn- apply-view-highlight!
-  [view-id]
-  (when (and (exists? js/document) (some? view-id))
-    (let [nodes (.querySelectorAll js/document
-                                   (view-highlight-selector view-id))]
-      (.forEach nodes
-                (fn [^js node]
-                  (.add (.-classList node) view-highlight-class)))
-      nil)))
-
-(defn- clear-view-highlight!
-  [view-id]
-  (when (and (exists? js/document) (some? view-id))
-    (let [nodes (.querySelectorAll js/document
-                                   (view-highlight-selector view-id))]
-      (.forEach nodes
-                (fn [^js node]
-                  (.remove (.-classList node) view-highlight-class)))
-      nil)))
-
 ;; ---- chrome helpers ------------------------------------------------------
 
 (defn- badge-pill
@@ -1919,33 +1839,19 @@
 (defn- step-header
   "Render a step's header row — badge pill + verb/label + optional
   duration. The flex layout keeps the duration right-aligned via
-  `margin-left: auto`. The whole header is wrapped in an interactive
-  `<div>` so clicking anywhere on the row toggles `expanded?` when the
-  step carries expandable content (`expandable?` true).
+  `margin-left: auto`. Every step's content is always visible, so the
+  header is not a toggle.
 
-  There is no per-stage ✓/✗/⊘ status glyph after the badge pill — a
-  clean run would paint a tick on every stage (no information), and a
-  failure is shown by the inline exception card UNDER the failing
-  stage. The per-EFFECT SIDE-EFFECTS ledger glyphs carry the per-effect
-  status."
-  [{:keys [badge verb expandable? expanded? testid duration-ms]} on-toggle]
+  There is no per-stage status glyph after the badge pill: a clean run
+  would paint a tick on every stage, and a failure shows as the inline
+  card under the failing stage."
+  [{:keys [badge verb testid duration-ms]}]
   [:div {:data-testid (str testid "-header")
-         :on-click    (when (and expandable? on-toggle)
-                        (fn [e]
-                          (.stopPropagation e)
-                          (on-toggle)))
-         :style (if expandable?
-                  step-header-pointer-style
-                  step-header-default-cursor-style)}
+         :style step-header-style}
    (badge-pill badge)
    [:span {:data-testid (str testid "-verb")
            :style step-header-verb-style}
     verb]
-   (when expandable?
-     [:span {:data-testid (str testid "-expand-glyph")
-             :aria-hidden true
-             :style step-header-expand-glyph-style}
-      (if expanded? "▾" "▸")])
    (duration-chip duration-ms)])
 
 (defn- sub-header
@@ -2126,22 +2032,9 @@
 
 ;; ---- DISPATCH source enrichment per source kind --------------------------
 ;;
-;; The closed-set substrate-internal `:source` values (`:after-timer`,
-;; `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`) carry richer per-kind detail than a
-;; bare `from <source>` chrome. Each kind renders a specific label +
-;; click-affordance:
-;;
-;;   :after-timer       → 'from :after timer · 250ms on [:active :auth]'
-;;                        (state-path → click-to-source on machine spec)
-;;   :machine-spawn     → 'from machine spawn · :child-actor-id'
-;;   :fx-dispatch       → 'from fx :dispatch · parent epoch #142'
-;;                        (parent-epoch link → focus-epoch dispatch)
-;;   :fx-dispatch-later → 'from fx :dispatch-later · 500ms ·
-;;                         parent epoch #142'
-;;
-;; Vanilla source kinds (`:ui`, `:frame-init`, `:test-harness`,
-;; `:unknown`) fall through to the plain `dispatch-source-label`
-;; chrome (call-site click-to-source on the source word).
+;; The substrate-internal `:source` values carry richer per-kind chrome
+;; than a bare `from <source>`; Spec 021 §9.1.6.3 holds the inventory, and
+;; `dispatch-source-enriched-label` picks the renderer.
 
 (defn- machine-state-path-coord
   "Resolve a `{:file :line}` coord for a machine state-path via the
@@ -2165,26 +2058,8 @@
     ;; and `handler-source-block` read `:event` too).
     (let [machine-meta (try (rf/handler-meta {:kind :event :id machine-id})
                             (catch :default _ nil))
-          ;; Resolve the machine spec: the stamped spec lives under
-          ;; `:rf/machine`, with legacy-shape fallbacks (mirrors the cascade
-          ;; path's `machine-spec-from-meta` below).
-          ;;
-          ;; There is no bare `:spec` alternative. `machine-meta` comes off
-          ;; a REAL `:event` registration, and `reg-meta/retired-bare-keys`
-          ;; carries `{:spec :schema}` (MIGRATION §M-54), so a registration
-          ;; declaring bare `:spec` throws `:rf.error/retired-registration-key`
-          ;; at registration time — in dev AND prod. Such a branch would be
-          ;; satisfiable only by a hand-built fixture, and a fallback
-          ;; unreachable from production BY CONSTRUCTION is what lets a
-          ;; fixture written on a retired spelling stay green while the
-          ;; real path is empty. The two fallbacks below are reachable:
-          ;; neither `:machine-spec` (bare, legacy, NOT retired — an unknown bare key
-          ;; is a dev-gated warning, so it can exist) nor the namespaced
-          ;; `:rf.machine/spec` (the retired-BARE-key rule does not reach a
-          ;; namespaced key) is unreachable the same way.
-          spec         (or (:rf/machine machine-meta)
-                           (:machine-spec machine-meta)
-                           (:rf.machine/spec machine-meta))
+          ;; The registrar stamps the machine spec under `:rf/machine`.
+          spec         (:rf/machine machine-meta)
           spec-path    (proj/state-spec-path-prefix state-path)
           c            (proj/state-node-source-coords spec spec-path)]
       (when (and (map? c) (string? (:file c)) (seq (:file c)))
@@ -2279,33 +2154,35 @@
       (str " · " (pr-str spawned-actor-id))])])
 
 (defn- dispatch-fx-label
-  "Render the `:fx-dispatch` / `:fx-dispatch-later` rich label:
+  "Render the `:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`
+  rich label:
 
       from fx :dispatch · parent epoch #142
       from fx :dispatch-later · 500ms · parent epoch #142
+      from machine action · parent epoch #142
 
   The parent-epoch chip is click-to-navigate via
-  `:rf.xray/focus-epoch`. The delay-ms chip rides only for
-  `:dispatch-later` when the original scheduled delay was stamped
-  on the dispatched trace (`:rf.event/source-detail :ms`).
+  `:rf.xray/focus-epoch`. The delay-ms chip rides whenever the
+  scheduled delay was stamped on the dispatched trace
+  (`:rf.event/source-detail :ms` — a `:dispatch-later`, whether a
+  handler or a machine action emitted it).
 
   `dispatch-id->epoch-id` is the precomputed lookup map
   built once per panel render in `Panel` and threaded through `ctx`,
   so the parent lookup is an O(1) map `get` rather than an O(N)
   `(some … epoch-history)` scan."
   [source {:keys [parent-dispatch-id delay-ms]} dispatch-id->epoch-id]
-  (let [kind-label (case source
-                     :fx-dispatch       ":dispatch"
-                     :fx-dispatch-later ":dispatch-later"
-                     (name source))
+  (let [verb (case source
+               :fx-dispatch       "from fx :dispatch"
+               :fx-dispatch-later "from fx :dispatch-later"
+               :machine-action    "from machine action")
         parent-epoch-id (when parent-dispatch-id
                           (proj/find-parent-epoch dispatch-id->epoch-id
                                                   parent-dispatch-id))]
     [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
             :style dispatch-verb-style}
-     [:span {:style dispatch-source-plain-style}
-      (str "from fx " kind-label)]
-     (when (and (= source :fx-dispatch-later) delay-ms)
+     [:span {:style dispatch-source-plain-style} verb]
+     (when delay-ms
        [:span {:data-testid "rf-xray-epoch-dispatch-fx-later-delay"
                :style dispatch-source-detail-style}
         (str " · " delay-ms "ms")])
@@ -2313,51 +2190,23 @@
        [:span {:style dispatch-source-detail-style} " · "])
      (parent-epoch-affordance parent-epoch-id parent-dispatch-id)]))
 
-(defn- dispatch-always-label
-  "Render the `:always` defensive label.
-
-  `:source :always` is stamped on the
-  `:rf.machine.microstep/transition` trace — `:always` microsteps
-  do not produce their own dispatch envelope. So the DISPATCH step
-  renderer normally never sees `:source :always` on
-  `:rf.event/dispatched`. This branch exists for completeness across
-  the closed set; a future runtime emitting `:always` on a dispatch
-  trace would render the bare kind label without enrichment."
-  [_step]
-  [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
-          :style dispatch-verb-style}
-   [:span {:style dispatch-source-plain-style}
-    "from :always"]])
-
 (defn- dispatch-source-enriched-label
-  "Dispatch the source-label rendering to the per-kind label fn based
-  on `:source` + `:source-enrichment`. Falls back to the vanilla
-  `dispatch-source-label` (call-site click-to-source) for all other
-  source kinds (`:ui`, `:frame-init`, `:test-harness`, `:unknown`,
-  plus any source value that lacks per-kind enrichment data).
-
-  Closed-set dispatch table:
-
-    :after-timer       → dispatch-after-timer-label
-    :machine-spawn     → dispatch-machine-spawn-label
-    :fx-dispatch       → dispatch-fx-label
-    :fx-dispatch-later → dispatch-fx-label
-    :always            → dispatch-always-label
-    other / nil        → dispatch-source-label (call-site link)"
-  [{:keys [source coord source-enrichment] :as step} dispatch-id->epoch-id]
-  (case source
-    :after-timer       (if source-enrichment
-                         (dispatch-after-timer-label source-enrichment)
-                         (dispatch-source-label source coord))
-    :machine-spawn     (if source-enrichment
-                         (dispatch-machine-spawn-label source-enrichment)
-                         (dispatch-source-label source coord))
-    :fx-dispatch       (dispatch-fx-label source (or source-enrichment {})
-                                          dispatch-id->epoch-id)
-    :fx-dispatch-later (dispatch-fx-label source (or source-enrichment {})
-                                          dispatch-id->epoch-id)
-    :always            (dispatch-always-label step)
-    (dispatch-source-label source coord)))
+  "The DISPATCH step's whole `from …` verb: the per-kind rich label for
+  a substrate-internal `:source` that carries its enrichment, else
+  `from ` plus the vanilla call-site link (`dispatch-source-label`).
+  Spec 021 §9.1.6.3 holds the per-kind inventory."
+  [{:keys [source coord source-enrichment]} dispatch-id->epoch-id]
+  (or (case source
+        :after-timer   (when source-enrichment
+                         (dispatch-after-timer-label source-enrichment))
+        :machine-spawn (when source-enrichment
+                         (dispatch-machine-spawn-label source-enrichment))
+        (:fx-dispatch :fx-dispatch-later :machine-action)
+        (dispatch-fx-label source (or source-enrichment {}) dispatch-id->epoch-id)
+        nil)
+      [:span {:style dispatch-verb-style}
+       "from "
+       (dispatch-source-label source coord)]))
 
 (defn- dropped-at-destroy-note
   "The DISPATCH line for a `:halted-destroy` record: a destroy ran at the
@@ -2387,16 +2236,12 @@
   as a secondary cue so the affordance reads as a single labelled
   link rather than a label-with-trailing-icon.
 
-  When `:source` is one of the substrate-internal
-  closed-set values (`:after-timer`, `:machine-spawn`,
-  `:fx-dispatch`, `:fx-dispatch-later`), the label gains rich chrome
-  for the kind (delay-ms + state-path / spawned-actor-id /
-  parent-epoch navigation). Vanilla sources fall through to the
-  plain call-site chrome.
+  A substrate-internal `:source` gains rich chrome for its kind
+  (`dispatch-source-enriched-label`, Spec 021 §9.1.6.3).
 
   `dispatch-id->epoch-id` is the optional precomputed
-  `{dispatch-id → epoch-id}` index the `:fx-dispatch` /
-  `:fx-dispatch-later` enrichments use to resolve the
+  `{dispatch-id → epoch-id}` index the dispatch-family enrichments use
+  to resolve the
   parent-dispatch-id → parent-epoch-id link in O(1) (rendered as a
   click-to-navigate `:rf.xray/focus-epoch` button). When omitted
   (direct test calls of the renderer) the parent-epoch chip falls
@@ -2411,7 +2256,7 @@
   the §per-mount inspector identity commentary above [[dispatch-body]]."
   ([step] (render-dispatch-step step nil nil))
   ([step dispatch-id->epoch-id] (render-dispatch-step step dispatch-id->epoch-id nil))
-  ([{:keys [source coord duration-ms step-number violations errors
+  ([{:keys [source duration-ms step-number violations errors
             halted halt-reason] :as step}
     dispatch-id->epoch-id instance]
    [:div {:data-testid "rf-xray-epoch-step-dispatch"
@@ -2419,24 +2264,10 @@
           :data-source (when source (name source))}
     (numbered-circle step-number :DISPATCH)
     (step-header
-      {:step :dispatch
-       :badge :DISPATCH
-       :verb (let [enriched (dispatch-source-enriched-label step dispatch-id->epoch-id)]
-               ;; Vanilla sources fall through to a wrapper that
-               ;; carries the prefix "from " — the per-kind labels
-               ;; carry their own "from <kind>" prefix already, so the
-               ;; wrapper differs by source.
-               (case source
-                 (:after-timer :machine-spawn :fx-dispatch
-                  :fx-dispatch-later :always)
-                 enriched
-                 [:span {:style dispatch-verb-style}
-                  "from "
-                  (dispatch-source-label source coord)]))
-       :expandable? false
+      {:badge :DISPATCH
+       :verb (dispatch-source-enriched-label step dispatch-id->epoch-id)
        :testid "rf-xray-epoch-dispatch"
-       :duration-ms duration-ms}
-      nil)
+       :duration-ms duration-ms})
     (dispatch-body step instance)
     ;; A `:halted-destroy` record's event was dropped, not refused: a
     ;; muted line, never a card.
@@ -2458,9 +2289,8 @@
   carries `:file`/`:line` meta).
 
   The projection emits N coeffect step maps for a cascade
-  injecting N user-defined cofx; system-injected cofx (e.g.
-  framework-auto `:db`, `:event`) are filtered at projection time
-  (the `system-cofx-ids` set)."
+  injecting N user-defined cofx; the runtime's own coeffect keys are
+  filtered at projection time (`system-cofx-ids`)."
   ([step] (render-coeffect-step step nil))
   ([{:keys [id value input no-value? step-number errors]} instance]
   (let [cofx-meta  (when (keyword? id)
@@ -2484,9 +2314,7 @@
                                      (str "rf-xray-epoch-coeffect-id-" (name id))
                                      {:style       coeffect-verb-link-button-style
                                       :plain-style coeffect-verb-plain-style})
-        :expandable? false
-        :testid (str "rf-xray-epoch-coeffect-" (name id))}
-       nil)
+        :testid (str "rf-xray-epoch-coeffect-" (name id))})
      ;; Body — `+ [:cofx-id] <value>` diff-style line. The body sits
      ;; left-aligned with the badge (no
      ;; indent) so the diff-line reads at the same column as the
@@ -2579,9 +2407,7 @@
       :verb [:span {:style coeffect-verb-plain-style
                     :data-testid "rf-xray-epoch-recordable-cofx-verb"}
              "recordable coeffects"]
-      :expandable? false
-      :testid "rf-xray-epoch-recordable-cofx"}
-     nil)
+      :testid "rf-xray-epoch-recordable-cofx"})
    ;; `:rf/time-ms` — ALWAYS surfaced verbatim (always safe, Open Issue 4).
    (when (some? time-ms)
      [:div {:data-testid "rf-xray-epoch-recordable-cofx-time-ms"
@@ -2896,8 +2722,7 @@
    (numbered-circle step-number :INTERCEPTORS)
    (step-header {:badge :INTERCEPTORS
                  :verb  "authored chain (wraps the handler)"
-                 :testid "rf-xray-epoch-interceptors"}
-                nil)
+                 :testid "rf-xray-epoch-interceptors"})
    (into [:div {:data-testid "rf-xray-epoch-interceptors-rows"}]
          (map-indexed (fn [i row] (authored-interceptor-row-view i row)) rows))])
 
@@ -2935,13 +2760,10 @@
 
 (defn- machine-spec-from-meta
   "Lift the machine spec map from a `handler-meta` lookup return. The
-  registrar stores the spec under `:rf/machine` (the wrapper shape); the
-  legacy `:machine-spec` / `:rf.machine/spec` keys are fallbacks for
-  fixture-emitted shapes used in unit tests."
+  registrar stores the spec under `:rf/machine`; a bare spec map passes
+  through."
   [machine-meta]
   (or (:rf/machine machine-meta)
-      (:machine-spec machine-meta)
-      (:rf.machine/spec machine-meta)
       machine-meta))
 
 (defn- named-element-key
@@ -4076,9 +3898,7 @@
   doc §Section 1 + §Section 2). Always renders for non-machine
   handlers.
 
-  There is no `[diff][full][full+diff]` mode
-  toggle. FULL+DIFF is the single
-  rendering: the full post-handler `:db` tree with inline diff
+  The rendering is the full post-handler `:db` tree with inline diff
   annotations driven off `:db-before`. The R1-R8 grammar paints
   gutter glyphs + row washes + leaf-scalar `← was X` suffixes;
   auto-collapse keeps unchanged subtrees folded so the density matches
@@ -4120,14 +3940,12 @@
   machine cascade surfaces (per-action data Δ, transition logical-state
   delta) rather than a redundant standalone slot.
 
-  `record` ARRIVES AS AN ARGUMENT rather than being read here
-  with `@(rf/subscribe [:rf.xray/selected-epoch-record])`: [[Panel]] is
-  a Fresco boundary and reads it there, threading it down the `ctx`
-  map. HD-016 would allow the read here, DONATING upward into
-  the boundary's window, and that would be correct in production —
-  but it would make this helper callable only inside a React render
-  window, and its diff algebra is ordinary data → data that the fast node
-  lane is the right place to test. `nil` renders as `db-before` absent,
+  `record` ARRIVES AS AN ARGUMENT: it is the `:rf.xray/epoch-pipeline`
+  sub's projected `:record`, which [[Panel]] (a Fresco boundary) reads
+  and threads down the `ctx` map. Reading it here would make this helper
+  callable only inside a React render window, and its diff algebra is
+  ordinary data → data that the fast node lane is the right place to
+  test. `nil` renders as `db-before` absent,
   which is what a direct caller passing no `ctx` means.
 
   EGRESS IS THE CALLER'S OBLIGATION, and this block is
@@ -4213,10 +4031,6 @@
     - `:fx` — the canonical `:fx` vector-of-vectors (when present)
       rendered fully expanded via the edn-inspector widget.
 
-  There is no `other` section (the return map
-  minus `:db` and `:fx`); see the note at the
-  render site below for why.
-
   The `:fx` section is `seq`-conditioned, so it renders only when the
   handler returned one. The `:db` part has its own dedicated
   block above.
@@ -4270,14 +4084,7 @@
             :opts     {:site-id                [:rf.xray.epoch/handler-fx event-id]
                        :card?                  false
                        :zoomable?              true
-                       :default-expanded-depth 16}}]]))
-     ;; There is NO `other` sub-section after the `:fx` one: a top-level
-     ;; effect key OUTSIDE the framework's closed set is REFUSED
-     ;; pre-commit and never reaches a do-fx reader, while every key
-     ;; INSIDE that set is legal and applied. So an `other` slot has no
-     ;; truthful population, and deriving one from somewhere else would
-     ;; make the false accusation "the runtime ignored this effect".
-     ])))
+                       :default-expanded-depth 16}}]]))])))
 
 (defn render-handler-step
   "Render the HANDLER step (always present). The verb (reg-event /
@@ -4311,12 +4118,10 @@
        {:step :handler
         :badge :HANDLER
         :verb (handler-verb-link flavour event-id)
-        :expandable? false
         :testid "rf-xray-epoch-handler"
         ;; A skipped handler has no real duration (it never
         ;; ran); elide the chip.
-        :duration-ms (when-not skipped? duration-ms)}
-       nil)
+        :duration-ms (when-not skipped? duration-ms)})
      (if skipped?
        ;; The handler was skipped (a `:before` interceptor /
        ;; coeffect threw upstream). Render the SKIPPED placeholder instead
@@ -4416,10 +4221,8 @@
                                      (str "rf-xray-epoch-flow-id-" (name flow-id))
                                      {:style       coeffect-verb-link-button-style
                                       :plain-style coeffect-verb-plain-style})
-        :expandable? false
         :testid (str "rf-xray-epoch-flow-" (name flow-id))
-        :duration-ms duration-ms}
-       nil)
+        :duration-ms duration-ms})
      (if db-diff?
        ;; The flow's own `:db` diff via the shared
        ;; edn-inspector diff renderer (FULL+DIFF, parity with HANDLER
@@ -4601,10 +4404,9 @@
 
 (defn- fx-row-with-violations
   "Render one fx row + any violations / exceptions attached to that row.
-  Per-row attachment matches when the
-  projection's `attach-to-fx-row` (schema) / `attach-to-fx-error-row`
-  (exception) resolved the `:failing-id` against an `fx-id` in the FX
-  step's `:rows`. A throwing fx (button-18) surfaces its message + coord
+  Per-row attachment matches when the projection
+  (`attach-violations` / `attach-exceptions`) resolved the `:failing-id`
+  against an `fx-id` in the FX step's `:rows`. A throwing fx (button-18) surfaces its message + coord
   inline on its own row."
   [idx row instance]
   [:div {:key (str "fx-row-" idx)
@@ -4632,7 +4434,7 @@
 
     1. the `:db` row (when a `:db` commit was attempted) — leading glyph
        ✓ committed / ✗ schema-fail rollback (the `:where :app-db`
-       violation reason box rides the row via `attach-to-fx-db-row`), its
+       violation reason box rides the row via `attach-violations`), its
        args slot the clickable '→ app-db' DESTINATION marker;
     2. the `:fx`-vector entries in order — each with the
        open-code chip + a per-effect glyph (✓ ran / ✗ threw / ↺ overridden
@@ -4657,9 +4459,7 @@
      (step-header
        {:step :side-effects
         :badge :SIDE-EFFECTS
-        :expandable? false
-        :testid "rf-xray-epoch-side-effects"}
-       nil)
+        :testid "rf-xray-epoch-side-effects"})
      (if skipped?
        ;; Side effects never ran (upstream `:before`-chain throw).
        (skipped-body "rf-xray-epoch-side-effects" "Side effects" (:skip-reason step))
@@ -4733,10 +4533,7 @@
   "Render the `value` cell for one sub recomputation row under the
   single FULL+DIFF rendering.
 
-  There is no `[diff][full][full+diff]` mode toggle, so there is one
-  branch: FULL+DIFF.
-
-  For FULL+DIFF the leaf-scalar branch (a sub that returns
+  The leaf-scalar branch (a sub that returns
   a scalar — number, string, keyword, nil) has its OWN rendering path:
   the edn-inspector's R1-R8 grammar paints diff chrome on container
   CHILDREN, but a scalar root has no children, so a value-change of
@@ -5015,11 +4812,14 @@
       ;; an `ei/edn-inspector-view` for the humanized explain map, so
       ;; without it two named mounts showing the same sub's violation
       ;; would compose one mount-id.
+      ;; Keyed by row index: instances of one sub (`[:item 1]` /
+      ;; `[:item 2]`) share a sub id, and the key composes the block's
+      ;; testids, `:site-id` and inspector `:mount-id`.
       :row-extras
-      (fn [row _i]
+      (fn [row i]
         (when (seq (:violations row))
           (violation-blocks
-            (keyword (str "sub-row-" (some-> row :sub-id name)))
+            (keyword (str "sub-row-" i))
             (:violations row)
             instance)))}]))
 
@@ -5149,20 +4949,13 @@
         ;; no button-bar
         ;; affordance for that surface (and the count is small
         ;; enough that "L disposed" reads at a glance).
-        ;;
-        ;; There is no value-mode toggle
-        ;; `[diff][full][full+diff]`; each
-        ;; changed row's value cell renders unconditionally under
-        ;; FULL+DIFF.
         :verb [:span {:style subs-verb-style}
                (when (pos? n)
                  (subs-filter-button-bar mode))
                (when (pos? l)
                  [:span {:style subs-disposed-count-style}
                   (str l " disposed")])]
-        :expandable? false
-        :testid "rf-xray-epoch-subscriptions"}
-       nil)
+        :testid "rf-xray-epoch-subscriptions"})
      (when (pos? n)
        (subscriptions-table visible-rows (:instance ctx)))
      (when (pos? l)
@@ -5357,6 +5150,7 @@
     [rt/resizable-table-view
      {:table-id        :rf.xray.epoch/views
       :container-attrs {:data-testid "rf-xray-epoch-views-table"
+                        :ref         view-highlight/clear-on-detach!
                         :style       views-table-style}
       :header-attrs    {:style table-header-row-style}
       :columns         columns
@@ -5366,11 +5160,9 @@
                          {:data-testid  (str "rf-xray-epoch-view-row-" i)
                           :data-view-id (when view-id (pr-str view-id))
                           :data-rf-view-status (if unmounted? "unmounted" "rendered")
-                          ;; Pink-stripe view-name hover
-                          ;; affordance. Pure DOM side-effect on the
-                          ;; row wrapper; no layout perturbation.
-                          :on-mouse-enter (fn [_e] (apply-view-highlight! view-id))
-                          :on-mouse-leave (fn [_e] (clear-view-highlight! view-id))
+                          ;; Host-page view highlight (`view-highlight`).
+                          :on-mouse-enter (fn [_e] (view-highlight/apply! view-id))
+                          :on-mouse-leave (fn [_e] (view-highlight/clear!))
                           :style (cond-> (if (< i (dec (count rows)))
                                            subs-row-style-with-border
                                            subs-row-style)
@@ -5434,9 +5226,7 @@
        {:step :views
         :badge :VIEWS
         :verb verb
-        :expandable? false
-        :testid "rf-xray-epoch-views"}
-       nil)
+        :testid "rf-xray-epoch-views"})
      (when (pos? total)
        (views-table rows instance))])))
 
@@ -5922,12 +5712,6 @@
       (map-indexed (fn [i e] (error-block step-key i e instance))
                    errors)])))
 
-;; There is no `rolled-back-banner`: the `:where :app-db` violation
-;; renders on the FX step's `:db` row, so a standalone HANDLER-level
-;; "cascade rolled back — downstream effects skipped" banner would
-;; have no caller. The downstream-mute chrome (`rolled-back-mute-style`)
-;; applies in `pipeline-view`.
-
 ;; There is no SCHEMA HOT-RELOAD step. A standalone tail step could
 ;; render only opaque content (`schema hot-reload · :rf/default · path
 ;; [:user/profile :age] · value -3`) lacking the context the operator
@@ -6074,13 +5858,6 @@
            :style empty-state-style}
      msg]))
 
-;; There is no top-of-cascade outcome banner ("This event failed —
-;; see the ✗ step below."). The failure surfaces inline in the cascade —
-;; the failing step's inline 'Exception Thrown' card sits right under
-;; the step — so a banner would restate what the cascade already shows
-;; and push the actual content down. The panel root stamps
-;; `data-rf-xray-outcome` (tools / e2e read the tool-side outcome there).
-
 ;; ---- public Panel --------------------------------------------------------
 
 (rf.fresco/defview Panel
@@ -6198,12 +5975,9 @@
         ;; `:epoch-history` in its value instead would make every settled
         ;; host event a fresh value and a whole-panel re-render; the
         ;; narrow answer is `=`-equal across settles, so the propagation
-        ;; collapses upstream of this component.
-        ;;
-        ;; Both reads are unconditional and in a fixed order, so the
-        ;; boundary's hook order is stable across renders; `parents` is
-        ;; `[]` on the overwhelmingly common parentless cascade and the
-        ;; sub answers `{}` without walking the ring.
+        ;; collapses upstream of this component. `parents` is `[]` on the
+        ;; common parentless cascade, and the sub answers `{}` without
+        ;; walking the ring.
         parents (proj/parent-dispatch-ids steps)
         parent-epoch-index
         (rf.fresco/sub [:rf.xray.epoch/parent-epoch-index parents])]
@@ -6232,22 +6006,10 @@
                            ;; threaded down. See this view's docstring for
                            ;; why they are not left to donate upward.
                            ;;
-                           ;; This is the pipeline's OWN `:record`, not a
-                           ;; second read of
-                           ;; `:rf.xray/selected-epoch-record`. TWO
-                           ;; reasons, and the first is load-bearing:
-                           ;; that sub answers the RAW record, so reading
-                           ;; it here would route straight around the
-                           ;; egress seam the pipeline sub applies to the
-                           ;; db snapshots this record is used for. And
-                           ;; the two subs do not agree: that one is
-                           ;; deliberately head-fallback-free, so under
-                           ;; head-fallback (focus unset, history
-                           ;; non-empty) the cascade would render the
-                           ;; head epoch while the `:db` diff beside it
-                           ;; got nil and drew no pre-image. One record
-                           ;; for one panel; the view does not re-decide
-                           ;; it.
+                           ;; The pipeline's own `:record`, its db
+                           ;; snapshots already egress-projected, so the
+                           ;; `:db` diff and the cascade beside it read
+                           ;; one record.
                            :selected-epoch-record record
                            :subs-filter-mode
                            (rf.fresco/sub [:rf.xray.epoch/subs-filter-mode])})]

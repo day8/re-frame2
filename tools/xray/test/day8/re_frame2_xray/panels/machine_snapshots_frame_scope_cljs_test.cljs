@@ -52,6 +52,7 @@
   wrong frame."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.image :as rf.image]
@@ -210,3 +211,22 @@
                (pr-str snaps)))
       (is (= sibling (get-in snaps [machine-id :data :plain]))
           "the plain sibling rides verbatim"))))
+
+;; ---- (4) a projection that fails must fail closed ----------------------
+
+(deftest a-throwing-projection-redacts-the-snapshot-data
+  (testing "when the snapshot-egress projection throws, the sub answers the
+            snapshot with `:data` redacted. RED against a catch that hands back
+            the raw snapshot, which would surface the declared-sensitive value."
+    (seed-host-runtime-db! host-b true)
+    (setup-xray!)
+    (focus-frame! host-b)
+    (let [snaps (with-redefs [rf.classification/project-trace-event
+                              (fn [_] (throw (ex-info "projection failed" {})))]
+                  (machine-snapshots))]
+      (is (= :authed (get-in snaps [machine-id :state]))
+          (str "NON-VACUITY: the sub still answers the snapshot: " (pr-str snaps)))
+      (is (= :rf/redacted (get-in snaps [machine-id :data]))
+          (str "a failed projection let `:data` through: " (pr-str snaps)))
+      (is (not (str/includes? (pr-str snaps) secret))
+          (str "the declared-sensitive value leaked: " (pr-str snaps))))))

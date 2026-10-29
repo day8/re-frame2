@@ -7,6 +7,7 @@
   `cljs-test$` regex, so a green run is a two-host agreement."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test    :refer-macros [are deftest is testing]])
+            [re-frame.fx :as rf.fx]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             ;; Canonical trace-event builders shared with the panel-gallery
@@ -258,11 +259,13 @@
            (proj/coeffect-rows [(run-end-ev 0.1 {:session {:user-id 7}})])))))
 
 (deftest coeffect-rows-skip-system-cofx-test
-  (testing "system-injected cofx (:db / :event / :frame / :source / :trace-id)
-            are filtered on both the granular and the run-end path"
+  (testing "the runtime's own coeffect keys are the framework's set"
+    (is (= rf.fx/framework-coeffect-keys proj/system-cofx-ids)))
+  (testing "system-injected cofx are filtered on both the granular and the
+            run-end path"
     (is (= [:session]
            (mapv :id (proj/coeffect-rows
-                       (conj (mapv #(cofx-run-ev % nil) [:db :event :frame :source :trace-id])
+                       (conj (mapv #(cofx-run-ev % nil) proj/system-cofx-ids)
                              (cofx-run-ev :session {:user-id 42}))))))
     (is (= [:session]
            (mapv :id (proj/coeffect-rows
@@ -306,6 +309,78 @@
               :hvac/power-cycle)]
       (is (= [:reg-machine [:transition]]
              [(:flavour r) (mapv :kind (-> r :machine :cascade))])))))
+
+;; ---- nested work inside one epoch ---------------------------------------
+;;
+;; A plain handler's `:fx` can run machine actions and nested `:fx` walks
+;; synchronously (a destroy's `:exit` cascade), and a flow can commit after
+;; the walk. None of that is the handler's own effect, and each fixture
+;; below follows the runtime's emit order: `:db` install, then the walk,
+;; then the router's terminal `:rf.fx/do-fx`.
+
+(def ^:private bare-do-fx-ev
+  "The marker a nested walk emits: no `:rf.event/fx`."
+  (ev :rf.fx :rf.fx/do-fx {:frame :rf/default}))
+
+(deftest handler-row-plain-event-destroying-a-machine-test
+  (let [events [(dispatched-ev [:ui/close-wizard] :ui nil)
+                (db-pending-ev {:open? false})
+                (db-changed-ev [[[:open?] true false :modified]])
+                (machine-action-ev :save-draft :destroy-exit {:fx [[:dispatch [:draft/saved]]]})
+                (fx-handled-ev :dispatch [:draft/saved] 0.1)
+                bare-do-fx-ev
+                (fx-handled-ev :rf.machine/destroy :wizard 0.1)
+                (do-fx-ev [[:rf.machine/destroy :wizard]])]
+        r      (proj/handler-row events :ui/close-wizard {:open? true})]
+    (testing "an `:exit` action run by the handler's destroy fx does not make
+              the handler a machine: it keeps its source block and `:db` diff"
+      (is (= :effectful (:flavour r)))
+      (is (true? (:db-write? r))))
+    (testing "the destroy's cascade rows still ride the handler"
+      (is (= [[:action :destroy-exit]]
+             (mapv (juxt :kind :phase) (-> r :machine :cascade)))))
+    (testing "`:fx-vec` is read off the router's terminal marker, not the
+              nested walk's bare one that precedes it"
+      (is (= [[:rf.machine/destroy :wizard]] (:fx-vec r)))
+      (is (= [:rf.machine/destroy] (mapv :fx-id (:fx r)))))))
+
+(deftest post-walk-flow-commit-is-not-the-handler-db-write-test
+  (testing "a handler that returned no `:db` gets no `:db` row and no
+            `:db` write when a flow commits after its `:fx` walk"
+    (let [events [(fx-handled-ev :probe/set-n 5 0.1)
+                  (do-fx-ev [[:probe/set-n 5]])
+                  (flow-recomputed-ev :probe/derived [:derived] 1 5)
+                  (db-changed-ev [[[:derived] 1 5 :modified]])]]
+      (is (nil? (proj/db-effect-row events)))
+      (is (false? (proj/handler-wrote-db? events)))))
+  (testing "control: the same commit BEFORE the walk is the handler's"
+    (let [events [(db-changed-ev [[[:derived] 1 5 :modified]])
+                  (fx-handled-ev :probe/set-n 5 0.1)
+                  (do-fx-ev [[:probe/set-n 5]])]]
+      (is (= {:fx-id :db :status :ok} (proj/db-effect-row events)))
+      (is (true? (proj/handler-wrote-db? events))))))
+
+(deftest fx-effect-rows-closed-outcome-ops-test
+  (testing "an fx handler's own `:rf.fx/*` report is not an outcome row: a
+            failed navigation's `:rf.fx/push-url-failed` adds no second ✓"
+    (is (= [[:rf.nav/push-url :ok]]
+           (mapv (juxt :fx-id :status)
+                 (proj/fx-effect-rows
+                   [(ev :rf.fx :rf.fx/push-url-failed
+                        {:rf.fx/id :rf.nav/push-url :url "/x" :error "SecurityError"})
+                    (fx-handled-ev :rf.nav/push-url "/x" 0.1)
+                    (do-fx-ev [[:rf.nav/push-url "/x"]])]))))))
+
+(deftest fx-effect-rows-attribute-each-action-in-order-test
+  (testing "two actions emitting the same fx id each own their own row"
+    (is (= [[[:a/left] :notify-exit] [[:a/entered] :notify-entry]]
+           (mapv (juxt :args (comp :action-id :attributed-to))
+                 (proj/fx-effect-rows
+                   [(machine-action-ev :notify-exit :exit {:fx [[:dispatch [:a/left]]]})
+                    (machine-action-ev :notify-entry :entry {:fx [[:dispatch [:a/entered]]]})
+                    (fx-handled-ev :dispatch [:a/left] 0.1)
+                    (fx-handled-ev :dispatch [:a/entered] 0.1)
+                    (do-fx-ev [[:dispatch [:a/left]] [:dispatch [:a/entered]]])]))))))
 
 ;; ---- machine cascade (time-ordered) -----------------------------------
 
@@ -891,10 +966,10 @@
             MAP carrier, the shape an `other` reader would consume."
     (is (= [:db :http/post]
            (mapv :fx-id (:rows (proj/side-effects-step
-                                 [(do-fx-ev {:db {:n 1}
-                                             :fx [[:http/post {}]]})
-                                  (db-changed-ev [])
-                                  (fx-handled-ev :http/post {} 1.0)])))))))
+                                 [(db-changed-ev [])
+                                  (fx-handled-ev :http/post {} 1.0)
+                                  (do-fx-ev {:db {:n 1}
+                                             :fx [[:http/post {}]]})])))))))
 
 ;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 --------------
 
@@ -911,10 +986,10 @@
     (is (= [[:db :ok] [:rf.db/runtime :ok] [:http/post :ok]]
            (mapv (juxt :fx-id :status)
                  (:rows (proj/side-effects-step
-                          [(do-fx-ev {:db {:n 1} :rf.db/runtime {:machines {}} :fx [[:http/post {}]]})
-                           (db-changed-ev [])
+                          [(db-changed-ev [])
                            (frame-state-changed-ev #{:app-db :runtime-db})
-                           (fx-handled-ev :http/post {} 1.0)]))))))
+                           (fx-handled-ev :http/post {} 1.0)
+                           (do-fx-ev {:db {:n 1} :rf.db/runtime {:machines {}} :fx [[:http/post {}]]})]))))))
   (testing "a :machine-data candidate rejected before install paints the
             runtime-db row ✗"
     (is (= [{:fx-id :rf.db/runtime :status :error}]
@@ -1118,9 +1193,14 @@
                                                    (fx-handled-ev :db nil 0.1)
                                                    (sub-run-ev [:s] true 1 2)
                                                    (view-render-ev ::v [:s])])))))
-    (is (every? proj/badge-set [:RECORDABLE-COFX :INTERCEPTOR])
-        "the conditional RECORDABLE COEFFECTS step and the exception-only
-         INTERCEPTOR step, which this fixture does not project"))
+    (let [badges (set (map :badge (proj/project
+                                    (record [(dispatched-with-cofx [:counter-inc]
+                                                                   {:rf/time-ms 1})
+                                             (interceptor-exception-ev :app/auth :before "boom")]))))]
+      (is (every? proj/badge-set badges))
+      (is (every? badges [:RECORDABLE-COFX :INTERCEPTOR])
+          "the conditional RECORDABLE COEFFECTS step and the exception-only
+           INTERCEPTOR step project, so their badges are graded too")))
   ;; Only the resolver opts reach the authored INTERCEPTORS step, so the
   ;; fixture above cannot see a badge missing for it.
   (testing "an AUTHORED interceptor chain's INTERCEPTORS step badge is in badge-set"
@@ -1199,7 +1279,9 @@
                                 (range 40)))]
     (testing "an under-budget arg vector is returned untouched, and the nil of
               a no-arg render stays nil, so the view reads `(no args)`"
-      (is (= [small-arg] (fmt/elide-large-render-args [small-arg])))
+      (let [args [small-arg]]
+        (is (identical? args (fmt/elide-large-render-args args))
+            "the no-op path hands back the same vector"))
       (is (nil? (fmt/elide-large-render-args nil))))
     (testing "an over-budget arg collapses to the framework's single-key
               `:rf.size/large-elided` size marker, carrying its positional path"
@@ -1313,6 +1395,20 @@
       [{:step :subscriptions
         :rows [{:sub-id :user/profile}
                {:sub-id :cart/total :violations [{:where :sub-return :failing-id :cart/total}]}]}])))
+
+(deftest sub-return-violation-attaches-to-its-own-instance-test
+  (testing "two instances of one sub: the violation lands on the query that
+            failed (the trace's `:rf.sub/query-v`), not on every instance"
+    (let [violation (first (proj/schema-violation-rows
+                             [(ev :error :rf.error/schema-validation-failure
+                                  {:where :sub-return :failing-id :item
+                                   :rf.sub/query-v [:item 2] :value -1})]))
+          steps     (proj/attach-violations
+                      [{:step :subscriptions
+                        :rows [{:sub-id :item :sub-vec [:item 1]}
+                               {:sub-id :item :sub-vec [:item 2]}]}]
+                      [violation])]
+      (is (= [0 1] (mapv (comp count :violations) (:rows (first steps))))))))
 
 (deftest cascade-rolled-back?-test
   (testing "a state-partition violation rolls the cascade back only when it

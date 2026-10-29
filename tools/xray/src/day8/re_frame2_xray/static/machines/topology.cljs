@@ -16,8 +16,8 @@
 
     1. NO focused-event lens — Static is a static-read; there's no
        `:from-highlight-id` / `:to-highlight-id` to pass, and the
-       after-rings overlay is suppressed (`:show-after-rings?
-       false`).
+       after-rings overlay is not drawn (`machine-canvas/Chart` mounts
+       none).
     2. Click on a state node fires
        `:rf.xray.static.machines/state-clicked` (with the clicked
        state's path) — not the Dynamic panel's inspector-lens
@@ -80,9 +80,8 @@
   the Dynamic Machines panel renders) so the user gets mouse /
   controls-driven xyflow zoom / pan / fit on the Static surface too (no
   Xray-owned keyboard shortcuts — viewport gestures are xyflow's). The
-  static-flavoured opts are:
+  static-flavoured opt is:
 
-    :show-after-rings?      false  — no focused-event lens on static.
     :testid                        — overrides the inner SVG testid
                                      so the static-panel tests match.
 
@@ -120,7 +119,6 @@
        ;; from the shared machines-viz-backed helpers.
        :context-band           (topology-view/static-context-shape definition)
        :context-band-inferred? (topology-view/static-context-inferred? definition)
-       :show-after-rings?      false
        ;; Fit-on-entry nonce so entering the Static Machines tab
        ;; re-frames the topology (xyflow's one-shot `:fitView` +
        ;; the layout-key auto-fit both leave a re-entered chart stale).

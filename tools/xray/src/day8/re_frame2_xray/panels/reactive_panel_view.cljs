@@ -61,7 +61,8 @@
   attribute the framework stamps per Spec 006). The class paints a
   translucent pink diagonal-stripe `background-image` (theme/global-
   styles) — background-only, NO border / outline / shadow that would
-  perturb layout. Cleared on mouseleave.
+  perturb layout. Cleared on mouseleave and when the graph unmounts
+  (`panels.shared.view-highlight`).
 
   Pure hiccup — frame isolation via the enclosing
   `rf.fresco/frame-provider` that `shell.cljs`'s `shell-view-tree` opens."
@@ -69,6 +70,7 @@
             [day8.re-frame2-xray.host-registrar :as host-registrar]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
+            [day8.re-frame2-xray.panels.shared.view-highlight :as view-highlight]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack with-alpha]]))
 
@@ -232,34 +234,6 @@
       (str (/ (Math/round (* ms 10.0)) 10.0) "ms")
       (str (Math/round ms) "ms"))))
 
-;; ---- hover-highlight ---------------------------------------------------
-;;
-;; Hover a view node → stamp the pink diagonal-stripe highlight class on
-;; the rendered view's root DOM node (matched via `data-rf-view`).
-;; Cleared on mouseleave. Background-only — no layout perturbation.
-
-(def ^:private highlight-class "rf-xray-view-highlight")
-
-(defn- highlight-selector
-  "DOM selector for a view-id (Spec 006 stores `(str id)`)."
-  [view-id]
-  (str "[data-rf-view='" view-id "']"))
-
-(defn- apply-highlight!
-  [view-id]
-  (when (and (exists? js/document) view-id)
-    (let [nodes (.querySelectorAll js/document (highlight-selector view-id))]
-      (.forEach nodes
-                (fn [^js node] (.add (.-classList node) highlight-class)))
-      nil)))
-
-(defn- clear-highlight!
-  [view-id]
-  (when (and (exists? js/document) view-id)
-    (let [nodes (.querySelectorAll js/document (highlight-selector view-id))]
-      (.forEach nodes
-                (fn [^js node] (.remove (.-classList node) highlight-class)))
-      nil)))
 
 ;; ---- [code] open-chip --------------------------------------------------
 
@@ -397,8 +371,8 @@
          :data-testid (str "rf-xray-reactive-view-node-" slug)
          :data-node-id (str id)
          :data-rf-xray-view-id (str id)
-         :on-mouse-enter (fn [_e] (apply-highlight! id))
-         :on-mouse-leave (fn [_e] (clear-highlight! id))
+         :on-mouse-enter (fn [_e] (view-highlight/apply! id))
+         :on-mouse-leave (fn [_e] (view-highlight/clear!))
          :on-click       (when coord (fn [e] (open-source! coord e)))
          :style {:cursor (if coord "pointer" "default")}}
      ;; Both lines whole, as the node's tooltip: the text below is fitted
@@ -444,6 +418,7 @@
                      :background (:bg-1 tokens)
                      :overflow-x "auto"}}
        [:svg {:data-testid "rf-xray-reactive-flow-svg"
+              :ref view-highlight/clear-on-detach!
               :width (:width g) :height (:height g)
               :viewBox (str "0 0 " (:width g) " " (:height g))
               :style {:display "block" :max-width "100%"}}
@@ -713,20 +688,20 @@
 ;; ---- empty state ------------------------------------------------------
 
 (defn- empty-state
-  "The panel's body when no epoch record resolved. The composed focus
-  (`spine/compose-focus`) names a selection by `:dispatch-id` or
-  `:epoch-id`; with neither set nothing is focused, and with either set
-  the focused bundle simply captured no reactive activity."
+  "The panel's body when no epoch record resolved, worded by the shared
+  resolver's `:status` (spec/021 §10.7): an evicted pin and a bundle that
+  settled no epoch each say so, rather than claiming the selected event
+  captured no reactive activity."
   [data]
   [:div {:data-testid "rf-xray-reactive-empty"
          :style {:padding "16px"
                  :color (:text-tertiary tokens)
                  :font-family sans-stack
                  :font-size "13px"}}
-   (if (and (nil? (:dispatch-id (:focus data)))
-            (nil? (:epoch-id (:focus data))))
-     [:p "No event focused."]
-     [:p "Focused event-bundle has no reactive activity captured yet."])])
+   [:p (case (:status data)
+         :epoch-evicted "This epoch has been evicted from the history buffer."
+         :no-epoch      "The selected event settled no epoch."
+         "No event focused.")]])
 
 ;; ---- panel root --------------------------------------------------------
 
