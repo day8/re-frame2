@@ -91,6 +91,28 @@
           "one warning per path, however many walks"))
     (rf/unregister-listener! :trace :elision-test/unschema'd)))
 
+(deftest destroying-a-frame-forgets-only-its-own-warned-paths
+  ;; The warn-once set is per (frame, path): one frame's destroy must not
+  ;; re-arm the warning on another, while a same-id successor warns afresh.
+  (let [big    (apply str (repeat 3000 "ABCDEFGH"))
+        in     {:user {:photo big}}
+        traces (collect-traces! :elision-test/forget)
+        warns  #(count (unschema'd-warnings traces))
+        egress #(rf.elision/elide-wire-value in {:frame %})]
+    (rf/make-frame {:id :elision-test/a})
+    (rf/make-frame {:id :elision-test/b})
+    (let [outs   [(egress :elision-test/a) (egress :elision-test/b) (egress :elision-test/a)]
+          before (warns)
+          _      (rf/destroy-frame! :elision-test/b)
+          outs   (conj outs (egress :elision-test/a))
+          _      (rf/make-frame {:id :elision-test/b})
+          outs   (conj outs (egress :elision-test/b))]
+      (is (= (repeat 5 in) outs) "schema-less large values ride verbatim on every egress")
+      (when rf.interop/debug-enabled?
+        (is (= [2 3] [before (warns)])
+            "one warning per frame; :b's destroy re-fires nothing on :a, and :b's successor warns afresh")))
+    (rf/unregister-listener! :trace :elision-test/forget)))
+
 (deftest threshold-precedence-and-zero-disables
   ;; API.md §Configure keys: an explicit :rf.egress/threshold-bytes opt beats
   ;; the configured value, and 0 from either source disables auto-detect. The

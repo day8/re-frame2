@@ -623,8 +623,10 @@
 ;; The fork would grow combinatorially with map depth, so we PRUNE: a
 ;; candidate that is not a prefix of ANY declared path can never match and is
 ;; dropped. `decl-prefixes` (all prefixes of every sensitive ∪ large decl
-;; path) bounds the live candidate set to the declaration cardinality — tiny
-;; in practice, and empty (so zero overhead) when nothing is declared.
+;; path) bounds the live candidate set by that PREFIX vocabulary, not by the
+;; declaration count — an index-free declaration can keep several of its own
+;; prefixes alive at once — tiny in practice, and empty (so zero overhead)
+;; when nothing is declared.
 ;;
 ;; Precision: the runtime path `[:by-id "a" :secret]` matches decl
 ;; `[:by-id :secret]` only because `:secret` is a real map slot under the
@@ -653,7 +655,7 @@
 ;; the two distinct deciders stay at their call sites.
 ;;
 ;; The skeleton is parameterized by an opaque per-walker `state` (the wire
-;; walker threads `[path decl-paths]`; classification threads a bare `path`) and
+;; walker threads `[path decl-paths]`, classification `[path candidates]`) and
 ;; four functions:
 ;;   :decide  (state v) -> a replacement value, OR the `::recur` sentinel to
 ;;            descend structurally. A matched node is substituted wholesale and
@@ -732,7 +734,7 @@
   large). A candidate declaration-coordinate path is kept alive during the
   walk only while it is a member of this set — anything outside it can
   never reach a declaration, so dropping it is matching-safe and keeps the
-  forked candidate set bounded by the declaration cardinality."
+  forked candidate set bounded by this prefix vocabulary."
   [ctx]
   (into #{}
         (mapcat prefixes)
@@ -1356,12 +1358,19 @@
 ;; (a no-op for re-keyed values — the documented fail-open posture).
 ;; ---------------------------------------------------------------------------
 
-;; The warn-once set is keyed by `[frame-id path]`, so a destroy clears it: a
-;; same-id successor warns afresh, and per-request frames cannot grow it
-;; without bound. Spec 002 §Lifecycle contributions.
+;; The warn-once set is keyed by `[frame-id path]`, so a destroy drops that
+;; frame's entries and no other's: a same-id successor warns afresh, every
+;; other frame keeps its warned paths, and per-request frames cannot grow the
+;; set without bound. Spec 002 §Lifecycle contributions.
+(defn- forget-frame-warnings!
+  [frame-id]
+  (swap! warned-unschema'd
+         (fn [warned] (into #{} (remove #(= frame-id (first %))) warned)))
+  nil)
+
 (rf.frame/contribute-lifecycle!
   {:id                 :elision
    :phase              #{:post-dead}
    :on-frame-destroyed (fn [frame-id _phase]
                          (swap! policy-cache dissoc frame-id)
-                         (clear-warning-cache!))})
+                         (forget-frame-warnings! frame-id))})
