@@ -1601,17 +1601,18 @@
       on the `:spawn`-bearing state at `<invoke-id>`, resolved at THAT state's
       level (a keyword target is a sibling of the spawning state), only while
       the parent's active path still includes it (the machine root's `[]`
-      always does, and there a keyword target names a top-level state). The
-      region head is stripped
-      and a FOREIGN region declines this arm, and `(nth event 1)` is re-stamped
-      region-relative for the guard, exactly as on the error side. A fn
+      always does, and there a keyword target names a top-level state). A fn
       `:on-done` is the `:data` fold the handler boundary already applied
       (`lifecycle-fx.registration/apply-spawn-on-done`), never a transition.
    2. **The ordinary leaf→root `:on` walk, then the root `:on`** — when
-      `:on-done` is a fn or absent, when every candidate's guard fails, or
-      when the carrier belongs to another region. This is how an explicit
-      `:on {:rf.machine.spawn/done …}` arm, or an `:always` over the folded
-      `:data`, advances the parent.
+      `:on-done` is a fn or absent, or when every candidate's guard fails.
+      This is how an explicit `:on {:rf.machine.spawn/done …}` arm, or an
+      `:always` over the folded `:data`, advances the parent.
+
+  In a parallel region the region head is stripped and `(nth event 1)` is
+  re-stamped region-relative for both arms, and a FOREIGN region declines the
+  carrier outright, exactly as on the error side: sibling regions never see
+  another region's spawn (Spec 005 §Parallel regions, §`:on-error`).
 
   The completion map rides `:event` (`(nth ev 2)`), so a guard or action
   reads the child's result as `(:result (nth ev 2))`. A single-`:spawn`
@@ -1637,16 +1638,17 @@
                           (when-let [cands (seq (normalise-candidates
                                                   on-done :rf.error/machine-bad-on-done-clause))]
                             (select-passing-candidate machine cands snapshot region-event)))]
-    (if on-done-hit
-      {:transition on-done-hit :decl-path (vec invoke-id)}
-      (or
-        (rf.machines.path-walk/walk-path-leaf-to-root
-          machine path
-          (fn [prefix n]
-            (when-let [hit (match-on-clause machine n spawn-done-event-id event snapshot)]
-              {:transition hit :decl-path prefix})))
-        (when-let [hit (match-on-clause machine machine spawn-done-event-id event snapshot)]
-          {:transition hit :decl-path []})))))
+    (when-not decline-region?
+      (if on-done-hit
+        {:transition on-done-hit :decl-path (vec invoke-id)}
+        (or
+          (rf.machines.path-walk/walk-path-leaf-to-root
+            machine path
+            (fn [prefix n]
+              (when-let [hit (match-on-clause machine n spawn-done-event-id region-event snapshot)]
+                {:transition hit :decl-path prefix})))
+          (when-let [hit (match-on-clause machine machine spawn-done-event-id region-event snapshot)]
+            {:transition hit :decl-path []}))))))
 
 (defn pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
@@ -2989,6 +2991,8 @@
                                      compound-path)]])
           (compound-done-paths machine leaf-path))))
 
+(declare root-action-steps)
+
 (defn apply-on-done-action
   "Per Spec 005 §Final states §The done-state signal: run a
   PARALLEL ROOT's `:on-done` transition's `:action` against `snap`'s `:data`,
@@ -2999,7 +3003,8 @@
   is normalised through the SAME candidate machinery as an `:on` clause
   (a guarded candidate-vector resolves first-guard-pass-wins; a bare action-
   less keyword / map is a data no-op). Returns a `rf.machines.result/ok` carrying
-  `[snap' fx]` (the action's `:data` replacing the machine's, `:fx` collected), or a
+  `[snap' fx]` (the action's `:data` replacing the machine's, `:fx` collected)
+  and the root `:action` cascade step (`root-action-steps`), or a
   `rf.machines.result/fail` if the action threw. A nil / no-candidate `:on-done` returns
   `(ok snap [])` unchanged. Invoked with the synthetic
   `[:rf.machine/done []]` event so a 3-arity action introspecting `:event`
@@ -3022,12 +3027,7 @@
         tspec (select-passing-candidate machine cands snap event)]
     (if (nil? tspec)
       (rf.machines.result/ok snap [])
-      (let [r0 (run-action machine snap (:action tspec) event :transition [])]
-        (if (rf.machines.result/fail? r0)
-          r0
-          (let [r        (enforce-db-disallow machine r0 (:action tspec) (:state snap))
-                new-data (if (contains? r :data) (:data r) (:data snap))]
-            (rf.machines.result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
+      (collect-actions machine snap event (root-action-steps tspec)))))
 
 (defn root-action-steps
   "Per Spec 005 §Root parallel `:on`: the cascade step for a PARALLEL ROOT

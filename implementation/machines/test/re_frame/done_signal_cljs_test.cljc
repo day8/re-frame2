@@ -92,6 +92,29 @@
   (is (= 1 (get-in (snapshot :rf2-z522n/par-on-done-db) [:data :completions]))
       "the :data write still flows; only :db is dropped"))
 
+(deftest parallel-on-done-raise-continues-the-macrostep
+  ;; The :on-done fx continue the macrostep like any region's: a :raise there
+  ;; is drained, so the root :on handles it, and the root :action is a cascade
+  ;; step of the macrostep's transition trace.
+  (rf/reg-machine :rf2-pod/raise
+    {:type    :parallel
+     :data    {:continued? false}
+     :actions {:complete (fn [_] {:fx [[:raise [:continue]]]})
+               :continue (fn [{d :data}] {:data (assoc d :continued? true)})}
+     :on-done {:action :complete}
+     :on      {:continue {:action :continue}}
+     :regions two-final-regions})
+  (rf/dispatch-sync [:rf2-pod/raise [:fin]])
+  (is (= {:continued? true
+          :no-such-fx []
+          :root-step  [{:kind :action :state [] :action :complete}]}
+         {:continued? (get-in (snapshot :rf2-pod/raise) [:data :continued?])
+          :no-such-fx (rf.machines.test-support/events-of :rf.error/no-such-fx)
+          :root-step  (->> (rf.machines.test-support/events-of :rf.machine/transition)
+                           (mapcat (comp :cascade :tags))
+                           (filter #(= :complete (:action %)))
+                           (mapv #(select-keys % [:kind :state :action])))})))
+
 ;; Every target-bearing form is refused: at runtime a parallel root :on-done
 ;; target would mark the done handled, suppress auto-destroy and move nowhere.
 (deftest parallel-on-done-target-rejected

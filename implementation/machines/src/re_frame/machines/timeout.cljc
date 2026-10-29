@@ -112,8 +112,10 @@
   seconds allowed; `P0D` / a zero total resolves to nil since a zero
   timeout is meaningless). Year / month use the fixed 365-day / 30-day
   convention (see ns docstring). Rejects the bare `\"P\"`, empty strings,
-  the XState `\"5s\"` / `\"10ms\"` shorthand (no leading `P`), and anything
-  the regex does not match."
+  the XState `\"5s\"` / `\"10ms\"` shorthand (no leading `P`), anything
+  the regex does not match, and a component too large for a JVM long
+  millisecond count (which the host would otherwise throw on), so every
+  caller fails with its own bad-duration category."
   [s]
   (when (and (string? s) (not (str/blank? s)))
     (when-let [m (re-matches iso-duration-re s)]
@@ -123,15 +125,17 @@
             ;; duration must name at least one component.
             any? (some some? [y mo w d h mi sec])]
         (when any?
-          (let [ms (+ (* (parse-long* y)  (:year ms-per))
-                      (* (parse-long* mo) (:month ms-per))
-                      (* (parse-long* w)  (:week ms-per))
-                      (* (parse-long* d)  (:day ms-per))
-                      (* (parse-long* h)  (:hour ms-per))
-                      (* (parse-long* mi) (:minute ms-per))
-                      ;; seconds may be fractional → ms is rounded to the
-                      ;; nearest integer ms.
-                      (Math/round (* (parse-double* sec) 1000.0)))]
+          (when-let [ms (try
+                          (+ (* (parse-long* y)  (:year ms-per))
+                             (* (parse-long* mo) (:month ms-per))
+                             (* (parse-long* w)  (:week ms-per))
+                             (* (parse-long* d)  (:day ms-per))
+                             (* (parse-long* h)  (:hour ms-per))
+                             (* (parse-long* mi) (:minute ms-per))
+                             ;; seconds may be fractional → ms is rounded to
+                             ;; the nearest integer ms.
+                             (Math/round (* (parse-double* sec) 1000.0)))
+                          (catch #?(:clj Exception :cljs :default) _ nil))]
             (when (pos? ms)
               (long ms))))))))
 

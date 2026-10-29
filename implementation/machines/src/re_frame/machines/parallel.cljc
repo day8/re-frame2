@@ -320,19 +320,27 @@
   fxs the region emits carry the parent's identity (the region name is
   prepended onto the `:rf/invoke-id` separately).
 
-  Region-specs are registration-time
-  data, not transition-time data. The result is memoised in metadata
-  on `parent-machine` itself — re-registration replaces the entire
-  machine map, so the old cache becomes garbage automatically and no
-  invalidation logic is needed. Per-region misses fall through to
-  `build-region-machine` and CAS the result into the metadata atom."
+  Region-specs are registration-time data, not transition-time data. The
+  result is memoised in metadata on `parent-machine` itself, keyed by region
+  and stored with the four inputs it was built from — the region body and the
+  parent's `:guards` / `:actions` / `:delays`. An entry is reused only while
+  all four are `identical?`, because `assoc` / `update` keep metadata: a
+  definition derived from a registered one (say, a test swapping a guard)
+  carries the same cache atom and must not run the registered region specs.
+  Re-registration replaces the whole machine map and its atom. A miss falls
+  through to `build-region-machine` and records the result."
   [parent-machine region-name]
-  (let [cache (-> parent-machine meta ::region-cache)]
-    (if-let [hit (and cache (get @cache region-name))]
-      hit
+  (let [cache  (-> parent-machine meta ::region-cache)
+        inputs [(get-in parent-machine [:regions region-name])
+                (:guards parent-machine)
+                (:actions parent-machine)
+                (:delays parent-machine)]
+        hit    (when cache (get @cache region-name))]
+    (if (and hit (every? true? (map identical? (:inputs hit) inputs)))
+      (:spec hit)
       (let [built (build-region-machine parent-machine region-name)]
         (when cache
-          (swap! cache assoc region-name built))
+          (swap! cache assoc region-name {:inputs inputs :spec built}))
         built))))
 
 (defn install-region-cache
@@ -1562,6 +1570,11 @@
   unchanged (the whole-machine finalize path then runs at the lifecycle
   boundary).
 
+  The action's `:fx` continue the macrostep exactly as a region's do: a
+  `:raise` there is drained by the same parent loop (`drain-parent-queue`), so
+  the root `:on` or a region can handle it, and the root `:action` rides the
+  cascade as a root `:action` step.
+
   `newly-reached?` is the false→true EDGE guard (XState v5 `onDone`
   / SCXML `done.state.<parallelId>` fire EXACTLY ONCE, on ENTERING the done
   configuration, never re-firing on a later event delivered while resting
@@ -1591,15 +1604,21 @@
           ;; effects-map contract (`{:data .. :fx ..}`). A bare keyword /
           ;; map without `:action` is a no-op data-wise but still suppresses
           ;; auto-destroy (the author opted into "stay done, don't destroy").
-          (let [on-done-r (rf.machines.transition/apply-on-done-action machine snap on-done)]
-            (if (rf.machines.result/fail? on-done-r)
-              on-done-r
-              (rf.machines.result/with-ok [snap2 fx2] on-done-r
+          (let [on-done-r (rf.machines.transition/apply-on-done-action machine snap on-done)
+                drained   (if (and (rf.machines.result/ok? on-done-r)
+                                   (seq (first (split-raises (rf.machines.result/fx on-done-r)))))
+                            (drain-parent-queue machine snap nil on-done-r)
+                            on-done-r)]
+            (if (rf.machines.result/fail? drained)
+              drained
+              (rf.machines.result/with-ok [snap2 fx2] drained
                 (-> (rf.machines.result/ok snap2 (into (vec fx) fx2))
                     (rf.machines.result/with-parallel-done)
                     (rf.machines.result/with-handled (rf.machines.result/handled? result))
-                    (rf.machines.result/with-microsteps (rf.machines.result/microsteps result))
-                    (rf.machines.result/with-cascade (rf.machines.result/cascade result)))))))))))
+                    (rf.machines.result/with-microsteps (+ (rf.machines.result/microsteps result)
+                                                           (rf.machines.result/microsteps drained)))
+                    (rf.machines.result/with-cascade (into (vec (rf.machines.result/cascade result))
+                                                           (rf.machines.result/cascade drained))))))))))))
 
 (defn- root-fallback-seed
   "Per Spec 005 §Transition broadcast §Root parallel `:on`: when
