@@ -11,8 +11,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 - The cross-MCP fail-closed `sensitive-event?` predicate over a trace-event map.
 - The `strip-sensitive` walker (returns `[kept dropped-count]`).
-- The `scrub-snapshot` walker that strips `:traces` / `:epochs` slices from each per-frame snapshot map.
-- The fail-closed malformed-stamp counter (`malformed-count` / `reset-malformed-count!`), bumped exactly once per dropped malformed event. The walkers classify each event once, so the count is a per-event metric.
+- The fail-closed malformed-stamp counter (`malformed-count` / `reset-malformed-count!`), bumped exactly once per dropped malformed event. `strip-sensitive` classifies each event once, so the count is a per-event metric.
 - The fixed cross-server arg-vocabulary name (`:include-sensitive`) every MCP tool surfacing trace-like data MUST accept.
 
 `sensitive` does NOT own:
@@ -52,7 +51,7 @@ Definition (effectively):
                               true)))))            ; fail-closed drop + warn
 ```
 
-A literal-`true`-only predicate would fail open if serialization changed the stamp's type. The same fail-closed classifier applies to top-level trace batches and snapshot trace slices.
+A literal-`true`-only predicate would fail open if serialization changed the stamp's type.
 
 ### `strip-sensitive events include?` → `[kept dropped-count]`
 
@@ -63,24 +62,6 @@ The count feeds the indicator-field slot the agent reads to know the payload was
 `include?` is the caller's already-authorized opt-in, not a permission check:
 truthy returns `[events 0]` unchanged; false/nil applies the filter. A batch
 with no drops preserves the original collection identity.
-
-### `scrub-snapshot` — per-frame snapshot scrubber
-
-Walks a snapshot map keyed by frame and, for each per-frame map, applies the
-strip-fn to sequential `:traces` and `:epochs` batches. Returns
-`[scrubbed-snapshot total-dropped]`. A single map slice is also classified
-through the supplied strip-fn: if sensitive it becomes `[]` and counts as one
-drop; otherwise it is unchanged. Other non-sequential slices and non-snapshot
-inputs pass through unchanged. An authorized `include?` bypasses the scrubber.
-
-`scrub-snapshot` is a **trace/epoch sensitivity filter only, not the complete snapshot privacy boundary.** It strips the `:traces` and `:epochs` slices but leaves `:app-db`, `:sub-cache`, and `:machines` untouched. Its output is not a fully projected snapshot.
-
-Per [EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md), non-trace slices are projected at egress under a named `:rf.egress/*` profile. The caller must apply that projection before a snapshot crosses the MCP boundary; `scrub-snapshot` alone is insufficient.
-
-Two arities:
-
-- `[snapshot include?]` — uses the base `strip-sensitive` predicate (the spec/009 §Privacy stamp check).
-- `[snapshot include? strip-fn]` — accepts a custom strip-fn matching the `[items include?] => [kept dropped]` contract, for a consumer whose filter must also read a record-level rollup.
 
 ## Cross-server arg-vocabulary convention
 
