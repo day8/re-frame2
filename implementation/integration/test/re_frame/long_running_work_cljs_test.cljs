@@ -51,8 +51,9 @@
 
     (dispatch-synthetic-child-completion! f :s3)
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= [:complete :complete nil]
-             [(:state parent-snapshot) (-> parent-snapshot :data :outcome) (join-state f)])))))
+      (is (= [:complete nil false]
+             [(:state parent-snapshot) (join-state f)
+              (rf/compute-sub [:work/running?] (rf/frame-state-value f))])))))
 
 (deftest long-running-work-cancel-cascade
   (with-new-frame [f (new-frame)]
@@ -70,9 +71,8 @@
 
     (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= [:cancelled :cancelled nil {:s1 30 :s2 50 :s3 10}]
-             [(:state parent-snapshot) (-> parent-snapshot :data :outcome)
-              (join-state f) (-> parent-snapshot :data :progress)])))))
+      (is (= [:cancelled nil {:s1 30 :s2 50 :s3 10}]
+             [(:state parent-snapshot) (join-state f) (-> parent-snapshot :data :progress)])))))
 
 (deftest long-running-work-reset-round-trip
   (with-new-frame [f (new-frame)]
@@ -82,6 +82,6 @@
 
     (rf/dispatch-sync [:work/flow [:reset]] {:frame f})
     (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= [:idle {:s1 0 :s2 0 :s3 0} nil]
+      (is (= [:idle {:s1 0 :s2 0 :s3 0} true]
              [(:state parent-snapshot) (-> parent-snapshot :data :progress)
-              (-> parent-snapshot :data :outcome)])))))
+              (rf/compute-sub [:work/idle?] (rf/frame-state-value f))])))))

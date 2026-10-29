@@ -46,8 +46,7 @@
 ;;   {:state    <:idle | :working | :complete | :cancelled | :error>
 ;;    :data     {:total      <int>           ;; items per shard
 ;;               :shards     [<keyword> ...]  ;; which shards are spawned
-;;               :progress   {<shard-id> <items-done>}
-;;               :outcome    <:complete | :cancelled | :error | nil>}
+;;               :progress   {<shard-id> <items-done>}}
 ;;    :tags     #{...}}                       ;; runtime-owned union
 
 ;; ...but we only schema-check `:data`. The runtime owns `:state` and
@@ -58,8 +57,7 @@
   [:map
    [:total    :int]
    [:shards   [:vector :keyword]]
-   [:progress ProgressMap]
-   [:outcome  [:maybe [:enum :complete :cancelled :error]]]])
+   [:progress ProgressMap]])
 
 ;; ============================================================================
 ;; CHILD :data SHAPE — :work/processor (one instance per shard)
@@ -77,8 +75,7 @@
   [:map
    [:shard     :keyword]   ;; which shard this child owns
    [:total     :int]       ;; items in that shard
-   [:processed :int]       ;; how many it's finished so far
-   [:tick-ms   :int]])     ;; ms it yields to the browser between chunks
+   [:processed :int]])     ;; how many it's finished so far
 
 ;; ============================================================================
 ;; SCHEMA ATTACHMENT
