@@ -544,7 +544,9 @@
         [:button.mod-options {:type "button" :data-testid (str "delete-comment-" (:id comment))
                               :disabled (:pending? del-state)
                               :on-click #(dispatch [:comment/delete slug (:id comment)])}
-         [:i.ion-trash-a]])]]))
+         [:i.ion-trash-a]])
+      (when (:error? del-state)
+        [:span.error-messages (rh/failure->message (:error del-state))])]]))
 
 (reg-view ^{:doc "Article-detail contextual controls: the author byline, plus
                   either Follow/Unfollow on the author (for a non-author viewer) or
@@ -557,7 +559,8 @@
         slug      (:slug article)
         me        @(subscribe [:auth/user])
         authed?   @(subscribe [:auth/authenticated?])
-        own?      (and me (= (:username me) username))]
+        own?      (and me (= (:username me) username))
+        follow-state @(subscribe [:rf/mutation {:instance [:follow username]}])]
     [:div.article-meta
      [rf/route-link {:to :realworld.profile/show :params {:username username}}
       [:img.user-pic {:src (avatar/avatar-src (:image author))}]]
@@ -577,14 +580,19 @@
          {:type "button" :data-testid "article-delete"
           :disabled (:pending? del-state)
           :on-click #(dispatch [:ui/delete-article slug])}
-         [:i.ion-trash-a] " Delete Article"]]
+         [:i.ion-trash-a] " Delete Article"]
+        (when (:error? del-state)
+          [:span.error-messages (rh/failure->message (:error del-state))])]
 
        authed?
-       [:button.btn.btn-sm.btn-outline-secondary
-        {:type "button" :data-testid "article-follow-author"
-         :on-click #(dispatch [:ui/follow-author slug username (:following author)])}
-        [:i.ion-plus-round] " "
-        (if (:following author) "Unfollow " "Follow ") username])]))
+       [:span
+        [:button.btn.btn-sm.btn-outline-secondary
+         {:type "button" :data-testid "article-follow-author"
+          :on-click #(dispatch [:ui/follow-author slug username (:following author)])}
+         [:i.ion-plus-round] " "
+         (if (:following author) "Unfollow " "Follow ") username]
+        (when (:error? follow-state)
+          [:span.error-messages (rh/failure->message (:error follow-state))])])]))
 
 (reg-view ^{:doc "The article-detail page — a pure function of subs that never
                   dispatches out of band. The two settle continuations it needs are
@@ -746,7 +754,9 @@
                  {:type "button" :data-testid "follow-button"
                   :disabled (:pending? follow-state)
                   :on-click #(dispatch [:ui/follow username following])}
-                 (if following "Unfollow " "Follow ") username])]]]]
+                 (if following "Unfollow " "Follow ") username])
+              (when (:error? follow-state)
+                [:div.error-messages (rh/failure->message (:error follow-state))])]]]]
           [:div.container
            [:div.row
             [:div.col-xs-12.col-md-10.offset-md-1

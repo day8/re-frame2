@@ -377,6 +377,15 @@
         {:fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
                                               :replace? true}]]]}))))
 
+;; Ending a session — a logout, or a sign-in over a live session — is
+;; `:auth/clear-session` (the auth slice, the departing reader's principal-scoped
+;; caches and the unsent comment draft) plus the persisted token. `cause` names
+;; why, for the principal change.
+(defn- end-session
+  [cause]
+  [[:dispatch [:auth/clear-session cause]]
+   [:realworld-resources.session/persist {:token nil}]])
+
 ;; ============================================================================
 ;; AUTH STATE MACHINE — :auth/flow
 ;; ============================================================================
@@ -463,15 +472,20 @@
       {:data {:error (rh/failure->message error)}})
 
     :clear-session
-    ;; Interactive LOGOUT (from :authed). Clear the session + persisted token and
-    ;; navigate home — the deliberate act of signing out lands you on the public
-    ;; home page, whose route entry re-plans every read under the now-anonymous
-    ;; viewer. (A FAILED restore uses `:abandon-restore` instead: it stays put.)
+    ;; Interactive LOGOUT (from :authed). End the session and navigate home —
+    ;; the deliberate act of signing out lands you on the public home page,
+    ;; whose route entry re-plans every read under the now-anonymous viewer. (A
+    ;; FAILED restore uses `:abandon-restore` instead: it stays put.)
+    ;;
+    ;; The navigate passes `:bypass-leave? true`, because signing out really
+    ;; does discard an unsaved editor draft (Spec 012 §`:bypass-leave?`). The
+    ;; editor's `:can-leave` would otherwise park the trip home behind its
+    ;; "unsaved changes" prompt AFTER the session had already gone, and "Stay"
+    ;; would leave a signed-out reader on a page that requires sign-in.
     (fn [_]
       {:data {:error nil}
-       :fx [[:dispatch [:auth/clear-session :logout]]
-            [:realworld-resources.session/persist {:token nil}]
-            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})}
+       :fx   (conj (end-session :logout)
+                   [:dispatch [:rf.route/navigate {:to :realworld/home :bypass-leave? true}]])})}
    :states
    {:idle
     {:on {:auth/login    {:target :submitting :action :clear-error}
@@ -680,23 +694,31 @@
          :auth/flow machine with a bare, credential-free :auth/login signal.
          The success reply routes to the classified :auth/session-established
          event, never straight to the machine — see the machine's namespace
-         note above."}
+         note above.
+
+         Signing in over a live session switches accounts, and the switch
+         starts by ending the live session as a logout does, then submits
+         again, signed out. So none of the departing reader's caches or
+         per-user state reaches the next one, the request goes out without
+         the departing token, and a failed sign-in leaves nobody signed in
+         rather than a session the signed-out navbar no longer offers a
+         logout for."}
   (fn [{:keys [db]} _]
-    (let [draft (get-in db [:auth :login-form :draft])]
-      {:db (assoc-in db [:auth :login-form :draft :password] "")
-       :fx [[:dispatch [:auth/flow [:auth/login]]]
-            [:rf.http/managed
-             {:request {:method :post :url (rh/full-url "/users/login")
-                        :body {:user draft}
-                        ;; Scrub the whole body from `:rf.http/*` traces in the
-                        ;; real-backend run mode. The default demo run mode
-                        ;; overrides `:rf.http/managed` with the stub (which
-                        ;; bypasses this scrub); that path is covered by the
-                        ;; stub's own `:sensitive` (http.cljs).
-                        :sensitive? true}
-              :decode schema/UserResponse
-              :on-success [:auth/session-established]
-              :on-failure [:auth/flow [:auth/failure]]}]]})))
+    (if (session-owner db)
+      {:fx (conj (end-session :account-switch) [:dispatch [:auth.login-form/submit]])}
+      (let [draft (get-in db [:auth :login-form :draft])]
+        {:db (assoc-in db [:auth :login-form :draft :password] "")
+         :fx [[:dispatch [:auth/flow [:auth/login]]]
+              [:rf.http/managed
+               {:request {:method :post :url (rh/full-url "/users/login")
+                          :body {:user draft}
+                          ;; Scrub the whole body from `:rf.http/*` traces. The
+                          ;; demo backend answers below `:rf.http/managed`, as a
+                          ;; stub transport, so the scrub runs in every run mode.
+                          :sensitive? true}
+                :decode schema/UserResponse
+                :on-success [:auth/session-established]
+                :on-failure [:auth/flow [:auth/failure]]}]]}))))
 
 (rf/reg-event :auth.register-form/initialise
   {:doc "Seed the register-form draft."}

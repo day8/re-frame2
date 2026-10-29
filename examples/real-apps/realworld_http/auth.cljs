@@ -83,7 +83,7 @@
 ;; re-presents the reply event like any other. See
 ;; ../../../docs/core/how-to/add-auth.md#read-the-saved-session-back-at-boot
 ;;
-;; It's also why `ssr.cljc` can redact [:auth :token] from the hydration
+;; It's also why `ssr.cljc` can leave [:auth :token] out of the hydration
 ;; payload: the client never needs the server to ship it the token, because it
 ;; reads its own storage at boot.
 (defn read-saved-token
@@ -336,6 +336,23 @@
         {:fx [[:dispatch [:rf.route/navigate {:to       :realworld.auth/login
                                               :replace? true}]]]}))))
 
+;; Ending a session — a logout, or a sign-in over a live session — is the
+;; auth slice and the persisted token, AND the two pieces of PER-USER state
+;; that live OUTSIDE the auth slice, because nothing else would scrub them: the
+;; settings form's draft (in the machine's runtime-db snapshot — username,
+;; email, bio, image, sitting ready for the next account to PUT onto its own
+;; settings) and the authenticated feed's articles. The rule is that no
+;; per-user state outlives the session; the auth slice is merely the part of it
+;; auth owns. (The unsent comment draft goes with `:auth/clear-session`
+;; itself.) Both are plain event vectors, so this namespace needs no require on
+;; the two that register them — settings.cljs already requires THIS one, and a
+;; require back would close the cycle.
+(def ^:private end-session
+  [[:dispatch [:auth/clear-session]]
+   [:auth.session/persist {:token nil}]
+   [:dispatch [:settings/form [:reset]]]
+   [:dispatch [:feed/initialise]]])
+
 ;; ============================================================================
 ;; AUTH STATE MACHINE
 ;; ============================================================================
@@ -434,27 +451,19 @@
             [:dispatch [:auth/settle-deferred-entry]]]})
 
     :clear-session
-    ;; Interactive LOGOUT (from :authed): clear the session and the persisted
-    ;; token, then navigate home — signing out deliberately lands you on the
+    ;; Interactive LOGOUT (from :authed): end the session (`end-session`
+    ;; above), then navigate home — signing out deliberately lands you on the
     ;; public home page. A FAILED RESTORE uses `:abandon-restore` above instead.
     ;;
-    ;; It also scrubs the two pieces of PER-USER state that live OUTSIDE the
-    ;; auth slice, because nothing else would: the settings form's draft (in the
-    ;; machine's runtime-db snapshot — username, email, bio, image, sitting
-    ;; ready for the next account to PUT onto its own settings) and the
-    ;; authenticated feed's articles. The rule is that no per-user state
-    ;; outlives the session; the auth slice is merely the part of it auth owns.
-    ;; (The unsent comment draft goes with `:auth/clear-session` itself.)
-    ;; Both are plain event vectors, so this namespace needs no require on the
-    ;; two that register them — settings.cljs already requires THIS one, and a
-    ;; require back would close the cycle.
+    ;; The navigate passes `:bypass-leave? true`, because signing out really
+    ;; does discard an unsaved editor draft (Spec 012 §`:bypass-leave?`). The
+    ;; editor's `:can-leave` would otherwise park the trip home behind its
+    ;; "unsaved changes" prompt AFTER the session had already gone, and "Stay"
+    ;; would leave a signed-out reader on a page that requires sign-in.
     (fn [_]
       {:data {:error nil}
-       :fx [[:dispatch [:auth/clear-session]]
-            [:auth.session/persist {:token nil}]
-            [:dispatch [:settings/form [:reset]]]
-            [:dispatch [:feed/initialise]]
-            [:dispatch [:rf.route/navigate {:to :realworld/home}]]]})}
+       :fx   (conj end-session
+                   [:dispatch [:rf.route/navigate {:to :realworld/home :bypass-leave? true}]])})}
    :states
    {:idle
     {:on {:auth/login    {:target :submitting :action :clear-error}
@@ -666,19 +675,28 @@
          nudges the :auth/flow machine with a bare, credential-free :auth/login
          signal. The success reply routes to the classified
          :auth/session-established event, never straight to the machine — see
-         the machine's namespace note above."}
+         the machine's namespace note above.
+
+         Signing in over a live session switches accounts, and the switch
+         starts by ending the live session as a logout does, then submits
+         again, signed out. So none of the departing account's per-user state
+         reaches the next one, the request goes out without the departing
+         token, and a failed sign-in leaves nobody signed in rather than a
+         session the signed-out navbar no longer offers a logout for."}
   (fn [{:keys [db]} _]
-    (let [draft (get-in db [:auth :login-form :draft])]
-      {:db (assoc-in db [:auth :login-form :draft :password] "")
-       :fx [[:dispatch [:auth/flow [:auth/login]]]
-            [:rf.http/managed
-             (rh/request {:method     :post
-                          :path       "/users/login"
-                          :body       {:user draft}
-                          :sensitive? true
-                          :decode     schema/UserResponse
-                          :on-success [:auth/session-established]
-                          :on-failure [:auth/flow [:auth/failure]]})]]})))
+    (if (session-owner db)
+      {:fx (conj end-session [:dispatch [:auth.login-form/submit]])}
+      (let [draft (get-in db [:auth :login-form :draft])]
+        {:db (assoc-in db [:auth :login-form :draft :password] "")
+         :fx [[:dispatch [:auth/flow [:auth/login]]]
+              [:rf.http/managed
+               (rh/request {:method     :post
+                            :path       "/users/login"
+                            :body       {:user draft}
+                            :sensitive? true
+                            :decode     schema/UserResponse
+                            :on-success [:auth/session-established]
+                            :on-failure [:auth/flow [:auth/failure]]})]]}))))
 
 (rf/reg-event :auth.register-form/initialise
   {:doc "Seed the register-form draft — the draft and its touched fields, as

@@ -319,9 +319,9 @@
                :body   {:user (cond-> {:username username :email email
                                        :bio bio :image image}
                                 (seq password) (assoc :password password))}
-               ;; Scrub the whole body from `:rf.http/*` traces when this
-               ;; mutation lowers onto the REAL managed handler (real-backend
-               ;; run mode). The default demo run mode overrides `:rf.http/managed`
-               ;; with the stub, covered by the stub's own `:sensitive` (http.cljs).
+               ;; Scrub the whole body from `:rf.http/*` traces. The mutation
+               ;; lowers onto `:rf.http/managed` and the demo backend answers
+               ;; below it, as a stub transport, so the scrub runs in every run
+               ;; mode.
                :sensitive? true}
      :decode  schema/UserResponse}))

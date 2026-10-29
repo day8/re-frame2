@@ -62,6 +62,20 @@
                                                      :body "b" :tagList []}}})))))
       (is (= "my-new-post" (:slug (:article (ok! w :get "/articles/my-new-post"))))))))
 
+(deftest an-article-titled-like-an-endpoint-is-at-its-own-url
+  (let [w       (world)
+        create! #(:slug (:article (ok! w :post "/articles"
+                                       {:body {:article {:title % :description "d"
+                                                         :body "b" :tagList []}}})))]
+    (testing "\"User\" reads and saves at /articles/user, not at the session endpoints"
+      (is (= "user" (create! "User")))
+      (is (= "User" (:title (:article (ok! w :get "/articles/user")))))
+      (ok! w :put "/articles/user" {:body {:article {:title "User, edited"}}})
+      (is (= "User, edited" (:title (:article (ok! w :get "/articles/user"))))))
+    (testing "\"Feed\" is minted a slug clear of the feed endpoint, and reads there"
+      (let [slug (create! "Feed")]
+        (is (= ["feed-2" "Feed"] [slug (:title (:article (ok! w :get (str "/articles/" slug))))]))))))
+
 (deftest update-then-read
   (let [w (world)]
     (ok! w :put "/articles/hello-conduit"

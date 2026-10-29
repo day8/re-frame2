@@ -600,6 +600,40 @@
             (:username (rf/compute-sub [:auth/user] (state-value f)))
             (route-id f)]))))
 
+(defn- sign-in!
+  "Sign in through the login form as `username`, answering the newest login
+   request."
+  [f username]
+  (submit-login! f (str username "@example.com"))
+  (reply-success! (last (filter #(str/includes? (str (get-in % [:request :url])) "/users/login")
+                                @managed-args-log))
+                  {:user {:username username :email (str username "@example.com")
+                          :token (str "jwt-" username)}}
+                  f))
+
+(deftest signing-in-over-a-live-session-ends-it-first
+  (with-new-frame [f (app-frame!)]
+    (init-auth! f nil)
+    (sign-in! f "alice")
+    (rf/dispatch-sync [:comment-form/edit "Alice's unsent comment"] {:frame f})
+    (sign-in! f "bob")
+    (is (= ["bob" :authed nil]
+           [(:username (rf/compute-sub [:auth/user] (state-value f)))
+            (rf/compute-sub [:auth/state] (state-value f))
+            (:comment-form (rf/app-db-value f))]))))
+
+(deftest logout-from-a-dirty-editor-goes-home-without-asking
+  (with-new-frame [f (app-frame!)]
+    (init-auth! f nil)
+    (sign-in! f "alice")
+    (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/new}] {:frame f})
+    (fill-draft! f new-draft)
+    (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
+    (is (= [:realworld/home nil nil]
+           [(route-id f)
+            (rf/compute-sub [:rf/pending-navigation] (state-value f))
+            (rf/compute-sub [:auth/user] (state-value f))]))))
+
 (deftest session-load-seam-reads-storage-through-an-effect
   (is (= [[:token]] (:sensitive (rf.registrar/handler-meta :event :auth/session-read))))
   (is (nil? (rf.integration-support/with-local-storage #js {:configurable true

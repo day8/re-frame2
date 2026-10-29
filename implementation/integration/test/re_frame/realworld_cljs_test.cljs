@@ -4,6 +4,7 @@
             [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.integration-adapter :as rf.integration-adapter]
             [re-frame.integration-support :as rf.integration-support]
             [re-frame.test-support :as rf.test-support]
@@ -183,6 +184,55 @@
                  [(:username (sub f [:auth/user])) (get-in (rf/app-db-value f) [:auth :token])
                   (sub f [:auth/state])])))))))
 
+(defn- sign-in!
+  "Sign in through the login form as `username`, answering the login request
+   the `lowered` sink captured."
+  [f lowered username]
+  (submit-login! f)
+  (settle-ok! f (:on-success (req-by-method+url @lowered :post "/users/login"))
+              {:user (wire-user username (str "jwt-" username) nil)}))
+
+(deftest realworld-account-switch
+  (testing "signing in over a live session ends it first, so the departing account's
+            comment draft and feed do not reach the next one"
+    (rf/reg-event :realworld.test/seed-feed
+      (fn [{:keys [db]} [_ articles]] {:db (assoc-in db [:feed :data] articles)}))
+    (with-held-fx nil
+      (fn [f lowered]
+        (sign-in! f lowered "alice")
+        (rf/dispatch-sync [:comment-form/edit-field :body "Alice's unsent comment"] {:frame f})
+        (rf/dispatch-sync [:realworld.test/seed-feed [(full-article "alices-feed")]] {:frame f})
+        (submit-login! f)
+        (settle-ok! f (:on-success (req-by-method+url @lowered :post "/users/login"))
+                    {:user (wire-user "bob" "jwt-bob" nil)})
+        (let [db (rf/app-db-value f)]
+          (is (= ["bob" :authed "" []]
+                 [(:username (sub f [:auth/user])) (sub f [:auth/state])
+                  (get-in db [:comment-form :draft :body]) (get-in db [:feed :data])]))))))
+
+  (testing "a failed sign-in over a live session leaves nobody signed in, with the
+            failure on screen"
+    (with-held-fx nil
+      (fn [f lowered]
+        (sign-in! f lowered "alice")
+        (submit-login! f)
+        (settle-fail! f (:on-failure (req-by-method+url @lowered :post "/users/login")))
+        (is (= [:error true nil nil false]
+               [(sub f [:auth/state]) (some? (sub f [:auth/error])) (sub f [:auth/user])
+                (get-in (rf/app-db-value f) [:auth :token]) (sub f [:realworld.routing/authed?])]))))))
+
+(deftest realworld-logout-from-a-dirty-editor
+  (testing "logging out from an editor holding unsaved changes goes home without the
+            unsaved-changes prompt, because signing out discards the draft"
+    (with-held-fx nil
+      (fn [f lowered]
+        (sign-in! f lowered "alice")
+        (visit! f "/editor")
+        (rf/dispatch-sync [:editor/edit-field :title "Unsaved"] {:frame f})
+        (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
+        (is (= [:realworld/home nil nil]
+               [(sub f [:rf.route/id]) (sub f [:rf/pending-navigation]) (sub f [:auth/user])]))))))
+
 (defn- decode-to-url-strategy
   [url]
   {:encode            (fn [path] path)
@@ -310,16 +360,19 @@
           (is (= [:realworld.profile/favorites 3] [(sub f [:rf.route/id]) (page)])))))))
 
 (deftest realworld-ssr
-  (testing "a signed-in app frame's hydration payload ships the allowlisted slices and
-            the route, and never the JWT"
+  (testing "a signed-in app frame's hydration payload ships the allowlisted slices, the
+            signed-in user and the route, and neither the JWT nor a redacted form
+            draft for hydration to install"
     (with-held-fx
       (fn [f _]
         (visit! f "/")
-        (let [payload (ssr/hydration-payload f)]
-          (is (= [true "zed" false :realworld/home]
-                 [(every? (set ssr/ssr-app-slice-keys) (keys (:rf/app-db payload)))
-                  (get-in payload [:rf/app-db :auth :user :username])
-                  (contains? (get-in payload [:rf/app-db :auth]) :token)
+        (let [payload (ssr/hydration-payload f)
+              app-db  (:rf/app-db payload)]
+          (is (= [true {:user (dissoc (wire-user "zed" "jwt" nil) :token)} false :realworld/home]
+                 [(every? (set (map #(if (vector? %) (first %) %) ssr/ssr-app-slice-keys))
+                          (keys app-db))
+                  (:auth app-db)
+                  (str/includes? (pr-str app-db) (pr-str rf.privacy/redacted-sentinel))
                   (get-in payload [:rf/runtime-db :rf.runtime/routing :current :route-id])])))))))
 
 (defn- home [f]
