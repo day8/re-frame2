@@ -16,6 +16,7 @@ const {
   validateRequest,
   validateModule,
 } = require('../src/protocol.cjs');
+const ASYNC_BOOT = require('./fixtures/async-boot.cjs');
 
 const TABLES = {
   buildId: 'reference-build-1',
@@ -257,4 +258,34 @@ test('a malformed bundle refuses at BOOT, not at first request', async () => {
     assert.strictEqual(err?.code, CODE.MALFORMED_MODULE, fixtureName);
     assert.match(err.message, why, fixtureName);
   }
+});
+
+/** Run `fn` with the async-boot fixture in `mode`, disarming it whichever way `fn` went. */
+async function withBootMode(mode, fn) {
+  process.env[ASYNC_BOOT.MODE_FLAG] = mode;
+  try {
+    return await fn();
+  } finally {
+    delete process.env[ASYNC_BOOT.MODE_FLAG];
+  }
+}
+
+test('a boot hook that REJECTS refuses at BOOT, exactly as one that throws', async () => {
+  // `throw` is the control: the same failure, raised synchronously.
+  for (const mode of ['throw', 'reject']) {
+    const err = await withBootMode(mode, () =>
+      refusalOf(() => withService('async-boot', { isolates: 1 }, async () => {})),
+    );
+    assert.strictEqual(err?.code, CODE.MALFORMED_MODULE, `${mode}: the service must not come up`);
+    assert.strictEqual(err.message, ASYNC_BOOT.BOOT_FAILURE, mode);
+  }
+});
+
+test('a boot hook that resolves LATER has finished before the first render', async () => {
+  const html = await withBootMode('slow', () =>
+    withService('async-boot', { isolates: 1 }, async (service) => {
+      return (await service.renderToString({ protocol: 1, entry: 'app/root' })).html;
+    }),
+  );
+  assert.strictEqual(html, '<p data-booted="true"></p>');
 });

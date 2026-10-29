@@ -38,8 +38,9 @@ function reportRenderException(entry, err, requestId) {
 
 /**
  * The operator's copy of an exception that stopped this isolate booting —
- * thrown while the module loaded or from its `boot` hook. The `boot-error`
- * post carries `code` and `message` only, so this is where the stack lives.
+ * thrown while the module loaded, or thrown or rejected by its `boot` hook.
+ * The `boot-error` post carries `code` and `message` only, so this is where
+ * the stack lives.
  */
 function reportBootException(modulePath, err) {
   const trace = err && err.stack ? err.stack : String(err);
@@ -49,11 +50,13 @@ function reportBootException(modulePath, err) {
 let renderModule = null;
 let busy = false;
 
-function boot() {
+async function boot() {
   try {
     // A dynamic require: the service loads the bundle it was pointed at.
     renderModule = validateModule(require(workerData.modulePath), workerData.modulePath);
-    if (typeof renderModule.boot === 'function') renderModule.boot();
+    // Awaited, so a promised boot has finished before `ready`, and its
+    // rejection is refused here exactly as a throw is.
+    if (typeof renderModule.boot === 'function') await renderModule.boot();
   } catch (err) {
     // A caught exception raises no `error` on the parent's `Worker`, so this
     // is its only report. No `stack` on the post: the parent reads `code`

@@ -26,7 +26,7 @@
     (g) under `:module` the renderer owns the sidecar: it launches it and
         renders through it, refuses a bundle built as another id at
         construction, relaunches it when it dies, and leaves no node
-        process behind once closed.
+        process behind once closed, or once its JVM is killed outright.
 
   `clojure -M:crossing-test` runs exactly these (Node 24 on PATH); the
   default `:test` alias excludes the tag and never touches Node. The rows
@@ -44,9 +44,11 @@
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.node :as rf.ssr.ring.node]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
-  (:import [java.lang ProcessHandle]
+  (:import [java.lang ProcessBuilder$Redirect ProcessHandle]
            [java.net InetSocketAddress ServerSocket URI]
            [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
+           [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]
            [java.time Duration]
            [java.util.concurrent TimeUnit]
            [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]))
@@ -506,6 +508,87 @@
     (.close ^java.io.Closeable renderer)
     (is (= before (sidecar-children)) "a second close is harmless")
     (rf.error-emit/unregister-error-listener! ::crossing-recorder)))
+
+;; A JVM can end without running its shutdown hooks — an IDE's stop,
+;; `kill -9`, the OOM killer, a crash — and its sidecar must end with it. A
+;; child JVM owns the sidecar here, so the row can kill that JVM outright.
+
+(defn- owning-jvm-program
+  "The form a child JVM reads from its stdin and evaluates: own a `:module`
+  sidecar, print the pids of its live children as one EDN vector, then
+  `System/exit 0`, which runs the shutdown hook, on a line reading `exit`."
+  []
+  (pr-str
+    `(do ((requiring-resolve 're-frame.ssr.ring.node/renderer) ~(assoc module-opts :isolates 1))
+         (prn (->> (.iterator (.children (ProcessHandle/current)))
+                   iterator-seq
+                   (filter (fn [child#] (.isAlive child#)))
+                   (mapv (fn [child#] (.pid child#)))))
+         (flush)
+         (loop []
+           (case (read-line)
+             "exit" (System/exit 0)
+             nil    (System/exit 1)
+             (recur))))))
+
+(defn- spawn-owning-jvm!
+  "A child JVM on this JVM's classpath running `owning-jvm-program`, with
+  `tmp` as its temp directory, once it reports: `{:jvm process :stdin writer
+  :sidecar handles}`. The handles are taken at once, so a pid the OS reuses
+  later is never mistaken for one."
+  [^java.io.File tmp]
+  (let [java   (.orElse (.command (.info (ProcessHandle/current))) "java")
+        jvm    (.start (doto (ProcessBuilder. ^java.util.List
+                                              [java "-cp" (System/getProperty "java.class.path")
+                                               (str "-Djava.io.tmpdir=" (.getPath tmp))
+                                               "clojure.main" "-e" "(eval (read))"])
+                         (.redirectError ProcessBuilder$Redirect/INHERIT)))
+        stdin  (io/writer (.getOutputStream jvm))
+        stdout (io/reader (.getInputStream jvm))
+        _      (doto stdin (.write (str (owning-jvm-program) "\n")) (.flush))
+        pids   (deref (future (loop []
+                                (when-let [line (.readLine ^java.io.BufferedReader stdout)]
+                                  (if (str/starts-with? line "[")
+                                    (edn/read-string line)
+                                    (recur)))))
+                      120000 nil)]
+    (when-not (seq pids)
+      (.destroyForcibly jvm)
+      (throw (ex-info "the child JVM reported no sidecar" {:pids pids})))
+    {:jvm     jvm
+     :stdin   stdin
+     :sidecar (keep #(.orElse (ProcessHandle/of %) nil) pids)}))
+
+(defn- all-dead-within?
+  "Every one of `handles` has exited within `ms`."
+  [handles ms]
+  (let [deadline (+ (System/currentTimeMillis) ms)]
+    (loop []
+      (cond (not-any? #(.isAlive ^ProcessHandle %) handles) true
+            (> (System/currentTimeMillis) deadline)           false
+            :else                                             (do (Thread/sleep 100) (recur))))))
+
+(deftest ^:crossing g-a-sidecar-does-not-outlive-a-jvm-killed-without-its-shutdown-hooks
+  (doseq [[ending end!] [["System/exit, which runs the shutdown hook"
+                          (fn [{:keys [^java.io.Writer stdin]}] (doto stdin (.write "exit\n") (.flush)))]
+                         ["destroyForcibly, which runs no hook"
+                          (fn [{:keys [^Process jvm]}] (.destroyForcibly jvm))]]]
+    (let [tmp (.toFile (Files/createTempDirectory "rf2-owning-jvm-" (make-array FileAttribute 0)))]
+      (try
+        (let [{:keys [^Process jvm sidecar] :as child} (spawn-owning-jvm! tmp)]
+          (try
+            (is (some #(.isAlive ^ProcessHandle %) sidecar) (str ending ": the child JVM's sidecar is up"))
+            (end! child)
+            (is (.waitFor jvm 30 TimeUnit/SECONDS) (str ending ": the child JVM ended"))
+            (is (all-dead-within? sidecar 10000) (str ending ": its sidecar ended with it"))
+            (finally
+              (.destroyForcibly jvm)
+              (doseq [^ProcessHandle handle sidecar]
+                (.destroyForcibly handle)
+                (.get (.onExit handle) 10 TimeUnit/SECONDS)))))
+        (finally
+          ;; A JVM killed outright leaves the runtime copy its hook would delete.
+          (run! #(.delete ^java.io.File %) (reverse (file-seq tmp))))))))
 
 ;; ===========================================================================
 ;; Construction — no sidecar needed, so these run in the default lane

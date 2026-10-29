@@ -28,8 +28,8 @@ const withTimeout = (p, ms, what) =>
   ]);
 
 /** Spawn the launcher; `ready` resolves with the parsed ready line, found by its discriminator key. */
-function launch(args) {
-  const child = spawn(process.execPath, [LAUNCHER, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+function launch(args, { stdin = 'ignore' } = {}) {
+  const child = spawn(process.execPath, [LAUNCHER, ...args], { stdio: [stdin, 'pipe', 'pipe'] });
   const out = { stdout: '', stderr: '' };
   child.stdout.on('data', (d) => {
     out.stdout += d;
@@ -95,6 +95,29 @@ test('the launcher boots on port 0, announces itself, answers /health and a rend
     assert.strictEqual(run.out.stdout.trim().split('\n').length, 1, 'stdout is the ready line and nothing else');
   } finally {
     if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill('SIGKILL');
+  }
+});
+
+test('under --exit-with-stdin the end of stdin closes the launcher gracefully; without the flag it keeps serving', async () => {
+  // The JVM host passes the flag and holds the pipe's other end, which the
+  // OS closes however the JVM ends. The control is the same pipe ended
+  // under a launcher started without the flag.
+  const args = ['--module', fixture('reference'), '--port', '0', '--isolates', '1'];
+  const tied = launch([...args, '--exit-with-stdin'], { stdin: 'pipe' });
+  const untied = launch(args, { stdin: 'pipe' });
+  try {
+    const [, untiedReady] = await Promise.all([tied.ready, untied.ready]);
+    tied.child.stdin.end();
+    untied.child.stdin.end();
+    const { code, signal } = await withTimeout(tied.exited, STOP_MS, 'the launcher did not exit when its stdin ended');
+    assert.strictEqual(code, 0, `exit ${code} (${signal})\nstderr: ${tied.out.stderr}`);
+    assert.match(tied.out.stderr, /stdin ended: closing/, 'the close was the graceful one, not a crash');
+    const health = await fetch(`${untiedReady.url}/health`);
+    assert.strictEqual(health.status, 200, 'the launcher without the flag still serves');
+  } finally {
+    for (const run of [tied, untied]) {
+      if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill('SIGKILL');
+    }
   }
 });
 
