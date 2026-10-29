@@ -2549,15 +2549,16 @@
   "Call every fn in `fs`; when any threw, rethrow the first failure once all
   have run, as the substrates' own dispose does (Spec 006 §On-dispose hooks)."
   [fs]
-  (let [failure (reduce (fn [failure f]
-                          (try (f)
-                               failure
-                               (catch #?(:clj Throwable :cljs :default) e
-                                 (if (identical? ::none failure) e failure))))
-                        ::none
-                        fs)]
-    (when-not (identical? ::none failure)
-      (throw failure))))
+  (let [failed?  (volatile! false)
+        failure  (volatile! nil)]
+    (doseq [f fs]
+      (try (f)
+           (catch #?(:clj Throwable :cljs :default) e
+             (when-not @failed?
+               (vreset! failed? true)
+               (vreset! failure e)))))
+    (when @failed?
+      (throw @failure))))
 
 #?(:clj
    (defonce ^:private ^java.util.Map removable-dispose-sets
