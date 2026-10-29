@@ -151,7 +151,7 @@
   `:ns` / `:line` / `:file` keys). A wire DECORATION, not a single-key
   wrapper marker — it carries NO schema/fixture in the wire-vocab
   `canonical-markers` catalogue and trips no conformance gate.
-  Single-server today (re-frame2-pair-mcp); reserved cross-MCP under the
+  Only re-frame2-pair-mcp emits it; it is reserved cross-MCP under the
   `:rf.mcp/*` family per Conventions §Reserved namespaces so the same key
   shape is recognised if another server adopts source-coord decoration.
   Built by `re-frame2-pair-mcp.tools.source-uri/decorate`."
