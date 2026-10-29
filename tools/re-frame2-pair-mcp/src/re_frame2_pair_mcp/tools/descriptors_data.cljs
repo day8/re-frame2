@@ -1405,10 +1405,15 @@
                      "get-path, read-sub, …) use when no per-call `frame` is passed. With two or more app frames "
                      "and no pin those ops refuse with :ambiguous-frame; pin once and they resolve here until "
                      "reset-operating-frame, or a runtime reload, clears it. `frame` must name a registered frame "
-                     "(bare \"stories\" or \":stories\"), or the call returns :reason :no-such-frame with the :frames "
-                     "list. Returns {:ok? true :frames [...] :app-frames [...] :selected <pinned> :operating "
-                     "<resolved>}, so you can confirm the pin took. Example: {:frame \":stories\"} -> {:ok? true "
-                     ":frames [:rf/default :stories] :selected :stories :operating :stories ...}.")
+                     "(bare \"stories\" or \":stories\"). Returns {:ok? true :frames [...] :app-frames [...] "
+                     ":selected <pinned> :operating <resolved>}, so you can confirm the pin took. "
+                     "Examples: "
+                     "1. Pin a frame: {:frame \":stories\"} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories ...}. "
+                     "2. Unknown frame: {:frame \":nope\"} -> {:ok? false :reason :no-such-frame :frame :nope :frames [:rf/default :stories]}. "
+                     "3. Missing frame: {} -> {:ok? false :reason :missing-frame}.")
+   ;; Examples 2 and 3 are the refusal envelopes tools/mcp-conformance's
+   ;; `operating_frame_address_test` holds its failure fixtures to, reading
+   ;; each as one numbered string chunk on one line.
    :typicalTokens 200
    :annotations session-pin-annotations
    :outputSchema envelope-or-marker
