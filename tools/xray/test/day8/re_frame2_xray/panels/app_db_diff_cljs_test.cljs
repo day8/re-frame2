@@ -160,6 +160,13 @@
           (str "a stale frame id must egress the whole-value redaction "
                "sentinel. got: " (pr-str out))))))
 
+(deftest egress-value-without-a-frame-fails-closed
+  (testing "the shortest call names no frame and still redacts whole: the
+            ambient frame is never consulted"
+    (rf/make-frame {:id :rf/xray})
+    (is (= :rf/redacted
+           (rf/with-frame :rf/xray (egress/egress-value {:auth {:token "shh"}}))))))
+
 (deftest egress-value-with-nil-frame-is-unregistrable-and-fails-closed
   (testing "an explicitly-nil :frame must redact
             whole, and nil is the one frame id an app CANNOT make resolve.

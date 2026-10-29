@@ -57,24 +57,16 @@
   it lives or the declaration will not match. Defaults to `[]` — the value IS
   the walked root, which is what the whole-db snapshot passes.
 
-  Optional `:frame` — the frame whose declarations govern. Naming it is the
-  fail-closed gesture, and a panel affordance MUST use it. Without `:frame`
-  the walk resolves the AMBIENT frame, which for an Xray affordance is the
-  live `:rf/xray` chrome frame: that frame resolves, so the walk applies
-  its (normally empty) declaration registry and ships the value RAW. Passing
-  the inspected frame — even when it is `nil` or has since been destroyed —
-  routes the nil/dead case to the frameless arm, which redacts the
-  whole value to `:rf/redacted`. The key is forwarded VERBATIM:
-  `project-egress` reads its `:frame` opt by PRESENCE, so an explicit nil
-  is believed. The contract — no live caller today, and
-  the shape any future panel affordance MUST take:
+  `:frame` — the frame whose declarations govern. It is always forwarded,
+  nil when the caller names none, so the walk never resolves the AMBIENT
+  frame: for an Xray affordance that is the live `:rf/xray` chrome frame,
+  whose (normally empty) declaration registry would ship the value RAW. A
+  nil or destroyed frame takes the frameless arm, which redacts the whole
+  value to `:rf/redacted` — so the shortest call, with no opts at all, is
+  the fail-closed one:
 
       (egress/egress-value v {:frame observed})   ; nil / dead ⇒ :rf/redacted
-
-  Passing NO `:frame` key at all is still the right call where the caller has
-  already established the frame itself — the palette snapshot resolves and
-  validates the focused frame before it reads the db, and wraps the call in
-  `(rf/with-frame tf …)`."
+      (egress/egress-value v)                     ; ⇒ :rf/redacted"
   ([value]
    (egress-value value nil))
   ([value {:keys [path] :as opts}]
@@ -82,11 +74,11 @@
      value
      (cond-> {:rf.egress/profile :rf.egress/off-box-observability}
        (seq path)              (assoc :path (vec path))
-       ;; An explicitly-passed `:frame` is forwarded VERBATIM, nil
-       ;; included: the door reads the opt by key presence, so an
-       ;; explicit nil means "no governing frame" and takes its
-       ;; fail-closed arm instead of falling through to the ambient frame.
-       (contains? opts :frame) (assoc :frame (:frame opts))
+       ;; `:frame` is forwarded ALWAYS, nil included: the door reads the
+       ;; opt by key presence, so a nil means "no governing frame" and
+       ;; takes its fail-closed arm instead of falling through to the
+       ;; ambient frame.
+       :always                 (assoc :frame (:frame opts))
        ;; EP-0015 §10 — an explicit `:rf.egress/*` inclusion the caller
        ;; passes OVERLAYS the profile floor (the override wins). Absent,
        ;; the profile's own false stands.

@@ -466,7 +466,12 @@ data lives:
    history` with an empty vector (rf2-y8doi.13). The epoch path is a
    trace ingress in its own right (§One policy, three ingress paths),
    so a scrub that cleared only `:trace-buffer` would leave the same
-   events readable through the Epoch panel.
+   events readable through the Epoch panel. The framework's epoch
+   rings are restore material and are not cleared, so
+   `epoch/scrub-epoch-history!` records the `[frame epoch-id]` pairs
+   they hold and the ingest gate keeps those records out of the slot
+   afterwards; the next ingest would otherwise re-read the ring and
+   bring every pre-scrub record back.
 5. The suppressed-counters — via `config/reset-suppressed-count!`.
 
 The clear is wholesale: non-sensitive history that was buffered

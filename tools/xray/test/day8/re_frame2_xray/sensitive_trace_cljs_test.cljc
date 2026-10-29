@@ -214,6 +214,17 @@
          (is (= [1] (host-dispatch-ids))
              "only the non-sensitive cascade reaches the snapshot")))))
 
+#?(:cljs
+   (deftest snapshot-drops-the-whole-cascade-of-a-sensitive-event
+     (with-host
+       (fn []
+         (emit-frame-bound! 3 false)
+         (emit-frame-bound! 3 true)
+         (emit-frame-bound! 4 false)
+         (is (= [4] (host-dispatch-ids))
+             "a sensitive event's non-sensitive sibling in the same cascade
+              goes with it, as `bundles-for-frame` drops the whole bundle")))))
+
 ;; ---- (5) the two INGEST gates ----------------------------------------------
 ;;
 ;; (a) `:epoch-history`: the framework epoch ring retains RAW records whose
