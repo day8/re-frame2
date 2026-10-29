@@ -34,8 +34,8 @@
     3. `:fx`       — `:op-type :rf.fx` + `:operation :rf.fx/do-fx`
                      (effects map computed and about to be walked)
     4. `:effect`   — `:op-type :rf.fx` (any other `:operation` —
-                     `:rf.fx/handled`, `:rf.fx/override-applied`,
-                     `:rf.fx/skipped-on-platform`)
+                     `:rf.fx/handled`, `:rf.fx/override-applied`; the
+                     `:warning` `:rf.fx/skipped-on-platform` is `:other`)
     5. `:sub`      — `:op-type :rf.sub` (`:operation :rf.sub/run` recompute,
                      `:rf.sub/skip` memo-hit, `:rf.sub/create` first-time
                      signal-graph build, or `:rf.sub/dispose` cache-slot
@@ -65,8 +65,8 @@
 (def ^:private effect-op-types
   "Op-types that classify as the fourth domino — fx invocation. The
   framework emits `:op-type :rf.fx` for every fx handler invocation
-  (`:rf.fx/handled`), every override (`:rf.fx/override-applied`), and
-  every platform-skip (`:rf.fx/skipped-on-platform`)."
+  (`:rf.fx/handled`) and every override (`:rf.fx/override-applied`). A
+  platform-skip (`:rf.fx/skipped-on-platform`) is a `:warning`."
   #{:rf.fx})
 
 (def ^:private sub-op-types
@@ -97,7 +97,7 @@
     ;; `:rf.fx/do-fx` is the third domino (the effects-resolution pass
     ;; boundary marker, folded into the fx family per Spec 009 §`:op-type`
     ;; vocabulary); every other `:rf.fx` op (`:rf.fx/handled`,
-    ;; `:rf.fx/override-applied`, `:rf.fx/skipped-on-platform`) is the
+    ;; `:rf.fx/override-applied`) is the
     ;; fourth domino — fx invocation.
     (= operation :rf.fx/do-fx) :fx
     (contains? effect-op-types op-type) :effect
