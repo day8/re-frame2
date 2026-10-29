@@ -79,6 +79,9 @@ out of the isolate, and `src/worker.cjs` is where that holds:
   off as a caller fault or a deadline;
 - an exception that escapes the render call ends the worker thread and is
   refused `:rf.ssr-node/isolate-lost`, with the service's own `detail`;
+- a thread that dies while idle — a late timer or a rejected promise firing
+  after its render resolved — leaves the ready count and is replaced before
+  any caller is handed it;
 - a replacement isolate that cannot boot tells waiting callers
   `:rf.ssr-node/isolate-lost` and nothing the module wrote, and ends the
   service rather than leaving it a smaller pool;
@@ -284,7 +287,9 @@ carries `x-rf-ssr-build`, `x-rf-ssr-render-ms` and, when the caller sent one,
 `x-rf-ssr-refusal` naming the code — 4xx for a caller fault, 503 for
 saturation or shutdown, 504 for a deadline, 500 otherwise. Because
 `requestId` is echoed in a header, HTTP refuses one carrying a control
-character, CR/LF or anything above U+00FF before any render.
+character, CR/LF or anything above U+00FF before any render, and the launcher
+refuses at boot a bundle whose `buildId` is one. SIGTERM or SIGINT stops
+accepting and lets the renders in flight answer before the service closes.
 
 ### The ready line
 

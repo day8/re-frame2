@@ -29,13 +29,14 @@
 // ## EXIT CODES
 //
 //     0  stopped by SIGTERM or SIGINT after a graceful close
-//     1  the service failed: it could not start (the module refused, or the
-//        port is taken), or a terminated isolate could not be replaced
+//     1  the service failed: it could not start (the module refused, its
+//        buildId cannot be a header, or the port is taken), or a terminated
+//        isolate could not be replaced
 //     2  the command line was wrong
 //
-// Node on Windows has no graceful signal — a `kill` there terminates the
-// process outright, which loses nothing but in-flight renders, and a
-// second signal on any platform does the same.
+// A graceful close stops accepting and lets the renders in flight answer
+// before the isolates stop. Node on Windows has no graceful signal — a
+// `kill` there terminates the process outright, in-flight renders with it.
 
 const path = require('node:path');
 const { parseArgs } = require('node:util');
@@ -147,7 +148,7 @@ async function main(argv) {
       maxRequestBytes: numericOptions.maxRequestBytes,
     });
   } catch (err) {
-    log(`could not listen on ${flags.host}:${numericOptions.port}: ${describeError(err)}`);
+    log(`could not serve on ${flags.host}:${numericOptions.port}: ${describeError(err)}`);
     await service.close();
     return 1;
   }
