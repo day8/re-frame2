@@ -88,6 +88,7 @@
             [re-frame.story :as rf.story]
             [re-frame.story-mcp.config :as rf.story-mcp.config]
             [re-frame.story-mcp.protocol :as rf.story-mcp.protocol]
+            [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]))
 
@@ -167,6 +168,47 @@
 
 ;; ---- tools/call -----------------------------------------------------------
 
+(defn- edit-distance
+  "Levenshtein distance between strings `a` and `b`."
+  [a b]
+  (peek (reduce (fn [prev ca]
+                  (reduce (fn [row [j cb]]
+                            (conj row (min (inc (peek row))
+                                           (inc (nth prev (inc j)))
+                                           (+ (nth prev j) (if (= ca cb) 0 1)))))
+                          [(inc (first prev))]
+                          (map-indexed vector b)))
+                (vec (range (inc (count b))))
+                a)))
+
+(defn- nearest-tool
+  "The listed tool name closest to `tool-name`, or nil when none is within
+  half its length (at least 2 edits) — a far-off suggestion misleads."
+  [tool-name names]
+  (let [[best d] (apply min-key second [nil ##Inf]
+                        (map (juxt identity #(edit-distance tool-name %)) names))]
+    (when (and best (<= d (max 2 (quot (count tool-name) 2))))
+      best)))
+
+(defn- unknown-tool-result
+  "The `isError` result for a `tools/call` naming no registered tool. A
+  tool result rather than JSON-RPC `-32601`: `tools/call` itself exists,
+  and many hosts surface a protocol error as a failed call instead of
+  handing it to the model, so a typo would be a dead end. The result
+  carries what the model needs to recover — the listed names and the
+  nearest one."
+  [tool-name]
+  (let [names (mapv :name (rf.story-mcp.tools.registry/tool-descriptors))
+        near  (nearest-tool tool-name names)]
+    (rf.story-mcp.tools.result/error-result
+      (str "Unknown tool `" tool-name "`; "
+           (when near (str "did you mean `" near "`? "))
+           "call `tools/list` for the available tools.")
+      (cond-> {:rf.error        :rf.story-mcp/unknown-tool
+               :tool            tool-name
+               :available-tools names}
+        near (assoc :did-you-mean near)))))
+
 (defn- handle-tools-call
   "Invoke a tool. `params` shape: `{:name <string> :arguments <map>}`.
 
@@ -198,9 +240,9 @@
                       :else                   "a non-object scalar")))
 
       :else
-      (if-let [result (rf.story-mcp.tools.wire-pipeline/invoke-tool tool-name arguments)]
-        (rf.story-mcp.protocol/response id result)
-        (rf.story-mcp.protocol/method-not-found id (str "tools/call name=" tool-name))))))
+      (rf.story-mcp.protocol/response
+        id (or (rf.story-mcp.tools.wire-pipeline/invoke-tool tool-name arguments)
+               (unknown-tool-result tool-name))))))
 
 ;; ---- ping / shutdown ------------------------------------------------------
 

@@ -687,29 +687,26 @@ runWithWatchdog(
       );
     }
     // 9b. A tools/call naming it receives the server's ordinary
-    // method-not-found response (-32601) — the same path any unknown tool
-    // takes; no tombstone, no alias.
-    let recErr = null;
-    try {
-      await client.callTool({
-        name: 'record-as-variant',
-        arguments: { 'variant-id': FIXTURE_VARIANT, 'duration-ms': 0 },
-      });
-    } catch (e) {
-      recErr = e;
-    }
-    if (recErr === null) {
+    // unknown-tool result — an isError tool result carrying the listed
+    // names, the same path any unknown tool takes; no tombstone, no alias.
+    const recResp = await client.callTool({
+      name: 'record-as-variant',
+      arguments: { 'variant-id': FIXTURE_VARIANT, 'duration-ms': 0 },
+    });
+    const recStruct = recResp.structuredContent || {};
+    if (recResp.isError !== true || recStruct['rf.error'] !== 'rf.story-mcp/unknown-tool') {
       throw new Error(
-        'record-as-variant is not a tool, but tools/call succeeded',
+        'record-as-variant tools/call expected the isError unknown-tool result; got: ' +
+          JSON.stringify(recResp),
       );
     }
-    if (recErr.code !== -32601) {
+    if (!Array.isArray(recStruct['available-tools']) || recStruct['available-tools'].includes('record-as-variant')) {
       throw new Error(
-        'record-as-variant tools/call expected -32601 method-not-found; got: ' +
-          (recErr.code + ': ' + recErr.message),
+        'unknown-tool result must list the advertised tools, without record-as-variant; got: ' +
+          JSON.stringify(recStruct),
       );
     }
-    console.log('OK   record-as-variant -> absent from catalogue, tools/call is -32601 method-not-found');
+    console.log('OK   record-as-variant -> absent from catalogue, tools/call is the isError unknown-tool result');
 
     // 10. unregister-variant — symmetric teardown.
     const unregResp = await client.callTool({

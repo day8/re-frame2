@@ -199,7 +199,13 @@ the contract is "tools only."
 | `notifications/initialized` | Silent accept (no response, per MCP spec). |
 
 Unknown methods return JSON-RPC error code `-32601`
-(`method-not-found`).
+(`method-not-found`). A `tools/call` naming no registered tool is NOT an
+unknown method — `tools/call` exists — so it returns an `isError: true`
+tool result instead: `:rf.error :rf.story-mcp/unknown-tool`, the `:tool`
+it named, the listed `:available-tools`, and a `:did-you-mean` when a
+listed name is near. Many hosts surface a protocol error as a failed
+call rather than handing it to the model, which would make a typo a dead
+end.
 
 ## Error codes
 
