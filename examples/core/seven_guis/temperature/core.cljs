@@ -195,8 +195,9 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root lives in an atom and is created lazily inside `run`, never at
-;; ns-load. The rule: loading a namespace must touch no DOM. Otherwise two
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it creates the
+;; Root. The rule: loading a namespace must touch no DOM. Otherwise two
 ;; example namespaces required together would both grab for the shared `#app`
 ;; element and race to `create-root` on it — and a race in your test harness is
 ;; precisely the bug you don't want. See examples/TESTING.md, "mount-isolation".

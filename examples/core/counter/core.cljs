@@ -71,11 +71,12 @@
 
 ;; -- Mount -------------------------------------------------------------------
 ;;
-;; The React root lives in an atom and is created lazily inside `mount!`, never
-;; at ns-load. The rule: loading a namespace must touch no DOM. Otherwise
-;; two example namespaces that get required together would both lunge for
-;; the shared `#app` element and race to `create-root` on it — and races
-;; are exactly the bug you don't want in your test harness. See
+;; The React root is the adapter's: `client-root` returns an inert handle that
+;; does no DOM work at ns-load, and the first `render!` through it, inside
+;; `mount!`, creates the Root. The rule: loading a namespace must touch no
+;; DOM. Otherwise two example namespaces that get required together would
+;; both lunge for the shared `#app` element and race to `create-root` on it —
+;; and races are exactly the bug you don't want in your test harness. See
 ;; examples/TESTING.md, "mount-isolation".
 
 (defonce app-root (rf.adapter.reagent/client-root))

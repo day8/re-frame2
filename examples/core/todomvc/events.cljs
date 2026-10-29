@@ -29,9 +29,11 @@
 (rf/reg-route :todo/active    {:doc "Show active todos."} "/active")
 (rf/reg-route :todo/completed {:doc "Show completed todos."} "/completed")
 
-;; You must register a not-found route — it's not optional. Any URL that matches
-;; nothing else lands here, and this app just sends it to "show all", so a typo'd
-;; hash is a harmless shrug rather than a broken screen.
+;; Register a not-found route. Any URL that matches nothing else lands here,
+;; and this app just sends it to "show all", so a typo'd hash is a harmless
+;; shrug rather than a broken screen. Without one, the runtime still commits
+;; the not-found slice for an unmatched URL and warns
+;; (`:rf.warning/no-not-found-route`); there is no built-in view for it.
 ;; See docs/routing/concepts.md#not-found-is-a-route-you-register.
 (rf/reg-route :rf.route/not-found {:doc "Fallback."} "/_404")
 

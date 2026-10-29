@@ -27,8 +27,8 @@
    Forking here, in one place, is the whole trick. It keeps every scrap
    of loading logic inside the boot machine. The alternative — mount the
    main app and let each sub-view paint its own loading skeleton — would
-   smear that logic across the entire tree. Instead the views just ask
-   `:app.boot/ready?` and get on with it.
+   smear that logic across the entire tree. Instead the root just asks
+   `:app.boot/ready?` and `:app.boot/failed?` and gets on with it.
 
    The views are deliberately bare. The point is the boot shape, not a
    pretty UI."
@@ -133,8 +133,9 @@
                   and picks one of three screens — and it's the only
                   place in the app that makes that call."}
           root-view []
-  (let [state @(subscribe [:app.boot/state])]
+  (let [ready?  @(subscribe [:app.boot/ready?])
+        failed? @(subscribe [:app.boot/failed?])]
     (cond
-      (= state :ready)  [main-app]
-      (= state :failed) [boot-failed]
-      :else             [boot-progress])))
+      ready?  [main-app]
+      failed? [boot-failed]
+      :else   [boot-progress])))
