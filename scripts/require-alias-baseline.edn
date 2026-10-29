@@ -25,7 +25,6 @@
   "implementation/adapters"               0
   "implementation/core"                   0
   "implementation/derivation-conformance" 0
-  "implementation/event-conformance"      0
   "implementation/flows"                  0
   "implementation/fresco"                 0
   "implementation/http"                   0

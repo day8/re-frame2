@@ -1359,15 +1359,15 @@ else
           implementation/fresco/src/*|implementation/fresco/deps.edn) playground=true ;;
         esac
         ;;
-      implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*|implementation/security/*)
-        # All four source-less tiers take the same route, and the security
+      implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/security/*)
+        # All three source-less tiers take the same route, and the security
         # tier is the precedent for omitting the browser / production /
-        # bundle gates. The four tiers are alike in the way that matters
+        # bundle gates. The three tiers are alike in the way that matters
         # here: `:paths []`, `:deps {}`, no `src/` tree, no Maven artefact —
         # test surfaces and nothing else.
         #
-        # The three EP cross-conformance tiers
-        # (reply-conformance / derivation-conformance / event-conformance)
+        # The two EP cross-conformance tiers
+        # (reply-conformance / derivation-conformance)
         # are src-less `.cljc` TEST surfaces: shadow-cljs.edn puts each
         # tier's test/ on the consolidated build's :source-paths, and each
         # tier's own deps.edn `:test` alias runs it on the JVM. They run

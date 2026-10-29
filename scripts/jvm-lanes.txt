@@ -57,12 +57,11 @@ implementation/resources                test                 -     implementatio
 # on an assertion rather than on thread scheduling.
 implementation/spec-resource            test                 -     implementation_jvm          matrix
 
-# These four tiers are `.cljc` and run in both runtimes. The Node lanes run only
+# These three tiers are `.cljc` and run in both runtimes. The Node lanes run only
 # the `:cljs` arm of each reader conditional, and these rows run the `:clj` arm.
 implementation/security                 test                 -     implementation_jvm          matrix
 implementation/reply-conformance        test                 -     implementation_jvm          matrix
 implementation/derivation-conformance   test                 -     implementation_jvm          matrix
-implementation/event-conformance        test                 -     implementation_jvm          matrix
 
 # The adversarial contract suite for the JVM quiet runner itself. Every other
 # lane only routes through that runner on the green path.

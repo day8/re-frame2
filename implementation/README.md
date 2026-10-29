@@ -221,18 +221,6 @@ implementation/
                              family's own suite pins its lowering and classification.
     test/re_frame/                 JVM + CLJS cross-family derivation conformance suites.
 
-  event-conformance/         One-form event-MODEL conformance tier (EP-0018) —
-                             test-only, no shipped namespace. Holds the umbrella
-                             regression lock on the boundaries of the one-form
-                             event contract: supplied recordable coeffects validated
-                             at the durable boundary, the closed effects map at the
-                             final effects boundary, the three
-                             retired names (`reg-event-db`/`-fx`/`-ctx`) throwing
-                             and registering nothing, and live dispatch staying
-                             inside an image-loaded frame. Core's tests hold the
-                             single `:rf/event-handler` wrapper.
-    test/re_frame/                 JVM + CLJS one-form event-model conformance suites.
-
   integration/               The framework integration suite — test-only, no shipped
                              namespace. The examples' and the features' end-to-end tests
                              (realworld, todomvc, routing, websocket, boot, …), which drive
