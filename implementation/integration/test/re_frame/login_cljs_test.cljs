@@ -33,8 +33,8 @@
        transport, so the transport itself classifies the failure, shows the
        server's message rather than the generic fallback.
      - start-kick-starts-the-machine — the reserved `[:rf.machine/start]` kick
-       the Story variants send passes the machine's event `:schema` and
-       brings the snapshot alive in `:idle`.
+       the Story variants send brings the snapshot alive in `:idle`; as a
+       runtime lifecycle event it never meets the machine's event `:schema`.
      - editing-a-field-drops-its-stale-error — after a refused submit,
        correcting a field clears that field's error and leaves the other's."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
@@ -170,11 +170,11 @@
           "the 401 settled the flow in :error-shown with the body's message, not the generic fallback"))))
 
 ;; ---------------------------------------------------------------------------
-;; (5) the reserved start kick passes the machine's event schema
+;; (5) the reserved start kick starts the machine
 ;; ---------------------------------------------------------------------------
 
 (deftest start-kick-starts-the-machine
-  (testing "the eager [:rf.machine/start] kick passes AuthLoginEvent and brings the machine alive in :idle"
+  (testing "the eager [:rf.machine/start] kick skips the event schema and brings the machine alive in :idle"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (let [traces (atom [])]
         (rf/register-listener! :trace ::start-kick (fn [ev] (swap! traces conj ev)))

@@ -1801,7 +1801,8 @@
   `re-frame.router/build-envelope`.
 
   A CLJS dev `:sub-overrides` hit returns `resolve-sub-override`'s constant
-  reaction in place of the build.
+  reaction in place of the build, on the caller's own read only — never on a
+  declared input a build resolves.
 
   `expected-incarnation` (3-arity) is the EXACT incarnation token a
   `capture-frame` `:subscribe` op pinned at capture. When non-nil the read is
@@ -1822,10 +1823,13 @@
    ;; view render (the sink is unbound) and on the JVM. Routed through
    ;; late-bind so this .cljc layer stays free of a static require on the
    ;; CLJS-only views ns; the whole call sits inside `rf.interop/debug-enabled?`
-   ;; so production DCEs it. Fires for every subscribe (hit AND miss) so
-   ;; the read-set is complete even for memo-hit re-derefs.
+   ;; so production DCEs it. Fires for every subscribe the caller makes (hit
+   ;; AND miss) so the read-set is complete even for memo-hit re-derefs, and
+   ;; never for a declared input a build resolves (`*subs-under-construction*`
+   ;; non-empty): that read is the parent sub's, not the view's (Spec 006
+   ;; §Which lifetime governs a ratom adapter).
    #?(:cljs
-      (when rf.interop/debug-enabled?
+      (when (and rf.interop/debug-enabled? (empty? *subs-under-construction*))
         (when-let [record! (rf.late-bind/get-fn :views/record-view-deref!)]
           (record! query-v))))
    ;; Route the BUILD path through the target frame's
@@ -1860,9 +1864,14 @@
        ;; entirely). An UNFENCED read (`superseded?` is false whenever
        ;; `expected-incarnation` is nil) consults it —
        ;; INCLUDING ahead of the missing-frame branch — and a LIVE captured read
-       ;; (incarnation still valid) keeps its override too.
+       ;; (incarnation still valid) keeps its override too. A declared input a
+       ;; build resolves never consults it: the override feeds only the view's
+       ;; own read, so a parent cached over an overridden input would carry the
+       ;; override into frame state (Spec 006 §The sub-override subscribe seam).
        #?(:cljs
-          (when (and rf.interop/debug-enabled? (not superseded?))
+          (when (and rf.interop/debug-enabled?
+                     (not superseded?)
+                     (empty? *subs-under-construction*))
             (resolve-sub-override frame-id query-v)))
        (cond
          ;; Missing or destroyed frame, OR a superseded captured read:
@@ -1908,21 +1917,32 @@
            #?(:cljs (claim-render-owned-ref! frame-id k query-v reaction))
            reaction))))))))) ;; close or + let[frame-record superseded?] + fn + call-with-frame-resolution + normalize-target let + 3-arity + subscribe-in-frame
 
-(defn- refuse-non-map-opts!
+(defn- bad-opts?
+  "True when `opts` is not an opts map: neither a map nor nil, or a live frame
+  value, which is a map but carries no `:frame`."
+  [opts]
+  (not (or (nil? opts)
+           (and (map? opts) (not (rf.frame/frame-value? opts))))))
+
+(defn- refuse-bad-opts!
   "Throw `:rf.error/bad-subscribe-opts` for a second argument to `subscribe` /
-  `subscribe-once` that is neither a map nor nil. `(:frame opts)` reads nil
-  off a keyword or a vector, so `(subscribe [:q] :frame-b)` and v1's
-  dynamic-args form `(subscribe [:q] [dyn])` would otherwise read the ambient
-  frame. Spec 009 §Error event catalogue."
+  `subscribe-once` that is not an opts map. `(:frame opts)` reads nil off a
+  keyword, a vector or a frame value, so `(subscribe [:q] :frame-b)`, v1's
+  dynamic-args form `(subscribe [:q] [dyn])` and `(subscribe [:q] f)` would
+  otherwise read the ambient frame. Spec 009 §Error event catalogue."
   [where opts]
   (let [received (rf.error/diag-value-summary opts)]
     (rf.error/throw-error!
       :rf.error/bad-subscribe-opts
       where
-      (str where " takes an opts map as its second argument, e.g. {:frame "
-           "target} to read a named frame, and got a " (name (:type received))
-           ". A frame id goes under :frame; a query's parameters go in the "
-           "query vector itself.")
+      (if (rf.frame/frame-value? opts)
+        (str where " takes an opts map as its second argument and got a live "
+             "frame value. A frame value goes under :frame, as in (" where
+             " query-v {:frame f}).")
+        (str where " takes an opts map as its second argument, e.g. {:frame "
+             "target} to read a named frame, and got a " (name (:type received))
+             ". A frame id goes under :frame; a query's parameters go in the "
+             "query vector itself."))
       {:recovery :pass-an-opts-map
        :extra    {:received received}})))
 
@@ -1939,8 +1959,8 @@
   wrong frame. Pass the public opts form `(subscribe query-v {:frame
   target})` to read a named frame from outside any scope (async callbacks,
   tools, tests, SSR); `target` is a frame-id keyword or a live frame value.
-  A second argument that is neither a map nor nil throws
-  `:rf.error/bad-subscribe-opts`.
+  A second argument that is not an opts map — neither a map nor nil, or a
+  frame value passed bare — throws `:rf.error/bad-subscribe-opts`.
 
   While a Reagent component renders — a `reg-view` or a plain fn — the
   ambient form resolves the boundary above it in the tree (Spec 006 §One
@@ -1994,8 +2014,8 @@
    ;; `:subscribe` op's pinned token — INTERNAL, reserved `:rf.frame/` ns)
    ;; rides alongside `:frame` so the read is fenced to the exact captured
    ;; incarnation. nil for every ordinary explicit-frame read.
-   (when-not (or (nil? opts) (map? opts))
-     (refuse-non-map-opts! 'rf/subscribe opts))
+   (when (bad-opts? opts)
+     (refuse-bad-opts! 'rf/subscribe opts))
    (if-some [target (:frame opts)]
      (subscribe-in-frame target query-v (:rf.frame/expected-incarnation opts))
      (subscribe query-v))))
@@ -2059,8 +2079,9 @@
   under no established scope raises `:rf.error/no-frame-context`, never a
   `:rf/default` floor. Pass the public opts form `(subscribe-once query-v
   {:frame target})` to read a named frame from outside any scope; `target`
-  is a frame-id keyword or a live frame value. A second argument that is
-  neither a map nor nil throws `:rf.error/bad-subscribe-opts`."
+  is a frame-id keyword or a live frame value. A second argument that is not
+  an opts map — neither a map nor nil, or a frame value passed bare — throws
+  `:rf.error/bad-subscribe-opts`."
   ([query-v]
    (subscribe-once-in-frame
      (rf.frame/require-current-frame!
@@ -2073,8 +2094,8 @@
    ;; shape-discrimination, no internal frame-first reach. `opts` may carry
    ;; `{:frame target}` (a frame-id keyword or a live frame value); ambient
    ;; when absent.
-   (when-not (or (nil? opts) (map? opts))
-     (refuse-non-map-opts! 'rf/subscribe-once opts))
+   (when (bad-opts? opts)
+     (refuse-bad-opts! 'rf/subscribe-once opts))
    (if-some [target (:frame opts)]
      (subscribe-once-in-frame target query-v)
      (subscribe-once query-v))))
@@ -2157,9 +2178,9 @@
   ;;
   ;; The hit is checked ahead of the step's cycle check, which is sound
   ;; because a sub on `stack` is never memoised: its value lands only once
-  ;; its own inputs and body resolve, and a cycle's nil recovery (below) is
-  ;; not memoised. So every re-entry while it is mid-computation still reaches
-  ;; the cycle check, and reports.
+  ;; its own inputs and body resolve, and a cycle unwinds the whole call
+  ;; before any sub on it gets that far. So every re-entry while it is
+  ;; mid-computation still reaches the cycle check.
   (if (contains? @memo query-v)
     (get @memo query-v)
     (let [query-id (first query-v)
@@ -2201,11 +2222,11 @@
                                        (compute-sub* input-q db memo stack))})]
       (case (:outcome step)
         ;; Declared-input dependency cycle: query-v is already mid-computation
-        ;; on THIS call's recursion. Emit the structured `:rf.error/sub-cycle`
-        ;; (diagnostic) and recover to nil.
+        ;; on THIS call's recursion. Throw the sentinel so the whole call
+        ;; unwinds, as the reactive build does: no body on the cycle runs over
+        ;; a substituted nil, and `compute-sub-root` recovers the call to nil.
         :cycle
-        (do (emit-sub-cycle! nil query-v (:cycle step) :compute-sub)
-            nil)
+        (throw (sub-cycle-ex nil query-v (:cycle step)))
 
         ;; Unregistered sub computes to nil; memoise so a repeated reference
         ;; within the same call is a memo HIT — so an opted-in read's error
@@ -2363,6 +2384,23 @@
           (swap! memo assoc query-v v)
           v)))))
 
+(defn- compute-sub-root
+  "A top-level pure compute over `memo`, and its cycle recovery: a
+  declared-input cycle anywhere in the recursion throws the sentinel out of
+  [[compute-sub*]], so this emits `:rf.error/sub-cycle` once and returns nil,
+  matching `subscribe` (Spec 006 §Subscription topology vs subscription
+  tracking). Inputs that resolved
+  before the cycle stay memoised, since each is a pure function of `db`; no
+  sub on the cycle is."
+  [query-v db memo]
+  (try
+    (compute-sub* query-v db memo [])
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+      (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
+        (do (emit-sub-cycle! nil query-v (:cycle (ex-data e)) :compute-sub)
+            nil)
+        (throw e)))))
+
 (defn compute-sub
   "Compute a subscription's value against a supplied db, bypassing the
   reactive cache. An event handler reads framework state this way:
@@ -2416,7 +2454,7 @@
   [query-v db]
   ;; Seed a fresh per-call memo for the recursion. The memo is purely an
   ;; internal accumulator.
-  (compute-sub* query-v db (atom {}) []))
+  (compute-sub-root query-v db (atom {})))
 
 ;; ---- re-frame-native view-substrate entry points -------------------------
 ;;
@@ -2453,7 +2491,7 @@
   Pure apart from that emission; creates no cache entry, no watch, no
   disposal obligation. Same value contract as `compute-sub`."
   [query-v db memo]
-  (compute-sub* query-v db memo []))
+  (compute-sub-root query-v db memo))
 
 (defn ^:no-doc peek-cache-reaction
   "INTERNAL (re-frame-native view substrate) — the seam's PEEK: the reaction
@@ -2879,10 +2917,10 @@
   The normalized meta is projected onto the runnable descriptor's top level,
   matching the shape `reg-sub` installs so runtime consumers (return-schema
   validation, classification projection) read the same slots regardless of
-  registration path. It is ALSO carried under `:metadata` (when non-empty) — the
-  ONE normalized representation — so image assembly threads the same doc-stripped
-  map into the descriptor's nested `:metadata` for inspection/dedupe rather than
-  retaining a second, raw copy that would leak dev-only `:doc` into production."
+  registration path. It is also carried under `:metadata` when non-empty. Image
+  assembly merges this lowering UNDER the descriptor, so there the descriptor's
+  own authored `:metadata` wins, and `strip-descriptor-documentation` then elides
+  its dev-only `:doc` (`re-frame.image-assembly/lower-inline-descriptor`)."
   [id metadata impl]
   (let [normalized (normalize-sub-metadata 'rf/reg-sub id metadata)
         slots      (if (contains? normalized :inputs)

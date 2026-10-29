@@ -5,7 +5,8 @@
   the 1-arity, or opts without `:frame`, resolves the carried `with-frame`
   scope and fails loud with `:rf.error/no-frame-context` absent one.
   `subscribe` is a plain fn on both hosts, so it is also a value. A second
-  argument that is neither a map nor nil is refused.
+  argument that is not an opts map — neither a map nor nil, or a live frame
+  value — is refused, by `dispatch` as well as `subscribe`.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
@@ -20,14 +21,16 @@
                                                     :ambient-frame nil}))
 
 (defn- setup!
-  "Two frames seeded with distinct values, so a read proves WHICH frame it resolved."
+  "Two frames seeded with distinct values, so a read proves WHICH frame it
+  resolved. Returns frame 2's frame value."
   []
   (rf/make-frame {:id :soa/t1 :doc "frame 1"})
-  (rf/make-frame {:id :soa/t2 :doc "frame 2"})
-  (rf/reg-event :soa/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-  (rf/reg-sub   :soa/val  (fn [db _] (:v db)))
-  (rf/dispatch-sync [:soa/seed :A] {:frame :soa/t1})
-  (rf/dispatch-sync [:soa/seed :B] {:frame :soa/t2}))
+  (let [t2 (rf/make-frame {:id :soa/t2 :doc "frame 2"})]
+    (rf/reg-event :soa/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
+    (rf/reg-sub   :soa/val  (fn [db _] (:v db)))
+    (rf/dispatch-sync [:soa/seed :A] {:frame :soa/t1})
+    (rf/dispatch-sync [:soa/seed :B] {:frame :soa/t2})
+    t2))
 
 (defn- ex-data-of [thunk]
   (try (thunk) nil
@@ -77,6 +80,34 @@
             (rf/subscribe-once [:soa/val] {:frame :soa/t2})
             (rf/subscribe-once [:soa/val] nil)])
         "nil, like a map, is opts")))
+
+(deftest a-frame-value-goes-under-frame-and-is-refused-in-its-place
+  ;; A frame value is a map, but `(:frame f)` reads nil off it, so in the opts
+  ;; position it would read, or write, the carried scope's frame. Dispatch
+  ;; shares the grammar, so a bare frame id is refused there too.
+  (let [t2 (setup!)]
+    (rf/with-frame :soa/t1
+      (is (= [:rf.error/bad-subscribe-opts :rf.error/bad-subscribe-opts
+              :rf.error/bad-dispatch-opts :rf.error/bad-dispatch-opts
+              :rf.error/bad-dispatch-opts]
+             (mapv #(:rf.error/id (ex-data-of %))
+                   [#(rf/subscribe [:soa/val] t2)
+                    #(rf/subscribe-once [:soa/val] t2)
+                    #(rf/dispatch-sync [:soa/seed :X] t2)
+                    #(rf/dispatch [:soa/seed :X] t2)
+                    #(rf/dispatch-sync [:soa/seed :X] :soa/t2)])))
+      (is (= [{:where 'rf/subscribe :recovery :pass-an-opts-map}
+              {:where 're-frame.router/build-envelope :recovery :pass-an-opts-map
+               :event-id :soa/seed}]
+             [(select-keys (ex-data-of #(rf/subscribe [:soa/val] t2))
+                           [:where :recovery])
+              (select-keys (ex-data-of #(rf/dispatch-sync [:soa/seed :X] t2))
+                           [:where :recovery :event-id])]))
+      (is (= [:B :B :A]
+             [@(rf/subscribe [:soa/val] {:frame t2})
+              (rf/subscribe-once [:soa/val] {:frame t2})
+              (rf/subscribe-once [:soa/val])])
+          "under :frame it reads its own frame, and no refused dispatch wrote either frame"))))
 
 (deftest subscribe-is-a-value-on-both-hosts
   ;; A plain fn composes: mapped over query vectors in the carried scope, and

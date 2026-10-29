@@ -9,7 +9,12 @@
   an override violating the sub's `:schema` emits
   `:rf.error/schema-validation-failure` and still surfaces as pinned (Spec 010
   §`:sub-return`); and a stale captured subscribe is fenced before the override
-  is consulted."
+  is consulted.
+
+  The override and the view's deref sink both answer the caller's own read
+  only. A declared input a derived sub's build resolves sees neither, so no
+  override is cached into the parent, and a view's `:deref-subs` names what
+  it read rather than the inputs behind it."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -18,7 +23,8 @@
             [re-frame.schemas.malli]                ;; install the default Malli validator
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.views :as rf.views]))
 
 (def ^:private override-atom
   "Stand-in for the React-context override map Story's carriage would carry."
@@ -107,3 +113,26 @@
             (is (= [nil true :override-value]
                    [@stale (boolean (some #{:rf.error/frame-destroyed} errors))
                     @(read b-token)]))))))))
+
+(defn- reg-cart-subs! []
+  (rf/reg-sub :t/items (fn [db _] (:items db [1 2 3])))
+  (rf/reg-sub :t/total {:inputs [[:t/items]]} (fn [[items] _] (reduce + items))))
+
+(deftest an-override-never-reaches-a-derived-subs-inputs
+  ;; A derived sub built cold while its input is overridden caches the real
+  ;; value; the designer overrides the derived sub itself to pin it.
+  (reg-cart-subs!)
+  (with-overrides* {[:t/items] []}
+    (fn []
+      (is (= [[] 6] [@(rf/subscribe [:t/items]) @(rf/subscribe [:t/total])]))))
+  (is (= 6 @(rf/subscribe [:t/total]))
+      "the cached parent outlives the override with its real value"))
+
+(deftest a-views-deref-sink-holds-only-its-own-reads
+  ;; Building `[:t/total]` cold resolves `[:t/items]`, which is the sub's read,
+  ;; not the view's.
+  (reg-cart-subs!)
+  (let [sink (volatile! #{})]
+    (binding [rf.views/*view-deref-sink* sink]
+      @(rf/subscribe [:t/total]))
+    (is (= #{[:t/total]} @sink))))

@@ -1843,6 +1843,8 @@ Always available, frame-keyword-targeted via the opts arg:
 @(rf/subscribe [:items]          {:frame :todo})
 ```
 
+The second argument is always this opts map, and a frame value goes under `:frame` exactly as a frame id does, `{:frame f}`. Anything else in that position — a bare frame id, a frame value, a vector — is refused rather than read as the ambient frame, with `:rf.error/bad-dispatch-opts` or `:rf.error/bad-subscribe-opts` ([009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+
 These are also the right APIs from non-Reagent contexts (server-side, headless tests, agents). No `dispatch-to` / `subscribe-to` sugar functions exist — the two-arg form is the one mechanism. On the JVM, `subscribe` cannot return a deref-able reactive (no Reagent) — the headless equivalent for "compute a sub against an `app-db` value" is `compute-sub`, defined in [008-Testing §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm). JVM tests typically read `(rf/app-db-value <id>)` and pass that into `(rf/compute-sub query-v db)`; `subscribe` on the JVM is supported only when the substrate adapter provides a value-shape implementation.
 
 ### `with-frame` and `with-new-frame`

@@ -1590,8 +1590,15 @@
      (if-let [hit (find (:entries @generation-cache) k)]
        (val hit)
        (let [gen         (assemble* images (pool-fn))
-             superseded? (fn [[images' [store' _]]]
-                           (and (some? store) (identical? store store') (= images images')))]
+             ;; Every cached key reaches this walk, and an explicit-pool key's
+             ;; pool leg is the caller's pool: any collection, a set included.
+             ;; Only a live-store leg is the `[store generation]` vector, so
+             ;; test for one rather than destructure the leg in the arglist.
+             superseded? (fn [[images' pool-leg']]
+                           (and (some? store)
+                                (vector? pool-leg')
+                                (identical? store (nth pool-leg' 0 nil))
+                                (= images images')))]
          ;; Cache only a successfully sealed generation (assemble* threw on a
          ;; fail-loud input, so we never reach here for one). swap! is enough —
          ;; a benign double-compute under contention seals to an equal value.
