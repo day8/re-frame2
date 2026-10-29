@@ -501,13 +501,17 @@
     (catch :default _ nil)))
 
 (defn- connection-closed-error
-  "The rejection every op pending on a closed connection receives. The
-  discriminator rides in `:rf.error/id`, the slot both error relays carry
-  unchanged (`server.cljs` `invoke-and-guard` replaces `:reason` with
-  `:handler-threw`); `:reason` restates it."
+  "The rejection every op pending on a closed connection receives. The op
+  may have run in the browser and lost only its reply, so the message
+  calls its outcome unknown and sends a write to the epoch history before
+  any retry. The discriminator rides in `:rf.error/id`, the slot both
+  error relays carry unchanged (`server.cljs` `invoke-and-guard` replaces
+  `:reason` with `:handler-threw`); `:reason` restates it."
   []
   (ex-info (str "nREPL connection closed while the op was in flight (shadow-cljs "
-                "stopped or restarted) — retry to reconnect"
+                "stopped or restarted), so its outcome is unknown. The next call "
+                "reconnects: retry a read; for a write, read the epoch history "
+                "(trace-window) before retrying it"
                 " [" :rf.error/pair-mcp-nrepl-connection-closed "]")
            {:rf.error/id :rf.error/pair-mcp-nrepl-connection-closed
             :reason      :rf.error/pair-mcp-nrepl-connection-closed}))
