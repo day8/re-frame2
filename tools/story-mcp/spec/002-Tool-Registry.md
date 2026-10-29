@@ -603,8 +603,9 @@ payload class, so `:violations` route through the named
 `egress/scrub-re-keyed-runtime` exception. Under a LIVE variant frame
 **EP-0025 FAIL-OPEN** holds: a sensitive value rendered into a node `:html`
 is a RE-KEYED DOM position the classification path cannot reach, so it ships
-RAW — value-match was removed; classify the app-db PATH to redact a value
-before it reaches the DOM. Under a NON-LIVE frame (common in the JVM tool
+RAW — value-match was removed. Classifying an app-db path never changes what
+a view renders, so the app must omit or mask content it does not want
+rendered. Under a NON-LIVE frame (common in the JVM tool
 process) the nodes ship raw under the documented carve-out (path-scrub is a
 no-op even live, so fail-closing would destroy the tool with zero leak-delta).
 The public finding structure (`:id` / `:impact` / `:help` / `:target`) is

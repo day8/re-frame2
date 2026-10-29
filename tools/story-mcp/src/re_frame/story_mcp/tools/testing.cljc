@@ -294,8 +294,9 @@
   `:incomplete` nodes are the same class and take the same route. Under a LIVE variant frame
   EP-0025 FAIL-OPEN holds: a value rendered into a node `:html` is a RE-KEYED
   DOM position the classification path cannot reach, so it ships RAW
-  (there is no value-match; classify the app-db PATH to redact a value before it
-  reaches the DOM). Under a NON-LIVE frame the nodes ship raw under the
+  (there is no value-match, and classifying an app-db path never changes what
+  a view renders, so the app must omit or mask content it does not want
+  rendered). Under a NON-LIVE frame the nodes ship raw under the
   documented carve-out — path-scrub is a no-op even live, so fail-closing
   would destroy the tool with zero leak-delta. Pass `:include-sensitive true`
   to opt out (gated by `--allow-sensitive-reads`, per spec/Tool-Pair.md

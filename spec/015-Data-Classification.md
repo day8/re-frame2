@@ -24,7 +24,7 @@ This feature is about **hygiene and convenience, not security**, and the design 
 
 - **We trust the developer.** No ownership policing, no enforced secrecy.
 - **We build minimal infrastructure.** Simple beats airtight. The surface is one registration + registration metadata; the mechanism is "declare the path, redact at egress."
-- **It is fail-open.** A path you never classify ships raw — that's the hygiene bargain, not a leak (see [§Failure posture](#failure-posture)). A re-keyed or rendered secret ships raw unless its app-db *path* is classified; classify the path to redact.
+- **It is fail-open.** A path you never classify ships raw — that's the hygiene bargain, not a leak (see [§Failure posture](#failure-posture)). A secret re-keyed to a new app-db path ships raw until that *path* is classified too. Classifying an app-db path never changes what a view renders, so the app must omit or mask content it does not want rendered.
 - **Exceptions are exceptional.** If an event throws or is rejected, all bets are off — fix the exception. We build no special machinery around it.
 
 **Classify at the fact's *definition site*.** A classification lives where the meaning of the data is authored. App-db has no single definition registration (which is exactly why a *frame* annotation was the wrong home), so its definition site is the **feature** that writes the path: a `reg-classification` beside the feature's other registrations. A subsystem instance's classification is declared on the subsystem definition and holds exactly while the instance is present. A transient payload's definition site is its registration. The same name — `:sensitive` — names the fact on every surface.
@@ -424,7 +424,7 @@ Three sentinel forms span the two-axis space. The sentinel keywords are **framew
 
 Three rules keep the helper humble without weakening egress correctness:
 
-- a **forgotten** classification is **fail-open** — the value ships raw (the hygiene bargain; a re-keyed or rendered secret ships raw unless its app-db *path* is classified);
+- a **forgotten** classification is **fail-open** — the value ships raw (the hygiene bargain; a re-keyed secret ships raw unless its new app-db *path* is classified, and a rendered one ships as rendered, because classification never changes the render);
 - a **malformed** input is **fail-loud** where it is applied: a malformed `reg-classification` declaration, or a malformed `:sensitive` / `:large` **registration-metadata** declaration on `reg-event` / `reg-fx` / `reg-cofx` / `reg-sub`, is rejected at registration with `:rf.error/bad-classification`; a handler returning a classification key beside its `:db` is refused **pre-commit** with `:rf.error/effect-map-shape` (no `:db` commit) (a flow's output marks with `:rf.error/flow-bad-marks`); a malformed **subsystem** declaration is rejected at registration under its own per-subsystem id — `reg-machine` raises `:rf.error/invalid-machine-classification`, a malformed resource spec folds into `:rf.error/resource-bad-spec` (the catalogue in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) keys each variant);
 - an **unknown frame / profile / projector failure** falls back to the egress policy's **fail-closed / fail-loud** behaviour — the projector redacts or errors (`:rf.error/unknown-egress-profile` for a bad profile; whole-value redaction for a frameless walk) rather than leaking.
 
