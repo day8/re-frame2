@@ -2,7 +2,7 @@
 
 Read this when `discover-app` reports `:runtime-loaded-but-preload-missing`, when the app fails to compile after adding the preload, when every epoch read comes back `[]`, when a migration needs the Pair wiring proven before the app compiles, or when the user asks how to set the skill up. The MCP server's own install and launch flags are in [`mcp-transport.md`](mcp-transport.md#install--configure-one-time).
 
-The app's dev build needs two things the MCP server does not supply: the `re-frame2-pair.runtime` preload and the `day8/re-frame2-schemas` artefact the preload requires. Epoch history ships in core.
+The app's dev build needs three changes the MCP server does not supply: the two halves of the `re-frame2-pair.runtime` preload, below, and the `day8/re-frame2-schemas` artefact the preload requires. Epoch history ships in core.
 
 ## The preload
 
