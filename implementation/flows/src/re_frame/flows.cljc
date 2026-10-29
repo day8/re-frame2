@@ -12,7 +12,8 @@
   This namespace is the public facade for the optional
   `day8/re-frame2-flows` artefact. It publishes its core integration points
   through `re-frame.late-bind`."
-  (:require [re-frame.elision :as rf.elision]
+  (:require [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
             [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.flows.registry :as rf.flows.registry]
@@ -69,19 +70,50 @@
   [db runtime-db flow]
   (mapv (fn [path] (resolve-input db runtime-db path)) (:inputs flow)))
 
+(defn- claims-at
+  "The runtime-db-absolute `claims` re-rooted at `path`: a claim at or above
+  `path` covers the whole value (`[]`), and one below it keeps the segments
+  past `path`."
+  [claims path]
+  (let [n (count path)]
+    (keep (fn [claim]
+            (let [claim (vec claim)
+                  m     (count claim)]
+              (cond
+                (and (<= m n) (= claim (subvec path 0 m))) []
+                (= path (subvec claim 0 n))                (subvec claim n))))
+          claims)))
+
+(defn- elide-input
+  "Elide one input value at its declaration coordinates. A runtime input is
+  first redacted at `pending-claims`, the claims the frame's policy makes on
+  the runtime-db the pass read: the walk below classifies by the committed
+  runtime-db, whose instances an event can be about to change — a navigation
+  commits its route through the event's own `:rf.db/runtime`. Both apply, so
+  the value is redacted under either."
+  [frame-id pending-claims input-path v]
+  (let [path (rf.flows.registry/partition-relative-input-path input-path)
+        v    (if (and pending-claims (rf.flows.registry/runtime-input? input-path))
+               (rf.classification/redact-with-paths
+                 v
+                 (claims-at (keys (:sensitive-declarations pending-claims)) path)
+                 (claims-at (keys (:declarations pending-claims)) path))
+               v)]
+    (rf.elision/elide-wire-value v {:frame frame-id :path path})))
+
 (defn- elide-inputs
   "Elide input values for trace emission at their declaration coordinates.
 
   Runtime input paths drop the `:rf.db/runtime` qualifier because the elision
   registry is keyed by paths within a partition. Callers keep this function
   inside a `debug-enabled?` branch so Closure can remove the walk."
-  [frame-id flow input-values]
-  (mapv (fn [input-path v]
-          (rf.elision/elide-wire-value
-            v {:frame frame-id
-               :path  (rf.flows.registry/partition-relative-input-path input-path)}))
-        (:inputs flow)
-        input-values))
+  [frame-id runtime-db flow input-values]
+  (let [pending-claims (when (some rf.flows.registry/runtime-input? (:inputs flow))
+                         (rf.elision/with-runtime-classification
+                           nil [(rf.elision/frame-policy frame-id)] runtime-db))]
+    (mapv (fn [input-path v] (elide-input frame-id pending-claims input-path v))
+          (:inputs flow)
+          input-values)))
 
 (defn- flow-eval-failure!
   "Report one flow-evaluation failure, attributed to the phase that actually
@@ -102,7 +134,7 @@
   `:rf.error/flow-eval-exception`, carrying the phase on BOTH the dev trace and
   the thrown ex-data so the router can lift it onto the always-on production
   error record."
-  [frame-id flow new-inputs phase e]
+  [frame-id runtime-db flow new-inputs phase e]
   (let [flow-id     (:id flow)
         output-path (:output-path flow)]
     (when rf.interop/debug-enabled?
@@ -113,7 +145,7 @@
                        :exception-message #?(:clj (.getMessage ^Throwable e)
                                              :cljs (.-message e))
                        :exception-data    (ex-data e)
-                       :inputs            (elide-inputs frame-id flow new-inputs)
+                       :inputs            (elide-inputs frame-id runtime-db flow new-inputs)
                        :frame             frame-id}))
     (rf.error/throw-error!
       :rf.error/flow-eval-exception
@@ -155,7 +187,7 @@
 
   The visit's `:rf.flow/skip` carries `:repaired? true` when it wrote. A write
   that cannot be installed fails as `:output-write`, as a recompute's would."
-  [frame-id db flow new-inputs row]
+  [frame-id db runtime-db flow new-inputs row]
   (let [path    (:output-path flow)
         output  (:output row)
         repair? (not= output (get-in db path ::absent))
@@ -163,7 +195,7 @@
                   (try
                     (assoc-in db path output)
                     (catch #?(:clj Throwable :cljs :default) e
-                      (flow-eval-failure! frame-id flow new-inputs :output-write e)))
+                      (flow-eval-failure! frame-id runtime-db flow new-inputs :output-write e)))
                   db)]
     (when rf.interop/debug-enabled?
       (rf.trace/emit! :flow :rf.flow/skip
@@ -186,25 +218,25 @@
 
   Trace payloads and their elision walks stay inside `debug-enabled?` branches
   so Closure removes them from production CLJS builds."
-  [frame-id db flow new-inputs]
+  [frame-id db runtime-db flow new-inputs]
   (let [started-at-ms  (when rf.interop/debug-enabled? (rf.interop/now-ms))
         derive-outcome (try
                          {::output (apply (:derive flow) new-inputs)}
                          (catch #?(:clj Throwable :cljs :default) e
                            {::thrown e}))]
     (when (contains? derive-outcome ::thrown)
-      (flow-eval-failure! frame-id flow new-inputs :derive (::thrown derive-outcome)))
+      (flow-eval-failure! frame-id runtime-db flow new-inputs :derive (::thrown derive-outcome)))
     (let [new-output (::output derive-outcome)
           old-output (when rf.interop/debug-enabled?
                        (get-in db (:output-path flow)))
           new-db     (try
                        (assoc-in db (:output-path flow) new-output)
                        (catch #?(:clj Throwable :cljs :default) e
-                         (flow-eval-failure! frame-id flow new-inputs :output-write e)))]
+                         (flow-eval-failure! frame-id runtime-db flow new-inputs :output-write e)))]
       (when rf.interop/debug-enabled?
         (rf.trace/emit! :flow :rf.flow/computed
                         {:flow-id      (:id flow)
-                         :input-values (elide-inputs frame-id flow new-inputs)
+                         :input-values (elide-inputs frame-id runtime-db flow new-inputs)
                          :before       (rf.elision/elide-wire-value
                                          old-output
                                          {:frame frame-id
@@ -342,8 +374,8 @@
                       row        (get rows id)
                       new-inputs (read-inputs db runtime-db flow)]
                   (if (and (identical? flow (:flow row)) (= new-inputs (:inputs row)))
-                    [(reassert-output frame-id db flow new-inputs row) rows]
-                    (let [[db output] (evaluate-flow frame-id db flow new-inputs)]
+                    [(reassert-output frame-id db runtime-db flow new-inputs row) rows]
+                    (let [[db output] (evaluate-flow frame-id db runtime-db flow new-inputs)]
                       [db (assoc rows id {:flow flow :inputs new-inputs :output output})]))))
               [db rows]
               order)]
