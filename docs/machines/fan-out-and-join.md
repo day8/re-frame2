@@ -290,7 +290,14 @@ immediately, even when another child could still succeed.
   complete; under `:any`, the join waits once every child has failed. The
   parent stays in the state, and the runtime warns
   `:rf.warning/spawn-all-join-unsatisfiable`. Declare `:on-any-failed`, or
-  give the state an `:after` deadline.
+  give the state an `:after` deadline. Destroying a child yourself counts the
+  same way: it never completes, so the join is stranded and the same warning
+  fires.
+- **A child address a live actor already holds rejects the whole invoke**
+  (`:rf.error/machine-spawn-all-duplicate-id`). Two parents spawning one
+  child type both mint `<type>#1`; the second batch starts nothing rather
+  than overwrite the first parent's live child. Give the spawns distinct
+  `:id-prefix` values.
 - **An unregistered child type rejects the whole invoke**
   (`:rf.error/machine-spawn-unregistered-type`). No children start and
   `:on-any-failed` is not fired; the parent stays in its state. Register every

@@ -2,8 +2,9 @@
   "A tracked single-`:spawn` exit prunes a slot naming an actor that is dead
   for that incarnation, or a live same-id replacement the slot does not own,
   without a second teardown (Spec 005 §Destroy is silent-idempotent). An
-  imperative keyword destroy leaves the slot naming the dead actor, so slot
-  presence must never read as liveness."
+  imperative keyword destroy prunes the slot and mirror that still name the
+  actor, so the parent's later exit has nothing left to tear down; slot
+  presence never reads as liveness."
   (:require
    #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
@@ -59,8 +60,10 @@
                                         {:machine-id :tsp/p1-child}
                                         exit-count)]
     (destroy-imperatively! child-id)
-    (is (= [nil child-id] [(snapshot child-id) (tracked-slot :tsp/p1)])
-        "precondition: the actor is dead and the tracked slot still names it")
+    (is (= [nil nil nil]
+           [(snapshot child-id) (tracked-slot :tsp/p1)
+            (get-in (snapshot :tsp/p1) [:rf/runtime :spawned [:working]])])
+        "the keyword destroy killed the actor and pruned the slot and mirror naming it")
     (rf/dispatch-sync [:tsp/p1 [:stop]])
     (is (= {:slot nil :mirror nil :reasons [:explicit] :exits 1}
            {:slot    (tracked-slot :tsp/p1)
@@ -96,12 +99,12 @@
     (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :tsp/p3-child
                                         :fixed-actor-id :tsp/fixed-3}]]}))
   (rf/dispatch-sync [::respawn-fixed])
-  (is (= :tsp/fixed-3 (tracked-slot :tsp/p3))
-      "precondition: the stale slot still names the reused id")
+  (is (nil? (tracked-slot :tsp/p3))
+      "the keyword destroy pruned the slot, so it never names the reused id")
   (rf.machines.test-support/reset-captured!)
   (rf/dispatch-sync [:tsp/p3 [:stop]])
   (is (= {:slot nil :replacement-live? true :destroyed []}
          {:slot              (tracked-slot :tsp/p3)
           :replacement-live? (some? (snapshot :tsp/fixed-3))
           :destroyed         (rf.machines.test-support/events-of :rf.machine/destroyed)})
-      "the stale slot is pruned and the replacement survives the old parent's exit"))
+      "the replacement survives the old parent's exit"))
