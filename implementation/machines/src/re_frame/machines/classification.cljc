@@ -100,16 +100,17 @@
       (when-let [reason (declaration-defect k (get spec k))]
         (rf.error/throw-error!
           :rf.error/invalid-machine-classification
-          'rf-machines/reg-machine
+          'rf/reg-machine
           (str "reg-machine " machine-id " declares a malformed " k
                " data-classification: " reason ". Per EP-0025 a machine "
                "declares :sensitive / :large as a vector of snapshot-relative "
                ":data-rooted `:rf/path` vectors (e.g. {:sensitive [[:data "
                ":token]]}), applied to each actor snapshot at egress.")
           {:recovery :fix-registration
-           :extra    {:machine-id machine-id
-                      :axis       k
-                      :value      (get spec k)}}))))
+           :extra    {:machine-id  machine-id
+                      :axis        k
+                      :declared-in :spec
+                      :value       (get spec k)}}))))
   nil)
 
 (defn validate-machine-opts-classification!
@@ -126,10 +127,10 @@
         (str "reg-machine " machine-id " declares an opts " k " path that "
              "cannot classify its events: " reason)
         {:recovery :fix-registration
-         :extra    {:machine-id machine-id
-                    :axis       k
-                    :where      :opts
-                    :value      (get opts k)}})))
+         :extra    {:machine-id  machine-id
+                    :axis        k
+                    :declared-in :opts
+                    :value       (get opts k)}})))
   nil)
 
 (defn machine-declarations
