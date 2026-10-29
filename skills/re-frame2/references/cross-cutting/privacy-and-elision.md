@@ -172,7 +172,7 @@ The walker's `opts` map is **closed** — `:frame` / `:path` / `:query-v` plus t
 **Classification does not propagate.** You redact exactly the paths you classify; nothing is inherited. A subscription, flow, or machine selector that *reads* a sensitive input does **not** auto-classify its output. There is:
 
 - **no** input → output inheritance — if you derive a secret to a new path (through a sub, a flow, anything), **classify that path**. A sensitive flow output is just a classified db path;
-- **no** declassification key — there is nothing to declassify because nothing propagates. The old `:rf.egress/output-sensitivity` claim (and its `:rf.egress/inherit` / `:rf.egress/sensitive` / `:rf.egress/public` value set) is **gone**, silently ignored if present;
+- **no** declassification key — there is nothing to declassify because nothing propagates, and an `:rf.egress/output-sensitivity` key is silently ignored;
 - **no** universal "same value redacted everywhere" value-match / taint engine — a secret copied or re-keyed into an unclassified path **ships raw** (the fail-open bargain).
 
 ```clojure
