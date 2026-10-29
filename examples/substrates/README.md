@@ -11,7 +11,7 @@ One substrate-free model namespace, three view layers over it. This is the
 comparison the login example exists to make.
 
 [`login.model`](../core/login/model.cljc) is the ONE owner of the `auth.login`
-dataflow — every schema, the demo HTTP fx, the five-state machine, the
+dataflow — every schema, the demo backend, the five-state machine, the
 form-slice events, the named subs, and the shared frame config. It names no
 substrate. The three entry points below each `:require` that identical
 namespace and add nothing but their own views and boot:
@@ -46,8 +46,9 @@ The Fresco login carries a fourth file the other two arms do not:
 build (`examples/login-fresco-server`) that publishes the render module the
 [`ssr-node`](../../implementation/ssr-node/README.md) sidecar loads, plus
 [`fresco/login/host.clj`](fresco/login/host.clj), the JVM Ring handler that
-dials it — the shape of a native Fresco root rendered on Node while the JVM
-keeps the request, the `<head>`, the payload and the shell (`rf2-8arzr`).
+launches the sidecar and supervises it — the shape of a native Fresco root
+rendered on Node while the JVM keeps the request, the `<head>`, the payload and
+the shell.
 
 **Both files run, and a gate drives each.** `server.cljs` is exercised by the
 CLJS product witness (`re-frame.fresco.login-server-crossing-ssr-dom-cljs-test`),
