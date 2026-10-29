@@ -5,7 +5,7 @@
   never consults the validator. A truthiness test of the schema VALUE would
   silently skip the present falsey token. The schemas artefact's own
   `re-frame.schemas-presence-test` pins `run-validation` and the production
-  boundary interceptor.
+  `:boundary? true` check (Spec 010 §The validation seam).
 
   A failing sub-return or sub-override check reports and passes the value
   through (`:recovery :no-recovery`, Spec 010 §Per-step recovery row 6)."
