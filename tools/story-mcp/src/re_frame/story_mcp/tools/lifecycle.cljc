@@ -194,6 +194,12 @@
   worker ends, its frame is destroyed before the hold is released, so no
   later call reads the abandoned run's late writes or races them.
 
+  A worker still QUEUED on the executor at the deadline has run nothing,
+  and once cancelled its body (the `finally` included) never runs, so the
+  hold is released at the deadline instead. The worker claims `:running`
+  as its first act, and one that finds the run already cancelled returns
+  without starting it.
+
   Returns the outcome map (a settled run-result, or the canonical error
   outcome). The caller projects / scrubs / wire-shapes it.
 
@@ -204,27 +210,32 @@
   which clj-kondo would otherwise flag on the `.cljc`'s cljs branch)."
   [vk opts timeout-ms]
   #?(:clj
-     (let [state  (atom :running)
+     (let [state  (atom :queued)
            worker (future
-                    (try
-                      (rf.story.async/deref-blocking (rf.story/run-variant vk opts))
-                      (finally
-                        ;; The worker ends: if the caller abandoned it, tear
-                        ;; the frame down BEFORE releasing the hold.
-                        (when (= :abandoned (first (swap-vals! state (constantly :settled))))
-                          (try (rf.story/destroy-variant! vk)
-                               (finally (swap! abandoned-runs disj vk)))))))]
+                    (when (compare-and-set! state :queued :running)
+                      (try
+                        (rf.story.async/deref-blocking (rf.story/run-variant vk opts))
+                        (finally
+                          ;; The worker ends: if the caller abandoned it, tear
+                          ;; the frame down BEFORE releasing the hold.
+                          (when (= :abandoned (first (swap-vals! state (constantly :settled))))
+                            (try (rf.story/destroy-variant! vk)
+                                 (finally (swap! abandoned-runs disj vk))))))))]
        (try
          (let [settled (deref worker timeout-ms ::timeout)]
            (if (identical? settled ::timeout)
              ;; Hold the variant first, then claim the abandonment: a worker
-             ;; that settled in between keeps its result and drops the hold.
+             ;; that settled in between keeps its result and drops the hold,
+             ;; and one that never started has nothing to fence.
              (do (swap! abandoned-runs conj vk)
-                 (if (= :running (first (swap-vals! state #(if (= % :running) :abandoned %))))
-                   (do (future-cancel worker)
-                       (deadline-outcome vk timeout-ms))
-                   (do (swap! abandoned-runs disj vk)
-                       @worker)))
+                 (case (first (swap-vals! state {:queued :cancelled :running :abandoned :settled :settled}))
+                   :queued  (do (future-cancel worker)
+                                (swap! abandoned-runs disj vk)
+                                (deadline-outcome vk timeout-ms))
+                   :running (do (future-cancel worker)
+                                (deadline-outcome vk timeout-ms))
+                   :settled (do (swap! abandoned-runs disj vk)
+                                @worker)))
              settled))
          (catch Throwable e
            ;; A synchronous throw from `rf.story/run-variant`, or a rejected

@@ -83,6 +83,17 @@
                                               records))
             (str id))))))
 
+(deftest check-groups-sensitive-dispatched-record-by-event-id
+  (testing "a matched sensitive dispatched? record carries the event as
+            [event-id :rf/redacted] while the check's atom carries it raw; it
+            groups by event id, and a record for another event stays out"
+    (let [login  {:assertion :rf.assert/dispatched? :payload [[:auth/login :rf/redacted]] :status :pass}
+          logout {:assertion :rf.assert/dispatched? :payload [[:auth/logout :rf/redacted]] :status :fail}]
+      (is (= [{:check :check/logged-in :status :pass :assertions [login]}]
+             (rf.story.result/check-records
+               {:check/logged-in [[:rf.assert/dispatched? [:auth/login {:password "hunter2"}]]]}
+               [login logout]))))))
+
 ;; ===========================================================================
 ;; RUN RESULT — the verdict and the agreement floor
 ;; ===========================================================================

@@ -3,7 +3,8 @@
   vocabulary): the seven dispatched assertions, the tape-evaluated
   `:rf.assert/schema-error`, the record-don't-throw contract and
   `assertions-passing?`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             ;; The tape-projected assertions read the epoch tape.
             [re-frame.epoch            :as rf.epoch]
             [re-frame.core             :as rf]
@@ -320,6 +321,8 @@
     (is (= [true [:auth/submit :rf/redacted] [[:auth/login] [:auth/submit :rf/redacted] [:cart/checkout]]]
            [(:passed? redacted) (:expected redacted) (:actual redacted)])
         "a sensitive trigger still matches, and reaches the record redacted")
+    (is (= [[:auth/submit :rf/redacted]] (:payload redacted))
+        "the record's payload carries the projected event, not the author's raw needle")
     (is (= [[:auth/login] [:auth/submit {:password "hunter2"}] [:cart/checkout]]
            (:actual (evaluate epochs true [:cart/checkout])))
         "a frame revealed to :rf.egress/local-raw records the raw triggers")))
@@ -347,6 +350,39 @@
       "the vector :loaders-complete-when completes, so setup runs")
   (rf.story/destroy-variant! :story.classified/dispatched)
   (rf.story/destroy-variant! :story.classified/loaders))
+
+;; The needle is compared raw, so the author's own vector carries the secret:
+;; the whole record — `:payload` as well as `:expected` / `:actual` — carries
+;; the projected event, and the check the atom came from still groups it.
+(deftest dispatched?-record-never-carries-a-sensitive-event-raw
+  (rf/reg-event :auth/login
+    (fn [{:keys [db]} [_ input]] {:db (assoc-in db [:auth :token] (:password input))}))
+  (rf.story/reg-check :check.privacy/logged-in
+    {:assertions [[:rf.assert/dispatched? [:auth/login {:password "RAW-SECRET-PW"}]]]})
+  (let [login   [[:auth/login {:password "RAW-SECRET-PW"}]]
+        run     (fn [vid body]
+                  (rf.story/reg-variant vid (merge {:setup login :checks [:check.privacy/logged-in]} body))
+                  (let [r (run-v! vid)]
+                    (rf.story/destroy-variant! vid)
+                    r))
+        record  (fn [r] (first (filter #(= :rf.assert/dispatched? (:assertion %)) (:assertions r))))
+        grouped (fn [r] (mapv :passed? (:assertions (first (:checks r)))))]
+    (let [r (run :story.privacy/dispatched-classified {:sensitive {:app-db [[:auth :token]]}})]
+      (is (= [:pass true [true]] [(:status r) (:passed? (record r)) (grouped r)])
+          "the raw comparison still matches, and the check groups its record")
+      (is (= [[:auth/login :rf/redacted]] (:payload (record r))))
+      (is (not (str/includes? (pr-str (select-keys r [:assertions :checks])) "RAW-SECRET-PW"))
+          "no slot of the record, nor of its check group, carries the secret"))
+    (let [r (run :story.privacy/dispatched-public {})]
+      (is (= [:pass [true] login] [(:status r) (grouped r) (:payload (record r))])
+          "control: an unclassified variant's record keeps the event as dispatched"))
+    (rf.story.config/set-frame-egress-profile! :story.privacy/dispatched-revealed :rf.egress/local-raw)
+    (try
+      (let [r (run :story.privacy/dispatched-revealed {:sensitive {:app-db [[:auth :token]]}})]
+        (is (= [:pass [true] login] [(:status r) (grouped r) (:payload (record r))])
+            "control: a frame revealed to :rf.egress/local-raw records the raw event"))
+      (finally
+        (rf.story.config/set-frame-egress-profile! :story.privacy/dispatched-revealed nil)))))
 
 (deftest effect-emitted-projects-from-tape-effects
   (testing ":rf.assert/effect-emitted reads the same tape :effects projection as
