@@ -181,6 +181,18 @@
    (normalise-classification meta)
    nil))
 
+(defn- classification-of
+  "The classification declared on the handler-meta `lookup` returns, or nil.
+  A lookup that hits an id more than one namespace registers fails closed: the
+  whole value is `:sensitive`."
+  [lookup]
+  (try
+    (normalise-classification (lookup))
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (rf.registrar/ambiguous-registration? e)
+        {:sensitive [[]]}
+        (throw e)))))
+
 (defn registration-classification
   "Return the classification declaration for `(kind, id)`, or nil — DERIVED at
   read time from `rf.registrar/handler-meta`, NOT a duplicated
@@ -194,12 +206,7 @@
   `:images`, has no single declaration to follow, so it fails closed: the
   whole value is `:sensitive`."
   [kind id]
-  (try
-    (normalise-classification (rf.registrar/handler-meta kind id))
-    (catch #?(:clj Throwable :cljs :default) e
-      (if (rf.registrar/ambiguous-registration? e)
-        {:sensitive [[]]}
-        (throw e)))))
+  (classification-of #(rf.registrar/handler-meta kind id)))
 
 ;; ---- static app-db classification: reg-classification ---------------------
 
@@ -413,6 +420,21 @@
   (when id
     (registration-classification kind id)))
 
+(defn- event-classification
+  "The classification of the handler that serves events addressed to `id` in
+  `frame-id`. That is `id`'s own event registration; an id with none that
+  names a live spawned machine actor is served by the handler-meta the
+  late-bound `:machines/resolve-actor-handler-meta` builds — the router's own
+  route to it — which carries the actor's machine TYPE classification, since
+  the type's handler serves every instance. Spec 005 §Privacy."
+  [id frame-id]
+  (when id
+    (or (registration-classification :event id)
+        (when-let [resolve! (and (some? frame-id)
+                                 (nil? (rf.registrar/handler-meta :event id))
+                                 (rf.late-bind/get-fn :machines/resolve-actor-handler-meta))]
+          (classification-of #(resolve! [id] frame-id))))))
+
 (defn- project-execute-event-payload
   "Per-event-id DYNAMIC projection for a `[:rf.mutation/execute <args>]` event
   vector. The execute payload's classification lives on the
@@ -518,6 +540,10 @@
   A spawn-error event — inner or routed to its parent — has its child-owned
   payload summarized whatever the parent declares (`project-spawn-error-event`).
 
+  With `frame-id`, an event addressed to a spawned machine actor in that frame
+  takes its machine type's registration classification (`event-classification`);
+  without one, only `(first event)`'s own registration applies.
+
   A no-op when `event` is not a `[event-id arg-map …]` vector or nothing
   applies.
 
@@ -531,17 +557,18 @@
   handled-event `:event` slot, and `project-event-tags` / the `:dispatch` /
   `:dispatch-later` fx-arg recursion route every other event-bearing slot
   through it, so all of them redact identically."
-  [event]
-  (let [event' (if-let [class (classification-when :event (when (vector? event) (first event)))]
-                 (let [[sens large] (classification-paths class)]
-                   (redact-event-vec event sens large))
-                 event)
-        event' (project-spawn-error-event event')]
-    (case (when (vector? event') (first event'))
-      :rf.mutation/execute (project-execute-event-payload event')
-      (:rf.route/handle-url-change
-       :rf.route/navigate) (project-navigation-event-arg event')
-      event')))
+  ([event] (redact-event-by-registration event nil))
+  ([event frame-id]
+   (let [event' (if-let [class (event-classification (when (vector? event) (first event)) frame-id)]
+                  (let [[sens large] (classification-paths class)]
+                    (redact-event-vec event sens large))
+                  event)
+         event' (project-spawn-error-event event')]
+     (case (when (vector? event') (first event'))
+       :rf.mutation/execute (project-execute-event-payload event')
+       (:rf.route/handle-url-change
+        :rf.route/navigate) (project-navigation-event-arg event')
+       event'))))
 
 (defn- project-event-tags
   "Walk `:rf.event/dispatched` / `:rf.event/db-changed` / `:rf.fx/do-fx` tag
@@ -555,7 +582,7 @@
   Reference-preserving when nothing applies."
   [tags slot]
   (let [event  (get tags slot)
-        event' (redact-event-by-registration event)]
+        event' (redact-event-by-registration event (:frame tags))]
     (if (identical? event event')
       tags
       (assoc tags slot event'))))
@@ -567,9 +594,9 @@
   reserved fx with no registration to declare paths on, but the event it
   defers has an owner.
   Identity-preserving when the target declares none."
-  [args]
+  [args frame-id]
   (if-let [event (and (map? args) (:event args))]
-    (let [event' (redact-event-by-registration event)]
+    (let [event' (redact-event-by-registration event frame-id)]
       (if (identical? event event') args (assoc args :event event')))
     args))
 
@@ -605,14 +632,17 @@
   A no-op for an fx-id with neither layer — which INCLUDES an UNREGISTERED
   fx-id on `:rf.error/no-such-fx` (there is no registration to read a
   `:sensitive` off, and an unaddressable arg is the known EP-0025 fail-open,
-  not a bug this closes)."
-  [fx-id args]
+  not a bug this closes).
+
+  `frame-id` is the frame the trace belongs to, which a `:dispatch` /
+  `:dispatch-later` target addressed to a spawned actor resolves its type in."
+  [fx-id args frame-id]
   (let [args (if-let [class (classification-when :fx fx-id)]
                (redact-by-classification args class)
                args)]
     (case fx-id
-      :dispatch        (redact-event-by-registration args)
-      :dispatch-later  (project-dispatch-later-args args)
+      :dispatch        (redact-event-by-registration args frame-id)
+      :dispatch-later  (project-dispatch-later-args args frame-id)
       :rf.http/managed (if-let [project (rf.late-bind/get-fn :http/project-managed-fx-args)]
                          (project args)
                          args)
@@ -652,9 +682,9 @@
     tags
     (let [args  (:rf.fx/args tags)
           from  (:rf.fx/from tags)
-          args' (project-fx-args (:rf.fx/id tags) args)
+          args' (project-fx-args (:rf.fx/id tags) args (:frame tags))
           args' (if (and from (not= from (:rf.fx/id tags)))
-                  (project-fx-args from args')
+                  (project-fx-args from args' (:frame tags))
                   args')]
       (if (identical? args args')
         tags
@@ -667,10 +697,10 @@
   PLACE so the fx-id + any trailing elements survive. A no-op when the entry
   is not a `[fx-id args …]` vector (a nil / empty conditional-fx no-op) or
   nothing applies to it."
-  [entry]
+  [entry frame-id]
   (if (and (vector? entry) (>= (count entry) 2))
     (let [args  (nth entry 1)
-          args' (project-fx-args (first entry) args)]
+          args' (project-fx-args (first entry) args frame-id)]
       (if (identical? args args')
         entry
         (assoc entry 1 args')))
@@ -690,7 +720,7 @@
   (let [fx-vec (:rf.event/fx tags)]
     (if-not (vector? fx-vec)
       tags
-      (assoc tags :rf.event/fx (mapv project-event-fx-entry fx-vec)))))
+      (assoc tags :rf.event/fx (mapv #(project-event-fx-entry % (:frame tags)) fx-vec)))))
 
 (defn- project-cofx-map-slot
   "Walk a `{cofx-id value}` map carried under `slot` in `tags`, redacting each
@@ -1037,7 +1067,7 @@
                                fx-v   (fn [side k v]
                                         (cond
                                           (= :db k)                   (project-db (get focus side) v)
-                                          (and (= :fx k) (vector? v)) (mapv project-event-fx-entry v)
+                                          (and (= :fx k) (vector? v)) (mapv #(project-event-fx-entry % frame-id) v)
                                           :else                       v))]
                            (if-not (map? d)
                              rec
@@ -1199,7 +1229,7 @@
   (`project-machine-tags`) and the `[:rf/machine <id>]` sub's `:rf.sub/run`
   trace (`project-sub-tags`), so one snapshot redacts identically on both."
   [frame-id machine-id snapshot]
-  (let [author   (classification-when :event machine-id)
+  (let [author   (event-classification machine-id frame-id)
         frame-mk (actor-classification frame-id machine-id snapshot)
         s        (into (vec (:sensitive author)) (:sensitive frame-mk))
         l        (into (vec (:large author))     (:large frame-mk))]
@@ -1240,7 +1270,7 @@
       tags
       (assoc tags :outcome
              (cond-> outcome
-               (vector? (:fx outcome)) (update :fx #(mapv project-event-fx-entry %))
+               (vector? (:fx outcome)) (update :fx (fn [fx] (mapv #(project-event-fx-entry % (:frame tags)) fx)))
                (contains? outcome :db) (assoc :db rf.privacy/redacted-sentinel))))))
 
 (defn- traced-snapshot
@@ -1390,7 +1420,7 @@
   (if-not (carries-thrown-value? tags)
     tags
     (let [machine-id (or (:actor-id tags) (:machine-id tags))
-          author     (classification-when :event machine-id)
+          author     (event-classification machine-id frame-id)
           frame-mk   (actor-classification frame-id machine-id (traced-snapshot tags))]
       (if (or (nil? frame-id)
               (seq (:sensitive author)) (seq (:sensitive frame-mk)))

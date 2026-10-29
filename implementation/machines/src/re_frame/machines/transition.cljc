@@ -171,6 +171,13 @@
   kick-off."
   :rf.machine.spawn/done)
 
+(def ^:private spawn-kickoff-event-id
+  "The kick-off the spawn fx dispatches into a child spawned without `:start`
+  (Spec 005 §Synthetic `[:rf.machine.spawn/spawned]` on spawn). Framework init
+  rather than a domain event, so only an exact clause names it and the
+  `:ns/*` / `:*` wildcard tiers never catch it (`match-on-clause`)."
+  :rf.machine.spawn/spawned)
+
 (defn- chase-ref
   "Follow a keyword reference chain through the machine's named-bindings
   map until it hits a fn (or fails). Tolerates one level of indirection
@@ -1236,7 +1243,9 @@
        catches any `:mouse/...` event; re-frame2's spelling of XState v5's
        partial descriptor `mouse.*`). Absent for a non-namespaced event-id;
     3. the TOTAL `:*` wildcard.
-  Most-specific wins: exact > namespace-wildcard > total.
+  Most-specific wins: exact > namespace-wildcard > total. The spawn kick-off
+  `[:rf.machine.spawn/spawned]` is framework init, so it resolves through the
+  exact tier alone (Spec 005 §Wildcard transitions).
 
   Each tier is the LEAST-PRIORITY ENABLED transition relative
   to the tiers above it, NOT a 'no more specific KEY exists' fallback. A
@@ -1300,13 +1309,15 @@
         ;; non-namespaced event-id; `ns-key` is nil and `select` is never
         ;; called). Tier 3 — total `:*`. Most-specific wins; each tier is
         ;; consulted only when the tiers above yielded no ENABLED candidate
-        ;; (absent key OR every guarded candidate guard-blocked).
-        ns-key        (ns-wildcard-key event-id)]
+        ;; (absent key OR every guarded candidate guard-blocked). The spawn
+        ;; kick-off is framework init, so it resolves through tier 1 alone.
+        wildcards?    (not= spawn-kickoff-event-id event-id)
+        ns-key        (when wildcards? (ns-wildcard-key event-id))]
     (if-let [exact-hit (select event-id)]
       exact-hit
       (if-let [ns-hit (when ns-key (select ns-key))]
         (assoc ns-hit :rf/via-wildcard? true)
-        (when-let [star-hit (select :*)]
+        (when-let [star-hit (when wildcards? (select :*))]
           (assoc star-hit :rf/via-wildcard? true))))))
 
 (defn root-on-match

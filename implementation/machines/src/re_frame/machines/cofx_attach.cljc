@@ -398,6 +398,50 @@
         (recur (conj p (:initial n)) (conj visited p))
         p))))
 
+(defn- history-node? [n] (and (map? n) (= :history (:type n))))
+
+(defn- child-paths
+  "The paths of the states directly beneath `path` within `states` (`path`
+  `[]` is the scope root), history pseudo-states excluded."
+  [states path]
+  (for [[k n] (if (seq path) (:states (node-at states path)) states)
+        :when (not (history-node? n))]
+    (conj (vec path) k)))
+
+(defn- descendant-paths
+  "Every state path strictly beneath `path` within `states`, history
+  pseudo-states excluded."
+  [states path]
+  (into [] (mapcat #(cons % (descendant-paths states %))) (child-paths states path)))
+
+(defn- landing-paths
+  "The target paths entering `path` within `states` can land on, each to be
+  descended by `initial-descent-path`: `[path]` itself, unless that descent
+  stops on a `:type :history` pseudo-state, which is never occupied and
+  restores whatever its owning compound recorded. Its restore is known only
+  at runtime, so the static set over-approximates it, as the exit cascade
+  does: every state beneath the compound for `:deep? true`, every direct
+  child for shallow, plus the `:default-target`, each resolved in turn (a
+  child's descent can stop on a nested history node). `seen` ends a
+  `:default-target` that leads back to a pseudo-state already on the chain.
+  Spec 005 §History states."
+  ([states path] (landing-paths states path #{}))
+  ([states path seen]
+   (let [leaf (initial-descent-path states path)
+         node (node-at states leaf)]
+     (cond
+       (not (history-node? node)) [(vec path)]
+       (contains? seen leaf)      []
+       :else
+       (let [compound (vec (drop-last leaf))
+             default  (:default-target node)
+             restored (cond-> (if (:deep? node)
+                                (descendant-paths states compound)
+                                (vec (child-paths states compound)))
+                        (keyword? default) (conj (conj compound default))
+                        (vector? default)  (conj (vec default)))]
+         (into [] (comp (mapcat #(landing-paths states % (conj seen leaf))) (distinct)) restored))))))
+
 (defn- lifecycle-diet-along-path
   "Accumulate (into the transient `diet`) the named-`:actions` diets of the
   `slot` (`:entry` or `:exit`) callback on every node along absolute `path`
@@ -438,8 +482,9 @@
           (doseq [d (entry-diet by-entry :guards  (:guard e))]  (conj! diet d))
           (doseq [d (entry-diet by-entry :actions (:action e))] (conj! diet d))
           (when-let [tgt (resolve-target-path prefix (:target e))]
-            (lifecycle-diet-along-path by-entry states (initial-descent-path states tgt) :entry diet)
-            (conj! targets tgt)))))
+            (doseq [p (landing-paths states tgt)]
+              (lifecycle-diet-along-path by-entry states (initial-descent-path states p) :entry diet)
+              (conj! targets p))))))
     (when @hop?
       (lifecycle-diet-along-path by-entry states path :exit diet))
     (persistent! targets)))
@@ -772,8 +817,10 @@
         ;; :on-error`, `:spawn :on-done`, `:after`), so none of them can
         ;; ensure the `:always` half and forget the `:entry` half.
         add-target! (fn [tgt]
-                      (add-lifecycle! states (initial-descent-path states tgt) :entry)
-                      (add! (always-diet-for-state by-entry states tgt)))]
+                      ;; A history target lands wherever its restore can.
+                      (doseq [p (landing-paths states tgt)]
+                        (add-lifecycle! states (initial-descent-path states p) :entry)
+                        (add! (always-diet-for-state by-entry states p))))]
     ;; (a) candidate transitions for this event type, leaf→root. We do NOT
     ;; stop at the first match — the ensure-set is STATIC (every candidate
     ;; the selection COULD touch must have its guard-consumed facts ensured
@@ -866,10 +913,11 @@
                   rpath  (vec (rest t))
                   scope  (get-in machine [:regions region :states])]
               (when (and scope (seq rpath))
-                (let [diet (transient [])]
-                  (lifecycle-diet-along-path by-entry scope (initial-descent-path scope rpath) :entry diet)
-                  (add! (persistent! diet)))
-                (add! (always-diet-for-state by-entry scope rpath))))))]
+                (doseq [p (landing-paths scope rpath)]
+                  (let [diet (transient [])]
+                    (lifecycle-diet-along-path by-entry scope (initial-descent-path scope p) :entry diet)
+                    (add! (persistent! diet)))
+                  (add! (always-diet-for-state by-entry scope p)))))))]
     (cond
       ;; multiple region-qualified targets — a vector of target-vectors.
       (and (vector? target) (seq target) (vector? (first target)))
@@ -906,7 +954,9 @@
 
   and, beside (a), (c) the root's own `:spawn :on-error` / transition-shaped
   `:on-done` for a carrier from the root's child (invoke-id `[]`), which
-  `transition/root-spawn-carrier-match` selects ahead of the root `:on`.
+  `transition/root-spawn-carrier-match` selects ahead of the root `:on`, and
+  (d) the root's own `:on-done` for `[:rf.machine/done []]`, the ensure
+  `parallel/fire-parallel-on-done` runs before that action.
 
   Mirrors the runtime root resolvers' candidate grammar via `candidate-maps`
   (the shared shape-wise normalisation). `by-entry` is the registration
@@ -933,8 +983,13 @@
           ;; transition-shaped `:on-done` ahead of the root `:on`.
           spawn-v (when (and (contains? #{spawn-error-event-id spawn-done-event-id} event-id)
                              (= [] (second event)))
-                    (get-in machine [:spawn (if (= spawn-error-event-id event-id) :on-error :on-done)]))]
-      (doseq [cand (concat (when (and (some? spawn-v) (not (fn? spawn-v)))
+                    (get-in machine [:spawn (if (= spawn-error-event-id event-id) :on-error :on-done)]))
+          ;; (d) `[:rf.machine/done []]` names the root's own completion, whose
+          ;; `:on-done` action runs once every region is final.
+          on-done (when (and (= done-event-id event-id) (= [] (second event)))
+                    (:on-done machine))]
+      (doseq [cand (concat (when (some? on-done) (candidate-maps on-done))
+                           (when (and (some? spawn-v) (not (fn? spawn-v)))
                              (candidate-maps spawn-v))
                            (for [k     keys*
                                  :when (contains? on k)
@@ -1016,11 +1071,14 @@
   must therefore have its facts ensured BEFORE `maybe-boot` runs — otherwise it
   reads an unensured token.
 
-  Returns the deduped union of: the `:entry` diet of every node entered on the
-  initial-descent path, PLUS the `:always` closure reachable from the initial
-  leaf — for a flat / compound machine the single root scope, for a parallel
-  machine each region's own scope. Empty when the machine declares no requires
-  (the no-op fast path) or the index is absent (pure-fn callers)."
+  Returns the deduped union of: the machine root's own `:entry` diet (flat,
+  compound or parallel), each parallel region body's `:entry` diet, the
+  `:entry` diet of every node entered on the initial-descent path, PLUS the
+  `:always` closure reachable from the initial leaf — for a flat / compound
+  machine the single root scope, for a parallel machine each region's own
+  scope. All of them run at birth (Spec 005 §The machine root). Empty when the
+  machine declares no requires (the no-op fast path) or the index is absent
+  (pure-fn callers)."
   [machine]
   (let [{:keys [by-entry]} (get machine ensure-index-key)]
     (if (empty? by-entry)
@@ -1030,14 +1088,16 @@
             add!     (dedup-adder seen-ids acc)
             add-scope! (fn [scope initial-decl]
                          (when-let [ipath (initial-path-for-scope scope initial-decl)]
-                           (let [diet (transient [])]
-                             (lifecycle-diet-along-path by-entry scope ipath :entry diet)
-                             (add! (persistent! diet)))
-                           ;; the birth `:always` settle from the initial leaf.
-                           (add! (always-diet-for-state by-entry scope
-                                                        (initial-path-for-scope scope initial-decl)))))]
+                           (doseq [p (landing-paths scope ipath)]
+                             (let [diet (transient [])]
+                               (lifecycle-diet-along-path by-entry scope (initial-descent-path scope p) :entry diet)
+                               (add! (persistent! diet)))
+                             ;; the birth `:always` settle from the initial leaf.
+                             (add! (always-diet-for-state by-entry scope p)))))]
+        (add! (entry-diet by-entry :actions (:entry machine)))
         (if (and (map? (:regions machine)) (seq (:regions machine)))
           (doseq [[_region body] (:regions machine)]
+            (add! (entry-diet by-entry :actions (:entry body)))
             (add-scope! (:states body) (:initial body)))
           (add-scope! (scope-for machine) (:initial machine)))
         @acc))))
