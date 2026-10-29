@@ -278,8 +278,11 @@
   frame state and the door would reduce their args.
 
   `frame-id` is stamped as `:frame`, as every arm here does: the recorded
-  classification applies when it is the record's own frame, and anything else
-  falls closed under that frame's live classification. `overrides` overlays
+  classification applies when it is the record's own frame, and another
+  frame's live classification governs otherwise. With no observed frame the
+  record's own `:frame` governs — the record names the frame its state
+  belongs to, so that is no ambient borrow — and a record naming none fails
+  closed. `overrides` overlays
   the `:rf.egress/*` opts — the Epoch panel passes
   `{:rf.egress/include-large? false}` so its pre-image is elided exactly as the
   emit-time trace snapshot it is diffed against. The runtime-db partition is
@@ -292,7 +295,8 @@
                          (assoc :kind :rf/epoch-record)
                          (with-meta (meta record)))
            projected (rf/project-egress state
-                                        (merge (local-render-opts frame-id)
+                                        (merge (local-render-opts
+                                                 (if (some? frame-id) frame-id (:frame record)))
                                                {:rf.egress/include-runtime-db? true}
                                                overrides))]
        (merge record (select-keys projected record-state-slots))))))

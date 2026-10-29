@@ -245,6 +245,14 @@
   (focus-machine!        :auth/login)
   (push-scheduled! 1000 :auth/login :idle 5000 0))
 
+(def ^:private armed-now
+  "A wall-clock instant inside the seeded timer's countdown (armed at 1000,
+  firing at 6000). The loop prunes against `js/Date.now`, and against the
+  real clock that timer is long past its deadline: `prune-timers` evicts
+  it as a zombie and the loop stops for want of a ring, whatever the mount
+  gate says."
+  2000)
+
 (defn- run-queued!
   "Run every rAF callback queued so far, once. Callbacks they queue in turn
   wait for the next call."
@@ -260,8 +268,10 @@
   ;; rows read only the loops' own re-arm decisions.
   (let [had?     (exists? js/requestAnimationFrame)
         orig-raf (when had? js/requestAnimationFrame)
+        orig-now (.-now js/Date)
         queue    (atom [])]
     (set! js/requestAnimationFrame (fn [f] (swap! queue conj f) 0))
+    (set! (.-now js/Date) (fn [] armed-now))
     (after-rings/stop-tick!)
     (try
       (binding [after-rings/*tick-min-delta-ms* js/Number.MAX_SAFE_INTEGER]
@@ -286,6 +296,7 @@
         (is (empty? @queue) "and nothing is queued"))
       (finally
         (set! js/requestAnimationFrame (if had? orig-raf js/undefined))
+        (set! (.-now js/Date) orig-now)
         (after-rings/stop-tick!)))))
 
 (defn- reg-pin-focus-mode! []
@@ -297,8 +308,10 @@
   ;; Retro draws no ring (xray/003 §M.2), so its clock must not run either.
   (let [had?     (exists? js/requestAnimationFrame)
         orig-raf (when had? js/requestAnimationFrame)
+        orig-now (.-now js/Date)
         queue    (atom [])]
     (set! js/requestAnimationFrame (fn [f] (swap! queue conj f) 0))
+    (set! (.-now js/Date) (fn [] armed-now))
     (after-rings/stop-tick!)
     (reg-pin-focus-mode!)
     (try
@@ -313,4 +326,5 @@
         (is (empty? @queue) "and did not re-arm"))
       (finally
         (set! js/requestAnimationFrame (if had? orig-raf js/undefined))
+        (set! (.-now js/Date) orig-now)
         (after-rings/stop-tick!)))))

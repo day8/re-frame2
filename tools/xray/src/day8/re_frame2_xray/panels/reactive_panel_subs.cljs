@@ -694,9 +694,8 @@
     {:inputs [[:rf.xray/focus]
               [:rf.xray/epoch-history]
               [:rf.xray/reactive-show-unchanged?]
-              [:rf.xray/setting :general :show-unchanged-subs?]
-              [:rf.xray/observed-frame]]}
-    (fn [[focus history panel-unchanged? config-unchanged? observed-frame] _query]
+              [:rf.xray/setting :general :show-unchanged-subs?]]}
+    (fn [[focus history panel-unchanged? config-unchanged?] _query]
       ;; Pass the PINNED `:dispatch-id` as well as the `:epoch-id`.
       ;; Reading `:epoch-id` alone would discard the discriminator at this
       ;; call, so a bundle that settled no epoch would head-fall-back and
@@ -711,15 +710,16 @@
             ;; supply each sub's inputs + source coord. Defensive try so a
             ;; topology read never crashes the panel.
             ;;
-            ;; Resolved through the OBSERVED frame (`:rf.xray/observed-frame`,
-            ;; the focus's frame or else the picked target). This body runs
-            ;; inside Xray's own generation binding, and `sub-topology` reads
-            ;; whichever generation is bound, so a nil frame would classify
-            ;; the host's subs by the INSPECTOR's image: an image-local
-            ;; derived sub would come back as a Level-1 app-db reader with
-            ;; no edges.
+            ;; Resolved through the OBSERVED frame, the focus's `:frame`:
+            ;; the frame picker and `set-target-frame` write it together
+            ;; with `:target-frame`, so it names the picked target even
+            ;; before any bundle exists. This body runs inside Xray's own
+            ;; generation binding, and `sub-topology` reads whichever
+            ;; generation is bound, so a bare call would classify the host's
+            ;; subs by the INSPECTOR's image: an image-local derived sub
+            ;; would come back as a Level-1 app-db reader with no edges.
             topology (try (rf.live-frame/call-with-frame-resolution
-                            observed-frame
+                            (:frame focus)
                             (fn [] (rf.subs.tooling/sub-topology)))
                           (catch :default _ nil))
             proj     (project-record record topology)]
