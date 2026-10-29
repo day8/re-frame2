@@ -1,15 +1,18 @@
 (ns re-frame.core-contract-guards-test
   "Guards on internal seams: the registrar's closed kind set, registration
-  and replacement hook firing and isolation, `frame-disposed-for-drain?`'s
+  and replacement hook firing and isolation (a throwing hook leaves a dev
+  breadcrumb), `frame-disposed-for-drain?`'s
   record-state branches, and reg-sub's malformed-form rejection.
 
   The hook atoms are private with no public clear, so the fixture snapshots
   and restores them."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.source-store :as rf.source-store]
-            [re-frame.subs :as rf.subs]))
+            [re-frame.subs :as rf.subs]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn isolate-registrar-state [test-fn]
   (let [reg-hooks-before  @(deref #'rf.registrar/registration-hooks)
@@ -58,22 +61,41 @@
     (rf.registrar/register! :sub :s/two {:handler-fn (fn [] :b)})
     (is (= [true] (mapv :different-fn? @calls)))))
 
+(defn- hook-warnings
+  "The `:rf.warning/registration-hook-exception` breadcrumbs in `recs`, as
+  `[hook kind id thrown?]`, where `thrown?` says the slot carries `boom`."
+  [recs boom]
+  (for [ev    recs
+        :when (= :rf.warning/registration-hook-exception (:operation ev))
+        :let  [{:keys [hook kind id exception]} (:tags ev)]]
+    [hook kind id (identical? boom exception)]))
+
 (deftest throwing-registration-hook-is-swallowed
-  (let [reached (atom false)]
-    (rf.registrar/add-registration-hook! (fn [_] (throw (ex-info "bad hook" {}))))
+  (let [reached (atom false)
+        boom    (ex-info "bad hook" {})]
+    (rf.registrar/add-registration-hook! (fn [_] (throw boom)))
     ;; installed after the throwing hook: fires only if throws are isolated per hook
     (rf.registrar/add-registration-hook! (fn [_] (reset! reached true)))
-    (is (= {:was nil :now {:handler-fn :the-fn}}
-           (rf.registrar/register! :sub :s/iso {:handler-fn :the-fn})))
+    (rf.test-support/with-trace-recorder! [recs]
+      (is (= {:was nil :now {:handler-fn :the-fn}}
+             (rf.registrar/register! :sub :s/iso {:handler-fn :the-fn})))
+      (when rf.interop/debug-enabled?
+        (is (= [[:registration :sub :s/iso true]] (hook-warnings @recs boom))
+            "the throw leaves one dev breadcrumb naming the hook and the registration")))
     (is (true? @reached))
     (is (= :the-fn (:handler-fn (rf.registrar/lookup :sub :s/iso))))))
 
 (deftest throwing-replacement-hook-is-swallowed
-  (rf.registrar/add-replacement-hook! (fn [_] (throw (ex-info "bad repl hook" {}))))
-  (rf.registrar/register! :sub :s/repl {:handler-fn (fn [] :first)})
-  (let [result (rf.registrar/register! :sub :s/repl {:handler-fn (fn [] :second)})]
-    (is (some? (:was result)))
-    (is (some? (rf.registrar/lookup :sub :s/repl)))))
+  (let [boom (ex-info "bad repl hook" {})]
+    (rf.registrar/add-replacement-hook! (fn [_] (throw boom)))
+    (rf.registrar/register! :sub :s/repl {:handler-fn (fn [] :first)})
+    (rf.test-support/with-trace-recorder! [recs]
+      (let [result (rf.registrar/register! :sub :s/repl {:handler-fn (fn [] :second)})]
+        (is (some? (:was result)))
+        (is (some? (rf.registrar/lookup :sub :s/repl)))
+        (when rf.interop/debug-enabled?
+          (is (= [[:replacement :sub :s/repl true]] (hook-warnings @recs boom))
+              "only the re-registration runs the replacement hook, and its throw is reported"))))))
 
 (deftest frame-disposed-for-drain?-distinguishes-record-state-branches
   (reset! rf.frame/frames
