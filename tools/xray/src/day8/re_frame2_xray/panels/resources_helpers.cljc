@@ -89,16 +89,18 @@
   `key-id` egresses at — `[:rf.runtime/resources :entries <key-id> <slot-key>]`,
   mirroring `re-frame.resources.classification/instance-declaration-paths`,
   which lowers a resource's `:data`-rooted declarations directly under the
-  entry. Canonical home for the pure path logic so the on-box Resources-panel
+  entry, and a coarse `:sensitive?` / `:large?` claim onto each of the
+  entry's value slots — `:data`, `:error`, `:refresh-error`, `:page-error`,
+  `:next-page-param` and `:page-params` (Spec 016 §Resource registration
+  spec). Canonical home for the pure path logic so the on-box Resources-panel
   egress (`resources/on-box-resource-egress-fn`) matches the coordinate the
   resources artefact lowers its per-instance `:sensitive` / `:large`
   declarations to — one source of truth, no drift.
 
-  Every other slot re-roots at the entry's own key too, as a harmless
-  no-match: `:error` / `:refresh-error` are not lowered, and a resource
-  declares nothing under its `:scope` / `:params` — they are its identity, not
-  a classified slot, so the local operator sees them on-box. A slot-only path,
-  missing the key-id, matches no lowered declaration."
+  `:scope` / `:params` re-root at the entry's own key too, as a harmless
+  no-match: a resource declares nothing under them — they are its identity,
+  not a classified slot, so the local operator sees them on-box. A slot-only
+  path, missing the key-id, matches no lowered declaration."
   [key-id slot-key]
   (conj (vec entries-rel-path) key-id slot-key))
 
