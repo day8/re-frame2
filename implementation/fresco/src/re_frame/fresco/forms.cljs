@@ -47,7 +47,9 @@
             [re-frame.core :as rf]
             ;; `ui-root` (see `draft-path`), from its home.
             [re-frame.core-state :as rf.core-state]
-            [re-frame.fresco :as rf.fresco]))
+            [re-frame.fresco :as rf.fresco]
+            ;; `without-claimed-slots`, so the owned slots win at the slot.
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]))
 
 ;; ---------------------------------------------------------------------------
 ;; The draft's home
@@ -223,7 +225,9 @@
   Ownership: `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and
   `::h/revision` are the field's; everything else reaches the `<input>`
   unchanged, `:type` defaulting to `\"text\"`, and owned wins on
-  collision.
+  collision — at the React prop, so an `:onBlur` or `:onKeyDown` beside
+  the field's own `:on-blur` and `:on-key-down` is dropped rather than
+  left for map order to decide.
 
   Cost: every keystroke still writes the draft to `app-db`. Buffering
   changes when the domain value moves, not where the draft lives, which
@@ -231,21 +235,23 @@
   grid where that is too much, use an uncontrolled input or a native
   island. Chapter: `docs/core/fresco/05-forms.md`."
   [{:keys [control value on-commit on-cancel] :as props}]
-  (let [revision (::rf.fresco/revision props)
-        record   (rf.fresco/sub [drafts control])]
+  (let [revision  (::rf.fresco/revision props)
+        record    (rf.fresco/sub [drafts control])
+        forwarded (apply dissoc props module-props)
+        owned     {:value       (if (live? record revision) (:draft record) value)
+                   ::rf.fresco/revision revision
+                   :on-input    [::edit control revision ::rf.fresco/value]
+                   :on-blur     [::commit control revision on-commit]
+                   ;; The key MAP rather than a callback reading `.key`: the
+                   ;; substrate's composition gate answers a key event there,
+                   ;; so Enter cannot commit a partial IME composition, and a
+                   ;; composing Enter keeps its default, which is the IME's.
+                   ;; Enter's leaf is `::h/prevent` because inside a `<form>`
+                   ;; its default is implicit submission, and the commit is
+                   ;; the field's whole answer to Enter.
+                   :on-key-down {"Enter"  [::rf.fresco/prevent [::commit control revision on-commit]]
+                                 "Escape" [::cancel control revision on-cancel]}}]
     [:input
-     (merge {:type "text"}
-            (apply dissoc props module-props)
-            {:value       (if (live? record revision) (:draft record) value)
-             ::rf.fresco/revision revision
-             :on-input    [::edit control revision ::rf.fresco/value]
-             :on-blur     [::commit control revision on-commit]
-             ;; The key MAP rather than a callback reading `.key`: the
-             ;; substrate's composition gate answers a key event there, so
-             ;; Enter cannot commit a partial IME composition, and a
-             ;; composing Enter keeps its default, which is the IME's.
-             ;; Enter's leaf is `::h/prevent` because inside a `<form>` its
-             ;; default is implicit submission, and the commit is the
-             ;; field's whole answer to Enter.
-             :on-key-down {"Enter"  [::rf.fresco/prevent [::commit control revision on-commit]]
-                           "Escape" [::cancel control revision on-cancel]}})]))
+     (merge (rf.fresco.impl.codec/without-claimed-slots {:type "text"} forwarded)
+            (rf.fresco.impl.codec/without-claimed-slots forwarded owned)
+            owned)]))
