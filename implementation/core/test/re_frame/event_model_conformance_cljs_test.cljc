@@ -1,11 +1,12 @@
 (ns re-frame.event-model-conformance-cljs-test
-  "Cross-artefact event boundaries: recordable coeffects, closed effect maps,
+  "Public event-model boundaries: recordable coeffects, closed effect maps,
   retired registration forms, and always-on event delivery."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -43,7 +44,7 @@
 
 ;; Spec-Schemas §`:rf.cofx`: the retired draft opt has no dedicated error id;
 ;; it rides the generic unknown-opt warning with a did-you-mean.
-(deftest dispatch-opt-rf-world-inputs-is-the-generic-unknown-opt-with-did-you-mean
+(deftest ^:requires-debug dispatch-opt-rf-world-inputs-is-the-generic-unknown-opt-with-did-you-mean
   (rf/reg-event :evt-conf/inspect-renamed (fn [_ _] {}))
   (let [warning (->> (traces-during #(rf/dispatch-sync [:evt-conf/inspect-renamed]
                                                        {:rf.world/inputs {:rf/time-ms 1781078400123}}))
@@ -96,14 +97,16 @@
         (run! (fn [[hook-id prior]] (restore-hook! hook-id prior)) (map vector hook-ids previous))))))
 
 ;; There is no db-return convenience: a bare app-db-shaped map is a foreign
-;; top-level effect key, refused before anything commits.
+;; top-level effect key, refused before anything commits. The refusal holds in
+;; both postures; its recovery trace is dev instrumentation.
 (deftest reg-event-bare-app-db-shaped-return-is-effect-map-shape-not-committed
   (rf/reg-event :evt-conf/bare-seed! (fn [{:keys [db]} _] {:db (assoc db :count :seeded)}))
   (rf/reg-event :evt-conf/bare-db-return (fn [_ _] {:count 1}))
   (rf/dispatch-sync [:evt-conf/bare-seed!])
   (let [traces (traces-during #(rf/dispatch-sync [:evt-conf/bare-db-return]))]
-    (is (= [:seeded [:fix-effect]]
-           [(:count (rf/app-db-value :rf/default)) (shape-recoveries traces :count)]))))
+    (is (= :seeded (:count (rf/app-db-value :rf/default))))
+    (when rf.interop/debug-enabled?
+      (is (= [:fix-effect] (shape-recoveries traces :count))))))
 
 ;; An `:after` interceptor is the second route into the one boundary that
 ;; decides; a foreign key it injects gets the same verdict as a returned one.
@@ -114,8 +117,9 @@
     {:interceptors [:evt-conf/inject-foreign]}
     (fn [{:keys [db]} _] {:db (assoc db :committed :yes)}))
   (let [traces (traces-during #(rf/dispatch-sync [:evt-conf/handler-with-after]))]
-    (is (= [nil [:fix-effect]]
-           [(:committed (rf/app-db-value :rf/default)) (shape-recoveries traces :evt-conf/foreign)]))))
+    (is (nil? (:committed (rf/app-db-value :rf/default))))
+    (when rf.interop/debug-enabled?
+      (is (= [:fix-effect] (shape-recoveries traces :evt-conf/foreign))))))
 
 (deftest retired-forms-fan-out-throw-and-register-nothing
   (let [seen-errors (atom [])]

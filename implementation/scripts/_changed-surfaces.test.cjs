@@ -1893,7 +1893,7 @@ test('every spec module the full-gate runner loads is armed (rf2-65ajl)', () => 
   }
 });
 
-// The source-less test tiers — the reply / derivation / event
+// The source-less test tiers — the reply / derivation
 // cross-conformance tiers and the security partition (`:paths []`, no `src/`,
 // no Maven artefact) — the test-quiet reporter artefact, and the build-time
 // spec-resource reader each run in their own JVM job (implementation_jvm) and
@@ -1906,7 +1906,6 @@ test('the test-tier artefacts arm exactly implementation_jvm + cljs_node_test (r
   for (const file of [
     'implementation/reply-conformance/test/re_frame/reply_vocab_conformance_cljs_test.cljc',
     'implementation/derivation-conformance/test/re_frame/derivation_algebra_conformance_cljs_test.cljc',
-    'implementation/event-conformance/test/re_frame/event_model_conformance_cljs_test.cljc',
     'implementation/security/test/re_frame/security/mcp_egress_security_cljs_test.cljc',
     'implementation/test-quiet/src/re_frame/test_quiet/runner.clj',
     'implementation/test-quiet/test/re_frame/test_quiet_runner_contract_test.clj',

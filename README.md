@@ -198,8 +198,6 @@ implementation/                CLJS reference implementation — per-artefact su
   derivation-conformance/      test-only, not published — cross-family derivation/process
                                conformance (subscriptions + flows + resources + route facts +
                                machines composed)
-  event-conformance/           test-only, not published — cross-artefact public event-model
-                               conformance (registration, coeffects, replies, error channels)
   reply-conformance/           test-only, not published — managed-async reply-envelope
                                conformance across HTTP, resources, routing
   scripts/                     Build / release scripts
