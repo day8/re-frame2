@@ -207,7 +207,7 @@ is tested like [any other interceptor](../core/interceptors.md#testing-an-interc
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; a URL that cannot be built — a missing path param, or with `re-frame.schemas` loaded a value the schema rejects — raises `:rf.error/schema-validation-failure`), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial |
+| `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; a URL that cannot be built raises `:rf.error/no-such-route` for an unregistered `:to`, `:rf.error/missing-route-param` for a missing path param, or with `re-frame.schemas` loaded `:rf.error/schema-validation-failure` for a value the schema rejects), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial |
 | `:rf.error/ambiguous-registration` when the frame uses an id | The test registers an id the app already registers, such as `:rf.route/entry-denied` | Assert on what the app's handler does, or register the test's handler under an id of its own |
 | A link-click or Back/Forward test sees the `:restore` scroll default | The dispatch has no `:rf.route/cause`, so it counts as `:initial` | Pass the cause, as in [Simulating a link click or Back/Forward](#simulating-a-link-click-or-backforward) |
 | Handlers registered in one test are visible in the next | The reset fixture is missing | Add `ts/make-reset-runtime-fixture`; it rolls back registrations made during each test |
