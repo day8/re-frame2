@@ -8,16 +8,18 @@
  * compile's declared output, so an entry that reaches shadow-cljs any other way runs
  * outside the lane and can wedge a concurrent build.
  *
- * Three surfaces are read, across the whole tracked tree, so a launcher in a new
+ * Five surfaces are read, across the whole tracked tree, so a launcher in a new
  * directory is covered the day it lands:
  *   - every tracked `.cjs` / `.js` / `.mjs` file: none but the helper may name the npm
  *     runner (`shadow-cljs/cli/runner.js`), the package as a spawn argument or as the
  *     directory under `node_modules`, the `.bin` shim, or the JVM entry
  *     `shadow.cljs.devtools.cli`;
+ *   - every tracked `.py` file, read for the same routes as JS source;
  *   - the `scripts` of every tracked package.json: none may run `shadow-cljs` (bare,
  *     through npx or through `.bin`) or name `shadow.cljs.devtools.cli`; they call
  *     `implementation/scripts/lib/shadow.cjs` instead;
- *   - the `run:` steps of every workflow, read the same way as an npm script.
+ *   - the `run:` steps of every workflow, and every tracked `.sh` / `.ps1` script, each
+ *     line read the same way as an npm script.
  * Comments are stripped first, so prose that names a forbidden form is not a hit.
  *
  * NOT READ: test files (`*.test.cjs` and kin), whose runner paths are fakes and
@@ -58,11 +60,12 @@ const CODE_ROUTE_RE = new RegExp(
     'shadow-cljs\\/cli\\/runner\\.js',
     'shadow\\.cljs\\.devtools\\.cli',
     // The package as a spawn argument — the first element of an argv array or a
-    // call (`['shadow-cljs', 'watch', 'app']`, `spawn('shadow-cljs', …)`) — or as the
+    // call, or the second after `npx` (`['shadow-cljs', 'watch', 'app']`,
+    // `spawn('shadow-cljs', …)`, `["npx", "shadow-cljs", "compile"]`) — or as the
     // directory under node_modules (`path.join(IMPL, 'node_modules', 'shadow-cljs',
     // 'cli', 'runner.js')`). A shadow-cljs OUTPUT directory, such as
     // `path.join(dir, 'target', 'shadow-cljs', 'nrepl.port')`, is neither.
-    '(?:[[(]\\s*|([\'"`])node_modules\\1\\s*,\\s*)([\'"`])shadow-cljs\\2\\s*[,)\\]]',
+    '(?:[[(]\\s*(?:([\'"`])npx\\1\\s*,\\s*)?|([\'"`])node_modules\\2\\s*,\\s*)([\'"`])shadow-cljs\\3\\s*[,)\\]]',
     '\\.bin[\\/\\\\]shadow-cljs',
   ].join('|'),
 );
@@ -129,8 +132,21 @@ const shellCode = (body) =>
     .map((line) => line.replace(/"[^"]*"|'[^']*'/g, '""'))
     .join('\n');
 
+// Python source with its comment lines dropped.
+const pythonCode = (text) =>
+  text
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+
 const LAUNCHERS = tracked('*.cjs', '*.js', '*.mjs')
   .filter((p) => !isTestFile(p) && !exempt(p))
+  .map((p) => path.join(REPO_ROOT, p));
+const PYTHON = tracked('*.py')
+  .filter((p) => !exempt(p))
+  .map((p) => path.join(REPO_ROOT, p));
+const SHELL_SCRIPTS = tracked('*.sh', '*.ps1')
+  .filter((p) => !exempt(p))
   .map((p) => path.join(REPO_ROOT, p));
 const PACKAGES = tracked('package.json', '*/package.json')
   .filter((p) => !exempt(p))
@@ -149,6 +165,13 @@ test('the scanned surfaces are non-trivial, and the helper is among them', () =>
     'the playground engine package.json was not scanned',
   );
   assert.ok(WORKFLOWS.length >= 5, `expected the workflows, found ${WORKFLOWS.length}`);
+  for (const [files, known] of [
+    [PYTHON, 'scripts/check_fast_pr_gap.py'],
+    [SHELL_SCRIPTS, 'scripts/test-fast-pr.sh'],
+    [SHELL_SCRIPTS, 'scripts/reap-stale-test-processes.ps1'],
+  ]) {
+    assert.ok(files.some((f) => rel(f) === known), `${known} was not scanned`);
+  }
 });
 
 test('the helper itself carries the direct routes, so the pattern can see them', () => {
@@ -158,7 +181,7 @@ test('the helper itself carries the direct routes, so the pattern can see them',
 });
 
 test('every exemption still covers a tracked file', () => {
-  const all = tracked('*.cjs', '*.js', '*.mjs', 'package.json', '*/package.json');
+  const all = tracked('*.cjs', '*.js', '*.mjs', '*.py', '*.sh', '*.ps1', 'package.json', '*/package.json');
   for (const e of EXEMPT) {
     const covered = all.filter((p) => exempt(p) && p.startsWith(e.prefix));
     assert.ok(covered.length > 0, `exemption ${e.prefix} (${e.why}) covers no tracked file; delete it`);
@@ -176,6 +199,37 @@ for (const file of LAUNCHERS) {
       `${rel(file)} starts shadow-cljs directly (${hit && hit[0]}). Run it through ` +
         "implementation/scripts/lib/shadow.cjs — `runShadow(args, opts)`, or spawn " +
         '`SHADOW_CLI` under process.execPath — so the build takes the machine-wide lane.',
+    );
+  });
+}
+
+for (const file of PYTHON) {
+  test(`${rel(file)}: reaches shadow-cljs only through lib/shadow.cjs`, () => {
+    const hit = pythonCode(fs.readFileSync(file, 'utf8')).match(CODE_ROUTE_RE);
+    assert.equal(
+      hit && hit[0],
+      null,
+      `${rel(file)} starts shadow-cljs directly (${hit && hit[0]}). Run ` +
+        '`node <path>/implementation/scripts/lib/shadow.cjs <command> ...` (or an npm ' +
+        'script that does) instead, so the build takes the machine-wide lane.',
+    );
+  });
+}
+
+for (const file of SHELL_SCRIPTS) {
+  test(`${rel(file)}: every line reaches shadow-cljs only through lib/shadow.cjs`, () => {
+    const hits = fs
+      .readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .map((line, i) => ({ line: i + 1, code: shellCode(line) }))
+      .filter(({ code }) => SCRIPT_ROUTE_RE.test(code))
+      .map(({ line }) => `${rel(file)}:${line}`);
+    assert.deepEqual(
+      hits,
+      [],
+      'these lines run shadow-cljs directly. Call ' +
+        '`node <path>/implementation/scripts/lib/shadow.cjs <command> ...` (or an npm ' +
+        'script that does) instead.',
     );
   });
 }
@@ -228,8 +282,21 @@ test('the patterns catch planted direct routes and pass the helper forms', () =>
     "spawnSync('shadow-cljs', ['compile', 'x']);",
     "spawnSync('clojure', ['-M:test', '-m', 'shadow.cljs.devtools.cli', 'compile', 'x']);",
     "spawn(path.join(ROOT, 'node_modules', '.bin/shadow-cljs'), ['compile', 'x']);",
+    "spawnSync('npx', ['shadow-cljs', 'compile', 'x']);",
+    "const argv = ['npx', 'shadow-cljs', 'release', 'app'];",
   ];
   for (const src of planted) assert.match(stripComments(src), CODE_ROUTE_RE, src);
+  const plantedPython = [
+    'subprocess.run(["npx", "shadow-cljs", "compile", "app"], check=True)',
+    'subprocess.run(["clojure", "-M:cljs", "-m", "shadow.cljs.devtools.cli", "compile", "app"])',
+  ];
+  for (const src of plantedPython) assert.match(pythonCode(src), CODE_ROUTE_RE, src);
+  const allowedPython = [
+    '# npx shadow-cljs compile node-test, as the comment says',
+    'normalise("npx shadow-cljs compile node-test\\nnode out/node-test.js")',
+    'subprocess.run(["node", "scripts/lib/shadow.cjs", "compile", "app"])',
+  ];
+  for (const src of allowedPython) assert.doesNotMatch(pythonCode(src), CODE_ROUTE_RE, src);
   const allowed = [
     "spawnSync(process.execPath, [SHADOW_CLI, 'compile', BUILD_ID]);",
     "// spawns shadow-cljs/cli/runner.js under node\nconst x = 1;",
@@ -246,6 +313,7 @@ test('the patterns catch planted direct routes and pass the helper forms', () =>
     'cd ../tools/x && clojure -M:cljs-test -m shadow.cljs.devtools.cli compile t && node out/t.js',
     'node_modules/.bin/shadow-cljs watch app',
     'npm run a && shadow-cljs.cmd compile b',
+    '& npx shadow-cljs compile app',
   ];
   for (const body of plantedScripts) assert.match(shellCode(body), SCRIPT_ROUTE_RE, body);
   const allowedScripts = [
@@ -256,6 +324,7 @@ test('the patterns catch planted direct routes and pass the helper forms', () =>
     '# npx shadow-cljs compile server, as the comment says',
     'echo "::error::$f does not look like a shadow-cljs :advanced bundle"',
     'rm -rf implementation/.shadow-cljs',
+    "@{ Cmd=\"java -cp $wt\\src shadow.cljs.devtools.cli watch app\"; Expect='reap' },",
   ];
   for (const body of allowedScripts) assert.doesNotMatch(shellCode(body), SCRIPT_ROUTE_RE, body);
 });
