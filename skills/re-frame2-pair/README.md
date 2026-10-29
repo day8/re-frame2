@@ -103,7 +103,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: Make `:cart/apply-coupon` reject expired coupons instead of silently accepting them.
 >
-> **Claude**: Proposed change to your handler's source file:
+> **Claude**: Hot-swapped over the REPL — your source file is unchanged until you ask:
 > ```clojure
 > (rf/reg-event :cart/apply-coupon
 >   (fn [{:keys [db]} [_ code]]
@@ -111,7 +111,7 @@ Here's the kinds of conversations you can have with Claude.
 >            (assoc db :cart/coupon-error (str code " is expired"))
 >            (assoc-in db [:shopping-cart :coupon] code))}))
 > ```
-> Registered. The runtime emitted `:rf.registry/handler-replaced` so I know it took. Try clicking apply — I'll watch the next epoch.
+> `handler-meta` now reports a different `:handler-fn-hash`, so the new handler is live. Try clicking apply — I'll watch the next epoch.
 
 
 ### Ask a question that doesn't have a pre-baked op

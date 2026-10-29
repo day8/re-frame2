@@ -58,7 +58,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | View re-rendered too broadly | *done* | `:renders` per epoch + `:sub-runs` shows which over-broad sub recomputed |
 | Async effects make the app look "wrong for a moment" | *done* | `:effects` records each dispatched fx with its `:outcome`; walk `:trace-events` for the finer-grained timing/ordering picture |
 | Interceptor order changes behaviour | *done* | `handler-meta` lists ordered interceptor ids; `:rf.event/run-end` carries the whole chain's `:rf.event/elapsed-ms` (there is no per-interceptor timing) |
-| Hot reload leaves stale registrations behind | *done* | Probe-based `tail-build` against `(rf/handler-meta ...)`; `:rf.registry/handler-replaced` trace fires on every replace |
+| Hot reload leaves stale registrations behind | *done* | Probe-based `tail-build` against `(rf/handler-meta ...)`. The probe flip is the evidence: `:rf.registry/handler-replaced` streams to live listeners only and never lands in a frame's trace ring |
 | Wrong frame routing | *done* | `frame: ":foo"` on dispatch + `watch-epochs {frame}`; `:ambiguous-frame` refuses unsafe ops |
 | Machine snapshot drift after hot-reload | *done* | `restore-epoch` refuses with `:reason :rf.epoch/restore-version-mismatch`; recipe explains and proposes fix |
 | Form bug mixes edit / validation / saved state | *not yet* | General re-frame pattern; not a specific recipe |
@@ -84,7 +84,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 |---|---|---|
 | `replace-app-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf.epoch/replace-frame-state!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
 | `eval-cljs` treated as full-authority | *guardrail* | Default-ON (opt out with `--no-eval`); SKILL.md instructs Claude to prefer the structured tools, and flags that `eval-cljs` returns its value un-elided and is not governed by `--allow-sensitive-reads` |
-| `snapshot` `:machines` slice is runtime-db state, redacted off-box by default | *done* | The `:machines` slice is runtime-db-partition state; per Spec 011 ruling #14 it egresses as `:rf/redacted` unless the operator opted in. The opt-in is **folded onto the existing sensitive axis** (`redact-runtime-db? = (not incl?)`, `incl?` = `--allow-sensitive-reads` gate + `:include-sensitive`) — there is **no separate `:rf.egress/include-runtime-db?` arg** (deliberately asymmetric with Xray's dedicated `:rf.egress/include-runtime-db?` axis; both fail closed, both satisfy ruling #14). See SKILL.md §privacy posture and `skills/re-frame2/references/cross-cutting/privacy-and-elision.md`. |
+| `snapshot` `:machines` slice is runtime-db state, redacted off-box by default | *done* | The `:machines` slice is runtime-db-partition state; per Spec 011 ruling #14 it egresses as `:rf/redacted` unless the operator opted in. The opt-in is **folded onto the existing sensitive axis** (`redact-runtime-db? = (not incl?)`, `incl?` = `--allow-sensitive-reads` gate + `:include-sensitive`) — there is **no separate `:rf.egress/include-runtime-db?` arg** (deliberately asymmetric with Xray's dedicated `:rf.egress/include-runtime-db?` axis; both fail closed, both satisfy ruling #14). See `references/vocabulary.md` §Privacy posture and `skills/re-frame2/references/cross-cutting/privacy-and-elision.md`. |
 | Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |
 | Restore-failure traces are structured | *done* | Seven `:rf.epoch/*` operations with `:tags` — Tool-Pair contract |
 | Time-travel does NOT reverse side effects — surface limit | *guardrail* | SKILL.md style guidance + recipe text. (Restore *does* rewind durable frame-state — both partitions — but not the fx the cascade already fired or transient host state.) |
@@ -118,7 +118,7 @@ Full procedures in [`references/recipes.md`](../references/recipes.md).
 
 - **Visual / pixel-level inspection.** No screenshots, no layout reasoning. Pair with [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp).
 - **Cross-browser / mobile testing.** Single browser runtime at a time.
-- **Intermittent / race-condition bugs** that don't reproduce on command.
+- **Intermittent bugs nobody can trigger** while a session is attached. One a human can trigger is in scope: `record` + `read-recording` capture the signals across the interaction.
 - **Third-party widget internals** not exposed through the DOM or a public JS API.
 - **Ambient "watch for anything weird"** observation. `watch/*` is predicate-scoped.
 - **UX judgment.** Whether a flow *feels* right is beyond scope.

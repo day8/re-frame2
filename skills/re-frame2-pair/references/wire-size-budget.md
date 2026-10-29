@@ -61,7 +61,7 @@ narrowest one first.
 |---|---|---|---|
 | `max-tokens` | all read tools | 5000 | Hard cap. Lower for a probe; pass 0 to disable. Overflow returns `{:rf.mcp/overflow ...}` — except on the epoch reads (`trace-window`, `watch-epochs`), which cut their page to the records that fit instead. One real-app epoch record can be most of the 5000 default, so on those reads `max-tokens 0` (or a larger cap) is the ordinary way to take several records in one call. |
 | `path` | `snapshot` (`:app-db` slice), `get-path` | nil | You already know roughly where the answer lives. Beats slicing the whole frame. |
-| `mode "summary"` / `mode "full"` | `snapshot` | `"summary"` | Discovery snapshot first (summary is the default — counts, top keys, ~bytes). Switch to `"full"` only after the summary tells you which slice carries the answer. |
+| `mode "summary"` / `mode "full"` | `snapshot` | `"summary"` | Summary is the default — counts, top keys, ~bytes. Switch to `"full"` only after the summary tells you which slice carries the answer. |
 | `modes {"app-db" "full", ...}` | `snapshot` | per-slice | Mix: e.g. live state `"full"`, history `"summary"`. |
 | `include ["app-db"]` | `snapshot` | all 5 slices | Drop slices you don't need (`app-db`, `sub-cache`, `machines`, `epochs`, `traces`). |
 | `epochs-mode "diff"` / `"full"` | `snapshot`, `trace-window`, `watch-epochs` | `"diff"` | Keep diff (default). Only opt back to `"full"` when you need it for **time-travel restore** — the diffed `:db-after` can't drive `restore-epoch`. |
@@ -73,8 +73,9 @@ narrowest one first.
 
 ### Quick decision tree
 
-- **First contact with an unknown app-db?** `snapshot` (default mode
-  `"summary"`) — counts and top-level keys come back small.
+- **First contact with an unknown app?** `orient`, never a `snapshot`
+  (SKILL.md §Orient before you drill). A later `snapshot` defaults to
+  `"summary"` mode, so counts and top-level keys come back small.
 - **Know the key already?** `get-path` with a deep `path`.
 - **Same read twice in a row?** Add `cache true` on the second call.
 - **Investigating recent activity?** `trace-window` with default
@@ -110,7 +111,7 @@ narrowest one first.
 
 ### Cross-MCP marker family
 
-All four are returned **in place of** the requested payload (or slot)
+All five are returned **in place of** the requested payload (or slot)
 when their condition fires. Check for them at the top level (or
 inside the relevant slice) before treating a result as raw data:
 
