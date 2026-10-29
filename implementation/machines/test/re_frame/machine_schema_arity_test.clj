@@ -56,10 +56,10 @@
    [:password [:string {:min 8}]]])
 
 (def ^:private AuthLoginEvent
-  "Outer event-vector schema: `:submit` carries Credentials; framework-internal
-  sub-events admit :any; the trailing `[:? :any]` admits a managed-HTTP reply.
+  "Outer event-vector schema: `:submit` carries Credentials; any other inner
+  sub-event admits :any; the trailing `[:? :any]` admits a managed-HTTP reply.
   Deliberately permissive, because the data-schema test below dispatches ad-hoc
-  inner sub-events."
+  inner sub-events. The runtime's own `:rf.machine/*` events never meet it."
   [:cat [:= :auth.login/flow]
    [:or
     [:cat [:= :auth.login/submit] Credentials]

@@ -138,7 +138,7 @@
     :description "Lower an inline :reg-event entry (authored id, metadata, :impl fn body) into the registrar shape register-event! stores: the metadata at top level, validated as reg-event validates it, plus :handler-fn and the :interceptors chain (the authored refs, then the :rf/event-handler wrapper), so an image's inline event routes through a frame-targeted dispatch. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-sub
     :producer-ns 're-frame.subs
-    :description "Lower an inline :reg-sub descriptor's :impl computation fn into the runnable layer-1 (:input-kind :db) sub slots (:handler-fn + :input-kind + :input-signals) so an image's inline sub computes through a frame-targeted subscribe. Consumed by re-frame.image-assembly during assembly."}
+    :description "Lower an inline :reg-sub descriptor's :impl computation fn into the runnable sub slots reg-sub installs: the layer-1 app-db reader (:input-kind :db), or, when the metadata declares :inputs, the derived :static (:input-signals) or :parametric (:input-fn) slots, so an image's inline sub computes through a frame-targeted subscribe. Consumed by re-frame.image-assembly during assembly."}
    {:key         :image/lower-inline-fx
     :producer-ns 're-frame.fx
     :description "Lower an inline :reg-fx entry (authored id, metadata, :impl fn body) into the registrar shape reg-fx stores: the metadata at top level, validated as reg-fx validates it, plus the :handler-fn slot, so an image's inline fx runs (or is skipped by :platforms) when an event handler emits it. Consumed by re-frame.image-assembly during assembly."}

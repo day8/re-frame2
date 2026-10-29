@@ -40,9 +40,12 @@
       (finally
         (rf/unregister-listener! :trace ::rec)))))
 
-(defn- register-cyclic-subs! []
-  (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
-  (rf/reg-sub :b {:inputs [[:a]]} (fn [[a] _] a)))
+(defn- register-cyclic-subs!
+  "Bodies that never return nil themselves, so a nil read means the cycle
+  recovered rather than a body running over a substituted nil."
+  []
+  (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] [:a-saw b]))
+  (rf/reg-sub :b {:inputs [[:a]]} (fn [[a] _] [:b-saw a])))
 
 (defn- cache [] @(:sub-cache (rf.frame/frame fid)))
 
@@ -73,10 +76,13 @@
   ;; cycles back to :multi. The abandoned build never wires its on-dispose,
   ;; so the unwind must release :leaf or it leaks one ref.
   (rf/reg-sub :leaf (fn [db _] (:leaf db 7)))
-  (rf/reg-sub :cyc {:inputs [[:multi]]} (fn [[m] _] m))
+  (rf/reg-sub :cyc {:inputs [[:multi]]} (fn [[m] _] [:cyc-saw m]))
   (rf/reg-sub :multi {:inputs [[:leaf] [:cyc]]} (fn [[l c] _] [l c]))
   (let [[reaction events] (capture-sub-cycles #(rf.subs/subscribe [:multi] {:frame fid}))]
-    (is (= [nil 0] [(deref reaction) (get-in (cache) [[:leaf] :ref-count] 0)]))
+    (is (= [nil 0 nil]
+           [(deref reaction) (get-in (cache) [[:leaf] :ref-count] 0)
+            (rf/compute-sub [:multi] {})])
+        "compute-sub recovers the cycle to nil as subscribe does")
     (when rf.interop/debug-enabled?
       (is (= [1 [:multi :cyc :multi]] [(count events) (:cycle (:tags (first events)))])))))
 

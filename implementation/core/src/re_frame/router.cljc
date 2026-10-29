@@ -66,6 +66,28 @@
     supplied
     (assoc supplied :rf/time-ms (rf.interop/epoch-now-ms))))
 
+(defn- refuse-bad-dispatch-opts!
+  "Throw `:rf.error/bad-dispatch-opts` for a second argument to `dispatch` /
+  `dispatch-sync` that is not an opts map: neither a map nor nil, or a live
+  frame value, which is a map but carries no `:frame`. `(:frame opts)` reads
+  nil off each, so the event would otherwise go to the ambient frame. The
+  grammar is `subscribe`'s (Spec 009 §Error event catalogue)."
+  [event opts]
+  (let [received (rf.error/diag-value-summary opts)]
+    (rf.error/throw-error!
+      :rf.error/bad-dispatch-opts
+      're-frame.router/build-envelope
+      (str "dispatch takes an opts map as its second argument, e.g. {:frame "
+           "target} to target a named frame, and got "
+           (if (rf.frame/frame-value? opts)
+             "a live frame value"
+             (str "a " (name (:type received))))
+           ". A frame value or a frame id goes under :frame, as in (rf/dispatch "
+           (pr-str [(first event)]) " {:frame f}).")
+      {:recovery :pass-an-opts-map
+       :extra    {:received received
+                  :event-id (first event)}})))
+
 (defn- build-envelope
   "Build the dispatch envelope for `event` from dispatch `opts` (Spec 002
   §Routing: the dispatch envelope).
@@ -76,12 +98,18 @@
   before any registry lookup, as there is no `:rf/default` floor (Spec 002
   §Frame target resolution — the carried invariant). Throws
   `:rf.error/invalid-event` on a value that is not an event vector before
-  anything else reads it, and on a malformed `:rf.cofx` before the clock is
-  read. `:dispatch-id`, `:parent-dispatch-id` and `:call-site` are dev-only."
+  anything else reads it, `:rf.error/bad-dispatch-opts` on `opts` that are not
+  an opts map before anything reads them, and `:rf.error/invalid-cofx` on a
+  malformed `:rf.cofx` before the clock is read. `:dispatch-id`, `:parent-dispatch-id` and `:call-site` are dev-only."
   [event opts]
   ;; Every dispatch path funnels through here, `:dispatch` children and reply
   ;; completions included.
   (rf.router.diagnostics/validate-event-vector! event)
+  ;; Always-on: a positional frame value or frame id would otherwise write the
+  ;; ambient frame in production too.
+  (when-not (or (nil? opts)
+                (and (map? opts) (not (rf.frame/frame-value? opts))))
+    (refuse-bad-dispatch-opts! event opts))
   (let [dispatch-id        (when rf.interop/debug-enabled? (next-dispatch-id))
         parent-dispatch-id (when rf.interop/debug-enabled?
                              (some-> rf.trace/*handler-scope* :dispatch-id))
@@ -581,6 +609,25 @@
                 :rf.event/v        emit-event
                 :frame             frame}))
 
+(defn- warn-db-nil-coerced!
+  "Emit the dev-only `:rf.warning/db-nil-coerced` for an event whose `:db`
+  effect was nil and is being coerced to `{}`, because a `{:db nil}` return
+  is usually a bug (Spec 002 §The `:db` commit / no-op return family)."
+  [event frame]
+  (when rf.interop/debug-enabled?
+    (rf.trace/emit! :warning :rf.warning/db-nil-coerced
+                 {:rf.trace/event-id (when (vector? event) (first event))
+                  :rf.event/v        event
+                  :frame             frame
+                  :recovery          :warned
+                  :reason
+                  (str "Event `" (when (vector? event) (first event)) "` returned `{:db nil}`. "
+                       "app-db is never nil — the nil was coerced to `{}` "
+                       "(the v1 nil-footgun is removed structurally). "
+                       "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
+                       "nil); for a deliberate clear, return `{:db {}}` (which emits no "
+                       "diagnostic).")})))
+
 (defn- commit-frame-effects!
   "Install the cascade's `:db` and `:rf.db/runtime` effects as one atomic
   `commit-frame-transition!` (Spec 002 §An ordinary `:db` return
@@ -594,25 +641,15 @@
   Change traces follow Spec 009 §Canonical per-event trace sequence:
   `db-changed` and `db-noop` are app-db only, and `frame-state-changed` names
   the partitions that changed. A `:db nil` effect is coerced to `{}` with a
-  dev warning, because it is usually a bug."
+  dev warning, because it is usually a bug; where the flow pass runs,
+  `flows-after-interceptor` has already done so."
   [effects event-id event frame ctx]
   (let [app-effect?  (contains? effects :db)
         rt-effect?   (contains? effects :rf.db/runtime)
         nil-db?      (and app-effect? (nil? (:db effects)))
         new-db       (if nil-db? {} (:db effects))]
-    (when (and nil-db? rf.interop/debug-enabled?)
-      (rf.trace/emit! :warning :rf.warning/db-nil-coerced
-                   {:rf.trace/event-id (when (vector? event) (first event))
-                    :rf.event/v        event
-                    :frame             frame
-                    :recovery          :warned
-                    :reason
-                    (str "Event `" (when (vector? event) (first event)) "` returned `{:db nil}`. "
-                         "app-db is never nil — the nil was coerced to `{}` "
-                         "at the commit boundary (the v1 nil-footgun is removed structurally). "
-                         "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
-                         "nil); for a deliberate clear, return `{:db {}}` (which emits no "
-                         "diagnostic).")}))
+    (when nil-db?
+      (warn-db-nil-coerced! event frame))
     (if (or app-effect? rt-effect?)
       (let [emit-event (rf.interceptor/get-coeffect ctx :event)
             ;; A whole-value replace (Spec 002 §A runtime effect replaces
@@ -657,7 +694,11 @@
   (Spec 013 §Failure semantics). Emits the dev-only pending-db pair: t1
   `:rf.event/db-pending` when the handler returned `:db`, and t2
   `:rf.event/db-pending-post-flow` only when a flow changed it. Both carry the
-  full value, which structural sharing makes pointer-sized."
+  full value, which structural sharing makes pointer-sized.
+
+  A `{:db nil}` return is coerced to `{}`, with its warning, before the pass
+  reads it: the pass writes flow outputs into the db it is handed, so a nil
+  would reach the commit as a map and the wipe would go unreported."
   (rf.interceptor/->interceptor*
     :id          :rf/flows
     :rf/default? true
@@ -676,9 +717,11 @@
               ;; silently stops updating (Spec 013 §Input partition).
               has-runtime-effect? (contains? effects :rf.db/runtime)
               run-on-db   (rf.late-bind/get-fn :flows/run-flows-on-db)
-              pending-db  (if has-db?
-                            (:db effects)
-                            (when run-on-db (-> ctx :coeffects :db)))
+              coerce-nil? (and run-on-db has-db? (nil? (:db effects)))
+              pending-db  (cond
+                            coerce-nil? {}
+                            has-db?     (:db effects)
+                            run-on-db   (-> ctx :coeffects :db))
               ;; Read-only for the pass: flow outputs write app-db only.
               pending-runtime-db (when run-on-db
                                    (if has-runtime-effect?
@@ -688,6 +731,8 @@
               ;; carries; epoch assembly relies on it.
               emit-event  (when has-db? (rf.interceptor/get-coeffect ctx :event))
               event-id    (when has-db? (some-> emit-event first))]
+          (when coerce-nil?
+            (warn-db-nil-coerced! emit-event frame))
           (when has-db?
             (rf.trace/emit! :rf.event :rf.event/db-pending
                          {:rf.trace/event-id event-id

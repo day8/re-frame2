@@ -195,3 +195,16 @@
                                          :handler-fn ::s})))
                    [:sub :a/s])
         "a changed pool re-seals")))
+
+(deftest a-set-pool-leaves-the-cache-usable
+  ;; an explicit pool may be any collection, and every later miss walks the
+  ;; cached keys for the ones it supersedes: a set pool leg must not break that
+  ;; walk, or no later image generation could be sealed
+  (record! "a.core" :event :a/live ::live)
+  (let [img      (rf.image/image {:id :a :select-ns {:include ["a.core"]}})
+        set-pool #{{:rf.provenance/ns "a.core" :kind :event :id :a/e :handler-fn ::a}}]
+    (is (contains? (:rf.gen/resolver (rf.image-assembly/assemble [img] set-pool))
+                   [:event :a/e]))
+    (is (contains? (:rf.gen/resolver (rf.image-assembly/assemble [img]))
+                   [:event :a/live])
+        "a live-store miss after the set pool still seals")))
