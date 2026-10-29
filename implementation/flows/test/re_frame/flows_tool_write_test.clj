@@ -5,7 +5,9 @@
   returns for them (Spec 013 §Dirty-check semantics). The memo still accounts
   for the output paths the frame holds, so a flow cleared or moved after the
   write has its former path vacated on that event (Spec 013
-  §Re-registration)."
+  §Re-registration). An epoch restore re-seeds the memo the restored
+  snapshot was computed under, so a flow that left or moved after that epoch
+  has its output vacated on the next event, and classified until then."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -90,3 +92,59 @@
     (is (redacted?) "the write leaves the claim standing")
     (touch!)
     (is (redacted?) "and so does the next event")))
+
+;; ---- restoring an epoch from before a departure ---------------------------
+
+(defn- run-secret-flow!
+  "Make `:t/f` run `:out`, writing a sensitive string from `[:n]` to
+  `[:old]`, seed `{:n 3}`, and return the seeding event's epoch id."
+  []
+  (run-flow! {:inputs [[:n]] :output-path [:old] :sensitive [[]]}
+             #(str "secret-" %))
+  (rf.epoch/current-epoch-id :t/f))
+
+(defn- egress
+  "The committed app-db of `:t/f` as it leaves the runtime."
+  []
+  (rf.elision/elide-wire-value (db) {:frame :t/f}))
+
+(defn- restore! [epoch-id & [opts]]
+  (:ok? (rf.epoch/restore-epoch! :t/f epoch-id opts)))
+
+(deftest restoring-an-epoch-from-before-a-flow-left-vacates-its-output-on-the-next-event
+  (let [seeded (run-secret-flow!)]
+    (rf/clear :flow :out)
+    (is (= {:n 3} (touch!)) "precondition: the departure vacated the output")
+    (is (restore! seeded))
+    (is (= {:n 3 :old "secret-3"} (db)) "the restored snapshot holds the output")
+    (is (= {:n 3 :old :rf/redacted} (egress)) "and it stays classified")
+    (is (= {:n 3} (touch!)) "until the next event vacates it")))
+
+(deftest restoring-an-epoch-from-before-an-output-moved-vacates-the-former-path
+  (let [seeded (run-secret-flow!)]
+    (rf/reg-flow :out {:inputs [[:n]] :output-path [:new] :sensitive [[]]}
+                 #(str "secret-" %))
+    (is (= {:n 3 :new "secret-3"} (touch!)) "precondition: the move vacated [:old]")
+    (is (restore! seeded))
+    (is (= {:n 3 :old :rf/redacted} (egress)))
+    (is (= {:n 3 :new "secret-3"} (touch!)))))
+
+(deftest restoring-the-before-snapshot-of-the-vacating-event-vacates-the-output
+  ;; The vacating event publishes the memo it started from away before its own
+  ;; record is assembled; the record keeps that memo for its before snapshot.
+  (run-secret-flow!)
+  (rf/clear :flow :out)
+  (touch!)
+  (let [vacating (rf.epoch/current-epoch-id :t/f)]
+    (is (restore! vacating {:to :before}))
+    (is (= {:n 3 :old :rf/redacted} (egress)))
+    (is (= {:n 3} (touch!)))))
+
+(deftest restoring-an-epoch-of-a-flow-still-running-recomputes-it
+  (let [seeded (run-secret-flow!)]
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
+    (rf/dispatch-sync [:bump] {:frame :t/f})
+    (is (= {:n 4 :old "secret-4"} (db)))
+    (is (restore! seeded))
+    (is (= {:n 3 :old :rf/redacted} (egress)))
+    (is (= {:n 3 :old "secret-3"} (touch!)))))

@@ -1068,7 +1068,7 @@
       names the live record — so even the write itself can never redirect into a
       same-id successor.
 
-  The post-write tail (flows memo reset, last-settled anchor, deferred
+  The post-write tail (flow memo re-seed, last-settled anchor, deferred
   subsystem trace commit, host-work quiesce) addresses the frame by bare id
   without re-checking the token, because nothing the tail runs can retire the
   incarnation: a cross-thread `destroy-frame!` waits on the `:drain-lock`,
@@ -1140,7 +1140,13 @@
                                            reconciled-frame-state)]
            (if (nil? changed-keys)
              (refuse! :rf.error/no-such-handler {:kind :frame :frame frame-id})
-             (do (rf.trace/emit! :rf.epoch :rf.epoch/restored
+             (do ;; The flow memo the restored snapshot was computed under, so
+                 ;; the next pass vacates the output of a flow that has since
+                 ;; left or moved, which stays classified until then (Spec 013
+                 ;; §Re-registration).
+                 (when-let [reseed-memo! (rf.late-bind/get-fn :flows/reseed-memo!)]
+                   (reseed-memo! frame-id (rf.epoch.assembly/flow-definitions epoch to)))
+                 (rf.trace/emit! :rf.epoch :rf.epoch/restored
                               {:frame       frame-id
                                :rf.epoch/id (:epoch-id epoch)})
                  ;; The exact-incarnation install committed, so the public result

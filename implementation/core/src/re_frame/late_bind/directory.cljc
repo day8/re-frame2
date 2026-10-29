@@ -262,6 +262,12 @@
    {:key         :flows/output-classification
     :producer-ns 're-frame.flows
     :description "`(fn [frame-id])` — the output classification of the flows a frame runs (EP-0039 §2, Flows), `{flow-id {:sensitive [abs-path …] :large [abs-path …]}}`, absolute in app-db: each definition the bound view holds of an id the frame's `:flows` names (every namespace's, for an id more than one namespace registers), and each definition its evaluation memo still holds, so a departed or moved output stays classified until the event that vacates it. Called while `re-frame.elision/frame-policy` builds the frame's policy, inside its resolution seam, so it never throws; the policy claims each path under `{:source :flow :flow-id <id>}`. Unbound (flows absent) ⇒ no flow classification. Spec 013 §Flow tracing."}
+   {:key         :flows/memo-definitions
+    :producer-ns 're-frame.flows
+    :description "`(fn [frame-id frame-state-before])` — `{:before {flow-id definition} :after {flow-id definition}}`: the definitions, without inputs or outputs, the frame's flow evaluation memo held for the two snapshots of the epoch record whose before snapshot is `frame-state-before`. `re-frame.epoch.assembly/build-record` keeps them in the record's metadata for a restore to re-seed. Unbound (flows absent) ⇒ the record carries none."}
+   {:key         :flows/reseed-memo!
+    :producer-ns 're-frame.flows
+    :description "`(fn [frame-id definitions])` — make the frame's flow evaluation memo one input-less row per `{flow-id definition}` entry. `re-frame.epoch.tool-pair/perform-restore!` calls it once the recorded frame-state has installed, with the definitions the record kept for that snapshot, so the next pass recomputes every flow the frame runs and vacates the output of any that has left or moved since; `:flows/output-classification` keeps that output classified until then (Spec 013 §Re-registration). Unbound (flows absent) ⇒ no memo to re-seed."}
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
     :description "Drop every frame's flow evaluation memo (test isolation). Flow definitions are registrar rows, which the reset fixture snapshots and restores."}
