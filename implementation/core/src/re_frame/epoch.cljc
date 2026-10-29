@@ -296,6 +296,17 @@
         (commit-record! frame-id frame-state-before frame-state-after events
                         committed-at :ok nil nil)))))
 
+(defn- discard-event!
+  "Drop one dequeued event's buffered capture, by its `dispatch-id`, and commit
+  nothing: the router calls it when the event's processing threw, so no
+  `settle!` follows. The harvest `settle!` uses does the split, so a queued
+  child's marker, which carries its own dispatch id, stays for the child's
+  settle."
+  [frame-id dispatch-id]
+  (when rf.interop/debug-enabled?
+    (rf.epoch.state/harvest-buffer-for-event! frame-id dispatch-id)
+    nil))
+
 (defn- commit-halt-record!
   "Commit a halt record for an event that never ran.
 
@@ -723,7 +734,7 @@
 ;; `re-frame.core` requires this namespace, so core's doors call it directly.
 ;; These hooks remain because their callers sit inside this namespace's own
 ;; require graph, where a direct require would close a cycle: `re-frame.router`
-;; calls `settle!` and `commit-halt-record!`, `re-frame.trace` calls
+;; calls `settle!`, `discard-event!` and `commit-halt-record!`, `re-frame.trace` calls
 ;; `capture-event!` and `re-frame.projection` calls `project-record`, and this
 ;; namespace requires all three; `re-frame.epoch.capture` reaches the
 ;; `re-frame.epoch.listeners` back-fills, and `listeners` requires `capture`
@@ -738,6 +749,8 @@
   (rf.late-bind/set-fns!
     {;; ---- per-cascade lifecycle (router + trace capture seam) -------
      :epoch/settle!             settle!
+     ;; Drops a thrown event's capture; no settle follows a throw.
+     :epoch/discard-event!      discard-event!
      ;; Per-event halt commit for a depth-exceeded event that never ran, so
      ;; `settle!` would otherwise skip its empty buffer.
      :epoch/commit-halt-record! commit-halt-record!

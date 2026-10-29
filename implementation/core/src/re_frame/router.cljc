@@ -1291,6 +1291,18 @@
     (settle! frame-id frame-state-before frame-state-after committed-at
              settling-dispatch-id)))
 
+(defn- discard-event-epoch!
+  "Drop the capture of an event whose processing threw, by its dispatch id, so
+  nothing commits for it. No settle follows a throw, and a buffered run-start
+  would otherwise read as a cascade in flight for the frame's life, keeping
+  every later post-settle render, sub-run and unmount from back-filling (Spec
+  002 §Drain versus event — the epoch unit). Dispatch ids and the capture
+  buffer are dev-only, hence the gate."
+  [frame-id dispatch-id]
+  (when rf.interop/debug-enabled?
+    (when-let [discard! (rf.late-bind/get-fn :epoch/discard-event!)]
+      (discard! frame-id dispatch-id))))
+
 ;; ---- drain-loop! phases ---------------------------------------------------
 ;;
 ;; `drain-loop!` marks the drainer, runs `run-one-pass!` to fixed point, then
@@ -1453,7 +1465,9 @@
   the event that just settled stops the drain at that boundary. Each event
   gets its own epoch from its own frame-state snapshots (Spec 002 §Drain
   versus event — the epoch unit); the before-snapshot is also bound to
-  `rf.frame/*run-frame-state-before*`, marking the run as open."
+  `rf.frame/*run-frame-state-before*`, marking the run as open. An event whose
+  processing throws commits no epoch: its capture is discarded and the throw
+  propagates."
   [frame-id frame-record router drain-depth allowed-destroy-token]
   ;; `depth` counts the family's settled events, its root included;
   ;; `tail-ring` holds their last K ids as cycle evidence. Both restart with
@@ -1500,10 +1514,14 @@
               time-ms     (-> envelope :rf.cofx :rf/time-ms)]
           ;; Marks this event's run as open on the stack
           ;; (`rf.frame/guard-open-drain!`).
-          (binding [rf.frame/*run-frame-state-before* fs-before]
-            (call-with-event-in-flight
-              router
-              #(process-event! envelope owner-token)))
+          (try
+            (binding [rf.frame/*run-frame-state-before* fs-before]
+              (call-with-event-in-flight
+                router
+                #(process-event! envelope owner-token)))
+            (catch #?(:clj Throwable :cljs :default) t
+              (discard-event-epoch! frame-id (:dispatch-id envelope))
+              (throw t)))
           (settle-event-epoch! frame-id fs-before
                                (rf.frame/frame-record-state-value frame-record)
                                time-ms (:dispatch-id envelope))

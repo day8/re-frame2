@@ -23,6 +23,7 @@
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.elision]
             [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.state :as rf.epoch.state]
@@ -370,6 +371,76 @@
   (rf/reg-event :app/reopen (fn [_ _] {:fx [[:test/re-reg-modal :test/modal]]}))
   (rf/dispatch-sync [:app/reopen] {:frame :test/main})
   (is (not-any? #(= :rf.frame (:op-type %)) (rf.epoch.state/buffer-for :test/modal))))
+
+;; ---- a thrown event leaves nothing buffered --------------------------------
+;;
+;; No settle follows a throw out of an event's processing, so the router
+;; discards that event's capture. Left buffered, a thrown run's run-start reads
+;; as a cascade in flight for the frame's life: post-settle renders are then
+;; buffered and dropped instead of back-filled into the epoch that caused them.
+
+(defn- throw-id
+  "Run `thunk`; return the `:rf.error/id` of the ExceptionInfo it throws, or
+  `::no-throw`."
+  [thunk]
+  (try (thunk) ::no-throw
+       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+
+(defn- with-schemas-seam-unbound
+  "Run `thunk` as in an app that never loaded `re-frame.schemas`, where a
+  `:boundary? true` handler throws `:rf.error/schemas-artefact-missing` after
+  its run-start."
+  [thunk]
+  (let [hooks [:schemas/validate-event! :schemas/check!]
+        saved (mapv rf.late-bind/get-fn hooks)]
+    (try
+      (doseq [hook hooks] (rf.late-bind/set-fn! hook nil))
+      (thunk)
+      (finally
+        (doseq [[hook f] (map vector hooks saved)] (rf.late-bind/set-fn! hook f))))))
+
+(defn- after-a-good-event
+  "Settle `[:good]` on `frame-id`, then emit a post-settle render; what the
+  history, the good event's record and the buffer then hold."
+  [frame-id]
+  (rf/dispatch-sync [:good] {:frame frame-id})
+  (emit-render! frame-id :after-view)
+  (let [record (last-epoch frame-id)]
+    {:history      (mapv :event-id (rf.epoch/epoch-history frame-id))
+     :trigger      (:trigger-event record)
+     :event-traces (into #{} (comp (filter #(= :rf.event (:op-type %)))
+                                   (map #(-> % :tags :rf.event/v)))
+                         (:trace-events record))
+     :renders      (rendered-view-ids record)
+     :buffer       (rf.epoch.state/buffer-for frame-id)}))
+
+(def ^:private clean-good-event
+  {:history [:good] :trigger [:good] :event-traces #{[:good]}
+   :renders #{:after-view} :buffer []})
+
+(deftest thrown-event-before-run-start-leaves-nothing-buffered
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :thrown/needs-cofx {:rf.cofx/requires [:thrown/never-registered]}
+    (fn [_ _] {}))
+  (rf/reg-event :good (fn [{:keys [db]} _] {:db (assoc db :good true)}))
+  (is (= :rf.error/unregistered-cofx
+         (throw-id #(rf/dispatch-sync [:thrown/needs-cofx] {:frame :test/main}))))
+  (is (= [] (rf.epoch.state/buffer-for :test/main))
+      "the thrown event's dispatched marker and error trace are discarded")
+  (is (= clean-good-event (after-a-good-event :test/main))))
+
+(deftest thrown-event-after-run-start-leaves-nothing-buffered
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :thrown/boundary {:schema [:cat [:= :thrown/boundary] :int] :boundary? true}
+    (fn [_ _] {}))
+  (rf/reg-event :good (fn [{:keys [db]} _] {:db (assoc db :good true)}))
+  (is (= :rf.error/schemas-artefact-missing
+         (with-schemas-seam-unbound
+           #(throw-id (fn [] (rf/dispatch-sync [:thrown/boundary 1] {:frame :test/main}))))))
+  (is (= [] (rf.epoch.state/buffer-for :test/main))
+      "the thrown run's traces, its run-start included, are discarded")
+  (is (= clean-good-event (after-a-good-event :test/main))
+      "the good event's record is its own, and a post-settle render back-fills it"))
 
 ;; ---- the :renders row carries the render's cause and timing ----------------
 ;;
