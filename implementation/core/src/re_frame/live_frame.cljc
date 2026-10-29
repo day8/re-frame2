@@ -1042,8 +1042,8 @@
        ;; `:images` must fail loud BEFORE any record exists, so a conflict
        ;; leaves no half-created frame. Between
        ;; those two points the frame is not in `frames`, hence not in
-       ;; `rf.frame/generation-frame-ids` — and a `reg-*` racing that gap fires the registration
-       ;; hook against an EMPTY live-frame set. `mark-dirty-and-schedule!`
+       ;; `rf.frame/generation-frame-ids` — and a `reg-*` racing that gap fires
+       ;; the registration hook against an EMPTY live-frame set. `mark-dirty-and-schedule!`
        ;; correctly skips there (with nothing image-loaded a flush is a
        ;; guaranteed no-op, and every `reg-event` / `reg-sub` / `reg-fx` fires
        ;; that hook, so the skip is a real hot-path win). Left there, no mark
