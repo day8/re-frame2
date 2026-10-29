@@ -1619,8 +1619,10 @@
   through `project-egress` with `{:path []}` — re-rooting the walk at
   the frame's app-db so the sensitive / large declarations match
   natively. Symmetric with how `flows.cljc` elides `:rf.flow/computed`'s
-  `:result` / `:before` at emit-time using the flow's `:path`; here we
-  do it at egress because the t1/t2 stamps are stored raw and the egress
+  `:result` / `:before` at emit-time using the flow's `:path`. The t1/t2
+  stamps are projected at emit time too (`re-frame.classification/project-db-tags`,
+  which leaves a frame with no declarations its raw stamp), and this pass
+  re-applies the frame's declarations at egress because the egress
   projection is the privacy boundary. `elide-trace-events-slot` calls it only
   under the trusted-local `:rf.egress/include-sensitive?` opt-in: otherwise the
   trace-tag allow-list redacts `:rf.event/db` whole and the re-rooted walk
