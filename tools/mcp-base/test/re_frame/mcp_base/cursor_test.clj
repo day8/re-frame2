@@ -100,7 +100,8 @@
                    (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/b64-encode text) offset-cursor?))
       (str m " {:junk 1}")
       (str m "] {:junk 1}")
-      (str m " " (pr-str :re-frame.mcp-base.cursor/cursor-eof-sentinel)))
+      (str m " :re-frame.mcp-base.cursor/cursor-eof-sentinel] {:junk 1}")
+      (str m " :re-frame.mcp-base.cursor/cursor-eof-sentinel] #foo/bar 1 ]]]"))
     (is (= {:v 1 :offset 0 :total 1 :sig "s"}
            (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/b64-encode (str m "   "))
                                              offset-cursor?)))))

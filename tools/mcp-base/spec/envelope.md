@@ -89,7 +89,7 @@ So after the leading-token pre-filter matches, `marker-text?` **parses the whole
 - that key is `vocab/cache-hit-key` or `vocab/overflow-key`, and
 - a **map** body (additive body fields are permitted where the conformance schema allows them — only the OUTER wrapper must be closed).
 
-The read reuses `cursor.md`'s host-agnostic *one form, EOF-exhausted, tagged-literals-rejected* technique (wrap as `[<text> <eof-sentinel>]`, require the read to yield exactly `[<one-form> <eof-sentinel>]`). This rejects — identically on `clojure.edn` (JVM) and `cljs.reader` (CLJS) — an extra top-level sibling, a trailing EDN form, an injected `]` truncation, any tagged literal (built-in `#inst`/`#uuid` or custom `#js`/`#foo`), and a non-map root/body. Anything that fails the confirmation is ordinary/malformed payload and continues through cap enforcement. The cheap path for genuinely generated markers is preserved: their pre-filter matches and the parse confirms a closed single-key map, with no overflow-of-overflow recursion.
+The read is `cursor.md`'s shared *one form, end of input, tagged-literals-rejected* reader (`read-one-form`). It rejects — identically on the JVM and CLJS — an extra top-level sibling, a trailing EDN form, a stray `]`, any tagged literal (built-in `#inst`/`#uuid` or custom `#js`/`#foo`), and a non-map root/body. Anything that fails the confirmation is ordinary/malformed payload and continues through cap enforcement. The cheap path for genuinely generated markers is preserved: their pre-filter matches and the parse confirms a closed single-key map, with no overflow-of-overflow recursion.
 
 ## Size bound
 

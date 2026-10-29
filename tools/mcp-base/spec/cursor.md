@@ -96,29 +96,13 @@ The raw host decoders do not enforce this, and they diverge:
 The EDN reader inside `decode-cursor` rejects **every** tagged literal — custom AND built-in — and surfaces the rejection as `::malformed`:
 
 - A `:default` data-reader throws `:rf.error/mcp-cursor-bad-edn-tag` on every **unregistered** tag (`#js`, `#foo/bar`, …).
-- `:readers` overrides throw on the **built-in** `#inst` / `#uuid` tags. These have registered readers (`clojure.edn` / `cljs.reader` resolve them from `*data-readers*` / the tag-table), so they **bypass `:default`** and would otherwise decode to a host `java.util.Date` / `UUID` (JVM) or `js/Date` / `cljs.core/UUID` (CLJS). Because `:readers` is consulted **before** `:default` on both platforms, the override wins and the built-in tag never materialises a host object.
+- `:readers` overrides throw on the JVM's **built-in** `#inst` / `#uuid` tags. `clojure.edn` resolves them itself, so they **bypass `:default`** and would otherwise decode to a host `java.util.Date` / `UUID`; because `:readers` is consulted **before** `:default`, the override wins. The CLJS read is `cljs.tools.reader.edn`, which carries no built-in tags — unlike `cljs.reader`, whose tag table would also admit `#js` and `#queue` — so `:default` sees every tag there.
 
 A hostile or corrupt cursor therefore cannot smuggle a tagged literal, or the host object it would decode to, past the reader. The surrounding `decode-cursor` catch maps the rejection to `::malformed` before the consumer's shape predicate runs.
 
 ## One-form requirement
 
-A cursor is **one** opaque EDN payload map. `read-edn-no-tags` requires the decoded text to be exactly one form and rejects any trailing form as `::malformed`; a plain `read-string` would read only the first form without proving exhaustion.
-
-### Why not the naive one-element-vector wrap — the injected-`]` bypass
-
-The obvious closure — wrap the decoded text in `[ … ]` and accept a ONE-element vector — is **bypassable by `]`-injection** and is NOT what the implementation does. Attacker text `{…valid map…}] <junk>` wraps to `[{…}] <junk>]`: the *injected* `]` closes the wrapper early, so `read-string` reads the clean one-element vector `[{…}]`, returns the inner map, and SILENTLY DISCARDS everything after the injected `]`. A one-element-vector check would accept that corrupted cursor.
-
-### The EOF-sentinel exhaustion check (what the implementation does)
-
-`read-edn-no-tags` instead asserts reader **exhaustion** via an appended sentinel — the string-host analog of an `:eof` read sentinel. It wraps as `[ <decoded-text> <eof-sentinel> ]` and requires the read to yield **exactly** `[<one-form> <eof-sentinel>]` — a **two**-element vector whose SECOND element is the sentinel. The sentinel can only land as the trailing element if the reader consumed the WHOLE wrapped string:
-
-- a single clean form (trailing whitespace / comments absorbed) yields `[<map> <sentinel>]` → accepted, returning the sole payload form so the caller's `map?` / `valid?` checks are unchanged;
-- an **injected `]`** truncates the read before the sentinel, so the vector does NOT end with it → `::malformed`;
-- any **genuine trailing form** pushes the element count past 2 → `::malformed`.
-
-The sentinel is a qualified, unguessable keyword (`:re-frame.mcp-base.cursor/cursor-eof-sentinel`); even attacker text that reproduces the literal cannot pass — the cursor must still be a single payload map FOLLOWED by the sentinel (two forms, no more), so a trailing sentinel keyword pushes the count to 3 and rejects.
-
-This is a pure-`read-string` technique that behaves identically on the JVM (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either host's pushback-reader internals; tagged literals anywhere inside the wrapped text still throw via the `:readers` / `:default` overrides above. The injected-`]` bypass and the reproduced-sentinel case are both pinned in `cursor_test`'s `decode-cursor-rejects-trailing-forms`.
+A cursor is **one** opaque EDN payload map. `read-one-form` reads the decoded text through one pushback reader, takes the first form, and then requires the next read to reach end of input — anything else (a second form, a stray `]`, garbage) rejects as `::malformed`, and trailing whitespace or comments are absorbed. End of input is told apart from any form by an `:eof` value that is a fresh host object, so no payload text can spell it; a plain `read-string` would read only the first form and never prove exhaustion. The same reader serves [`envelope.md`](envelope.md)'s marker confirmation. Pinned in `cursor_test`'s `decode-cursor-rejects-trailing-forms`.
 
 ## Why this namespace
 
