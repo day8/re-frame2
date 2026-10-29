@@ -66,10 +66,11 @@ which the skill says before it does anything:
 Reagent and needs no Fresco rewrite to land on re-frame2.** `day8/re-frame2-reagent`
 is the default browser substrate.
 The v1→v2 move *completes* on its own. It does not leave every view
-untouched, so the skill never promises unchanged view code: re-frame-migration's
-M-11 gives each plain-function view that subscribes or dispatches in its render
-a frame (`reg-view`, or a frame carried in explicitly), and a pure view that
-renders only its arguments needs nothing.
+untouched, so the skill never promises unchanged view code: a view reads its
+frame from the component tree while it renders, but a callback that runs after
+the render has none, so re-frame-migration's M-11 gives each such ambient
+`dispatch` or `subscribe` a frame (ops captured at render, or a frame carried
+in explicitly), and a pure view that renders only its arguments needs nothing.
 
 So the second step is chosen for what Fresco offers, not required to arrive. The
 skill states the trade in both directions. An explicit request to use Fresco
