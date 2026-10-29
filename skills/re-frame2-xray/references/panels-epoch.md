@@ -44,7 +44,8 @@ is conveyed by omission, not an empty-state row). The step order:
  against its handler's `:schema`, and the violation sits on DISPATCH:
  "The handler did not run — the event failed its handler's :schema, so
  the router never called the handler." Or the drain hit its depth limit
- before the event could execute.
+ before the event could execute, or the frame was destroyed at the
+ event boundary and dropped the queued event.
 7. **FLOW** — one numbered step per flow that fired (the reshape as the
  flow's own `:db` diff). Only when flows fired.
 8. **EFFECT HANDLERS** — the flat per-effect ledger (below). Only when a

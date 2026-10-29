@@ -39,6 +39,11 @@ When the L2 spine is at head (no historical epoch focused), sections show
 the most-recent epoch's state with its inline diffs — current db,
 sectioned. Same render shape, no second mode.
 
+A path the frame classifies `:sensitive` renders as `:rf/redacted` on
+both sides of the diff, so a change there draws no row. The `app-db`
+card's title carries an `N redacted paths modified` chip instead,
+shown only when N > 0.
+
 **Open when:** "what just changed in app-db?", "when did
 `[:cart :items]` last change?", "show me the full db at this epoch."
 
