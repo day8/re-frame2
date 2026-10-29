@@ -52,39 +52,38 @@ registry).
 | Prop | Required | Default | Meaning |
 |---|---|---|---|
 | `:machine-id` | no | `nil` | Identifies the machine. Surfaces as the chart's aria-label and on every per-node `:data` payload (read by tests + hosts). |
-| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition (rf2-j538f7.18) is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + the DEPTH the defect sits at (never the state-id path — see [The value-free definition summary](#the-value-free-definition-summary)). The component does NOT subscribe to a framework registry directly — hosts pull the definition via the `:rf/machine` registrar projection and pass it in. |
+| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + the DEPTH the defect sits at (never the state-id path — see [The value-free definition summary](#the-value-free-definition-summary)). The component does NOT subscribe to a framework registry directly — hosts pull the definition via the `:rf/machine` registrar projection and pass it in. |
 | `:current-state` | no | `nil` | The live snapshot `:state` value for the active-state highlight. Accepts all three Spec 005 `:state` arms: a flat keyword (`:authing`), a hierarchical path (`[:auth :authing]`), **or a parallel region-map** (`{:data :loading :form :neutral}`). For a region-map the chart lights up **every** active region leaf simultaneously (the multi-active highlight — see [§Parallel multi-active highlight](#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). `nil` renders no highlight. |
 | `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
 | `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
-| `:fired-edge-ids` | no | `#{}` | rf2-qeemm (closes parity gap **G3**). A **set** of canonical edge-ids (the EXACT scheme `chart.layout` mints) that fired **this epoch**. Each matching edge gets the FIRED treatment — emphasised + animated stroke + `data-fired` — along its routed path (coexisting with G2 bend-points + G1 active styling). Distinct from the from/to lens (`:from-highlight` / `:to-highlight`, matched by ENDPOINT state): this matches the **edge** directly, so every traversed arm (microsteps, guard-fork candidates) lights up. The host (Xray) resolves it for the focused epoch via `panels.machines.trace-state/extract-fired-edge-ids`; the ids agree with the chart by construction. The chart root surfaces the sorted set as `data-fired-edge-ids`. `nil` / `#{}` → no fired highlight. **Colour delegated to Figma** (`:accent` baseline, distinct from the focused/active `:info`). |
-| `:guard-blocked-edge-ids` | no | `#{}` | rf2-fzrzlw / rf2-4nxgqq / rf2-tjm3u2. A **set** of canonical edge-ids (same scheme as `:fired-edge-ids`) whose **guard REJECTED** the event this epoch — a guard-blocked **no-op** (the runtime emitted `:rf.machine/guard-evaluated` fail/threw but **NO** `:rf.machine/transition`, so the fired set is empty for it). The matching **event-node** AND its **`__in` (source-state → event-node) half** get the guard-blocked treatment — emphasised **PINK** stroke + emphasised pink `IF <guard>` chip — which **WINS** over fired/focused/active (`theme.tokens/edge-color` ranks `blocked? > fired? > focused?/active? > quiet`), so the attempted-and-rejected arm stands out from the all-exits affordance-blue. **The highlight STOPS at the guard event-node** (rf2-4nxgqq): the **`__out` (event-node → target) half stays STATIC/resting** — a blocked no-op never reached the target, so an onward pink arrow would falsely imply the transition progressed (the `__out` topology edge still renders; only the live overlay is withheld). Without any of this a blocked no-op gives ZERO signal which edge the event hit. The host (Xray) resolves the set by **`(source-path, event, guard)`** when trace state is available — `panels.machines.trace-state/extract-guard-blocked-edge-ids` reads the active `:state` the `:rf.machine/guard-evaluated` trace carries and gates each candidate edge whose declaring `:from-path` is a PREFIX of the active path, so a sibling state reusing the same `(event, guard)` is NOT lit (rf2-tjm3u2); a trace with no `:state` falls back to the `(event, guard)` match. **DOM pins are the event-node (`data-guard-blocked`, unconditional) + the chart root (`data-guard-blocked-edge-ids`)** — NOT an edge-half attribute (see the DOM-pin note in §Events-as-nodes below). `nil` / `#{}` → no guard-blocked highlight. **SUPERSET of XState/Stately** (which highlights nothing on a block) — only possible because re-frame2 emits guard-evaluated. Colour = `:edge-guard-blocked` (pink `:magenta-pink`). |
+| `:fired-edge-ids` | no | `#{}` | (closes parity gap **G3**). A **set** of canonical edge-ids (the EXACT scheme `chart.layout` mints) that fired **this epoch**. Each matching edge gets the FIRED treatment — emphasised + animated stroke + `data-fired` — along its routed path (coexisting with G2 bend-points + G1 active styling). Distinct from the from/to lens (`:from-highlight` / `:to-highlight`, matched by ENDPOINT state): this matches the **edge** directly, so every traversed arm (microsteps, guard-fork candidates) lights up. The host (Xray) resolves it for the focused epoch via `panels.machines.trace-state/extract-fired-edge-ids`; the ids agree with the chart by construction. The chart root surfaces the sorted set as `data-fired-edge-ids`. `nil` / `#{}` → no fired highlight. **Colour delegated to Figma** (`:accent` baseline, distinct from the focused/active `:info`). |
+| `:guard-blocked-edge-ids` | no | `#{}` | A **set** of canonical edge-ids (same scheme as `:fired-edge-ids`) whose **guard REJECTED** the event this epoch — a guard-blocked **no-op** (the runtime emitted `:rf.machine/guard-evaluated` fail/threw but **NO** `:rf.machine/transition`, so the fired set is empty for it). The matching **event-node** AND its **`__in` (source-state → event-node) half** get the guard-blocked treatment — emphasised **PINK** stroke + emphasised pink `IF <guard>` chip — which **WINS** over fired/focused/active (`theme.tokens/edge-color` ranks `blocked? > fired? > focused?/active? > quiet`), so the attempted-and-rejected arm stands out from the all-exits affordance-blue. **The highlight STOPS at the guard event-node**: the **`__out` (event-node → target) half stays STATIC/resting** — a blocked no-op never reached the target, so an onward pink arrow would falsely imply the transition progressed (the `__out` topology edge still renders; only the live overlay is withheld). Without any of this a blocked no-op gives ZERO signal which edge the event hit. The host (Xray) resolves the set by **`(source-path, event, guard)`** when trace state is available — `panels.machines.trace-state/extract-guard-blocked-edge-ids` reads the active `:state` the `:rf.machine/guard-evaluated` trace carries and gates each candidate edge whose declaring `:from-path` is a PREFIX of the active path, so a sibling state reusing the same `(event, guard)` is NOT lit; a trace with no `:state` falls back to the `(event, guard)` match. **DOM pins are the event-node (`data-guard-blocked`, unconditional) + the chart root (`data-guard-blocked-edge-ids`)** — NOT an edge-half attribute (see the DOM-pin note in §Events-as-nodes below). `nil` / `#{}` → no guard-blocked highlight. **SUPERSET of XState/Stately** (which highlights nothing on a block) — only possible because re-frame2 emits guard-evaluated. Colour = `:edge-guard-blocked` (pink `:magenta-pink`). |
 | `:sim?` | no | `nil` | Flips the highlight palette to amber for the simulator path. |
-| `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a **real statechart-state node** — a **leaf state** (its body) or a **compound state** (its **title strip** only; the compound's body stays pointer-transparent so a click inside it falls through to the nested leaf). `path` is the clicked state's path, a vector of keywords (`[:authenticated :browsing]`). **Not** fired for the synthetic **machine-root** chip or **parallel-region** containers (no region-selection concept yet) — the projector threads the callback onto leaf + compound `:data` only (rf2-34ff3). No-op'd when `:read-only?` is true. |
+| `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a **real statechart-state node** — a **leaf state** (its body) or a **compound state** (its **title strip** only; the compound's body stays pointer-transparent so a click inside it falls through to the nested leaf). `path` is the clicked state's path, a vector of keywords (`[:authenticated :browsing]`). **Not** fired for the synthetic **machine-root** chip or **parallel-region** containers (no region-selection concept yet) — the projector threads the callback onto leaf + compound `:data` only. No-op'd when `:read-only?` is true. |
 | `:on-edge-click` | no | `nil` | Called with a JavaScript object carrying `eventId` (the event keyword, namespace intact: `:auth/login`), `fromPath` and `toPath` (vectors of keywords) when a fireable event-node label is clicked. Read the fields with JS interop, not CLJS map destructuring. Hosts such as Xray's simulator use it to send the selected event; `:after` / `:always` nodes remain inert. No-op'd when `:read-only?` is true. |
 | `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
-| `:direction` | no | `:tb` | Layout axis. `:tb` (the **default**) lays the chart top-to-bottom; `:lr` left-to-right; both are fed to elkjs as `elk.direction`. **OPT-IN adaptive — `:auto`** (rf2-lamdfl + rf2-gnrkke): the default `:tb` and an explicit `:tb` / `:lr` take the historical path — the post-ELK adaptive subsystem is **NOT invoked** and the render is byte-identical to the pre-feature output. Pass **`:auto`** to OPT A MACHINE IN to (a) the **adaptive-aspect heuristic** (`chart.post-elk/aspect-direction`: a genuinely-branchy machine — a state fanning to ≥ 3 distinct targets, quiz / modal / gate — flows **landscape** `:lr`; a linear chain stays a **column** `:tb`; a parallel machine resolves `:tb` and gets the region transpose below), **plus** (b) the **post-ELK transforms** (`chart.post-elk/apply-post-elk`: the parallel-region stacking-axis transpose §4.3.2 + the back-edge return-route detour §4.3.1). A host resolves `:auto` from a machine's `:layout {:aspect :adaptive}` hint or its own layout intent. The resolved direction is fed to elkjs as `elk.direction`. The opt-in gate is the single predicate `chart.post-elk/adaptive?` (true ONLY for `:auto`). See `001-Topology-Parity.md` §4.3.1 + §4.3.2. |
-| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). `default-elk-options` carries `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT` (G2 bend-point routing) plus the edge-clearance keys (`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` / `elk.spacing.edgeEdge`) and label-placement keys (`elk.edgeLabels.placement CENTER` / `elk.spacing.edgeLabel`) so ELK routes edges *around* nodes and *places* labels in reserved channels (rf2-rlq97). The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 / rf2-gpa9k — see `chart.cljs/elk-layout-options`). |
-| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density) and rf2-32gw5. **Independent of `:theme`** (geometry vs colour are orthogonal knobs). |
-| `:theme` | no | `:dark` | rf2-az6e2. `:dark` / `:light`. Resolves the chart palette + the chart-semantic token map ONCE per render (`theme/tokens/theme-palette` + `chart-tokens`); the token map is threaded through the projector onto every node/edge `:data` so the renderers paint the **active theme** — not the dark-tokens alias. The chart's own chrome (canvas surface, root title strip, Context panel, dot-grid, minimap, layout-error banner, and the placeholder a chart with nothing to draw renders) reads the same palette. The resolved theme surfaces on the root as `data-theme`. `nil` / unknown → `:dark`. **Independent of `:density`.** This bead builds no light/dark toggle UI — hosts pass the prop. Per [§Theme](#theme-rf2-az6e2). |
+| `:direction` | no | `:tb` | Layout axis. `:tb` (the **default**) lays the chart top-to-bottom; `:lr` left-to-right; both are fed to elkjs as `elk.direction`. **OPT-IN adaptive — `:auto`**: the default `:tb` and an explicit `:tb` / `:lr` take the historical path — the post-ELK adaptive subsystem is **NOT invoked** and the render is byte-identical to the pre-feature output. Pass **`:auto`** to OPT A MACHINE IN to (a) the **adaptive-aspect heuristic** (`chart.post-elk/aspect-direction`: a genuinely-branchy machine — a state fanning to ≥ 3 distinct targets, quiz / modal / gate — flows **landscape** `:lr`; a linear chain stays a **column** `:tb`; a parallel machine resolves `:tb` and gets the region transpose below), **plus** (b) the **post-ELK transforms** (`chart.post-elk/apply-post-elk`: the parallel-region stacking-axis transpose §4.3.2 + the back-edge return-route detour §4.3.1). A host resolves `:auto` from a machine's `:layout {:aspect :adaptive}` hint or its own layout intent. The resolved direction is fed to elkjs as `elk.direction`. The opt-in gate is the single predicate `chart.post-elk/adaptive?` (true ONLY for `:auto`). See `001-Topology-Parity.md` §4.3.1 + §4.3.2. |
+| `:layout-options` | no | `nil` | Host-side elkjs `layoutOptions` overrides merged on top of `default-elk-options` (`chart.cljs/default-elk-options`). `default-elk-options` carries `elk.edgeRouting ORTHOGONAL` + `elk.json.edgeCoords ROOT` (G2 bend-point routing) plus the edge-clearance keys (`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` / `elk.spacing.edgeEdge`) and label-placement keys (`elk.edgeLabels.placement CENTER` / `elk.spacing.edgeLabel`) so ELK routes edges *around* nodes and *places* labels in reserved channels. The `:direction` arg drives `elk.direction`, and the chart auto-sets `elk.hierarchyHandling INCLUDE_CHILDREN` on the root layout whenever the graph nests (parallel regions or compound substates) so elk routes edges ACROSS nesting levels (parity gap G5 — see `chart.cljs/elk-layout-options`). |
+| `:density` | no | `:regular` | Density variant — `:compact` / `:regular` / `:cosy`. Resolves the geometry + typography map via `visual-constants/chart-for-density`; the resolved map is threaded through the projector onto every node/edge `:data` so the xyflow node/edge components render at the chosen density. The chart root surfaces the resolved density as `data-density`. `nil` ≡ `:regular`; an unknown density throws at render time. Per [§Density](#density). **Independent of `:theme`** (geometry vs colour are orthogonal knobs). |
+| `:theme` | no | `:dark` | `:dark` / `:light`. Resolves the chart palette + the chart-semantic token map ONCE per render (`theme/tokens/theme-palette` + `chart-tokens`); the token map is threaded through the projector onto every node/edge `:data` so the renderers paint the **active theme** — not the dark-tokens alias. The chart's own chrome (canvas surface, root title strip, Context panel, dot-grid, minimap, layout-error banner, and the placeholder a chart with nothing to draw renders) reads the same palette. The resolved theme surfaces on the root as `data-theme`. `nil` / unknown → `:dark`. **Independent of `:density`.** This bead builds no light/dark toggle UI — hosts pass the prop. Per [§Theme](#theme-rf2-az6e2). |
 | `:height` | no | `"100%"` | Outer wrapper height (CSS string). xyflow requires a non-zero parent height. |
 | `:show-minimap?` | no | `false` | When `true`, render xyflow's built-in MiniMap. |
 | `:show-controls?` | no | `true` | When `true`, render xyflow's built-in zoom/pan/fit Controls. |
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
-| `:fit-signal` | no | `nil` | rf2-6tw7t. Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
-| `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
-| `:context-band` | no | `nil` | rf2-qo5xy; rf2-q129z8; rf2-3q4k5b. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `[:schemas :data]` schema when present, else inferred from one `:data` sample (rf2-3q4k5b). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
-| `:context-band-inferred?` | no | `true` | rf2-5tz9p; rf2-3q4k5b. Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `[:schemas :data]` schema (rf2-3q4k5b · EP-0005 · EP-0029 A3). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
-| `:context-band-sensitive` | no | `#{}` | rf2-27e38h · EP-0015. A collection of Context-band keys (a set, vector or list) whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine definition's own projection-relative `:sensitive` declaration (`{:sensitive [[:data :token]]}`) via `context-redaction/derive-classification` (rf2-3x7nj.33.3); a whole-`:data` declaration (`[[:data]]`) yields a set that covers every key, including keys first written at runtime (rf2-k7i6y). See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
-| `:context-band-large` | no | `#{}` | rf2-27e38h · EP-0015. A collection of Context-band keys (a set, vector or list) whose values are elided to the canonical content-FREE `:rf.size/large-elided` marker before export. Unmarked over-cap values elide too; sensitive wins over large. |
-| `:context-band-raw?` | no | `false` | rf2-27e38h · EP-0015. The explicit trusted-local (`:rf.egress/local-raw`) opt-in. `true` skips Context-band redaction and serialises raw values — an operator act for a developer inspecting their own process. Default `false` keeps the band local-redacted. |
+| `:fit-signal` | no | `nil` | Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
+| `:overlays` | no | `nil` | A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
+| `:context-band` | no | `nil` | CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (not a top-left corner panel). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `[:schemas :data]` schema when present, else inferred from one `:data` sample. `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:context-band-inferred?` | no | `true` | Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `[:schemas :data]` schema (EP-0005 · EP-0029 A3). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:context-band-sensitive` | no | `#{}` | EP-0015. A collection of Context-band keys (a set, vector or list) whose VALUES are redacted to `:rf/redacted` before they reach the DOM (and therefore the SVG/PNG/clipboard export). The host derives it from the machine definition's own projection-relative `:sensitive` declaration (`{:sensitive [[:data :token]]}`) via `context-redaction/derive-classification`; a whole-`:data` declaration (`[[:data]]`) yields a set that covers every key, including keys first written at runtime. See [§Context-band egress contract](#context-band-egress-contract--local-redacted-by-default-rf2-27e38h--ep-0015). |
+| `:context-band-large` | no | `#{}` | EP-0015. A collection of Context-band keys (a set, vector or list) whose values are elided to the canonical content-FREE `:rf.size/large-elided` marker before export. Unmarked over-cap values elide too; sensitive wins over large. |
+| `:context-band-raw?` | no | `false` | EP-0015. The explicit trusted-local (`:rf.egress/local-raw`) opt-in. `true` skips Context-band redaction and serialises raw values — an operator act for a developer inspecting their own process. Default `false` keeps the band local-redacted. |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
 ### `:overlays` slot descriptor schema (rf2-7w4qr)
 
 `MachineChart` exposes the host-fed, spec+tick+callbacks overlay family
 through a **single `:overlays` slot** — a vector of descriptor maps —
-rather than 3–5 flat trunk props per overlay. Mike ruled (rf2-7w4qr):
-adopt the slot. Hosts compose overlays through the slot; the trunk
+rather than 3–5 flat trunk props per overlay. Hosts compose overlays through the slot; the trunk
 signature stays narrow as overlays are added.
 
 ```clojure
@@ -114,7 +113,7 @@ the slot.
 
 Per-`:id` variant keys:
 
-**`:id :after-rings`** (rf2-uv1on) — `:after`-timer countdown rings.
+**`:id :after-rings`** — `:after`-timer countdown rings.
 
 | Key | Required | Meaning |
 |---|---|---|
@@ -122,14 +121,14 @@ Per-`:id` variant keys:
 | `:on-hover` | no | `(fn [node-id] ...)`. Hover-enter callback the overlay wires on each ring. |
 | `:on-leave` | no | `(fn [node-id] ...)`. Hover-leave callback the overlay wires on each ring. |
 
-**`:id :spawn-all-join`** (rf2-3ow55) — `:spawn-all` join inspector.
+**`:id :spawn-all-join`** — `:spawn-all` join inspector.
 
 | Key | Required | Meaning |
 |---|---|---|
 | `:spec` | yes | Presentation-ready join-spec — `{:node-id <string> :join <:all\|:any> :children [{:key <kw> :done? :failed? :cancelled? :note}] :resolved? <bool?> :on-all-complete :on-any-failed}`. When present (and `:node-id` is set) the chart mounts the `chart.overlays.spawn-all-join` inspector beside the spawn-all-bearing state. The host (Xray) projects the spec from its `:rf.machine.spawn-all/*` trace buffer; machines-viz owns only positioning + paint. No `:node-id` → dormant. |
 | `:on-child-click` | no | `(fn [child-key] ...)`. Fires on a join-inspector child-row click; Xray pivots to the child instance. |
 
-**`:id :cancellation-cascade`** (rf2-3ow55) — cancellation cascade waterfall.
+**`:id :cancellation-cascade`** — cancellation cascade waterfall.
 
 | Key | Required | Meaning |
 |---|---|---|
@@ -151,9 +150,9 @@ with `:region` + `:parent-id`, and flags the result `:parallel? true`.
 `type: "parallel-region"` xyflow node (rendered by
 `chart.nodes.parallel-region-node` with a dashed neutral boundary +
 header label, the same for every region — the per-region colour
-rotation was removed, rf2-az6e2) and assigns each
+rotation was removed) and assigns each
 state a `parentId`/`:extent "parent"` so xyflow's sub-flow mechanic
-nests the states inside the zone (rf2-xh1lm — xyflow v12 reads
+nests the states inside the zone (xyflow v12 reads
 `parentId`, NOT the pre-v12 `parentNode`, which is silently ignored);
 elkjs lays the states out inside
 each region's bounding box via `elk.hierarchyHandling
@@ -166,13 +165,13 @@ minted for a machine-level `:on` fallback), the parallel-root anchor chip
 (`:parallel-root?` — minted for a parallel-root `:on`/`:after`/`:on-done`),
 and `:type :history` pseudo-states (`:history?` — Spec 005 §History
 states; never occupiable). `data-node-count` + the aria-label state count
-reflect ONLY real, occupiable states (rf2-3lrl2q — pre-fix only
-`:region?`/`:root-container?` were excluded, so any machine using one of
-these common default-path features over-reported its state count by +1
-per anchor/marker).
+reflect ONLY real, occupiable states (excluding only
+`:region?`/`:root-container?` would over-report the state count of any
+machine using one of these common default-path features by +1 per
+anchor/marker).
 
-This exclusion is the SINGLE `chart.layout/semantic-counts` helper
-(rf2-5fm165): given a projected graph (`project-definition` output) or a
+This exclusion is the SINGLE `chart.layout/semantic-counts` helper:
+given a projected graph (`project-definition` output) or a
 raw definition, it returns `{:state-count :transition-count :region-count}`
 — `:state-count` = occupiable states (`(remove synthetic-node? nodes)`, the
 predicate that folds together the exclusions above), `:transition-count` =
@@ -192,7 +191,7 @@ from elk's measured `{:x :y :width :height}` position entry. Container
 renderers (`parallel-region-node`, `compound-node`) fill their box with
 `width:100% height:100%`, so the projector MUST hand xyflow the box elk
 measured — otherwise the container has no box of its own (the painted
-div carries no CSS `min-*`, rf2-44v8lq;
+div carries no CSS `min-*`;
 `projection/compound-node-min-{width,height}`, 260×150, is only the
 ELK seed floor), and substates whose parent-relative coordinates elk
 computed against the FULL measured extent overflow it and visually
@@ -206,11 +205,11 @@ ELK lays the graph out assuming each node is exactly the size its input
 descriptor declares (`projection/elk-child` / `elk-event-child`). A
 state-node, however, renders at CONTENT size — the state label (variable
 length) plus the tag-pill row plus the entry / exit action-pill rows
-(rf2-a2b55) — floored only by CSS `min-{width,height}`. Feeding ELK the
+— floored only by CSS `min-{width,height}`. Feeding ELK the
 fixed `state-node-min-{width,height}` floor for EVERY node (the original
 single-pass) understates every node wider/taller than the floor, so ELK
 budgets slots too small and neighbours OVERLAP — the missized/cluttered
-topology rf2-d9ro2 fixes.
+topology the measure-then-relayout pass prevents.
 
 The chart therefore runs the canonical React Flow + ELK **two-pass**
 (the same shape the official React Flow ELK example and xstate-viz /
@@ -222,7 +221,7 @@ Stately use):
    `node.measured {width height}`. The chart reads them back off the
    captured ReactFlowInstance (`fit-state :instance`, via
    `getInternalNode` — in xyflow v12 the measured box lives on the
-   INTERNAL node, not on the `getNodes()` objects, rf2-6v4ci5)
+   INTERNAL node, not on the `getNodes()` objects)
    through the `read-measured-dims` seam, driven by xyflow's
    `:onNodesChange` (a `dimensions` `NodeChange`) and the `:onInit`
    fast-commit branch.
@@ -233,7 +232,7 @@ Stately use):
    keep the floor seed — their true extent comes from ELK laying out
    their measured children (`elk.hierarchyHandling INCLUDE_CHILDREN`), so
    self-measuring their `100%`-of-the-box DOM would be circular.
-4. **Fit.** The relayout settle re-fits the viewport via the rf2-set3x
+4. **Fit.** The relayout settle re-fits the viewport via the
    auto-fit (it shares the `fit-key` gate), framing the corrected
    topology.
 
@@ -259,7 +258,7 @@ existing pass once real sizes are known), so the load-bearing
 below is unchanged: a decoration-prop change still never reaches the
 relayout path. (`:density` is a STRUCTURAL prop — it sizes ELK's
 container `elk.padding` from the active density's title-strip + body-pad
-constants, rf2-8q5pt — so it legitimately joins the layout-key; see the
+constants — so it legitimately joins the layout-key; see the
 boundary section below.)
 
 ### Sub-flow nesting — `:parentId` (NOT `:parentNode`) (rf2-xh1lm)
@@ -282,7 +281,7 @@ deprecation notice; the node is treated as root-level and its
 `:position` is read as ABSOLUTE flow coordinates. With ELK's
 parent-relative coords, that puts an `:active__connecting` child at
 root `(14, 34)` instead of inside `:active` at root `(36, 274)` — the
-exact symptom rf2-xh1lm fixed (substates rendered top-left of canvas
+symptom containment prevents (substates rendered top-left of canvas
 while the empty `:active` container sat bottom-right).
 
 The projection test corpus guards this two ways: every assertion uses
@@ -307,9 +306,8 @@ warning, no error, no `:layout-error` slot. Every edge whose source or
 target is a container (a parent-level transition like
 `:active → :disconnected` declared on the compound; an inbound
 `:failed → :active`; a `:active` self-loop) vanishes before render,
-even though the projector emitted it and ELK routed it (the 5-layer
-probe in rf2-shv82 traced 4 surviving edges through parser → projector
-→ ELK-in → ELK-out, then 0 in the DOM).
+even though the projector emitted it and ELK routed it (4 edges survive parser → projector
+→ ELK-in → ELK-out, then 0 reach the DOM).
 
 The fix is small: invisible handles (`{:opacity 0}`) on the four
 sides, matching `chart.nodes/state-node`'s shape. xstate/Stately
@@ -385,7 +383,7 @@ any fit / overlap / routing / missing-edge regression.
 
 ### Events as nodes — Stately graph view paradigm (rf2-qo5xy)
 
-**This is a paradigm-shift section.** Pre-rf2-qo5xy the chart painted
+**This is a paradigm-shift section.** A chart could paint
 transitions as edge labels between state boxes: `event [guard] /
 action` floated on the line. Multiple candidates, long action names,
 or stacked siblings degraded legibility quickly, and action
@@ -396,7 +394,7 @@ Stately Studio's graph view paints each transition as its own box —
 carries the event name (header), an optional `[guard]` chip, and `+
 action` pills for action attribution. Internal transitions (no
 `:target`) get the event box but no outgoing edge — they read as
-"this dispatches an action and we hang here". rf2-qo5xy adopts that
+"this dispatches an action and we hang here". The chart adopts that
 paradigm: every parsed transition emits exactly one xyflow node of
 `type "rf2-event"` (registered in `chart.nodes/node-types`) plus one
 or two edges, with these structural rules:
@@ -404,17 +402,17 @@ or two edges, with these structural rules:
 | Parsed transition shape | Event-node | Inbound edge | Outbound edge |
 |---|---|---|---|
 | `:on {:e :target}` — regular targeted | yes | state → ev-node | ev-node → target |
-| `:on {:e :same-state}` — self-target, internal DEFAULT (rf2-9dj21r) | yes | state → ev-node | ev-node → state |
-| `:on {:e {:target :same-state :reenter? true}}` — self-target, EXTERNAL restart (rf2-9dj21r) | yes (`:reenter true`) | state → ev-node | ev-node → state |
+| `:on {:e :same-state}` — self-target, internal DEFAULT | yes | state → ev-node | ev-node → state |
+| `:on {:e {:target :same-state :reenter? true}}` — self-target, EXTERNAL restart | yes (`:reenter true`) | state → ev-node | ev-node → state |
 | `:on {:e {:action :a}}` — INTERNAL (no `:target`) | yes (`:internal true`) | state → ev-node | **none** |
 | `:after {1000 ...}` — timer | yes (`:variant "after"`, `:afterMs 1000`) | state → ev-node | ev-node → target |
-| `:after {1000 {:action :a}}` — INTERNAL timer (no `:target`) (rf2-mnp93.4) | yes (`:variant "after"`, `:internal true`) | state → ev-node | **none** |
+| `:after {1000 {:action :a}}` — INTERNAL timer (no `:target`) | yes (`:variant "after"`, `:internal true`) | state → ev-node | **none** |
 | `:always [{:target ...}]` | yes (`:variant "always"`) | state → ev-node | ev-node → target |
-| `:always [{:action :a}]` — INTERNAL (no `:target`) (rf2-mnp93.4) | yes (`:variant "always"`, `:internal true`) | state → ev-node | **none** |
+| `:always [{:action :a}]` — INTERNAL (no `:target`) | yes (`:variant "always"`, `:internal true`) | state → ev-node | **none** |
 | Wildcard `:*` | yes (`:eventId nil`, not user-fireable) | state → ev-node | ev-node → target |
-| `:spawn {:on-error :t}` — the parent transition taken when the spawned child fails (rf2-3x7nj.33.1) | yes (`:variant "on-error"`, `:eventLabel "✗ error"`, `:eventId nil` — `:rf.machine.spawn/error` is engine-raised, not user-fireable); a keyword target resolves at the spawning state's own level | state → ev-node | ev-node → target (**none** for an action-only `:on-error`, which is `:internal true`) |
+| `:spawn {:on-error :t}` — the parent transition taken when the spawned child fails | yes (`:variant "on-error"`, `:eventLabel "✗ error"`, `:eventId nil` — `:rf.machine.spawn/error` is engine-raised, not user-fireable); a keyword target resolves at the spawning state's own level | state → ev-node | ev-node → target (**none** for an action-only `:on-error`, which is `:internal true`) |
 
-**The `:reenter?` external-restart axis (rf2-9dj21r).** A TARGETED transition
+**The `:reenter?` external-restart axis.** A TARGETED transition
 is INTERNAL by default (XState v5 / Spec 005 §Self-transitions): a self /
 ancestor / compound-declared-descendant target does NOT re-run the target's
 own `:exit`/`:entry`. Only `:reenter? true` makes it EXTERNAL — re-running
@@ -434,11 +432,11 @@ text), `:guard` (string), `:action` (string), `:variant` (`:on` /
 `:after` / `:always` / `:on-done` / `:on-error`), `:eventId` (raw fireable
 keyword for the on-chart sim — nil for `:after` / `:always` / `:on-done` /
 `:on-error` / wildcard), `:fromPath`
-/ `:toPath`, `:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw — the
+/ `:toPath`, `:focused`, `:fired`, `:guardBlocked` (the
 guard-blocked no-op marker; drives the PINK border + emphasised pink
-`IF <guard>` chip), `:internal`, `:reenter` (rf2-9dj21r —
+`IF <guard>` chip), `:internal`, `:reenter` (
 the external-restart axis; drives the `↻` reenter chip), `:machineLevel`,
-`:guardRequires` / `:actionRequires` (rf2-skhlw2.1 — the named guard /
+`:guardRequires` / `:actionRequires` (the named guard /
 action consumer's declared **`:rf.cofx/requires`** as a vector of compact
 id strings; EP-0017 consumer attachment — the replay-critical host facts
 the callback reads before it runs; nil when the named callback declares no
@@ -448,7 +446,7 @@ quiet `needs <id>` chip + the `data-guard-requires` / `data-action-requires`
 DOM pins), `:onClick` (the host-supplied callback), `:afterMs`, `:chart`
 (resolved visual-constants).
 
-**State-node consumer attachment (rf2-skhlw2.1).** A state node's `:data`
+**State-node consumer attachment.** A state node's `:data`
 carries `:entryRequires` / `:exitRequires` — the `:entry` / `:exit`
 lifecycle action's declared `:rf.cofx/requires` (same compact-id-string
 vector, same ids-only contract), driving a quiet italic `needs <id>` line
@@ -460,7 +458,7 @@ definition's top-level `:guards` / `:actions` named-entry registries
 (XState v5 / Spec 005 §Registration — the machine is the event handler), so
 the one registry pair covers flat, compound, AND parallel machines.
 
-**Share / export handling (rf2-skhlw2.1).** A **share URL preserves** the
+**Share / export handling.** A **share URL preserves** the
 safe `:rf.cofx/requires` metadata: `share/sanitise-definition` drops the
 entry's `:fn` / `:source-*` but keeps the requires vector (a plain vector of
 coeffect-id keywords), so the decoded definition re-derives the chart's
@@ -476,7 +474,7 @@ transitions consume which facts" surface.
 
 The inbound + outbound edges carry the structural / styling state
 that used to live on the single state→state edge: `:active`,
-`:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw / rf2-4nxgqq — the
+`:focused`, `:fired`, `:guardBlocked` (the
 PINK guard-blocked stroke covers the `__in` source→event-node half ONLY;
 the `__out` event-node→target half carries `:guardBlocked false` because a
 guard-blocked transition is a no-op that never reached the target, so the
@@ -484,7 +482,7 @@ highlight STOPS at the guard event-node and the onward arrow stays resting),
 `:crossHierarchy`, and elk-routed `:points`. Edge
 ids: `<spec-edge-id>__in` / `<spec-edge-id>__out`. Event-node ids:
 `__rf2_event_<spec-edge-id>__` via `chart.projection/event-node-id`
-(rf2-4gtvln — a RESERVED leading + trailing `__` scheme, mirroring
+(a RESERVED leading + trailing `__` scheme, mirroring
 `chart.layout/machine-root-id` / `root-container-id`; a real `node-id`
 hex-escapes every non-alphanumeric segment char and joins segments with
 `__`, so it can never START with `__`, keeping the synthetic id INJECTIVE
@@ -495,8 +493,8 @@ Initial-marker ids follow the same scheme via
 with the entry edge sourced from that id. The `:eventLabel` slot on these
 edges is empty (the event-node holds the visible text).
 
-> **Edge-half `:guardBlocked` is projection/rendering data, NOT a DOM pin
-> (rf2-bdwolc).** The per-half `:guardBlocked` flag drives the half's
+> **Edge-half `:guardBlocked` is projection/rendering data, NOT a DOM pin.**
+> The per-half `:guardBlocked` flag drives the half's
 > STROKE + arrowhead colour (the `__in` half goes pink, the `__out` half
 > stays resting). It is *not* surfaced as a `data-guard-blocked` DOM
 > attribute on the edge halves: `chart.edges/transition-edge` emits the
@@ -518,22 +516,21 @@ elk routes each of those two segments independently, so the
 by the **elk edge id** — `<spec-edge-id>__in` and `<spec-edge-id>__out`
 — and the projector looks up each xyflow edge under its OWN id: the
 inbound edge draws the `__in` route (source-state → event-node) and the
-outbound edge draws the `__out` route (event-node → target-state)
-(rf2-r636q). Each edge with no matching route entry (or a self-loop)
-falls back to the bezier. *(Before rf2-r636q the consumer looked up the
-bare `<spec-edge-id>`, which the producer never emits post-rf2-qo5xy, so
-G2 routing was silently dead — every edge fell back to a straight
-bezier.)*
+outbound edge draws the `__out` route (event-node → target-state).
+Each edge with no matching route entry (or a self-loop)
+falls back to the bezier. *(The producer never emits a bare
+`<spec-edge-id>`, so a consumer looking one up would silently fall back
+to a straight bezier on every edge.)*
 
-**Edges + labels are ELK-routed/-placed, not renderer-drawn
-(rf2-rlq97).** The edges are *fed into* the ELK graph
+**Edges + labels are ELK-routed/-placed, not renderer-drawn.**
+The edges are *fed into* the ELK graph
 (`chart.projection/->elk-edges` — the pure projector lifted out of
 `chart.cljs/->elk-input`, JVM-pinnable like the node feed), and the root
 `default-elk-options` carry the edge-clearance keys
 (`elk.spacing.edgeNode` / `elk.layered.spacing.edgeNodeBetweenLayers` /
 `elk.spacing.edgeEdge`) so the `ORTHOGONAL` routing goes *around* node
 boxes instead of clipping them (closes the "arrows route over states"
-class d9ro2's node-measure did not). ELK also owns edge-LABEL
+class the node-measure pass does not). ELK also owns edge-LABEL
 PLACEMENT: `default-elk-options` sets `elk.edgeLabels.placement CENTER`
 + `elk.spacing.edgeLabel`, `->elk-edge` feeds each edge an empty
 `:labels` entry, and
@@ -543,7 +540,7 @@ PLACEMENT: `default-elk-options` sets `elk.edgeLabels.placement CENTER`
 {:labelPos}` and `chart.edges/edge-path` anchors the label THERE
 instead of the old middle-segment-midpoint heuristic. **Under
 events-as-nodes the transition text rides on the event-NODE** (already
-ELK-measured + -placed via `elk-event-child` + the d9ro2 measure pass),
+ELK-measured + -placed via `elk-event-child` + the measure pass),
 so the `__in` / `__out` edges carry an empty label. ELK places that empty
 label too, so `:edge-labels` holds an entry for every routed edge, but no
 edge renders label text, so nothing is painted there; the geometric
@@ -561,7 +558,7 @@ container. The layout engine treats them as ordinary layered-graph
 children with explicit incoming/outgoing edges — no new layout
 algorithm.
 
-**Initial-state placement is a SOFT preference (rf2-ly51l).** A
+**Initial-state placement is a SOFT preference.** A
 statechart graph is almost always cyclic (resets, retries, back
 transitions, machine-level `:on` fallbacks all loop back toward the
 initial state), and the Layered algorithm must first reverse a set of
@@ -592,23 +589,22 @@ knows xstate/Stately reads in 30 seconds (per the bead's §Shift 4):
 
 | Glyph | Variant | Source |
 |---|---|---|
-| hooked arrow + small triangle head | initial-marker — one fixed node-local glyph with the filled dot (rf2-i9d2ob) | `chart.nodes/initial-marker` |
+| hooked arrow + small triangle head | initial-marker — one fixed node-local glyph with the filled dot | `chart.nodes/initial-marker` |
 | `⌚ <ms>ms` | `:after`-delay event-node | `chart.layout/event-segment` |
 | `∞`   | `:always` event-node | `chart.layout/event-segment` |
 | `⚡ <name>` | action chip (entry / exit / transition) | `chart.nodes/action-row` + `chart.nodes.event-node` |
 | `IF <name>` | guard chip | `chart.nodes.event-node` |
 | filled dot | initial-marker source | `chart.nodes/initial-marker` |
-| `◆ root` pill | machine-root chip — the SINGLE source of a machine-level (top-level `:on`) fallback (rf2-vcnvj) | `chart.nodes/machine-root-node` (type `"machine-root"`, node-id `chart.layout/machine-root-id`) |
-| named frame box | root-container frame (rf2-q129z8) — the Stately-style NAMED box wrapping the whole machine; its header carries the machine name + Context band | `chart.nodes/root-container-node` (type `"root-container"`, node-id `chart.layout/root-container-id`) |
+| `◆ root` pill | machine-root chip — the SINGLE source of a machine-level (top-level `:on`) fallback | `chart.nodes/machine-root-node` (type `"machine-root"`, node-id `chart.layout/machine-root-id`) |
+| named frame box | root-container frame — the Stately-style NAMED box wrapping the whole machine; its header carries the machine name + Context band | `chart.nodes/root-container-node` (type `"root-container"`, node-id `chart.layout/root-container-id`) |
 
 #### Active state on box border
 
 The active-state affordance lives on the state-box BORDER (the
 state-node's `:border` colour + `:box-shadow` ring), not on
 duplicate text tags. Compound and region containers light the same
-way when any descendant leaf is active (G4 / rf2-80rm2, preserved
-under the paradigm shift). The legacy "tags row inside the state
-box" (rf2-a2b55) is unchanged — those are user-declared semantic
+way when any descendant leaf is active (G4). The legacy "tags row inside the state
+box" is unchanged — those are user-declared semantic
 `:tags`, distinct from active-state highlight.
 
 #### Context band (rf2-qo5xy; rf2-q129z8 — now in the frame header)
@@ -619,7 +615,7 @@ leaving the chart. The band is presentation-only — the host owns the
 projection; the chart paints whatever shape it receives. nil / empty →
 no band.
 
-**rf2-q129z8** — the Context is no longer a `position:absolute` panel
+The Context is no longer a `position:absolute` panel
 welded to the canvas's top-left corner. It is now the Context BAND in
 the synthetic ROOT-CONTAINER frame's HEADER (under the machine-name
 title strip), threaded onto the frame node's `:data {:context}` by
@@ -632,21 +628,20 @@ Two host projections feed it:
 
 - **Live context** — the machine's current `:data` map (the
   `:rf.machine/data` slot from the snapshot), `(key → value)`.
-- **Static context shape** (rf2-vcnvj; rf2-3q4k5b) — when no live
+- **Static context shape** — when no live
   snapshot is in hand (the Static-Machines blank-state topology), the
   Xray topology path derives `(key → type-caption)` via
   `topology-view/static-context-shape` (which delegates to the
   machines-viz `context-shape/static-context-shape` helper), so the
   root Context chrome renders the context KEYS + their TYPE shape (e.g.
   `{:opened-count "number" :trail "vector"}`). The shape is **declared
-  over inferred** (rf2-3q4k5b · EP-0005 · EP-0029 A3): if the machine declares a
+  over inferred** (EP-0005 · EP-0029 A3): if the machine declares a
   `[:schemas :data]` schema (a Malli `[:map …]`), the shape is read AUTHORITATIVELY
   off the schema; otherwise it is INFERRED from one sample of the
-  initial `:data`. This satisfies the rf2-vcnvj acceptance "root
-  title/context chrome at the top when context shape is available"
-  without a live runtime read.
+  initial `:data`. So the root title and Context chrome sit at the top whenever a context
+  shape is available, without a live runtime read.
 
-**Provenance badge** (rf2-5tz9p; rf2-3q4k5b) — the Context band paints a
+**Provenance badge** — the Context band paints a
 small badge beside the **Context** header marking the shape's
 provenance, gated by the optional `:context-band-inferred?` prop
 (**default `true`**):
@@ -660,10 +655,9 @@ provenance, gated by the optional `:context-band-inferred?` prop
 - **`:context-band-inferred? false`** — the inferred badge is **dropped**
   and replaced with a positive `declared`
   (`rf-mv-chart-root-container-context-declared-<id>`) badge. Two hosts
-  pass false: one feeding **live `:data` values** (key→value), and — per
-  rf2-3q4k5b — the Static path when the shape is AUTHORITATIVE off a
-  declared `[:schemas :data]` schema (EP-0005's declared-over-inferred upgrade,
-  closing the deferred `rf2-wto1k` option A). The badge distinguishes
+  pass false: one feeding **live `:data` values** (key→value), and
+  the Static path when the shape is AUTHORITATIVE off a
+  declared `[:schemas :data]` schema (EP-0005's declared-over-inferred upgrade). The badge distinguishes
   an authoritative/declared shape from the one-sample inference.
 
 #### Context-band egress contract — local-redacted by default (rf2-27e38h · EP-0015)
@@ -693,10 +687,10 @@ classifies the whole top-level slot, because the band prints each value
 whole), and a bare `[:data]` (or the whole-snapshot `[]`) keeps
 whole-data scope: the derived set carries a whole-data marker that
 covers every band key, including keys the live `:data` first gains at
-runtime, which the definition's initial `:data` cannot name (rf2-k7i6y).
+runtime, which the definition's initial `:data` cannot name.
 The `[:schemas :data]` schema's `:sensitive?` / `:large?`
 props do **not** feed it: EP-0025 reversed that EP-0005 bridge, and
-they drive only validation-failure-trace redaction (rf2-3x7nj.33.3).
+they drive only validation-failure-trace redaction.
 
 ```clojure
 (let [{:keys [sensitive large]} (context-redaction/derive-classification machine-def)]
@@ -738,24 +732,24 @@ The remaining sections in this spec (label collapse, edge label
 geometry, cross-hierarchy label placement, etc.) describe the
 RENDERING of the inbound / outbound edges in the events-as-nodes
 paradigm. The structural model `source-state → event-node →
-target-state` supersedes the pre-rf2-qo5xy single-edge model in
+target-state` supersedes a single-edge model in
 every other respect; where the legacy sections describe edge
 behaviour, read "edge" as "inbound or outbound edge attached to an
 event-node" unless explicitly stated otherwise.
 
 ### Multi-event label collapse — SUPERSEDED and RETIRED (rf2-j10sm Phase 2, B → rf2-qo5xy → rf2-o6vh7)
 
-> **SUPERSEDED + RETIRED.** rf2-j10sm (Phase 2, B) once collapsed N
+> **SUPERSEDED + RETIRED.** An earlier mode once collapsed N
 > transitions sharing a `[source target]` pair into ONE arrow with N
 > vertically-stacked labels (the old xstate/Stately "multiple events
 > on one transition" rendering), assigning each edge a `:siblingIndex`
 > / `:siblingCount` and suppressing the SVG path on every non-leader.
 >
-> The rf2-qo5xy **events-as-nodes** paradigm supersedes that model:
+> The **events-as-nodes** paradigm supersedes that model:
 > each event projects as its own first-class `rf2-event` node, so N
 > transitions on one `[source target]` pair emit N **distinct**
-> event-nodes (no collapse, no grouping, no leader/follower). rf2-o6vh7
-> RETIRED the dead collapse machinery: `:siblingIndex` / `:siblingCount`
+> event-nodes (no collapse, no grouping, no leader/follower), and the
+> collapse machinery is gone: `:siblingIndex` / `:siblingCount`
 > no longer appear on any edge `:data`, and the renderer carries no
 > `data-sibling-*` attrs or path-suppression. The legibility rationale
 > (N transitions on one source/target pair) is honoured in the new
@@ -765,22 +759,21 @@ event-node" unless explicitly stated otherwise.
 
 ### Self-loop fan — `:loopIndex` (rf2-shv82 Issue 2 — REMOVED, rf2-hstzzj)
 
-> **REMOVED (rf2-hstzzj).** The historical multi-self-loop perimeter fan
-> (rf2-shv82, Issue 2) rotated N self-loops around a node's perimeter so
-> their labels did not stack. The rf2-qo5xy events-as-nodes paradigm
+> **REMOVED.** The historical multi-self-loop perimeter fan
+> (Issue 2) rotated N self-loops around a node's perimeter so
+> their labels did not stack. The events-as-nodes paradigm
 > superseded it: a self-transition projects as `state → event-node →
 > state` (two ordinary ELK-routed edges), so multiple self-loops on one
 > state are multiple distinct event-nodes — there was never a fan or a
 > collapse to reconcile. The projector emitted `:selfLoop false` on every
 > edge, so the fan geometry (`self-loop-geometry`, the `:selfLoop` /
 > `:loopIndex` edge-`:data` keys, the `edge-path` self-loop branch, and
-> the `data-loop-index` DOM attr) was unreachable dead code; rf2-hstzzj
-> pruned it. (The rf2-o6vh7 retirement had already removed the related
-> `:siblingIndex` / `:siblingCount` collapse machinery.)
+> the `data-loop-index` DOM attr) was unreachable dead code, and is
+> gone, as is the `:siblingIndex` / `:siblingCount` collapse machinery.
 
 ### Label rendering — padded backgrounds (rf2-j10sm Phase 1, D)
 
-> **Mostly moot under events-as-nodes (rf2-qo5xy).** The event /
+> **Mostly moot under events-as-nodes.** The event /
 > guard / action text rides on the event-NODE; the structural in/out
 > edges carry an empty `:eventLabel`, so most edges paint no label.
 > The rare labelled edge (a directly-constructed edge) still paints a
@@ -806,7 +799,7 @@ Geometry is invariant across densities:
 
 The backplate fill is a flat theme token (`:event-chip-bg`), not a
 density-scaled opacity — its contrast budget doesn't scale with type
-size, so it reads the same across the three densities. (rf2-dt5b1 — the
+size, so it reads the same across the three densities. (the
 unread `:edge-label-backplate-opacity` density key it once referenced
 was removed; the renderer always painted the opaque token, never an
 alpha-scaled `:bg-1`.)
@@ -839,10 +832,10 @@ label so DOM tests + hosts can pin the convention.
 ### Post-render label-collision avoidance — RETIRED (rf2-0xbgx)
 
 There is no post-render label-collision pass. Under elk layout +
-events-as-nodes (rf2-qo5xy) the event/guard/action label rides on the
+events-as-nodes the event/guard/action label rides on the
 event **node**, so label-on-node-body collisions are a non-issue and
-elk reserves a channel for the rare painted edge label. The historical
-`LabelCollisionsOverlay` sweep (rf2-r7vsr) was removed in rf2-0xbgx.
+elk reserves a channel for the rare painted edge label. There is no
+`LabelCollisionsOverlay` sweep.
 
 ### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
 
@@ -869,7 +862,7 @@ The resolution is pure and JVM-tested, in two layers:
   - **region-map** (`{:data :loading :form :neutral}`) → the **set of N
     leaves**. Each region value is a keyword-or-path **relative to that
     region's own state-tree**, resolved via `region-scoped-id` of the
-    region + the in-region path (rf2-wnzha — the parse REGION-SCOPES a
+    region + the in-region path (the parse REGION-SCOPES a
     region state's node-id, prefixing it with the region container id, so
     two regions sharing a state NAME mint DISTINCT ids; the resolver mints
     the same scoped id). A **nested region value** (a region whose value
@@ -885,9 +878,9 @@ The resolution is pure and JVM-tested, in two layers:
 - **`chart.projection/xyflow-graph`** threads the set as the
   `:highlight-ids` option; a node is `:active` when its id ∈ the set. A
   flat / compound snapshot resolves (via `highlight-ids`) to a singleton
-  set, so `:highlight-ids` is the single active-state option (rf2-hstzzj
-  removed the legacy scalar `:highlight-id` convenience). An edge is
-  `:active` when its **source** state is in the active set (rf2-vd3q1i —
+  set, so `:highlight-ids` is the single active-state option (there is
+  no scalar `:highlight-id` convenience). An edge is
+  `:active` when its **source** state is in the active set (
   **source-active only**, not incident-to-active): the outgoing
   "transitions available from here" fan lights, while an **incoming**
   edge whose only active endpoint is its target stays quiet. Each
@@ -924,8 +917,7 @@ idiomatic surface:
 
 Every substrate renders the SAME component through one bridge —
 there is no per-substrate fork of the chart. (A Helix shell shipped in
-Phase 2 and was deleted with the Helix adapter's removal at S7/W13 —
-rf2-d6epb, 2026-07-22.)
+Phase 2 and was deleted with the Helix adapter's removal.)
 
 The chart's click surface is `:on-state-click`, invoked with the
 clicked node's `path`; the host resolves source coords for that path
@@ -940,8 +932,8 @@ child-key / node-id.
 
 For the supplied `:definition`, the chart shows:
 
-- **A directional state-chart — events-as-nodes paradigm
-  (rf2-qo5xy).** State boxes are first-class nodes (compound states
+- **A directional state-chart — events-as-nodes paradigm.**
+  State boxes are first-class nodes (compound states
   nested visually via xyflow sub-flows; `{:type :parallel}` machines
   render every region as a distinct orthogonal zone — see
   [§Parallel-region rendering](#parallel-region-rendering-rf2-lkwev-xyflow-phase-2)).
@@ -949,7 +941,7 @@ For the supplied `:definition`, the chart shows:
   between the source state and the (optional) target state, the
   paradigm Stately Studio's graph view paints. The event-node carries
   the event header (`event-id`, or `⌚ <ms>` for `:after`, or `∞` for
-  `:always` per `chart.layout/event-segment`, rf2-a2b55), an optional
+  `:always` per `chart.layout/event-segment`), an optional
   `[guard]` chip, and a `+ <action>` pill row when the transition
   declares an action. Internal transitions (omit `:target`) emit an
   inbound edge into the event-node but no outbound (Stately
@@ -962,7 +954,7 @@ For the supplied `:definition`, the chart shows:
   The whole `:state` value resolves to the set of active node-ids via
   `chart.layout/highlight-ids`; compound states' active child resolves
   to the deepest leaf. The highlight is a static affordance (the
-  heartbeat pulse was retired 2026-05-20 per rf2-2sez0); the only
+  heartbeat pulse was retired 2026-05-20); the only
   continuous animation is the `:after` countdown rings overlay, which
   pauses when the chart is backgrounded.
 - **Focused-event lens highlights.** `:from-highlight` / `:to-highlight`
@@ -970,32 +962,30 @@ For the supplied `:definition`, the chart shows:
   flips that palette to amber for the simulator path.
 - **`:final?` states.** Rendered with a quiet doubled border (outer
   ring proud of the corner) on `chart.nodes/state-node`. **No glyph** —
-  the prior `✓` check glyph was dropped (rf2-az6e2); the doubled border
+  the prior `✓` check glyph was dropped; the doubled border
   is the unambiguous final-state signal.
-- **State tags render as a visible pill row + hover tooltip
-  (rf2-a2b55; rf2-so5b0).** A state's declared `:tags` set (Spec 005
+- **State tags render as a visible pill row + hover tooltip.**
+  A state's declared `:tags` set (Spec 005
   §State tags) renders as a row of **neutral** pills (one structural
   fill `:container-header-bg` + `:state-border` border + `:text-
   secondary` text) positioned BELOW the state name (Stately graph view
   convention). Structure wins over annotation colour for the topology
   view, so the chart reads as containment + transition flow, not a
-  rainbow of tag hues (rf2-az6e2; the deterministic per-tag colour
-  rotation `tag-pill-color` / `tag-pill-palette` it once used was
-  removed rf2-dt5b1 — it coloured nothing the renderer paints). Each
+  rainbow of tag hues (the deterministic per-tag colour
+  rotation `tag-pill-color` / `tag-pill-palette` it once used is
+  gone — it coloured nothing the renderer paints). Each
   pill carries a `rf-mv-chart-state-tag-<name>` testid + a `data-tag`
   attr preserving the declared tag identity. In parallel, the whole set
   surfaces on the state-node's `title` attr (native HTML hover tooltip)
   + `data-tags` attr (sorted space-joined string for DOM tests + host
-  introspection) — the rf2-so5b0 host-introspection contract. (The
-  rf2-so5b0 retirement of the visible row was reverted by rf2-a2b55
-  on a paradigm-matched look at Stately's graph view, which paints
-  the row.)
-- **Entry / exit actions render as captioned `⚡ <name>` action chips
-  (rf2-a2b55; rf2-vcnvj).** Declared `:entry` / `:exit` state actions
+  introspection) — the host-introspection contract. (The visible row
+  matches Stately's graph view, which paints the row.)
+- **Entry / exit actions render as captioned `⚡ <name>` action chips.**
+  Declared `:entry` / `:exit` state actions
   surface as subdued action chips BELOW the tag row inside the state
   box, under a quiet title-case "Entry actions" / "Exit actions"
   caption (Stately graph view convention; replaces the prior
-  `entry / <name>` text rows from rf2-ee38b.21). Each chip
+  `entry / <name>` text rows). Each chip
   carries an `rf-mv-chart-state-entry` / `rf-mv-chart-state-exit`
   testid + the action name on a `data-entry` / `data-exit` attr.
 - **`:after` countdown rings (overlay, host-fed).** When the host
@@ -1141,17 +1131,17 @@ different physical sizes without forking the renderer.
 | Density | When to pick it |
 |---|---|
 | `:compact` | Story's 50-chart panel grid; thumbnail listings; any surface where the chart is one of many and the user is scanning the grid for shape rather than reading individual labels. Walks the typography back to the spec/007-UX-IA refused-floor (state 11px / edge 9px) — the refused-floor was set for dense data-grid surfaces, and this density IS that surface. Geometry tightens ~25% (paddings, dot-grid spacing, pill height). |
-| `:regular` | The default. Xray's machines tab; the read-only viewer page; any embedded host that picks no density at all. Typography sits at the chart-floor (state 13px / edge 11px per rf2-gg7ws). The constants in `visual-constants/chart-regular` are the same constants `visual-constants/chart` aliases. |
+| `:regular` | The default. Xray's machines tab; the read-only viewer page; any embedded host that picks no density at all. Typography sits at the chart-floor (state 13px / edge 11px). The constants in `visual-constants/chart-regular` are the same constants `visual-constants/chart` aliases. |
 | `:cosy` | Single-chart presentation displays — Xray's machines tab on a wide monitor, a standalone viewer on a projector, an editor's docs-page screenshot. Walks the typography up to state 15px / edge 13px. Geometry loosens ~25%. |
 
 ### Identity vs. quantity
 
 Density scales **quantity**, not **identity**. The same chart at all
 three densities reads as the same chart — the rounded-rect 'data, not
-product' character (rf2-g6cig) holds. Specifically:
+product' character holds. Specifically:
 
 - **`corner-radius` is locked at 6 across every density** per the
-  rf2-g6cig lock. A 'compact' chart with `corner-radius 4` would
+  corner-radius lock. A 'compact' chart with `corner-radius 4` would
   read as a different chart, not a smaller one; a 'cosy' chart with
   `corner-radius 10` would read as 'product chrome'. The lock means
   the chart's silhouette is the same at every scale.
@@ -1160,7 +1150,7 @@ The chart's two contrast-budget constants — the edge-label backplate
 fill and the dot-grid backdrop subtlety — also do not scale with type
 size, but they are NOT density-map keys: the backplate paints the flat
 `:event-chip-bg` theme token (no opacity key), and the dot grid is
-xyflow's `<Background>` `:gap` / `:size` with no alpha. (rf2-dt5b1 —
+xyflow's `<Background>` `:gap` / `:size` with no alpha. (
 the unread `:edge-label-backplate-opacity` / `:dot-grid-alpha` density
 keys these bullets once named were removed; no renderer read them.)
 
@@ -1189,7 +1179,7 @@ named maps in `visual-constants` share the SAME key set (asserted by
 ### Implementation notes
 
 - `MachineChart` resolves the `:density` prop ONCE per render via
-  `visual-constants/chart-for-density` (rf2-k647w). The resolved
+  `visual-constants/chart-for-density`. The resolved
   map is threaded through the projector (`chart.projection/xyflow-
   graph`) onto every node + edge `:data` as `{:chart <density-map>}`.
 - The xyflow node + edge components recover that map off their
@@ -1199,16 +1189,16 @@ named maps in `visual-constants` share the SAME key set (asserted by
   scope, so the density travels in the data, not in a dynamic Var.
 - A node/edge payload without a `:chart` entry falls back to
   `visual-constants/chart-regular`, so the regular density stays
-  pixel-identical to the pre-rf2-k647w hardcoded numbers.
+  pixel-identical to hardcoded numbers.
 - Direct projection tests that want a non-default density pass it
   through `xyflow-graph`'s `:chart` option and assert on the emitted
   `:data`; production code always goes through the `:density` prop.
 
-Per rf2-32gw5 (resolves the `visual-constants.cljc` doc-string's
+ (resolves the `visual-constants.cljc` doc-string's
 'a future density toggle (compact / cosy / comfy) a one-knob change'
 forward-promise; naming settled on compact / regular / cosy per the
 bead title — `regular` is the load-bearing default name now that the
-chart-floor lift (rf2-gg7ws) put the previous-default size at the
+chart-floor lift put the previous-default size at the
 floor of three rungs rather than the only rung).
 
 ## Theme (rf2-az6e2)
@@ -1231,7 +1221,7 @@ constraining the other.
 Rather than add a bespoke role key per surface, the structured
 grammar's semantic roles are **derived** from the existing base-palette
 entries by `theme/tokens/chart-tokens`, parameterised by the active
-palette. The Xray↔machines-viz drift gate (rf2-593jn, was rf2-z7ms8)
+palette. The Xray↔machines-viz drift gate
 asserts machines-viz's dark-palette key set is a **subset** of Xray's
 and that the **shared** keys agree on value — machines-viz publishes
 only the tokens its chart consumes, so it never mirrors Xray's
@@ -1247,7 +1237,7 @@ chrome-only tokens (`:chrome-ribbon-*`, `:diff-*`, `:syntax-*`,
 | `:event-chip-bg` / `:event-chip-border` | route-chip fill / border (subordinate) |
 | `:pseudo-marker` | initial / history pseudo-state (neutral, NOT accent) |
 | `:edge-quiet` / `:edge-active` / `:edge-fired` | source→event quiet / event→target+active / fired-epoch |
-| `:edge-guard-blocked` | rf2-fzrzlw — the guard-blocked no-op edge (a transition whose guard rejected the event): PINK (`:magenta-pink`), distinct from the blue fired/active hues AND the red `:final-error` ring. Wins over fired/active in `edge-color` (`blocked? > fired? > focused?/active? > quiet`). |
+| `:edge-guard-blocked` | — the guard-blocked no-op edge (a transition whose guard rejected the event): PINK (`:magenta-pink`), distinct from the blue fired/active hues AND the red `:final-error` ring. Wins over fired/active in `edge-color` (`blocked? > fired? > focused?/active? > quiet`). |
 | `:active` / `:focus` / `:sim` / `:final` | runtime-state accents (reserved for runtime, NOT static structure) |
 
 ### Resolution rules
@@ -1274,9 +1264,8 @@ chrome-only tokens (`:chrome-ribbon-*`, `:diff-*`, `:syntax-*`,
   constructed node still renders the dark grammar.
 - The chart's own canvas chrome (root canvas surface, dot-grid, minimap,
   layout-error banner) reads the resolved `theme-palette` directly. The
-  root machine title strip + Context band are NO LONGER canvas chrome —
-  rf2-q129z8 folded them into the ROOT-CONTAINER frame node's header, so
-  they read the per-node `:palette` like every other node.
+  root machine title strip + Context band are not canvas chrome: they
+  live in the ROOT-CONTAINER frame node's header, so they read the per-node `:palette` like every other node.
 
 ## Visual grammar (rf2-az6e2)
 
@@ -1287,15 +1276,15 @@ colour is subordinate to structure**.
   aligned **title strip** (sans `chart-label-stack`), a hairline divider
   when body content exists, and a body band carrying **one neutral tag
   chip style** (the VISIBLE label + `data-tag` preserve the DECLARED
-  namespaced identity — `door/open`, not truncated `open`; rf2-vcnvj) +
+  namespaced identity — `door/open`, not truncated `open`) +
   quiet **title-case** "Entry actions" / "Exit actions" caption rows
-  (NOT uppercase — rf2-vcnvj; **normal weight, no letter-spacing,
-  tertiary colour** — rf2-ly51l, the quietest tier so the caption reads
+  (NOT uppercase; **normal weight, no letter-spacing,
+  tertiary colour** — the quietest tier so the caption reads
   as a section hint, not a heading) with subdued bolt-glyph action chips.
   Square-ish, low radius (the 6px `corner-radius` lock). Runtime state
   (active / focus lens / sim) rides the **border + header + glow**, never
   the whole fill. A **final state** is a quiet double border (the ✓ check
-  glyph is **dropped** — rf2-az6e2 decision).
+  glyph is **dropped**).
 - **Event/transition nodes** stay synthetic layout nodes (source-state →
   event-node → target-state) but render as **subordinate route chips** —
   no title bar, event + guard on the first line as **`IF <guard>`**, an
@@ -1304,7 +1293,7 @@ colour is subordinate to structure**.
   with a dashed border ring and no outgoing target segment.
 - **Machine-level (top-level `:on`) fallback** projects as a SINGLE
   route from the synthetic **machine-root chip** (`◆ root` pill) into its
-  target (rf2-vcnvj) — NOT one chip per leaf. The per-state expansion
+  target — NOT one chip per leaf. The per-state expansion
   repeated the chip around every state AND injected back-edges that
   scrambled ELK's top-to-bottom ranking; one root-sourced route reads as
   the machine-wide fallback it is and leaves the main column to the real
@@ -1317,7 +1306,7 @@ colour is subordinate to structure**.
   removed). Active / focus colour is reserved for runtime state.
 - **Pseudo-states**: initial markers are small **neutral** dots (not
   accent-blue). A **history** pseudo-state (shallow `H` / deep `H*`, small
-  symbolic node, never occupiable) is **wired end-to-end** (rf2-m285a):
+  symbolic node, never occupiable) is **wired end-to-end**:
   `chart.layout` parses a `:type :history` node into a non-occupiable
   `{:history? true :deep? …}` marker, `chart.projection` maps it to xyflow
   `"history-marker"` + `:data {:deep …}`, and `chart.nodes/history-marker`
@@ -1332,23 +1321,23 @@ colour is subordinate to structure**.
   WIDTHS ride the density map alongside the stroke, and the arrowhead
   COLOUR resolves through the same `theme.tokens/edge-color` helper the
   SVG stroke uses (so a head and its stroke can never disagree on
-  colour — rf2-dt5b1). Fired/focused lights **both** segments together
+  colour). Fired/focused lights **both** segments together
   (`fired?` > `focused?`/`active?` > quiet).
 - **Typography hierarchy** (loudest → quietest): **state title**
   (`state-title-px`, weight 500/600) › **event chip** (`event-chip-px`)
   › **action chip** (`action-pill-px`, weight 500, `text-secondary`) ›
   **tag pill** (`tag-pill-px`, muted) › **section caption**
   (`action-caption-px`, normal weight, `text-tertiary`, no letter-
-  spacing — rf2-ly51l). Each tier is visibly subordinate to the one
+  spacing). Each tier is visibly subordinate to the one
   above so the eye reads structure (state titles) first.
-- **Initial-state placement** (rf2-ly51l): a **soft** preference biases a
+- **Initial-state placement**: a **soft** preference biases a
   cyclic statechart so its initial state sits near the top (`:tb`) / left
   (`:lr`) and the forward spine reads from there — via DEPTH_FIRST
   cycle-breaking + an initial-leads child model order (see
   [`001-Topology-Parity.md`](001-Topology-Parity.md) §Layout). NOT a hard
   invariant: ELK's crossing-min + node-placement can still arrange a
   state off the ideal when the graph demands it.
-- **Root chrome** (rf2-q129z8): the machine name + Context shape ride the
+- **Root chrome**: the machine name + Context shape ride the
   HEADER of the synthetic **ROOT-CONTAINER frame** — a named rounded box
   wrapping the WHOLE machine (Stately Studio's frame around the machine
   root). Every top-level node nests under it via xyflow `parentId`; ELK
@@ -1358,9 +1347,9 @@ colour is subordinate to structure**.
   and, under it, a Context BAND rendered from the optional `:context-band`
   prop — live context `(key → value)` when a snapshot is in hand, or the
   static **context-shape** `(key → type-caption)` the Xray topology path
-  derives via `topology-view/static-context-shape` (rf2-vcnvj),
+  derives via `topology-view/static-context-shape`,
   **declared over inferred** — authoritative off a `[:schemas :data]` schema when
-  present, else inferred from one `:data` sample (rf2-3q4k5b · EP-0005 · EP-0029 A3);
+  present, else inferred from one `:data` sample (EP-0005 · EP-0029 A3);
   the badge beside the header reads `declared` for the authoritative shape
   and `inferred from :data` for the inference. The frame is structural
   chrome: neutral (never marked `:active`),
@@ -1388,17 +1377,17 @@ prop groups:
   compound-state nesting. Derived solely from the structural props
   `:definition`, `:direction`, `:layout-options`, and `:density` (the
   host pulls `:definition` from the `:rf/machine` registrar projection;
-  `:density` sizes ELK container padding per rf2-8q5pt — see the
+  `:density` sizes ELK container padding — see the
   [layout-invalidation boundary](#layout-invalidation-boundary-is-load-bearing)).
   This plane is **structural**: changing it requires re-laying out the
   graph via elkjs. The parser that walks `:definition` into the
   `{:nodes :edges}` graph (`layout/project-definition`) is itself a
   topology-plane computation — implementations MUST cache its result
-  keyed ONLY on `:definition` (rf2-jl72i), so a decoration-only render
+  keyed ONLY on `:definition`, so a decoration-only render
   never re-walks the definition (see §Highlight / overlay prop changes
   below).
 - **Runtime-highlight plane.** The active-state affordance (static
-  tint + bolder stroke; pulse retired 2026-05-20 per rf2-2sez0), the
+  tint + bolder stroke; pulse retired 2026-05-20), the
   focused-event lens tint, the `:after` countdown-ring overlay, the
   `:spawn-all` join inspector, the cancellation cascade, and every
   other per-trace decoration. Derived solely from the decoration props
@@ -1422,13 +1411,13 @@ descriptor `:tick` bump, a new / changed `:overlays` descriptor `:spec` /
   ARIA labels).
 - CSS-driven animations (the transition glow, the
   `prefers-reduced-motion` step animation). The heartbeat pulse
-  was retired 2026-05-20 (rf2-2sez0).
+  was retired 2026-05-20.
 
 Such a render MUST NOT:
 
 - Re-parse / re-project the topology. The definition→graph parse
   (`layout/project-definition`) MUST be cached keyed only on
-  `:definition` (rf2-jl72i); a decoration-prop change reuses the cached
+  `:definition`; a decoration-prop change reuses the cached
   parsed graph (and thus the downstream layout / projection caches keyed
   on it), never re-walking the definition.
 - Re-run layout (no `elk`/`dagre`/custom layout call).
@@ -1466,7 +1455,7 @@ plane are:
 4. **A `:density` change** (`:compact` ⇄ `:regular` ⇄ `:cosy`).
    `:density` is **structural for layout**: the ELK pass sizes each
    compound / region container's `elk.padding` from the active density's
-   title-strip + body-pad constants (rf2-8q5pt), so a density switch
+   title-strip + body-pad constants, so a density switch
    changes the geometry ELK must lay out — not merely the painted size.
    It therefore re-runs layout (and re-fits), unlike `:theme` — which is
    purely a colour swap and stays decorative. Highlight / overlay props
@@ -1501,7 +1490,7 @@ from the last key that was fit. xyflow's `:fitView true` prop fires only
 on the initial mount, but mount happens BEFORE the async elk pass
 resolves — every node sits at the default `{x 0 y 0}` and the
 one-shot fitView would frame the operator on a degenerate cluster
-near the origin (rf2-set3x). Implementations MUST capture the xyflow
+near the origin. Implementations MUST capture the xyflow
 ReactFlowInstance via `:onInit` and call `.fitView` from the
 `compute-layout!` settle (and the symmetric onInit-after-settle race
 branch).
@@ -1522,7 +1511,7 @@ re-fits, by design — the topology shape has changed and the
 operator's prior framing is no longer meaningful.
 
 The `.fitView` call MUST be deferred through **two** nested
-`requestAnimationFrame` tasks (rf2-s5kyp). A single rAF races
+`requestAnimationFrame` tasks. A single rAF races
 xyflow's internal node-measurement on the focused-machine-change
 path: React commits the new prop set with the new machine's
 positions; the single rAF fires before xyflow has finished
@@ -1573,8 +1562,8 @@ the layout-key auto-fit runs.
 
 `:after` countdown rings and any continuous animation in the chart
 MUST be driven by a **single, per-chart-instance animation clock**.
-(The active-state heartbeat pulse was retired 2026-05-20 per
-rf2-2sez0; only the `:after` countdown rings remain on the clock.
+(There is no active-state heartbeat pulse; only the `:after` countdown
+rings run on the clock.
 The transition glow is event-driven and resolves to a stable end-
 state, so it does not consume the clock.)
 
@@ -1670,8 +1659,8 @@ host** — see [§Hosting](#hosting) below.
 
 ### Hosting
 
-**Nobody deploys this page for you, and that is the design** (Lock #7,
-rf2-8m344). Publishing `day8/re-frame2-machines-viz` to Clojars ships the
+**Nobody deploys this page for you, and that is the design** (Lock #7).
+Publishing `day8/re-frame2-machines-viz` to Clojars ships the
 LIBRARY; it does not deploy anything, and no workflow in this repository
 does either. Until 2026-07-26 this section named a "canonical hosted
 instance" at `https://day8.github.io/re-frame2-machines-viz/viewer.html`
@@ -1694,7 +1683,7 @@ installs. Both are read off the artefacts, so a namespace or module rename
 that keeps them in step passes and one that breaks the page fails. The
 required `machines-viz-viewer-page` CI job runs this exact command, which is
 what keeps the recipe honest — the previous "canonical hosted instance" was
-also documented, and also unverified (rf2-8m344).
+also documented, and also unverified.
 
 Serve that directory — the two files are self-contained, decode client-side,
 and need no server logic. Then pass its URL to the encoder:
@@ -1730,16 +1719,16 @@ that boundary.
 
 The page boots **no framework**. `MachineChart` is an ordinary Reagent
 component, so the viewer mounts it through a plain `reagent.dom.client`
-root — no `rf/init!`, no substrate adapter, no frame, no dispatch
-(rf2-6r9j.115). `rf/init!` installs a substrate and re-seeds framework
+root — no `rf/init!`, no substrate adapter, no frame, no dispatch.
+`rf/init!` installs a substrate and re-seeds framework
 registrations; neither is a Reagent rendering prerequisite, which the
 chart's own DOM suite demonstrates by mounting the same component
 through `adapters/react-chart` and a bare `react-dom/client` root.
 
-Until rf2-6r9j.115 the page did require `re-frame.adapter.reagent`, so a
-library jar carrying it would have had to declare `day8/re-frame2-reagent`
-and push that adapter onto every application adding machines-viz. That
-hazard is now discharged at the source rather than merely fenced by the
+A page requiring `re-frame.adapter.reagent` would make a library jar
+carrying it declare `day8/re-frame2-reagent` and push that adapter onto
+every application adding machines-viz. The page requires none, so the
+hazard is absent at the source rather than merely fenced by the
 source-root split — no adapter coordinate appears anywhere in
 `tools/machines-viz/deps.edn`, test aliases included.
 
@@ -1766,7 +1755,7 @@ Source: lifted from
 `:host` is **required** — the URL of the viewer page the caller hosts
 (see [§Hosting](#hosting)). There is no default and no arity that omits
 it: the library cannot know where your viewer is served from, and the
-value it used to guess returned 404 (rf2-8m344).
+value it used to guess returned 404.
 
 #### What `:host` is checked for, and what it is not (rf2-xld5m)
 
@@ -1795,8 +1784,8 @@ https://acme.example.com/viewer.html#docs#machine=<400 characters of base64>
 read it, because a URL has one fragment and the decoder stops at the
 first `#` (it surfaces `:malformed-fragment`). Nobody counts `#`s in 400
 characters of base64, so the sender would ship a dead link and the
-failure would land on the recipient: the outcome rf2-8m344 removed the
-hosted default to stop. The encoder therefore **refuses** rather than
+failure would land on the recipient, which is why there is no hosted
+default. The encoder therefore **refuses** rather than
 silently stripping the caller's fragment, which would be a quieter wrong
 answer. A **query string is untouched** — it precedes the fragment, so
 `…/viewer.html?theme=dark` composes correctly.
@@ -1814,8 +1803,8 @@ encoder:
    the encoder rejects (with `:invalid-chart-state`) anything the decoder
    could not accept — e.g. a `:snapshot` `:state` that is none of the
    three configuration arms — rather than emitting an undecodable URL.
-2. Strips metadata off `:definition` AND structurally sanitises it
-   (rf2-m285a). A macro-stamped spec (Spec 005 §Source-coord stamping)
+2. Strips metadata off `:definition` AND structurally sanitises it.
+   A macro-stamped spec (Spec 005 §Source-coord stamping)
    co-locates `:source-coords` / `:source-code` + executable `:fn` values
    as ordinary DATA inside `:states` / `:guards` / `:actions` — NOT as
    metadata — so `strip-meta` alone never
@@ -1825,23 +1814,23 @@ encoder:
    values (a `:fn` entry is stripped ONLY when its value is a function —
    the co-located `{:fn <fn> …}` slot — so a TOPOLOGY key that happens to
    be named `:fn`, i.e. a state id, event id, or region id whose value is
-   a topology submap, is PRESERVED, rf2-07gg7h), and replaces any inline-fn
+   a topology submap, is PRESERVED), and replaces any inline-fn
    slot with a names-only opaque label, so the payload is a viewer-safe
    topology with no source/paths/fns. The topology references (state ids,
    transition targets, guard/action NAMES) survive. Both drops apply to
    RECORD maps only (a state node, a transition candidate, a guard/action
    entry): the KEYS of `:states`, `:regions`, `:on`, `:after`, `:guards` and
    `:actions` are identifiers, so a state, event, region, guard or action
-   named `:source-code`, `:source-coords` or `:fn` survives (rf2-gwye.49).
+   named `:source-code`, `:source-coords` or `:fn` survives.
    A function-valued `:after` delay (Spec 005) is a map KEY, not a slot
    value, so it becomes an inert `[<label> <n>]` vector key: a delay shape
    the viewer projects but never runs, numbered so that two anonymous delay
-   functions keep two transitions. The delay function is never called
-   (rf2-fzbj.13). The same record-map drop removes the slots that are not
+   functions keep two transitions. The delay function is never called.
+   The same record-map drop removes the slots that are not
    topology — `:schemas`, the root event `:schema`, `:data` and `:meta`,
    on the root, a state, a region or a `:spawn` spec — which the viewer
    never reads and whose values are arbitrary host values (a Malli
-   `[:re …]` is a JS `RegExp`; rf2-3x7nj.33.6).
+   `[:re …]` is a JS `RegExp`).
 3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
 4. Wraps in the versioned envelope.
@@ -1853,9 +1842,9 @@ Failure modes:
 | `:reason` | Meaning |
 |---|---|
 | `:no-host` | No non-blank `:host` was supplied. There is no default viewer host — see [§Hosting](#hosting). |
-| `:host-carries-fragment` | `:host` already contains a `#`. The machine payload rides in the fragment and a URL has only one, so a second `#` yields a link the viewer cannot read (rf2-xld5m). `ex-data` carries `:fragment-index` — the offset of the offending `#`, not the host itself, which may carry a query token. |
+| `:host-carries-fragment` | `:host` already contains a `#`. The machine payload rides in the fragment and a URL has only one, so a second `#` yields a link the viewer cannot read. `ex-data` carries `:fragment-index` — the offset of the offending `#`, not the host itself, which may carry a query token. |
 | `:invalid-chart-state` | The allowlisted chart state fails the same `valid-chart-state?` predicate the decoder applies (a missing/malformed `:machine-id` or `:definition`, a non-keyword `:frame-id`, or a `:snapshot` `:state` that is none of the three configuration arms). Rejected at encode rather than emitted as an undecodable URL. |
-| `:unencodable-definition` | The sanitised definition still carries a value Transit cannot write — a regex or other host object left in an open (namespaced) slot. Raised in place of Transit's own `Cannot write …` error; `ex-data` carries `:chart-state-summary`, never the value (rf2-3x7nj.33.6). |
+| `:unencodable-definition` | The sanitised definition still carries a value Transit cannot write — a regex or other host object left in an open (namespaced) slot. Raised in place of Transit's own `Cannot write …` error; `ex-data` carries `:chart-state-summary`, never the value. |
 
 ### Decoder
 
@@ -1875,7 +1864,7 @@ Failure modes:
 | `:malformed-payload` | Decoded bytes aren't valid transit. |
 | `:missing-envelope` | The payload is missing `:rf.machines-viz.share/v` or `:rf.machines-viz.share/chart`. |
 | `:unknown-version` | `:rf.machines-viz.share/v` is newer than the decoder knows. |
-| `:invalid-chart-state` | `:rf.machines-viz.share/chart` doesn't validate. The `:definition` slot is checked by the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18), so a forged URL carrying a definition that is structurally invalid BELOW the root (a nested compound missing `:initial`, a dangling target, an unknown bare node key) fails closed at BOTH encode and decode, not just a shallow root-shape violation. |
+| `:invalid-chart-state` | `:rf.machines-viz.share/chart` doesn't validate. The `:definition` slot is checked by the canonical **recursive** grammar gate (`grammar/valid-definition?`), so a forged URL carrying a definition that is structurally invalid BELOW the root (a nested compound missing `:initial`, a dangling target, an unknown bare node key) fails closed at BOTH encode and decode, not just a shallow root-shape violation. |
 
 #### What the thrown `ex-data` may carry
 
@@ -1883,7 +1872,7 @@ A share-URL is forged input by assumption — the encoder's privacy filter
 exists because a hand-edited fragment can smuggle `:snapshot {:data …}` and
 arbitrary runtime values — and projection cannot walk `ex-data` after the
 fact (EP-0015 / Spec 015 §exception-path residual). So no decode failure
-retains any part of what it rejected (rf2-m46qv):
+retains any part of what it rejected:
 
 | Slot | Carries |
 |---|---|
@@ -1975,8 +1964,8 @@ shape — *before* serialising), so the two stay symmetric: the encoder
 never emits a payload the decoder would reject, and a malformed `:state`
 (none of the three configuration arms) is rejected at encode rather than
 producing an undecodable URL. **The top-level ChartState map is CLOSED
-over `#{:machine-id :frame-id :definition :snapshot}` on BOTH sides**
-(rf2-dplwxh): a hand-crafted share URL that bypasses the encoder cannot
+over `#{:machine-id :frame-id :definition :snapshot}` on BOTH sides**:
+a hand-crafted share URL that bypasses the encoder cannot
 smuggle an extra top-level key (`:source-coords`, `:data`, or any future
 unreviewed field) past `decode-share-url` / `decode-share-url-safe` — the
 decoder rejects it with `:invalid-chart-state`, so the viewer never loads
@@ -2107,7 +2096,7 @@ content as the PNG sidecar). Font families are referenced by name, with
 system-monospace fallbacks; glyph data is not embedded. The receiving
 environment therefore determines the available font face.
 
-The `<title>` / `<desc>` text is **XML-escaped** (rf2-85a9do): the
+The `<title>` / `<desc>` text is **XML-escaped**: the
 viewport clone is serialised with `XMLSerializer` (which escapes for us),
 but the `<title>` / `<desc>` are constructed by hand from the raw machine
 id + summary, so the five XML-significant characters (`& < > " '`) are
@@ -2143,10 +2132,10 @@ payload from the element's bound props + the live snapshot.
 
 `opts` is required and must carry `:host`, which is passed straight to
 `encode-share-url` (see [§Hosting](#hosting)) and is subject to its rules
-— including the fragment refusal (`:host-carries-fragment`, rf2-xld5m).
+— including the fragment refusal (`:host-carries-fragment`).
 `opts` may also carry an optional `:frame-id` for payload provenance.
 Neither fn has an `opts`-free arity — a share-URL that does not name a
-viewer someone actually serves is a dead link (rf2-8m344).
+viewer someone actually serves is a dead link.
 
 ### Mermaid `stateDiagram-v2`
 
@@ -2182,7 +2171,7 @@ and DOM-independent — callable from JVM tests, from the JS bundle,
 and from the read-only viewer.
 
 The shipped end-user workflow over this emitter is **Xray's Static →
-Machines → Copy Mermaid** header button (rf2-sxw06): the Xray host
+Machines → Copy Mermaid** header button: the Xray host
 passes the selected registered machine's definition to `mermaid/emit`
 and copies the fenced block in one accessible gesture — see Xray
 `spec/003-Machine-Inspector.md` §Static Machines surface. The fns in
@@ -2201,7 +2190,7 @@ The emitter is **static-topology only**:
   which scopes a state to the block it is first mentioned in, draws it
   there, and labels it with its **name** (`ns/name` when namespaced).
   The id is the internal injective escape (`logged_2din__paying`) and
-  never shows (rf2-3x7nj.33.2).
+  never shows.
 - Event transitions render as `from --> to : event` edges. `:*`
   wildcard edges render with `*` as the label. Multiple-candidate
   vectors render every target-bearing guarded branch.
@@ -2211,7 +2200,7 @@ The emitter is **static-topology only**:
   microstep timing remains lossy.
 - A `:spawn` map's `:on-error` parent transition renders as a
   `from --> to : ✗ error` edge (an action-only one as a note), resolved
-  at the spawning state's own level (rf2-3x7nj.33.1).
+  at the spawning state's own level.
 - Top-level fallback `:on` renders from a synthetic `root fallback`
   node because Mermaid has no exact deepest-wins fallback primitive.
 - `:type :parallel` machines render as independent region state
@@ -2244,8 +2233,7 @@ topology renders correctly in the SVG / share-URL viewer; Mermaid
 is the Markdown-paste lane only.
 
 Source: per [DESIGN-RATIONALE Lock #4](./DESIGN-RATIONALE.md) (the
-"Mermaid covers the static-paste lane" lift, revised 2026-05-15 per
-rf2-deo2i — Mermaid emit promoted from v1.1 to v1.0 as a thin
+"Mermaid covers the static-paste lane" lift: Mermaid emit is a thin
 static-topology exporter), and
 [Spec 005 §Future §Diagram export](../../../spec/005-StateMachines.md#diagram-export-from-transition-tables)
 (the framework-level forward-pointer the tool-side exporter
@@ -2293,7 +2281,7 @@ library's own exports**.
 ;; => the parsed machine spec
 ```
 
-**Import is round-trip-only (rf2-3x7nj.33.5).** Every `spec->scxml`
+**Import is round-trip-only.** Every `spec->scxml`
 document carries the fixed format comment `<!-- re-frame2 machines-viz
 SCXML v1 -->` on its own line right after the XML prolog, and
 `scxml->spec` refuses any input that does not begin (after an optional
@@ -2311,7 +2299,7 @@ events are this library's timer and completion carriers. Each of those
 imported as a confident, valid, *different* machine. The marker is a
 comment rather than an attribute so the export stays schema-clean for
 the external tools it serves; it names a format, not trusted authorship,
-so a marked document is still parsed defensively (see the rf2-qy8p
+so a marked document is still parsed defensively (see the
 hardening under [Not supported](#not-supported-lossy-or-omitted)).
 
 ### Round-trip
@@ -2337,28 +2325,27 @@ back.
 | `:final? true`                        | `<final id="...">` |
 | `:on {:event :target}`                | `<transition event="event" target="target" type="internal"/>` |
 | `:on {:event {:target ... :guard G}}` | `<transition cond="G" .../>` |
-| Self-target (`:target :same-state`, or a keyword naming the state's OWN key) (rf2-0pp6as) | `<transition … target="<source-id>" type="internal"/>` — references the SOURCE state's REAL declared id (NEVER the dangling `same_2dstate` phantom); `type="internal"` is the explicit XState-v5 internal default. Round-trips to the canonical `:same-state`. |
-| `:reenter? true` (any target) (rf2-9dj21r) | `type="external"` — the EXTERNAL restart axis (re-run `:exit`+`:entry`); a target-bearing transition WITHOUT `:reenter?` carries `type="internal"`. |
+| Self-target (`:target :same-state`, or a keyword naming the state's OWN key) | `<transition … target="<source-id>" type="internal"/>` — references the SOURCE state's REAL declared id (NEVER the dangling `same_2dstate` phantom); `type="internal"` is the explicit XState-v5 internal default. Round-trips to the canonical `:same-state`. |
+| `:reenter? true` (any target) | `type="external"` — the EXTERNAL restart axis (re-run `:exit`+`:entry`); a target-bearing transition WITHOUT `:reenter?` carries `type="internal"`. |
 | `:after {ms :target}`                 | `<transition event="after.ms" target="target"/>` |
 | `:always [...]`                       | `<transition target="..."/>` (eventless) |
 | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
-| `{:type :history :deep? <b> :default-target <t>}` (rf2-m285a) | W3C `<history type="shallow\|deep">` inside the owning compound; a `:default-target` rides a default `<transition target="…"/>`. NEVER occupiable (a transition TO it resolves to the recorded/default leaf), so it emits `<history>`, never `<state>`/`<final>`. Round-trips back to `:type :history`. |
+| `{:type :history :deep? <b> :default-target <t>}` | W3C `<history type="shallow\|deep">` inside the owning compound; a `:default-target` rides a default `<transition target="…"/>`. NEVER occupiable (a transition TO it resolves to the recorded/default leaf), so it emits `<history>`, never `<state>`/`<final>`. Round-trips back to `:type :history`. |
 | Namespaced ids (`:auth/login`)        | `auth-login` (hex-escaped; `-` separates ns from name) |
 | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp-login` (ns dots escaped to `_2e`) |
 | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path SEGMENTS) |
 | Nested-state ids                      | fully qualified (root→leaf, `___`-joined) — unique xsd:ID |
 
-> **Id codec — injective + xsd:ID-conformant (rf2-mnp93.1/.7,
-> supersedes rf2-csq75).** SCXML state ids are `xsd:ID` (XML NCName):
+> **Id codec — injective + xsd:ID-conformant.** SCXML state ids are `xsd:ID` (XML NCName):
 > letters / digits / `-` `.` `_`, and crucially **no `:`**. The codec
 > HEX-ESCAPES every keyword namespace/name char outside `[A-Za-z0-9]` to a
 > FIXED-WIDTH, self-delimiting escape of its UTF-16 code unit — `_<2-hex>`
 > at or below `U+00FF` (`.` → `_2e`, `?` → `_3f`, the underscore itself →
 > `_5f`) and `_u<4-hex>` above it (CJK, emoji: `开` → `_u5f00`). Both forms
 > are fixed-width, so the codec is **reversible across the whole code-unit
-> range** (rf2-qgtcvy — the pre-fix `_<var-hex>` was neither self-delimiting
-> nor reversible above `0xFF`: `:开始` mis-decoded and `đ` collided with
-> `U+0011`+`"1"`); the `u` sentinel (not a hex digit) keeps the two widths
+> range** (a variable-width `_<var-hex>` would be neither self-delimiting
+> nor reversible above `0xFF`: `:开始` would mis-decode and `đ` collide
+> with `U+0011`+`"1"`); the `u` sentinel (not a hex digit) keeps the two widths
 > unambiguous. A literal `-` is escaped to `_2d`, so no bare hyphen ever
 > arises from segment content either. Parts join with two RESERVED MARKERS
 > the escaper can provably never emit:
@@ -2373,12 +2360,12 @@ back.
 >   a namespaced segment keeps its own `-`, e.g. `[:auth/region :browsing]`
 >   → `auth-region___browsing`.
 >
-> The pre-`t69tdo` scheme used `__` (double underscore) for the ns/name
-> boundary, but because EVERY escape begins with `_`, a name segment whose
-> leading char escaped to `_…` (any CJK name, or `:a/-b`'s name `-b` →
-> `_2db`) grew the `__` boundary into a `___` run — the exact path
-> separator — so the namespaced keyword silently mis-decoded to a vector
-> (`:a/-b` → `[:a :2db]`). A non-underscore boundary token the escaper
+> A `__` (double underscore) ns/name boundary would collide: because
+> EVERY escape begins with `_`, a name segment whose leading char escapes
+> to `_…` (any CJK name, or `:a/-b`'s name `-b` → `_2db`) grows the `__`
+> boundary into a `___` run — the exact path separator — so the
+> namespaced keyword silently mis-decodes to a vector (`:a/-b` →
+> `[:a :2db]`). A non-underscore boundary token the escaper
 > never emits (`-`) removes the collision at its root: no ns/name boundary
 > can ever become a `___` run.
 >
@@ -2391,16 +2378,16 @@ back.
 > are additionally **fully PATH-QUALIFIED** (root→leaf), so two
 > same-named nested states emit UNIQUE xsd:IDs and transition targets
 > reference those same unique ids — valid SCXML a strict external
-> consumer accepts (the pre-fix bare-name ids produced duplicate xsd:IDs;
-> the csq75 `:`-path separator was not even a valid xsd:ID char). The
+> consumer accepts (bare-name ids would produce duplicate xsd:IDs, and a
+> `:` path separator is not even a valid xsd:ID char). The
 > guard `cond=` attribute is the same hex-escaped keyword encoding, and a
 > user event named `after.*` / `done.state.*` no longer aliases the
 > synthetic timer / `:on-done` encodings (those carry a literal `.` the
-> codec never emits for a real keyword — rf2-mnp93.2/.3).
+> codec never emits for a real keyword).
 
 ### Not supported (lossy or omitted)
 
-- **SCXML executable content + the data model (rf2-qy8p).**
+- **SCXML executable content + the data model.**
   `<onentry>`, `<onexit>`, `<script>`, `<log>`, `<assign>`, `<raise>`,
   `<send>`, `<datamodel>` / `<data>`, `<invoke>` and any other foreign
   child of a `<state>` are **IGNORED on import and never emitted on
@@ -2429,7 +2416,7 @@ back.
   machine, with no diagnostic anywhere.)
 - `:spawn-all` rows — omitted; the parent state renders without
   spawn affordances.
-- `:spawn` (rf2-3x7nj.33.1) — omitted with its whole map, **including
+- `:spawn` — omitted with its whole map, **including
   its `:on-error` parent transition**, so a state whose only way out is
   `:spawn :on-error` exports as a dead end and the `:on-error` target as
   unreached. The chart and the Mermaid emitter do draw that edge
@@ -2450,7 +2437,7 @@ back.
   (source == target), SCXML re-enters the source regardless of `type`,
   so the re-frame2 internal default has no exact SCXML equivalent. The
   export still references the source state's
-  **real declared id** (never the pre-fix dangling `same_2dstate`
+  **real declared id** (never a dangling `same_2dstate`
   phantom) and emits `type="internal"` to record the intended axis, and
   the local `scxml->spec` round-trips the `:same-state` sentinel exactly —
   but a strict external SCXML engine executing the imported self-target
@@ -2468,7 +2455,7 @@ back.
   `<!-- action: NAME -->` comment and round-trips; entry/exit `<script>`
   would require evaluation context, so entry/exit actions are omitted,
   as listed above). An INLINE-FN `:guard` / `:action`
-  (the Spec 005 escape hatch) is **lossy-not-crash** (rf2-m285a): the
+  (the Spec 005 escape hatch) is **lossy-not-crash**: the
   exporter surfaces the fn's `:name` meta or a stable `"fn"` fallback
   (consistent with the chart + Mermaid emitters, and the API promise
   that fn bodies are lossy, NOT unsupported) — pre-fix it threw a
@@ -2486,8 +2473,8 @@ sentence, and `ex-message` leads with the sentence and trails the
 
 | `:rf.error/id` | Meaning |
 |---|---|
-| `:scxml/invalid-spec` | The definition crossing the boundary fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. **BOTH directions (rf2-qy8p):** on export it gates the spec handed to `spec->scxml`; on import it is `scxml->spec`'s POSTCONDITION — parser output that cannot be represented as a valid re-frame2 definition throws here rather than being returned, so a successful import always yields a machine every other boundary accepts. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — never the raw spec and never the raw XML — see [The value-free definition summary](#the-value-free-definition-summary) for exactly what that may and may not name. |
-| `:scxml/unsupported-format` | `scxml->spec` input does not begin (after an optional XML prolog and whitespace) with exactly the `<!-- re-frame2 machines-viz SCXML v1 -->` format marker `spec->scxml` writes — third-party SCXML, a hand-assembled document, a pre-marker export, or a different marker version (rf2-3x7nj.33.5). Recovery `:re-export-from-the-source-definition`. The ex-data is value-free (an `:input-summary` of type + length, never the raw XML). |
+| `:scxml/invalid-spec` | The definition crossing the boundary fails the canonical **recursive** grammar gate (`grammar/valid-definition?`): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. **BOTH directions:** on export it gates the spec handed to `spec->scxml`; on import it is `scxml->spec`'s POSTCONDITION — parser output that cannot be represented as a valid re-frame2 definition throws here rather than being returned, so a successful import always yields a machine every other boundary accepts. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id) — never the raw spec and never the raw XML — see [The value-free definition summary](#the-value-free-definition-summary) for exactly what that may and may not name. |
+| `:scxml/unsupported-format` | `scxml->spec` input does not begin (after an optional XML prolog and whitespace) with exactly the `<!-- re-frame2 machines-viz SCXML v1 -->` format marker `spec->scxml` writes — third-party SCXML, a hand-assembled document, a pre-marker export, or a different marker version. Recovery `:re-export-from-the-source-definition`. The ex-data is value-free (an `:input-summary` of type + length, never the raw XML). |
 | `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
 
 ## AI-generate-a-machine (v1.1, rf2-1bncf)
@@ -2550,7 +2537,7 @@ resolver) from the parse/validate step (this ns). The fn:
 3. Strips fenced code blocks (```clojure / ```edn / bare) tolerantly,
    so the LLM may emit prose around the EDN form.
 4. Parses the EDN form and validates it against the **canonical
-   recursive grammar gate** (`grammar/valid-definition?` — rf2-j538f7.18),
+   recursive grammar gate** (`grammar/valid-definition?`),
    the single projectability predicate the share boundary, Mermaid, SCXML,
    and the chart projector all share. This is a **recursive** check, not a
    shallow root-shape one: it walks the root, every parallel region, and
@@ -2607,7 +2594,7 @@ Every one of those inputs is untrusted. A share fragment is forged by
 assumption, an LLM response is a string a model chose, and an SCXML / Mermaid
 document arrives from wherever the user got it. Projection cannot walk
 `ex-data` after the fact (EP-0015 / Spec 015 §exception-path residual), so the
-summary must not carry anything it was given — and it does not (rf2-oztox):
+summary must not carry anything it was given — and it does not:
 
 | Slot | Carries |
 |---|---|
@@ -2643,12 +2630,11 @@ of a token, and without them the summary would be safe but useless.
 
 ```clojure
 day8.re-frame2-machines-viz.chart/MachineChart    ; component (Reagent)
-day8.re-frame2-machines-viz.adapters.react-chart/MachineChartReactClass ; rf2-yg9he — reactified React class
-day8.re-frame2-machines-viz.adapters.react-chart/chart-element          ; rf2-yg9he — CLJS props → React element
-day8.re-frame2-machines-viz.adapters.uix/MachineChart   ; rf2-yg9he — UIx shell ($-mountable)
+day8.re-frame2-machines-viz.adapters.react-chart/chart-element          ; CLJS props → React element
+day8.re-frame2-machines-viz.adapters.uix/MachineChart   ; UIx shell ($-mountable)
 day8.re-frame2-machines-viz.share/encode-share-url
 day8.re-frame2-machines-viz.share/decode-share-url
-day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string (rf2-sqhqu — relocated into this tool jar; runtime artefact is pure-engine)
+day8.re-frame2-machines-viz.mermaid/emit          ; pure fn — definition → string (lives in this tool jar; the runtime artefact is pure-engine)
 day8.re-frame2-machines-viz.scxml/spec->scxml     ; v1.1 — pure fn
 day8.re-frame2-machines-viz.scxml/scxml->spec     ; v1.1 — pure fn
 day8.re-frame2-machines-viz.ai-generate/generate-machine ; v1.1 — pluggable LLM seam

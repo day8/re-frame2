@@ -45,7 +45,7 @@ Three, not two:
   `tools/machines-viz/shadow-cljs.edn` `:machines-viz-node-test` build on
   its own `:cljs-test` classpath, run as `npm run test:tools-machines-viz`
   from `implementation/`. Its `-test$` selector reaches the suites the
-  consolidated `cljs-test$` one does not (rf2-odlm3), and it carries the
+  consolidated `cljs-test$` one does not, and it carries the
   `page` root, so the viewer entry is covered here.
 - **Consolidated CLJS + browser DOM** - `implementation/shadow-cljs.edn`
   borrows this artefact's `src`, `test` and `page` roots onto its

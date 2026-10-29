@@ -18,7 +18,7 @@ A subset of these locks are **lifted from
 [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)**.
 Xray Spec 003 specified `MachineChart`'s prop surface, share-URL
 encoding, transition-history ribbon, and `:spawn-all` viz before
-this tool had its own spec folder. The scaffold (rf2-x50eu)
+this tool had its own spec folder. The scaffold
 migrates those decisions into Machines-Viz's home; Xray's 003
 remains the authoritative source for the **embedding-side**
 contract (transition history ribbon UX, source-coord jumps,
@@ -82,12 +82,11 @@ What surface does Machines-Viz ship at v1.0?
 ## Lock #2 — `MachineChart` prop contract
 
 **Locked 2026-05-13 (Mike, lifted from Xray 003); shipped pick
-revised 2026-06-04 (rf2-ewirq) to the presentation-only contract the
+revised 2026-06-04 to the presentation-only contract the
 implementation landed.**
 **Props: `:machine-id`, `:definition`, `:current-state`,
-`:on-state-click`, `:on-edge-click` (plus read-only flags).** (The
-original lock named `:on-transition-click`; rf2-qo5xy's events-as-nodes
-paradigm retired it — transitions render as event-nodes and a clickable
+`:on-state-click`, `:on-edge-click` (plus read-only flags).** (There is
+no `:on-transition-click`: under the events-as-nodes paradigm, transitions render as event-nodes and a clickable
 event-node label fires `:on-edge-click`. The names below are reconciled
 to the shipped contract — see [`API.md`](./API.md) §Props for the full
 prop table.)
@@ -227,9 +226,8 @@ Source: lifted from Xray
 
 ## Lock #4 — Markdown-embed: Mermaid emit ships at v1.0
 
-**Locked 2026-05-13 (Mike); revised 2026-05-15 (Mike, per
-rf2-deo2i — Mermaid emit promoted from v1.1 to v1.0 as a thin
-static-topology exporter).** **Machines-Viz ships a Mermaid
+**Locked 2026-05-13 (Mike); revised 2026-05-15 (Mike — Mermaid emit
+at v1.0 as a thin static-topology exporter).** **Machines-Viz ships a Mermaid
 `stateDiagram-v2` exporter at v1.0 alongside the PNG / SVG /
 share-URL trio. The emitter is pure-data, JVM-side, and lossy by
 design: `:after` target edges render while rings are omitted,
@@ -311,7 +309,7 @@ DOM-side wrappers).**
 
 The original 2026-05-13 lock argued the framework-level
 `(rf/machine->mermaid)` covered the lane and Machines-Viz would
-duplicate. Re-reviewing post-rf2-deo2i: (a) the framework-level
+duplicate. On review: (a) the framework-level
 exporter is post-v1 (per Spec 005 §Future) with no concrete
 landing-bead; (b) consumers reach for Mermaid via Machines-Viz's
 clipboard / share affordances (the same UI that hosts PNG / SVG /
@@ -322,7 +320,7 @@ Machines-Viz without violating the bundle-isolation contract; and
 framework's exporter" plan in the original lock is strictly more
 work than landing the emitter in Machines-Viz directly.
 
-Source: lifted to v1.0 per rf2-deo2i; the framework-level
+Source: lifted to v1.0; the framework-level
 `(rf/machine->mermaid)` forward-pointer in Spec 005 §Future
 remains as a re-export surface (a thin shim that calls
 `day8.re-frame2-machines-viz.mermaid/emit`), to be wired when the
@@ -333,7 +331,7 @@ framework ships its `re-frame.machines` public API.
 ## Lock #5 — Current-state in share-URL: state configuration only, no `:data`
 
 **Locked 2026-05-13 (Mike, lifted from Xray 003; tightened
-2026-05-14 per rf2-li3o4; widened 2026-06-04 per rf2-9l8h8).** **The
+2026-05-14; widened 2026-06-04).** **The
 share-URL payload carries the topology + the current state's
 CONFIGURATION (`:state` only — one of the three Spec 005
 §Snapshot-shape arms: a flat keyword, a compound vector-path, or a
@@ -346,18 +344,16 @@ source-coords.**
 
 What state-information does the share-URL carry?
 
-> **rf2-9l8h8 (2026-06-04) — widened `:state` to a state CONFIGURATION.**
-> The original wording said "the state name only" and the schema typed
-> `:snapshot {:state keyword?}`. That accepted only a flat keyword — but
-> the encoder happily serialised compound (vector-path) and parallel
-> (region-map) `:current-state` values, which the keyword-only decoder
-> then rejected: an **undecodable URL**. The fix widens `:state` to the
-> three Spec 005 §Snapshot-shape arms `MachineChart` `:current-state`
-> already accepts, and makes encode validate the full allowlisted chart
-> state (incl. the snapshot shape) before serialising so encode/decode
-> are symmetric. The lock's substance is unchanged: state configuration
-> only, no runtime `:data`. Vector paths + region-maps are state
-> names/addresses, not data.
+> **`:state` is a state CONFIGURATION.**
+> A keyword-only `:snapshot {:state keyword?}` would reject the compound
+> (vector-path) and parallel (region-map) `:current-state` values the
+> encoder serialises: an **undecodable URL**. So `:state` takes the three
+> Spec 005 §Snapshot-shape arms `MachineChart` `:current-state` accepts,
+> and encode validates the full allowlisted chart state (incl. the
+> snapshot shape) before serialising, so encode/decode are symmetric.
+> The lock's substance holds: state configuration only, no runtime
+> `:data`. Vector paths + region-maps are state names/addresses, not
+> data.
 
 ### Options considered
 
@@ -370,7 +366,7 @@ What state-information does the share-URL carry?
   violates the no-session-export principle (Xray Lock #4 lifted),
   inflates the URL beyond practical limits.
 - **Topology + full snapshot (state + `:data`).** The original
-  lift from Xray 003. Rejected (rf2-li3o4) — `:data` is operator-
+  lift from Xray 003. Rejected — `:data` is operator-
   side runtime accumulation; a well-intentioned "Copy as Share
   URL" click would exfiltrate tokens, form contents, and request
   payloads. The accident-class beats the visual-continuity
@@ -420,7 +416,7 @@ vector-path, or a parallel region-map; no runtime data).**
 Source: lifted from Xray
 [`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
 §Share-URL §NOT a session export + §Privacy posture, then
-tightened per the rf2-li3o4 security audit (the lift carried a
+tightened per a security audit (the lift carried a
 broader `:data :any` than this jar's Principles permitted; the
 schema now matches the Principles).
 
@@ -580,14 +576,14 @@ Source: lifted from Xray
 §Performance + §Animation (the broader UX baseline lives in
 [Xray 007-UX-IA](../../xray/spec/007-UX-IA.md)). The
 single-animation-clock clarification was added 2026-05-14 per the
-perf-audit findings (rf2-j3iwt) and rf2-t1yvw.
+perf-audit findings.
 
 ---
 
 ## Lock #9 — Layout: recompute on registry change, not on transition
 
 **Locked 2026-05-13 (Mike, lifted from Xray 003); tightened
-2026-05-14 (Mike, per rf2-t1yvw + perf-audit rf2-j3iwt).** **Chart
+2026-05-14 (Mike, + perf audit).** **Chart
 layout MUST run only on machine (re-)registration, user-driven
 compound-state expand/collapse, a `:show-*` prop transition that
 adds or removes topology, or chart container resize. Live
@@ -633,7 +629,7 @@ as load-bearing, citing that section and this lock.
   trace-tick or snapshot deref to layout; once that coupling
   lands it is hard to remove without rewriting the rendering
   pipeline (per `ai/findings/perf-audit-machines-viz-2026-05-14.md`
-  finding 1 — gitignored working note; audit-bead rf2-j3iwt).
+  finding 1 — gitignored working note).
   The MUST in
   [API.md §Performance invariants](./API.md#performance-invariants)
   exists so that coupling cannot accidentally land.
@@ -643,15 +639,15 @@ as load-bearing, citing that section and this lock.
 
 Source: lifted from Xray
 [`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
-§Performance; tightened to MUST 2026-05-14 per rf2-t1yvw + audit-bead
-rf2-j3iwt.
+§Performance; tightened to MUST 2026-05-14 by the perf
+audit.
 
 ---
 
 ## Lock #10 — Source migration from Xray 003
 
 **Locked 2026-05-13 (Mike). MIGRATION COMPLETE — reconciled against
-the shipped tree 2026-09-03 (rf2-6r9j.126).** Every row below has
+the shipped tree 2026-09-03.** Every row below has
 landed. Machines-Viz's own spec is the read-the-spec source of truth
 for the chart component; Xray 003 keeps the embedding-host side listed
 further down. **There is no `001-Rendering.md`, and nothing is waiting
@@ -672,11 +668,11 @@ business.)
 | Read-only viewer behaviour | §Share-URL §Read-only viewer | [`API.md`](./API.md) §Read-only viewer |
 | `:after` countdown rings — render rules | §Performance | [`API.md`](./API.md) §Performance invariants + Lock #8 above |
 | Layout-recompute rules | §Performance | [`API.md`](./API.md) §Performance invariants + Lock #9 above |
-| Topology / runtime-highlight separation (load-bearing) | (originated here 2026-05-14 per rf2-t1yvw) | [`API.md`](./API.md) §Performance invariants + Lock #11 below |
-| `:spawn-all` viz | §`:spawn-all` viz | [`API.md`](./API.md) §`:overlays` slot descriptor schema — the `:spawn-all-join` descriptor (rf2-3ow55, re-slotted rf2-7w4qr). The row-of-mini-machines sketch was NOT what shipped: it is a host-fed join inspector anchored beside the spawn-all-bearing state |
+| Topology / runtime-highlight separation (load-bearing) | (originated here 2026-05-14) | [`API.md`](./API.md) §Performance invariants + Lock #11 below |
+| `:spawn-all` viz | §`:spawn-all` viz | [`API.md`](./API.md) §`:overlays` slot descriptor schema — the `:spawn-all-join` descriptor. The row-of-mini-machines sketch was NOT what shipped: it is a host-fed join inspector anchored beside the spawn-all-bearing state |
 | PNG / SVG export — accessibility | §Accessibility | [`API.md`](./API.md) §Exporters |
 | Privacy posture for share-URL | §Privacy posture | [Principles §No session data in shares](./Principles.md) |
-| Auto-pan on transition | §Auto-pan | [`API.md`](./API.md) §Auto-fit on async layout settle + §Fit-on-entry signal (rf2-6tw7t). The chart owns viewport re-fitting; the auto-pan TOGGLE and its persistence stayed with Xray, below |
+| Auto-pan on transition | §Auto-pan | [`API.md`](./API.md) §Auto-fit on async layout settle + §Fit-on-entry signal. The chart owns viewport re-fitting; the auto-pan TOGGLE and its persistence stayed with Xray, below |
 
 ### What stays in Xray 003 (the embedding-host side)
 
@@ -695,7 +691,7 @@ concerns**. Everything that's about rendering / encoding /
 export lives here; everything that's about Xray's panel chrome
 or Story's per-variant ribbon lives in those tools' spec.
 
-The migration was staged. The scaffold PR (rf2-x50eu) covered
+The migration was staged. The scaffold PR covered
 [`API.md`](./API.md) + this rationale + Principles + Vision; the
 rendering, layout and export detail then landed **into `API.md` and
 [`001-Topology-Parity.md`](./001-Topology-Parity.md)** rather than into
@@ -707,7 +703,7 @@ as a document still owed.
 
 ## Lock #11 — Topology / layout state and runtime-highlight state are strictly separate
 
-**Locked 2026-05-14 (Mike, per rf2-t1yvw + perf-audit rf2-j3iwt).**
+**Locked 2026-05-14 (Mike, + perf audit).**
 **`MachineChart` maintains two disjoint state planes — a topology /
 layout plane and a runtime-highlight plane. The two share no
 caches, no subscriptions, no derived values. Runtime-highlight
@@ -726,7 +722,7 @@ from regressing into a full graph recompute?
   what changed. Rejected — when the framework's reactive substrate
   is too lenient about granularity (or the renderer's diffing
   misses), trace ticks bleed into layout work. The audit
-  (rf2-j3iwt) flagged this as the highest-risk future regression.
+  flagged this as the highest-risk future regression.
 - **Disjoint planes by convention.** Document the separation in
   prose; trust the implementer to maintain it. Rejected — the perf-
   audit explicitly recommended raising this above guidance because
@@ -746,8 +742,7 @@ from regressing into a full graph recompute?
   the `:rf/machine` registrar projection + the user's expand/collapse state +
   the `:show-*` props that affect topology presence.
 - **Runtime-highlight plane** — static active-state affordance
-  (tint + bolder stroke; the pulse was retired 2026-05-20 per
-  rf2-2sez0), edge glow, microstep flash, `:after` ring progress,
+  (tint + bolder stroke, no pulse), edge glow, microstep flash, `:after` ring progress,
   `:spawn-all` row state, spawn-tray contents, timer state. Owned
   by the runtime-db slot `[:rf.runtime/machines :snapshots <id>]` + the `:rf.machine/*` trace bus.
 
@@ -767,7 +762,7 @@ The exhaustive normative rules live in
 
 ### Why
 
-- **Highest-risk future regression.** The perf-audit (rf2-j3iwt)
+- **Highest-risk future regression.** The perf-audit
   identified this as the single largest regression surface for
   Machines-Viz. Once coupling between trace ticks and layout lands
   in an implementation, removing it requires rewriting the pipeline.
@@ -795,7 +790,7 @@ The exhaustive normative rules live in
   lock codifies the single-clock posture.
 
 Per `ai/findings/perf-audit-machines-viz-2026-05-14.md` findings 1+2
-(gitignored working note; audit-bead rf2-j3iwt).
+(gitignored working note).
 
 ---
 
@@ -804,7 +799,7 @@ Per `ai/findings/perf-audit-machines-viz-2026-05-14.md` findings 1+2
 The locks above cover the v1.0 surface. Five questions were left open
 at scaffold time and deferred to implementation. All five are now
 answered by shipped code; they are recorded here with their outcomes so
-a reader does not re-open them (reconciled 2026-09-03, rf2-6r9j.126).
+a reader does not re-open them (reconciled 2026-09-03).
 
 - **Layout algorithm** — was "Dagre? ELK? Custom?". **ELK (`elkjs`),
   Layered algorithm, `ORTHOGONAL` edge routing with
@@ -837,10 +832,10 @@ a reader does not re-open them (reconciled 2026-09-03, rf2-6r9j.126).
   geometry gate) is what pins each rendering case, in place of a
   golden-image snapshot.
 - **Edge labels on dense graphs** — **dissolved rather than solved.**
-  Under events-as-nodes (rf2-qo5xy) each transition gets its own
+  Under events-as-nodes each transition gets its own
   event-node carrying the label, and the in/out edges are label-less, so
-  the post-render collision-avoidance overlay (rf2-r7vsr) was inert and
-  was retired (rf2-0xbgx). ELK's `elk.edgeLabels.placement` /
+  the post-render collision-avoidance overlay was inert and
+  was retired. ELK's `elk.edgeLabels.placement` /
   `elk.spacing.edgeLabel` handle what remains. See
   [`001-Topology-Parity.md`](./001-Topology-Parity.md) §1.5 and
   [`API.md`](./API.md) §Post-render label-collision avoidance — RETIRED.
@@ -858,5 +853,5 @@ here.
 - [`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md) — Xray's locks; #4 (no session export) is lifted into Lock #5 above.
 - `ai/findings/xstate-advanced-features-2026-05-13.md` — visualizer-as-product deprecation rationale (gitignored working note).
 - `ai/findings/sweep-tools-vs-sota-2026-05-13.md` §machines-viz — peer-comparison + gap analysis (gitignored working note).
-- `ai/findings/perf-audit-machines-viz-2026-05-14.md` — perf audit findings 1+2 underpinning Lock #11 + the API.md §Performance invariants MUSTs; audit-bead rf2-j3iwt (gitignored working note).
+- `ai/findings/perf-audit-machines-viz-2026-05-14.md` — perf audit findings 1+2 underpinning Lock #11 + the API.md §Performance invariants MUSTs (gitignored working note).
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Future — `(machine->mermaid)` exporter forward-pointer.
