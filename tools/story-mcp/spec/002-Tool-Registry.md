@@ -55,7 +55,7 @@ of the 19 registered tools and no `:substrate` option. Both tools stay
 registered, so a `tools/call` naming one still gets the
 capability-unavailable error above rather than an unknown-tool error.
 
-### Running a variant needs an installed adapter (rf2-c9t52)
+### Running a variant needs an installed adapter
 
 Catalogue reads work on a bare launch. RUNNING one does not: `run-variant`
 and `preview-variant` allocate a variant frame, and a frame takes its
@@ -245,7 +245,7 @@ and returns the post-pipeline state plus a sharable URL.
 `run-variant`, so it carries the SAME host prerequisite — with no
 installed re-frame adapter it refuses with
 `:rf.error/no-adapter-installed`, per
-[§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter-rf2-c9t52)
+[§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter)
 — and it accepts the SAME tunable `:timeout-ms` end-to-end
 deadline: default 10 s, hard ceiling 30 s (matches
 `:rf.http/timeout-ms`), caller values above the ceiling
@@ -547,7 +547,7 @@ schema](API.md#run-variant).
 Host prerequisite: with no re-frame adapter installed in the server JVM
 this REFUSES up front with `:rf.error/no-adapter-installed` and no
 `:status` at all — see
-[§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter-rf2-c9t52).
+[§Running a variant needs an installed adapter](#running-a-variant-needs-an-installed-adapter).
 
 The top-level `:status` is the headline "did this pass?" answer
 (there is no `:passing?` boolean).

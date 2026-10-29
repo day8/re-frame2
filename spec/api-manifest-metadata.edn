@@ -1324,7 +1324,7 @@
                                                         :justification "The removal half of the observability sink registration, called by the same application code and so on the same door."}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"
                                                         :action :keep
-                                                        :justification "Standing-classified by the API.md Tiering of cross-tool surfaces sentence and tiered at its re-frame.core home row: it IS a door, read by tools directly. The re-frame.mcp-base.sensitive rows are a different surface (scrub-snapshot, sensitive-event?), not a door for this var."}
+                                                        :justification "Standing-classified by the API.md Tiering of cross-tool surfaces sentence and tiered at its re-frame.core home row: it IS a door, read by tools directly. The re-frame.mcp-base.sensitive rows are a different surface (strip-sensitive, sensitive-event?), not a door for this var."}
 
   ;; --- Individually-named extra-vars (generator `extra-vars`) ---
   ;; The two dev-gate Vars rowed in spec/API.md §Tracing whose home
@@ -2268,7 +2268,6 @@
   ;; (per spec/API.md §Tiering of cross-tool surfaces).
   ;; =========================================================================
   ["re-frame.mcp-base.elision" "count-elided-markers"]   {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
-  ["re-frame.mcp-base.sensitive" "scrub-snapshot"]       {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "strip-sensitive"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "sensitive-event?"]     {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ;; sensitive-stamp? — the raw fail-closed sensitive-rollup classifier.

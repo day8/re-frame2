@@ -65,11 +65,10 @@
   is the operator-surface observability hook. Public so operator
   dashboards and tests can read the gate's activity.
 
-  This is a faithful PER-EVENT metric: the egress walkers
-  (`strip-sensitive` / `scrub-snapshot`) classify each event exactly
-  once, so a single dropped malformed event bumps the counter exactly
-  once. Direct `sensitive-event?` / `sensitive-stamp?` calls bump once
-  per call.
+  This is a faithful PER-EVENT metric: `strip-sensitive` classifies
+  each event exactly once, so a single dropped malformed event bumps
+  the counter exactly once. Direct `sensitive-event?` /
+  `sensitive-stamp?` calls bump once per call.
 
   Returns a non-negative integer."
   []
@@ -236,127 +235,3 @@
       (if (zero? n)
         [events 0]
         [kept n]))))
-
-(defn scrub-snapshot
-  "Walk a per-frame snapshot map and apply a strip-fn to every
-  `:traces` / `:epochs` slice. Returns `[scrubbed-snapshot
-  total-dropped]`. Non-map slices and non-snapshot inputs pass
-  through unchanged.
-
-  ## What this is — and is NOT (EP-0015)
-
-  This is a TRACE/EPOCH sensitivity FILTER only — NOT the complete
-  snapshot privacy boundary. Sensitive trace events are stripped from
-  the `:traces` and `:epochs` slices, but the value-carrying slices
-  `:app-db`, `:sub-cache`, and `:machines` are LEFT ALONE: the walk is
-  shallow by design and does NOT descend into
-  arbitrary sub-trees or redact app-db values.
-
-  Consequently the OUTPUT is NOT already-projected full-snapshot output.
-  Per EP-0015 the public privacy model is registration-owned `:sensitive`
-  / `:large` classification plus centralized `project-egress` (under a
-  named `:rf.egress/*` profile) at the egress boundary — app-db payload
-  redaction is owned by `project-egress`, not by any write-time
-  interceptor. So the CALLER's egress pipeline must run `project-egress`
-  over the non-trace slices with the frame's known policy BEFORE the
-  snapshot crosses an MCP/tool boundary; do not treat `scrub-snapshot`
-  output as sufficient and do not look for a write-time interceptor to
-  have handled it. Re-asserted by the snapshot-scrubber tests in every
-  MCP that emits per-frame snapshots.
-
-  ## Strip-fn parameter
-
-  Two-arity form `[snapshot include?]` uses the base
-  `strip-sensitive` predicate (spec/009 §Privacy stamp check).
-  Three-arity form `[snapshot include? strip-fn]` accepts a custom
-  strip-fn matching the `[items include?] => [kept dropped]`
-  contract, for a consumer whose filter must also read a record-level
-  rollup. The default arity is the trace-event-only filter story-mcp
-  uses.
-
-  ## Slice-shape discipline + fail-closed
-
-  A `:traces` / `:epochs` slice is a SEQUENTIAL batch of trace-event maps
-  (a vector in the typical runtime emission, or a lazy seq when composed
-  via `concat`/`map`/`filter`). The scrubber only normalises (`vec`) and
-  runs `strip-fn` on a genuinely `sequential?` slice. A non-sequential
-  slice (nil, a scalar, a string, or a single event MAP) is NOT a batch,
-  so it passes through UNCHANGED — honouring the documented contract
-  (`Non-map slices … pass through unchanged`). Guarding on `sequential?`
-  matters: an unconditional `(vec …)` would mangle these shapes
-  (`nil → []`, `\"oops\" → [\\o \\o …]`, a single event map → a vector of
-  map-entries), silently losing the event shape, reporting zero drops,
-  AND carrying any secret in that map straight past the filter.
-
-  Fail-CLOSED exception: a single MAP slice that the caller-supplied
-  `strip-fn` classifies as sensitive is DROPPED, not passed through —
-  shipping it raw would leak the very secret the filter exists to
-  suppress. It is replaced with the empty batch and counted as one drop.
-  Classification routes through `strip-fn` (the SAME predicate the
-  sequential branch uses), NOT the base `sensitive-event?` — so a
-  union-signal sensitivity the caller's predicate catches (e.g.
-  re-frame2-pair-mcp's `:rf.epoch/sensitive? true` epoch rollup, carrying
-  no unqualified `:sensitive?` stamp) is honoured on the single-map shape
-  too."
-  ([snapshot include?]
-   (scrub-snapshot snapshot include? strip-sensitive))
-  ([snapshot include? strip-fn]
-   (if (or include? (not (map? snapshot)))
-     [snapshot 0]
-     ;; Pure fold: thread BOTH the scrubbed map and the running drop
-     ;; count through the `reduce-kv` accumulator `[frame-map count]`
-     ;; rather than side-channelling the count through a mutable cell.
-     ;; `scrub-frame` returns `[scrubbed-frame dropped]` for one frame;
-     ;; the slice-scrub returns `[kept dropped]` straight from `strip-fn`,
-     ;; so the count rides the value the whole way down — no `volatile!`.
-     ;; Single walk over the snapshot.
-     (let [scrub-slice
-           (fn [frame-map slice-key acc]
-             (if-not (contains? frame-map slice-key)
-               [frame-map acc]
-               (let [slice (get frame-map slice-key)]
-                 (cond
-                   ;; Genuine sequential trace-event batch (vector or lazy
-                   ;; seq): normalise + scrub. `(vec …)` realises a lazy
-                   ;; seq before `strip-fn` runs.
-                   (sequential? slice)
-                   (let [[kept n] (strip-fn (vec slice) false)]
-                     [(assoc frame-map slice-key kept) (+ acc n)])
-
-                   ;; Fail-CLOSED: a single map that is itself a sensitive
-                   ;; event is NOT a batch and would leak its secret if
-                   ;; shipped raw — drop it (empty batch) and count it.
-                   ;; Classify via the SAME caller-supplied `strip-fn` the
-                   ;; sequential branch uses — NOT the base
-                   ;; `sensitive-event?`. Otherwise a single-map slice that
-                   ;; is sensitive ONLY by a union signal the caller's
-                   ;; predicate catches (e.g. re-frame2-pair-mcp's epoch
-                   ;; rollup `:rf.epoch/sensitive? true`, with no unqualified
-                   ;; `:sensitive?` stamp) would slip past this guard to the
-                   ;; `:else` arm and ship RAW — leaking past the defensive
-                   ;; single-map guard.
-                   (map? slice)
-                   (let [[_ n] (strip-fn [slice] false)]
-                     (if (pos? n)
-                       [(assoc frame-map slice-key []) (inc acc)]
-                       [frame-map acc]))
-
-                   ;; Any other non-sequential shape (nil, scalar, string)
-                   ;; is not a batch — pass it through unchanged per
-                   ;; the helper contract.
-                   :else
-                   [frame-map acc]))))
-           scrub-frame
-           (fn [frame-map]
-             (let [[fm1 d1] (scrub-slice frame-map :traces 0)]
-               (scrub-slice fm1 :epochs d1)))
-           [scrubbed dropped]
-           (reduce-kv
-             (fn [[m total] k v]
-               (if (map? v)
-                 (let [[scrubbed-frame n] (scrub-frame v)]
-                   [(assoc m k scrubbed-frame) (+ total n)])
-                 [(assoc m k v) total]))
-             [{} 0]
-             snapshot)]
-       [scrubbed dropped]))))
