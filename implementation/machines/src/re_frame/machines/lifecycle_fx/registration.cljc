@@ -1216,6 +1216,24 @@
     (rf.machines.parallel/install-region-cache
       (rf.machines.parallel/normalise-definition machine))))
 
+(defn- with-machine-id
+  "Run `thunk`, rethrowing any framework registration error it raises with
+  `machine-id` in its ex-data and leading its message, so with many machines
+  registered at boot a diagnostic names the one at fault (Spec 009
+  §The thrown-error shape). An error that already names a `:machine-id` is
+  rethrown unchanged."
+  [machine-id thunk]
+  (try
+    (thunk)
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+      (let [data (ex-data e)]
+        (if (or (contains? data :machine-id) (not (:rf.error/id data)))
+          (throw e)
+          (let [reason (str "reg-machine " machine-id ": " (or (:reason data) (ex-message e)))]
+            (throw (ex-info (rf.error/human-message (:rf.error/id data) reason)
+                            (assoc data :machine-id machine-id :reason reason)
+                            e))))))))
+
 (defn- register-machine-event!
   "THE single home for registering a machine as an event handler. It
   stamps the `:rf/machine?` / `:rf/machine` registration metadata
@@ -1285,7 +1303,7 @@
    ;; The type's spawned actors run this same handler, so they share the
    ;; cache. Re-registration replaces the machine map and its attached cache
    ;; atom, so no separate invalidation step is needed.
-   (let [machine    (registered-definition machine)
+   (let [machine    (with-machine-id machine-id #(registered-definition machine))
         handler-fn (make-machine-handler machine)
         ;; Stamp the framework-owned discriminator keys LAST so they win over
         ;; any (rejected-above, but defensive) opts collision.
