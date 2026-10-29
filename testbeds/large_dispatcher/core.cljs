@@ -7,8 +7,12 @@
 
   Elision is classification-driven: a `reg-classification` declares the
   durable app-db `:large` paths (Spec 015 §Static app-db classification).
-  Unclassified large values deliberately warn but do not auto-elide
-  (fail-open).
+  Unclassified large values deliberately warn but do not auto-elide on the
+  wire (fail-open). What a consumer's own panel shows is its own policy:
+  Xray's App-DB tab renders the declared-`:large` values in full on-box
+  (the local operator is entitled to them) and bounds its display instead,
+  collapsing any string over 1024 chars — here the 20 KiB value — to a
+  size chip.
 
   This surface exercises one warning-only control and three
   `:large`-classified marker paths:
