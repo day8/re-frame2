@@ -675,7 +675,7 @@
   consults a bound image generation), NOT `{:frame …}`: this fn runs inside
   the `:rf.xray/registered-routes` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
-  image generation — a bare read would resolve through Xray's OWN image (which
+  image generation — a generation-scoped read would resolve through Xray's OWN image (which
   carries no `:route` ids) and return `{}`, collapsing the Routing panel to its
   silent empty-table state. The host's routes live in the process-global
   default-realm registrar; `rf/registrations` reads it directly. See

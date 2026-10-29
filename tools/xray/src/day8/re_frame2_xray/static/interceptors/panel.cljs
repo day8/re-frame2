@@ -92,8 +92,8 @@
   consults a bound image generation), NOT `{:frame …}`: this runs inside the
   interceptors `registry` sub COMPUTATION, and Xray seats in its OWN
   image-loaded `:rf/xray` frame, so the sub build binds the registrar to Xray's
-  image generation — a bare read would resolve through Xray's OWN image and the
-  ref enrichment would lose the host app's interceptor descriptors. See
+  image generation — a generation-scoped read would resolve through Xray's OWN
+  image and the ref enrichment would lose the host app's interceptor descriptors. See
   spec/API.md §Public registrar query API."
   [icpt-id]
   (host-registrar/store-meta :interceptor icpt-id))
@@ -490,8 +490,8 @@
   consults a bound image generation), NOT `{:frame …}`: this runs inside the
   `:rf.xray.static.interceptors/registry` sub COMPUTATION, and Xray seats in its
   OWN image-loaded `:rf/xray` frame, so the sub build binds the registrar to
-  Xray's image generation — a bare read would resolve through Xray's OWN image
-  and the interceptor browse would lose the host app's event chains. See
+  Xray's image generation — a generation-scoped read would resolve through
+  Xray's OWN image and the interceptor browse would lose the host app's event chains. See
   spec/API.md §Public registrar query API."
   []
   (try (rf/registrations {:kind :event})
