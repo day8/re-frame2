@@ -1142,7 +1142,11 @@
                   :guard-blocked-edge-ids
                   (trace-state/extract-guard-blocked-edge-ids
                     definition events machine-id)))
-              (h/project-focused-event-transitions events definitions)))))
+              ;; A spawned actor's birth or no-op record carries no
+              ;; snapshot, so its definition resolves through the type the
+              ;; record's frame state maps it to.
+              (h/project-focused-event-transitions
+                events definitions (epoch-proj/machine-actor-types record))))))
 
   ;; ---- focused-epoch cascade events -------------------------------
   ;;

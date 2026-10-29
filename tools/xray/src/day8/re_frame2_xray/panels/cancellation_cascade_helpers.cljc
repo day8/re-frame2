@@ -450,9 +450,11 @@
                                       (= anchor-disp
                                          (get-in % [:tags :rf.trace/dispatch-id])))
                                 evs))
-        ;; Wall-clock fallback — include if the trace lacks the
-        ;; dispatch-id link but lands inside the window AND either
-        ;; mentions the actor or is an actor-destroy-shaped abort.
+        ;; Wall-clock fallback — include if one side lacks the
+        ;; dispatch-id link, the trace lands inside the window AND either
+        ;; mentions the actor or is an actor-destroy-shaped abort. A row
+        ;; carrying a DIFFERENT dispatch-id is another decision's
+        ;; consequence, however close in time.
         by-window     (filter
                         (fn [ev]
                           (and (abort-event? ev)
@@ -463,7 +465,7 @@
                                      ev-actor (or (get-in ev [:tags :actor-id])
                                                   (get-in ev [:tags :machine-id]))]
                                  (and (or (nil? ev-disp)
-                                          (not= ev-disp anchor-disp))
+                                          (nil? anchor-disp))
                                       (or (nil? anchor-actor)
                                           (nil? ev-actor)
                                           (= anchor-actor ev-actor)
@@ -491,7 +493,8 @@
 
 (defn- gather-related-teardowns
   "Pull every destroy trace event that rides with the anchor (same
-  cascade or wall-clock window). The anchor itself is included. Each
+  cascade, or the wall-clock window for a row on either side that carries
+  no dispatch-id link). The anchor itself is included. Each
   carries `:inflight-count` derived from the aborts that target the
   same actor.
 
@@ -518,8 +521,7 @@
                                    window)
                                (let [ev-disp (get-in ev [:tags :rf.trace/dispatch-id])]
                                  (or (nil? ev-disp)
-                                     (nil? anchor-disp)
-                                     (not= ev-disp anchor-disp)))))
+                                     (nil? anchor-disp)))))
                         evs)
         all           (concat by-dispatch by-window [anchor])
         seen          (volatile! #{})

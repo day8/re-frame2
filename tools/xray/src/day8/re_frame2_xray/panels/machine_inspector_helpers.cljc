@@ -427,6 +427,11 @@
                      to surface the registered definition on each
                      record so the view can render the topology
                      without re-resolving.
+    `actor-types`  — `{actor-id registered-type}` for the epoch's spawned
+                     actors (`epoch.projection/machine-actor-types` over
+                     the focused record). nil-safe; how a birth or no-op
+                     record, which carries no snapshot, finds a spawned
+                     actor's definition.
 
   Returns a vector of records, oldest-first (cascade-document-order),
   one per `:rf.machine/transition` / `:rf.machine.microstep/transition`
@@ -485,8 +490,10 @@
 
   Pure fn — JVM-runnable."
   ([trace-events]
-   (project-focused-event-transitions trace-events nil))
+   (project-focused-event-transitions trace-events nil nil))
   ([trace-events definitions]
+   (project-focused-event-transitions trace-events definitions nil))
+  ([trace-events definitions actor-types]
    (let [defs   (or definitions {})
          events (or trace-events [])
          ;; `:machine-id` is the LIVE instance address, and
@@ -494,13 +501,15 @@
          ;; actor's `<type>#<n>` address never matches. Fall back to the TYPE
          ;; its snapshot carries at `[:rf/runtime :machine-type]` — the registered type
          ;; keyword the runtime itself resolves a spawned actor through
-         ;; (`spec-from-snapshot`). A birth or no-op record carries no stamped
-         ;; snapshot and stays without a definition.
+         ;; (`spec-from-snapshot`) — and, for a birth or no-op record, which
+         ;; carries no stamped snapshot, to the type `actor-types` read off the
+         ;; epoch's frame state.
          attach-def
          (fn [base]
            (let [defn-> (or (get defs (:machine-id base))
                             (get defs (get-in (or (:after base) (:before base))
-                                              [:rf/runtime :machine-type])))]
+                                              [:rf/runtime :machine-type]))
+                            (get defs (get actor-types (:machine-id base))))]
              (cond-> base
                defn-> (assoc :definition defn->))))
          order  (fn [ev] (or (:id ev) (:time ev) 0))

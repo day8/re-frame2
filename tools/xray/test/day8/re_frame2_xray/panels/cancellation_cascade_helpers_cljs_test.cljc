@@ -188,6 +188,40 @@
                     (destroy-ev {:machine-id :b :dispatch-id 2 :time 2000 :id 2})]
                    {:kind :machine-id :id :a}))))))
 
+(deftest extract-does-not-fold-another-dispatchs-consequences
+  ;; Two singletons torn down by two events 3 ms apart in one frame — the
+  ;; rows the machines runtime emits for `[:rf.machine/destroy …]` from
+  ;; [:pa/teardown] (dispatch 3) then [:pb/teardown] (dispatch 4). Both
+  ;; teardowns sit inside the wall-clock window, which exists only for a
+  ;; row with no dispatch-id link.
+  (let [rows    [(dispatched-ev [:pa/teardown] {:dispatch-id 3 :time 1000 :id 1 :frame :rf/default})
+                 (destroy-ev {:machine-id :pa/door :dispatch-id 3 :time 1001 :id 2 :frame :rf/default})
+                 (dispatched-ev [:pb/teardown] {:dispatch-id 4 :time 1003 :id 3 :frame :rf/default})
+                 (destroy-ev {:machine-id :pb/door :dispatch-id 4 :time 1004 :id 4 :frame :rf/default})]
+        abort   (fn [dispatch-id]
+                  (http-abort-ev {:request-id :pb-1 :actor-id :pb/door :dispatch-id dispatch-id
+                                  :time 1005 :id 5 :frame :rf/default}))
+        buf     (conj rows (abort 4))
+        cascade (fn [focus]
+                  (let [c (h/extract-cascade buf (assoc focus :frame :rf/default))]
+                    [(-> c :parent-decision :event-vec)
+                     (mapv :child-id (:child-teardowns c))
+                     (mapv :request-id (:effect-aborts c))]))]
+    (is (= [[:pa/teardown] [:pa/door] []]
+           (cascade {:kind :dispatch-id :id 3})
+           (cascade {:kind :machine-id :id :pa/door}))
+        "the first event's cascade holds only its own teardown")
+    (is (= [[:pb/teardown] [:pb/door] [:pb-1]]
+           (cascade {:kind :dispatch-id :id 4})
+           (cascade {:kind :machine-id :id :pb/door}))
+        "and the second's holds only its own, the abort with it")
+    (is (= [:pb-1]
+           (mapv :request-id
+                 (:effect-aborts
+                   (h/extract-cascade (conj rows (abort nil))
+                                      {:kind :dispatch-id :id 3 :frame :rf/default}))))
+        "CONTROL: the same abort with no dispatch-id link folds in through the window")))
+
 ;; ---- summarisers --------------------------------------------------------
 
 (deftest cascade-summary-with-no-aborts-pluralises-children
@@ -209,10 +243,10 @@
 ;; and the wall-clock window — can reach into a foreign frame.
 
 (deftest extract-cascade-does-not-fold-a-peer-frames-abort
-  ;; Frame B's abort lands 15 ms after frame A's teardown, inside the
-  ;; wall-clock window.
+  ;; Frame B's out-of-drain abort, which carries no dispatch-id, lands
+  ;; 15 ms after frame A's teardown, inside the wall-clock window.
   (let [buf   [(destroy-ev {:machine-id :user-session :time 1000 :id 1 :frame :frame/a})
-               (http-abort-ev {:request-id :b-1 :actor-id :cart :dispatch-id 2
+               (http-abort-ev {:request-id :b-1 :actor-id :cart :dispatch-id nil
                                :time 1015 :id 2 :frame :frame/b})]
         focus {:kind :machine-id :id :user-session}]
     (is (= 1 (count (:effect-aborts (h/extract-cascade buf focus))))

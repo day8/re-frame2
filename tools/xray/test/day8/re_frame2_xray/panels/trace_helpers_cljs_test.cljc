@@ -9,12 +9,17 @@
   `local_render_cljs_test.cljc` uses. The reset is inert for the pure rows."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [are deftest is testing use-fixtures]])
+            #?(:clj  [re-frame.test-support :as rf.test-support
+                      :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as rf.test-support
+                      :refer-macros [with-trace-recorder!]])
             [clojure.string :as str]
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
+            [re-frame.epoch :as rf.epoch]
+            [re-frame.machines]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
             [day8.re-frame2-xray.panels.trace-helpers :as h]
             [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
@@ -116,7 +121,14 @@
     :warning  {:op-type :warning :operation :rf.resource/hydrate-clock-skew}
     ;; namespace fallback when :op-type isn't stamped
     :machine  {:operation :rf.machine.timer/scheduled}
-    :event    {:op-type :totally-made-up}))
+    :event    {:op-type :totally-made-up}
+    ;; the `:info` rows badge by where they are emitted: the managed-HTTP
+    ;; lifecycle inside its effect, a host-gate adoption inside a render
+    :fx       {:op-type :info :operation :rf.http/issued}
+    :fx       {:op-type :info :operation :rf.http/stale-suppressed}
+    :view     {:op-type :info :operation :rf.ssr/host-adopted}
+    ;; severity still wins over the http namespace
+    :error    {:op-type :error :operation :rf.http/transport}))
 
 (deftest nav-token-allocated-is-routing-not-a-bare-event
   ;; `:rf.route.nav-token/allocated` rides a SUB-namespace at op-type
@@ -200,6 +212,15 @@
     {:op-type :rf.machine :operation :rf.machine/transition
      :tags {:machine-id :title/flow :from :idle :to :loading}}
 
+    ;; a macrostep snapshot redacted at emit carries no state to show
+    ":p/door"
+    {:op-type :rf.machine :operation :rf.machine/transition
+     :tags {:actor-id :p/door :before :rf/redacted :after :rf/redacted}}
+
+    ;; the db no-op says what it means (spec/023 Appendix A)
+    "returned unchanged db — nothing committed"
+    (teb/ev :rf.event :rf.event/db-noop {:rf.event/v [:p/same] :frame :rf/default})
+
     ":totals → [:totals]"
     (teb/flow-recomputed-ev :totals [:totals] nil 3)
 
@@ -259,6 +280,56 @@
     :info          {:operation :rf.machine.timer/scheduled}
     :yellow        {:op-type :warning :operation :rf.warning/x}
     :red           {:op-type :error :operation :rf.error/x}))
+
+(deftest outcome-tier-reads-an-unchanged-outcome-from-its-verb
+  (testing "a recompute that moved nothing and a db no-op are INERT, though
+            neither operation's name says so (spec/023 §8)"
+    (are [tier e] (= tier (h/outcome-tier e))
+      :inert  {:op-type :rf.sub :operation :rf.sub/run :tags {:rf.sub/value-changed? false}}
+      :inert  (teb/ev :rf.event :rf.event/db-noop {:rf.event/v [:p/same]})
+      ;; CONTROL — the recompute that moved its value is ACTIVE
+      :active {:op-type :rf.sub :operation :rf.sub/run :tags {:rf.sub/value-changed? true}}
+      :active (teb/ev :rf.event :rf.event/db-changed {:rf.event/v [:p/set]}))))
+
+(deftest machine-transition-and-db-noop-rows-from-the-runtime
+  (testing "rows the runtime records: the `:rf.machine/transition` macrostep
+            shows `from → to` off its `:before` / `:after` snapshots, as the
+            microstep does off its `:from` / `:to`; the db no-op reads inert
+            with its target"
+    (rf/reg-machine ::door {:initial :open
+                            :states  {:open    {:on {:close :closing}}
+                                      :closing {:always [{:target :closed}]}
+                                      :closed  {:on {:open :open}}}})
+    (rf/reg-event ::same (fn [{:keys [db]} _] {:db db}))
+    (with-trace-recorder! [traces]
+      (rf/dispatch-sync [::door [:close]])
+      (rf/dispatch-sync [::same])
+      (let [row (fn [op] (some #(when (= op (:operation %)) (h/project-row %)) @traces))]
+        (is (= (str ::door " open → closed")
+               (:target (row :rf.machine/transition))))
+        (is (= (str ::door " closing → closed")
+               (:target (row :rf.machine.microstep/transition)))
+            "CONTROL: the microstep's own pair")
+        (is (= [:inert "returned unchanged db — nothing committed"]
+               ((juxt :outcome-tier :target) (row :rf.event/db-noop))))))))
+
+(deftest info-rows-stage-where-they-are-emitted
+  (testing "the managed-HTTP `:info` row emitted inside the issuing fx handler
+            sits in EFFECT HANDLERS with the FX badge, beside the effect it
+            belongs to; a host-gate adoption sits in VIEWS"
+    (let [rows (h/project-rows
+                 [{:id 1 :op-type :rf.event :operation :rf.event/run-start :tags {}}
+                  {:id 2 :op-type :rf.fx :operation :rf.fx/handled
+                   :tags {:rf.fx/id :rf.http/managed :rf.fx/args {:request {:url "/x"}}}}
+                  {:id 3 :op-type :info :operation :rf.http/issued
+                   :tags {:rf.reply/work-id [:rf.work/http 1 1] :url "/x" :method :get}}
+                  {:id 4 :op-type :info :operation :rf.ssr/host-adopted
+                   :tags {:host :app/map :where 're-frame.fresco.impl.codec/mint-host-gate!}}])]
+      (is (= [["EVENT HANDLER" "EVENT"]
+              ["EFFECT HANDLERS" "FX"]
+              ["EFFECT HANDLERS" "FX"]
+              ["VIEWS" "VIEW"]]
+             (mapv (juxt :stage-label :area-badge) rows))))))
 
 ;; ---- pipeline stage — spec/023 §3a --------------------------------------
 
@@ -473,3 +544,42 @@
                                 :before :rf/redacted :after :rf/redacted}}
                (db-diff-by-path feed))
             (pr-str frame-id))))))
+
+;; ---- recorded classification --------------------------------------------
+;;
+;; A past epoch keeps the classification it was RECORDED under (Spec 015
+;; §Retained values keep their recorded classification), as the App-DB tab
+;; renders it: a declaration cleared or re-registered since — what a hot
+;; reload editing a `reg-classification` does — must not expose the values
+;; that epoch recorded. The path sits outside the fixture's `[:auth]`
+;; declarations, which an image-less frame would also see.
+
+(def ^:private recorded-frame :trace-helpers.test/recorded)
+
+(defn- jwt-triple
+  "The `[:session :jwt]` triple of `record`'s db-changed row, rendered for
+  the frame that recorded it."
+  [record]
+  (some #(when (= [:session :jwt] (:path %)) %)
+        (:db-diff (some #(when (= :rf.event/db-changed (:operation %)) %)
+                        (:rows (h/project-feed-from-epoch record :focused recorded-frame))))))
+
+(deftest project-feed-keeps-a-past-epochs-recorded-classification
+  (rf/reg-classification ::recorded-session {:sensitive [[:session :jwt]]})
+  (rf/make-frame {:id recorded-frame})
+  (rf/reg-event ::login (fn [{:keys [db]} [_ jwt]] {:db (assoc-in db [:session :jwt] jwt)}))
+  (rf/dispatch-sync [::login secret-before] {:frame recorded-frame})
+  (rf/dispatch-sync [::login secret-after] {:frame recorded-frame})
+  (let [record   (last (rf.epoch/epoch-history recorded-frame))
+        withheld {:op :modified :path [:session :jwt] :before :rf/redacted :after :rf/redacted}]
+    (is (= secret-after (get-in record [:db-after :session :jwt]))
+        "PRECONDITION: the record holds the raw value")
+    (is (= withheld (jwt-triple record))
+        "under the live declaration the values are withheld")
+    (rf/clear :classification ::recorded-session)
+    (is (= withheld (jwt-triple record))
+        "and with the declaration since cleared, the record still withholds them")
+    (rf/dispatch-sync [::login "after-clear"] {:frame recorded-frame})
+    (is (= "after-clear"
+           (:after (jwt-triple (last (rf.epoch/epoch-history recorded-frame)))))
+        "CONTROL: an epoch recorded after the clear carries no declaration")))

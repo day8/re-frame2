@@ -88,10 +88,12 @@ The op → stage mapping (the coarse projection of the §3 area badge onto the 7
 | `:rf.event/db-changed` (DB) | EFFECT HANDLERS |
 | `:rf.event/db-noop` (DB) | EFFECT HANDLERS |
 | `:rf.fx/*` (FX) | EFFECT HANDLERS |
+| `:rf.http*` `:info` lifecycle — `issued` · `aborted` · `replied` · `retry-attempt` · `stale-suppressed` … (FX: emitted by the issuing effect or its transport) | EFFECT HANDLERS |
 | `:rf.route/*` (ROUTING) | EFFECT HANDLERS |
 | `:rf.resource/*` (RESOURCE) | EFFECT HANDLERS |
 | `:rf.sub/*` (SUB) | SUBSCRIPTIONS |
 | `:rf.view/*` (VIEW) | VIEWS |
+| `:rf.ssr/host-adopted` (VIEW: emitted by a Fresco host gate's render) | VIEWS |
 | `:rf.epoch/*` (EPOCH lifecycle) | DISPATCH (muted grey) |
 
 Errors / warnings are cross-cutting (§7): the stage column still labels the step where the op chronologically occurred, but the left edge rides the severity colour. A severity op whose own namespace names a step takes that step (`:rf.cofx/skipped-on-platform` → COEFFECT, `:rf.fx/skipped-on-platform` → EFFECT HANDLERS); an `:rf.error/*` / `:rf.warning/*` op, whose namespace names none, takes the step of the nearest preceding non-severity row in fire order (an fx that throws after `:rf.fx/handled` → EFFECT HANDLERS, a sub that throws after `:rf.sub/run` → SUBSCRIPTIONS), and EVENT HANDLER only when no row precedes it (rf2-3x7nj.24.4).

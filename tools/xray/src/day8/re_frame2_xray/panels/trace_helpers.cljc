@@ -90,7 +90,9 @@
   `:rf.event` (the resource runtime rides the event/effect path), so its
   rows are discriminated by NAMESPACE before the generic `:rf.event`
   op-type fallthrough — a registered/succeeded/gc-fired row reads as
-  RESOURCE, not a bare EVENT. Severity is cross-cutting: the
+  RESOURCE, not a bare EVENT. The `:info`-level managed-HTTP lifecycle
+  (`:rf.http*`) is likewise FX, and `:rf.ssr/host-adopted` VIEW, by where
+  each is emitted. Severity is cross-cutting: the
   `:warning`-level `:rf.resource/hydrate-clock-skew` /
   `:rf.resource/restore-clock-skew` rows classify as WARNING (above)."
   [{:keys [op-type operation] :as _row-or-ev}]
@@ -111,6 +113,14 @@
       ;; `rf.route*` family; `rf.resource` does not start with `rf.route`.
       (and op-ns (str/starts-with? op-ns "rf.route")) :routing
       (= op-ns "rf.resource")            :resource
+      ;; The managed-HTTP lifecycle (`:rf.http/issued` · `aborted` ·
+      ;; `replied` · `retry-attempt` · `stale-suppressed` …) rides op-type
+      ;; `:info`, emitted from inside the issuing fx handler or the transport
+      ;; it entered, so it is the effect's row and badges FX. The prefix
+      ;; covers the `rf.http*` sub-namespaces too.
+      (and op-ns (str/starts-with? op-ns "rf.http")) :fx
+      ;; Emitted by a Fresco host gate's render when it adopts.
+      (= operation :rf.ssr/host-adopted) :view
       (= op-type :rf.event)              :event
       (= op-type :rf.fx)                 :fx
       (= op-type :rf.sub)                :sub
@@ -170,16 +180,26 @@
 ;; The view tints the what-happened column by tier so the arc reads its
 ;; outcome shape while scanning.
 
+(declare what-happened)
+
+(def ^:private inert-verbs
+  "The what-happened verbs that say an op ran and moved nothing. They
+  hang off an operation whose NAME does not say so — `:rf.event/db-noop`,
+  and the `:rf.sub/run` split on `:rf.sub/value-changed?` — so the tier
+  reads them from the verb."
+  #{"unchanged" "ran-unchanged"})
+
 (defn outcome-tier
   "Classify a row's outcome into a visual tier per spec/023 §8. Reads
-  the operation's terminal segment (`dispose`, `skip`, `cache-hit`, …).
+  the operation's terminal segment (`dispose`, `skip`, `cache-hit`, …),
+  and the resolved verb for an unchanged outcome (`inert-verbs`).
   Pure data → keyword; JVM-testable.
 
   The dispose terminal is the singular `dispose` form (the
   framework-emitted `:rf.sub/dispose` op, spec/009 + spec/023). The regex
   uses the shorter root so it matches both `dispose` and a `disposed`
   substring."
-  [{:keys [op-type operation] :as _row-or-ev}]
+  [{:keys [op-type operation] :as row-or-ev}]
   (let [op-name (when (keyword? operation) (name operation))]
     (cond
       (= op-type :error)   :error
@@ -187,7 +207,8 @@
       (nil? op-name)       :active
       (re-find #"(?i)(dispose|unmounted|cleared|cancelled|stale|released|destroyed)" op-name)
       :gone
-      (re-find #"(?i)(skip|skipped|cache-hit|unchanged|ran-unchanged)" op-name)
+      (or (re-find #"(?i)(skip|cache-hit)" op-name)
+          (contains? inert-verbs (what-happened row-or-ev)))
       :inert
       (re-find #"(?i)(queued|scheduled|pending|later)" op-name)
       :pending
@@ -430,9 +451,10 @@
   subject (spec/023 §3 / §5). Per-area:
 
     :event    → the dispatched event vector
-    :db       → nil: `:rf.event/db-changed` carries no path, so the
-                per-path list beneath the row carries `path old → new`
-                (spec/023 §10.1)
+    :db       → nil for `:rf.event/db-changed`, which carries no path, so
+                the per-path list beneath the row carries `path old → new`
+                (spec/023 §10.1); `returned unchanged db — nothing
+                committed` for `:rf.event/db-noop`
     :fx       → `fx-id → arg`
     :flow     → `flow-id → [path]`
     :sub      → `sub-id old → new` on a recompute, `sub-id` on a first run
@@ -454,6 +476,10 @@
     (case a
       :event
       (when ev-vec (pr-str-safe ev-vec))
+
+      :db
+      (when (= :rf.event/db-noop (:operation ev))
+        "returned unchanged db — nothing committed")
 
       :fx
       ;; The framework emits effect arguments under the
@@ -504,9 +530,14 @@
       ;; Live-runtime machine rows (transition /
       ;; microstep) address the actor INSTANCE under `:actor-id`; prefer it,
       ;; then fall back to `:machine-id` / `:rf/machine-id` for other rows.
-      (let [mid  (or (:actor-id tags) (:machine-id tags) (:rf/machine-id tags))
-            from (get tags :from tags-absent)
-            to   (get tags :to tags-absent)]
+      ;; A microstep stamps `:from` / `:to`; the `:rf.machine/transition`
+      ;; macrostep carries its `:before` / `:after` snapshots instead, whose
+      ;; `:state` is the pair (a snapshot redacted at emit yields none).
+      (let [mid      (or (:actor-id tags) (:machine-id tags) (:rf/machine-id tags))
+            state-of (fn [k] (let [s (get tags k)]
+                               (if (and (map? s) (contains? s :state)) (:state s) tags-absent)))
+            from     (get tags :from (state-of :before))
+            to       (get tags :to (state-of :after))]
         (when mid
           (str mid
                (when (and (not= from tags-absent) (not= to tags-absent))
@@ -797,21 +828,23 @@
 ;; ---- render-side redaction ----------------------------------------------
 ;;
 ;; One engine is not enough; the two tabs must also share the EGRESS SEAM
-;; in front of it. The App-DB tab projects its value AND its pre-image
-;; through `local-render/local-render-value` under the OBSERVED frame's
-;; policy before the section model is built
-;; (`app_db_diff_subs/:rf.xray/app-db-state`), so a slot the frame declared
-;; `:sensitive` reaches the inspector as `:rf/redacted`. Without that seam
-;; here, diffing the epoch record's RAW `:db-before` / `:db-after` would
-;; print `~ [:auth :token] "old" → "new"` on the Trace tab for the
-;; identical record the App-DB tab shows as a redacted chip. Same record,
-;; same engine, two answers — and the leaking one would be the one with a
-;; `:data-testid` on every value span.
+;; in front of it. The App-DB tab projects a focused record's value AND its
+;; pre-image through `local-render/local-render-record-state` under the
+;; OBSERVED frame before the section model is built
+;; (`app_db_diff_subs/:rf.xray/app-db-state`), so a slot declared
+;; `:sensitive` when the epoch was recorded reaches the inspector as
+;; `:rf/redacted` — even after the declaration is cleared or re-registered
+;; without it (Spec 015 §Retained values keep their recorded
+;; classification). Without that seam here, diffing the epoch record's RAW
+;; `:db-before` / `:db-after` would print `~ [:auth :token] "old" → "new"`
+;; on the Trace tab for the identical record the App-DB tab shows as a
+;; redacted chip. Same record, same engine, two answers — and the leaking
+;; one would be the one with a `:data-testid` on every value span.
 ;;
 ;; So the seam is shared, not a second policy: the values this derivation
-;; renders come from the SAME `local-render-value` the App-DB tab calls,
-;; under the SAME observed frame — split between the raw and the projected
-;; pair as below.
+;; renders come from the SAME `local-render-record-state` the App-DB tab
+;; calls, under the SAME observed frame — split between the raw and the
+;; projected pair as below.
 ;;
 ;; ## The path set comes from the RAW pair; the VALUES come from the
 ;; ## PROJECTED pair — and that split is load-bearing in both directions
@@ -840,9 +873,10 @@
 ;; (a declaration above, at, or below the triple's path all resolve).
 ;; Rows survive, values are withheld, nothing leaks.
 ;;
-;; Fail-closed, inherited whole from `local-render-value`: a nil /
-;; destroyed / never-registered observed frame redacts the WHOLE value, so
-;; every triple's values read `:rf/redacted` while the rows STAY. The
+;; Fail-closed, inherited whole from `local-render-record-state`: where no
+;; classification governs — a never-registered observed frame, or a nil one
+;; on a record that names no frame — the WHOLE value is redacted, so every
+;; triple's values read `:rf/redacted` while the rows STAY. The
 ;; operator still sees WHICH paths changed and is told plainly that the
 ;; values are withheld. Fail-closed must not mean fail-silent — silence
 ;; is the one failure a diff panel cannot afford.
@@ -920,24 +954,25 @@
   The 2-arity is the RENDER path. It derives the changed-path set from
   the RAW pair — so equality is honest and no change is swallowed — then
   re-seats each triple's values on the WHOLE-db projections of that pair
-  under `observed-frame`'s policy. `:op` and `:path` are never touched:
-  the row always renders, and only the values can be withheld. The block
-  comment above carries why neither half of that split can be dropped.
+  under the classification the record was RECORDED with, viewed from
+  `observed-frame` (`local-render/local-render-record-state`, the App-DB
+  tab's seam). `:op` and `:path` are never touched: the row always
+  renders, and only the values can be withheld. The block comment above
+  carries why neither half of that split can be dropped.
 
-  An empty diff short-circuits before either projection runs, so the
+  An empty diff short-circuits before the projection runs, so the
   no-change epoch — the common one — pays nothing for the seam.
 
-  Pure data → data; the 2-arity reads the named frame's classification
-  policy through the egress seam and mutates nothing."
+  Pure data → data; the 2-arity reads the classification policy through
+  the egress seam and mutates nothing."
   ([{:keys [db-before db-after] :as _epoch-record}]
    (diff-h/diff-paths db-before db-after))
-  ([{:keys [db-before db-after] :as _epoch-record} observed-frame]
+  ([{:keys [db-before db-after] :as epoch-record} observed-frame]
    (let [triples (diff-h/diff-paths db-before db-after)]
      (if (empty? triples)
        triples
-       (redact-triples triples
-                       (local-render/local-render-value db-before observed-frame)
-                       (local-render/local-render-value db-after  observed-frame))))))
+       (let [projected (local-render/local-render-record-state epoch-record observed-frame)]
+         (redact-triples triples (:db-before projected) (:db-after projected)))))))
 
 (defn- attach-db-diff
   "Attach the per-path diff triples to every `:rf.event/db-changed` row
@@ -1026,9 +1061,9 @@
 
   The 3-arity is the PRODUCTION door: `observed-frame` is the frame Xray
   is inspecting (`:rf.xray/observed-frame`), and each db-changed row's
-  per-path values are withheld under that frame's `:sensitive` policy
-  through the same on-box `local-render-value` seam the App-DB tab
-  applies at `app_db_diff_subs/:rf.xray/app-db-state`. The ROWS are
+  per-path values are withheld under the record's recorded `:sensitive`
+  classification through the same on-box `local-render-record-state` seam
+  the App-DB tab applies at `app_db_diff_subs/:rf.xray/app-db-state`. The ROWS are
   unaffected — a declared path still renders its glyph and its path, with
   `:rf/redacted` where the values would be. `:rf.xray/trace-feed` calls
   this one.
