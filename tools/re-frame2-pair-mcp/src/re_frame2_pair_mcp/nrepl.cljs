@@ -75,26 +75,30 @@
     (let [n (js/parseInt env 10)]
       (when-not (js/isNaN n) n))))
 
-(defn- read-port-at-base
+(defn- read-ports-at-base
   "Resolve `port-file-candidates` against an absolute base directory and
-  return the first hit as `{:port <int> :port-file <abs-path>}` — or nil
-  when no candidate reads. Uses `node-path/join` so the candidates are
-  platform-correct on Windows + POSIX without each call site building
-  paths by string-concat.
+  return every one that reads, in precedence order, as
+  `{:port <int> :port-file <abs-path>}` — empty when none does, or when
+  `base` is nil. Every readable file is kept because one a force-killed JVM
+  left behind can precede the live one, so the cascade probes them in
+  turn. Uses `node-path/join` so the candidates are platform-correct on
+  Windows + POSIX without each call site building paths by string-concat.
 
-  The result carries the WINNING candidate path, not just the parsed
-  port. The server caches that exact path so the per-tool-call re-read
+  Each result carries its candidate path, not just the parsed port. The
+  server caches the WINNING path so the per-tool-call re-read
   (`ensure-connection!`) checks the file that actually won the candidate
   scan, instead of deriving a fixed `.shadow-cljs/nrepl.port` that may
   not be the candidate that hit (which would then read as 'file
   disappeared' and force a needless reconnect)."
   [base]
-  (when (and base (seq base))
-    (some (fn [rel]
-            (let [pf (node-path/join base rel)]
-              (when-let [port (read-port-file pf)]
-                {:port port :port-file pf})))
-          port-file-candidates)))
+  (if (seq base)
+    (into []
+          (keep (fn [rel]
+                  (let [pf (node-path/join base rel)]
+                    (when-let [port (read-port-file pf)]
+                      {:port port :port-file pf}))))
+          port-file-candidates)
+    []))
 
 (defn port-accepts?
   "Resolve true when a TCP connect to `port` on the host `connect!` uses
@@ -302,10 +306,11 @@
                                 (fn [project-home]
                                   (first-live
                                     port-probe-fn
-                                    ;; Each candidate is the WINNING file under
-                                    ;; its base (target/shadow-cljs/nrepl.port vs
-                                    ;; .shadow-cljs/nrepl.port vs .nrepl-port), so
-                                    ;; the server caches the exact path that hit.
+                                    ;; Every readable file under each base, in
+                                    ;; precedence order (target/shadow-cljs/nrepl.port,
+                                    ;; .shadow-cljs/nrepl.port, .nrepl-port), so a
+                                    ;; stale file cannot hide a live one behind it,
+                                    ;; and the server caches the exact path that won.
                                     ;; Step 5's base is Node's process CWD, an
                                     ;; absolute base, so its :port-file is a
                                     ;; stable absolute path like steps 1/3/4 and
@@ -313,9 +318,9 @@
                                     ;; restart on this branch too; it surfaces no
                                     ;; :project-home (none is known, and none is
                                     ;; needed for restart recovery).
-                                    [(some-> (read-port-at-base project-home)
-                                             (assoc :project-home project-home))
-                                     (read-port-at-base (js/process.cwd))])))
+                                    (concat (map #(assoc % :project-home project-home)
+                                                 (read-ports-at-base project-home))
+                                            (read-ports-at-base (js/process.cwd))))))
                               (.then
                                 (fn [found]
                                   (with-stale (or (:candidate found) {:port nil})

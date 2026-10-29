@@ -548,9 +548,9 @@
 
   EP-0025 FAIL-OPEN: there is NO value-match (taint-by-equality) engine — a
   secret copied from a declared-sensitive app-db slot into a non-app-db DOM
-  position ships off-box RAW. This is INTENDED (hygiene, not a guarantee); to
-  keep a value out of rendered content, classify its app-db PATH so it is
-  redacted at the source before a view renders it. This is the SAME boundary
+  position ships off-box RAW. This is INTENDED (hygiene, not a guarantee).
+  Classifying an app-db path never changes what a view renders, so to keep a
+  value out of rendered content the app must omit or mask it. This is the SAME boundary
   Story-MCP routes its rendered hiccup / `:effective-args` through.
 
   Gate posture mirrors `maybe-elide-sample` / the MCP read surfaces:
@@ -2672,9 +2672,9 @@
    path lands as `:rf/redacted` before crossing the off-box wire. EP-0025
    FAIL-OPEN: there is NO value-match (taint-by-equality), so a secret copied
    out of a declared-sensitive app-db slot INTO a non-app-db DOM position
-   ships RAW — the path walker reaches only values at a classified path. To
-   keep a value out of rendered content, classify its app-db PATH so it is
-   redacted at the source before a view renders it. Gate ON
+   ships RAW — the path walker reaches only values at a classified path.
+   Classifying an app-db path never changes what a view renders, so to keep a
+   value out of rendered content the app must omit or mask it. Gate ON
    (`--allow-sensitive-reads`) passes the nodes through verbatim (the
    operator's deliberate trusted-local raw read). When the gate is OFF and the
    frame is AMBIGUOUS (multi-app, none pinned) the op FAILS CLOSED with
@@ -2838,9 +2838,9 @@
    value at a classified path lands as `:rf/redacted`. EP-0025 FAIL-OPEN:
    there is NO value-match (taint-by-equality), so a secret copied out of a
    declared-sensitive app-db slot INTO a non-app-db DOM position ships RAW —
-   the path walker reaches only values at a classified path. To keep a value
-   out of rendered content, classify its app-db PATH so it is redacted at the
-   source before a view renders it. The hard per-node `max-text` cap still
+   the path walker reaches only values at a classified path. Classifying an
+   app-db path never changes what a view renders, so to keep a value out of
+   rendered content the app must omit or mask it. The hard per-node `max-text` cap still
    trims the common large case first. Gate ON (`--allow-sensitive-reads`)
    passes the content through verbatim (trusted-local raw). When the gate is
    OFF and the frame is AMBIGUOUS (multi-app, none pinned) the op FAILS CLOSED
@@ -3072,8 +3072,9 @@
    of a declared-sensitive app-db slot into a NON-app-db position. They are
    PATH-projected via `maybe-redact-derived` (`re-frame.core/project-egress`,
    the :rf.observe/derived-tree boundary). EP-0025 FAIL-OPEN: there is no
-   value-match, so a RE-KEYED secret in a `:dom` / `:focus` sample ships RAW —
-   classify its app-db PATH to redact it at the source. `start-recording!` /
+   value-match, so a RE-KEYED secret in a `:dom` / `:focus` sample ships RAW,
+   and classifying its app-db path does not change the render: the app must
+   omit or mask what it does not want rendered. `start-recording!` /
    `watch-until` refuse a `:dom` / `:focus` signal under the off-box
    gate when no frame resolves (no frame to project against), so `frame-id` is
    non-nil here whenever the projection runs."

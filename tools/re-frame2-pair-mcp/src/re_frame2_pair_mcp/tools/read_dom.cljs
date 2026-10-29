@@ -95,9 +95,10 @@
   PATH-projects the matched nodes through `re-frame.core/project-egress`
   (the `:rf.observe/derived-tree` boundary) against the operating frame's
   classification. There is no value-match (taint-by-equality; see
-  EP-0025), so a RE-KEYED secret in a DOM node SHIPS RAW (FAIL-OPEN) — to keep a value out
-  of rendered content, classify its app-db PATH so it is redacted at the
-  source before a view renders it. The optional `:frame` arg names the
+  EP-0025), so a RE-KEYED secret in a DOM node SHIPS RAW (FAIL-OPEN). Classifying
+  an app-db path never changes what a view renders — real values flow through
+  the app unchanged (Spec 015) — so to keep a value out of rendered content
+  the app must omit or mask it. The optional `:frame` arg names the
   source frame; raw rendered content is the trusted-local read (launched
   with `--allow-sensitive-reads`); an unresolvable frame under the off-box
   gate still fails closed with `:ambiguous-frame`.

@@ -3,9 +3,11 @@
   so its prose must match EP-0015: a direct read always crosses
   `re-frame.core/project-egress`, a bare `elision false` lets only large
   content through on every launch, declared-sensitive slots stay redacted
-  unless the launch-gated `include-sensitive` opt-in is given, and the
-  runtime-db `:machines` slice is redacted by default. No machine-readable
-  slot carries this posture, so the gate is phrase-level."
+  unless the launch-gated `include-sensitive` opt-in is given, the
+  runtime-db `:machines` slice is redacted by default, and a read of the
+  rendered DOM is fail-open, because classification never changes what a
+  view renders. No machine-readable slot carries this posture, so the gate
+  is phrase-level."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.registry :as registry]))
@@ -22,7 +24,20 @@
   ["bypass the walk and receive the raw value"
    "to bypass elision and receive the raw value"
    "passes through unchanged"                    ; :machines is redacted by default
-   "redact-interceptor"])                        ; not part of the public API
+   "redact-interceptor"                          ; not part of the public API
+   ;; Classification redacts at observation boundaries, never in the render.
+   "redacted before it renders"
+   "redact it at the source"
+   "so classify its app-db path"])
+
+(deftest dom-reads-say-the-app-must-keep-content-out-of-the-render
+  ;; Spec 015: real values flow through the app unchanged, so classifying an
+  ;; app-db path cannot redact what a view renders, and these reads are
+  ;; fail-open over the rendered DOM.
+  (doseq [tool ["read-dom" "read-ui" "record"]
+          needle ["FAIL-OPEN" "the app must omit or mask content it does not want rendered"]]
+    (is (str/includes? (description-by-name tool) needle)
+        (str tool " must say " needle))))
 
 (deftest no-direct-read-descriptor-advertises-a-raw-bypass
   (doseq [[tool desc] description-by-name

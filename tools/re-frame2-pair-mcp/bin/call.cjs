@@ -17,6 +17,7 @@
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { StringDecoder } = require('node:string_decoder');
 
 const PKG_DIR = path.join(__dirname, '..');
 const SERVER = path.join(PKG_DIR, 'out', 'server.js');
@@ -97,9 +98,12 @@ function main() {
 
   const send = (msg) => child.stdin.write(JSON.stringify(msg) + '\n');
 
+  // A pipe chunk can end inside a multibyte character, so one decoder spans
+  // the chunks and holds a partial character until the rest arrives.
+  const decoder = new StringDecoder('utf8');
   let buf = '';
   child.stdout.on('data', (chunk) => {
-    buf += chunk.toString('utf8');
+    buf += decoder.write(chunk);
     let i;
     while ((i = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, i).trim();

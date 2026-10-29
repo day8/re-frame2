@@ -158,9 +158,9 @@
 
 (def ^:private port-file-relpaths
   "Per shadow-cljs convention, the nREPL port file lives at one of these
-  paths relative to the project root (same list as `nrepl/port-file-candidates`
-  — kept in sync deliberately). The roots discovery walks each project's
-  candidates in order and takes the first hit."
+  paths relative to the project root, in precedence order (same list as
+  `nrepl/port-file-candidates` — kept in sync deliberately). A project's
+  candidate is the first of these whose port accepts a connect."
   ["target/shadow-cljs/nrepl.port"
    ".shadow-cljs/nrepl.port"
    ".nrepl-port"])
@@ -177,42 +177,55 @@
       (when-not (js/isNaN n) n))
     (catch :default _ nil)))
 
-(defn project-home->candidate*
-  "Given an absolute project-home directory, look for a port file at the
-  three standard relative locations. Returns
-  `{:project-home <abs> :port-file <abs> :port <int>}` on the first hit,
-  or nil if none reads. Whether that port is live is the orchestrator's
-  question ([[discover-via-roots*]]), not this fn's.
+(defn project-home->candidates*
+  "Given an absolute project-home directory, read the port file at each of
+  the three standard relative locations. Returns a vector of
+  `{:project-home <abs> :port-file <abs> :port <int>}`, one per file that
+  reads, in precedence order — empty when none does. Every readable file is
+  kept because a file a force-killed JVM left behind can precede the live
+  one; which port is live is the orchestrator's question
+  ([[discover-via-roots*]]), not this fn's.
 
   Injected `read-file-fn` is the fs reader (path → string, throws on missing).
   Production reaches this fn through [[candidates-from-edns*]], which
   [[discover-via-roots*]] calls with the reader threaded down from
   [[discover-via-roots]]; tests call it directly with a stub reader."
   [read-file-fn project-home]
-  (some (fn [rel]
-          (let [pf   (node-path/join project-home rel)
-                port (read-port-from* read-file-fn pf)]
-            (when port
-              {:project-home project-home
-               :port-file    pf
-               :port         port})))
+  (into []
+        (keep (fn [rel]
+                (let [pf (node-path/join project-home rel)]
+                  (when-let [port (read-port-from* read-file-fn pf)]
+                    {:project-home project-home
+                     :port-file    pf
+                     :port         port}))))
         port-file-relpaths))
 
 (defn candidates-from-edns*
-  "Map a JS array of `shadow-cljs.edn` paths to the nREPL candidates.
-  Each edn's parent directory is the project root; we ask
-  `project-home->candidate*` whether a port file reads there.
+  "Map a JS array of `shadow-cljs.edn` paths to each project's readable
+  port files. Each edn's parent directory is the project root; we ask
+  [[project-home->candidates*]] which port files read there.
 
-  Returns a CLJS vector of `{:project-home :port-file :port}` maps — one
-  per project with a readable port file; a project without one is filtered
-  out. A readable file is not yet a live build: [[discover-via-roots*]]
-  probes each candidate's port before counting it."
+  Returns a CLJS vector with one entry per project that has a readable port
+  file — that project's candidates, in precedence order; a project without
+  one is filtered out. A readable file is not yet a live build:
+  [[discover-via-roots*]] probes them and keeps each project's first live
+  one."
   [read-file-fn edn-paths]
   (->> (array-seq edn-paths)
        (map (fn [edn] (node-path/dirname edn)))
        (distinct)
-       (keep #(project-home->candidate* read-file-fn %))
-       (vec)))
+       (map #(project-home->candidates* read-file-fn %))
+       (filterv seq)))
+
+(defn- first-live-of
+  "One project's pick from its `candidates` (in precedence order) and the
+  probe `verdicts` for them, in the same order: the first whose port accepts
+  as `:candidate` (nil when none does), and the `:port-file` of each one
+  refused ahead of it as `:stale`."
+  [candidates verdicts]
+  (let [[refused [[hit] & _]] (split-with (comp not second) (map vector candidates verdicts))]
+    {:candidate hit
+     :stale     (mapv (comp :port-file first) refused)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level discovery — `roots/list` → walk → candidates
@@ -253,9 +266,12 @@
   - `probe-port-fn`   `(port) → Promise<boolean>` — does the port accept a
                       connect (production: `nrepl/port-accepts?`).
 
-  Every candidate is probed, and only one whose port accepts counts. The
-  file of each refused candidate is listed under `:stale-port-files` (only
-  when there is one) beside any status, so the caller can name it.
+  Every readable port file is probed. A project's candidate is its first
+  file in precedence order whose port accepts, so a stale file left ahead of
+  the live one does not hide it; a project with no such file contributes
+  none. Each file refused ahead of a project's pick (all of them, when it
+  has none) is listed under `:stale-port-files` (only when there is one)
+  beside any status, so the caller can name it.
 
   Returns a Promise resolving to one of:
 
@@ -283,13 +299,16 @@
                                  (mapcat (fn [p] (array-seq (walk-fn p))))
                                  (distinct))
                 edn-array   (clj->js edn-hits)
-                candidates  (candidates-from-edns* read-file-fn edn-array)]
-            (-> (js/Promise.all (into-array (map #(probe-port-fn (:port %)) candidates)))
+                projects    (candidates-from-edns* read-file-fn edn-array)
+                pick        (fn [cs]
+                              (-> (js/Promise.all (into-array (map #(probe-port-fn (:port %)) cs)))
+                                  (.then #(first-live-of cs (array-seq %)))))]
+            (-> (js/Promise.all (into-array (map pick projects)))
                 (.then
-                  (fn [verdicts]
-                    (let [probed (map vector candidates (array-seq verdicts))
-                          live   (vec (keep (fn [[c live?]] (when live? c)) probed))
-                          stale  (vec (keep (fn [[c live?]] (when-not live? (:port-file c))) probed))]
+                  (fn [picks]
+                    (let [picks (array-seq picks)
+                          live  (vec (keep :candidate picks))
+                          stale (vec (mapcat :stale picks))]
                       (cond-> (case (count live)
                                 0 {:status :error :error (result-no-shadow root-paths edn-array)}
                                 1 {:status :one :candidate (first live)}

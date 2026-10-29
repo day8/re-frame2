@@ -367,6 +367,40 @@
                        "step 4's file is refused, so step 5's live one wins")))
           (.finally (fn [] (restore!) (done)))))))
 
+(deftest discover-port-http-probe-skips-a-stale-preferred-port-file
+  ;; Under the shadow-supplied root a force-killed JVM left
+  ;; target/shadow-cljs/nrepl.port naming a dead port, and the running watch
+  ;; wrote .shadow-cljs/nrepl.port. The first file must not hide the second.
+  (async done
+    (let [home     "/abs/proj/root"
+          dead-pf  (node-path/join home "target/shadow-cljs/nrepl.port")
+          live-pf  (node-path/join home ".shadow-cljs/nrepl.port")
+          restore! (install-fs-stub! nil (fn [^js path]
+                                           (condp = (str path)
+                                             dead-pf "5550"
+                                             live-pf "5551"
+                                             (throw (js/Error. "ENOENT")))))]
+      (-> (nrepl/discover-port* nil nil (shadow-returns home) roots-unsupported (accepts-except 5550))
+          (.then (fn [r]
+                   (is (= {:port 5551 :project-home home :port-file live-pf :stale-port-files [dead-pf]} r)
+                       "the live second file wins under the same root; the stale first one is named")))
+          (.finally (fn [] (restore!) (done)))))))
+
+(deftest discover-port-cwd-scan-skips-a-stale-preferred-port-file
+  ;; The same rule on the cwd scan, the last step.
+  (async done
+    (let [dead-pf  (node-path/join (js/process.cwd) "target/shadow-cljs/nrepl.port")
+          live-pf  (node-path/join (js/process.cwd) ".nrepl-port")
+          restore! (install-fs-stub! nil (fn [^js path]
+                                           (condp = (str path)
+                                             dead-pf "5560"
+                                             live-pf "5562"
+                                             (throw (js/Error. "ENOENT")))))]
+      (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported (accepts-except 5560))
+          (.then (fn [r]
+                   (is (= {:port 5562 :port-file live-pf :stale-port-files [dead-pf]} r))))
+          (.finally (fn [] (restore!) (done)))))))
+
 (deftest discover-port-every-file-refused-attaches-to-nothing
   ;; The usual shape of a force-killed watch: the roots walk refused the
   ;; project's file, and the cwd scan reads the same file again.
