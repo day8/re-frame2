@@ -776,8 +776,9 @@
 ;; `:error` is tokenized UNCONDITIONALLY inside a family reply marker — no owner
 ;; read — because the family's own `:rf.resource/failed` row tokenizes the same
 ;; envelope regardless of owner, and the two carriers of one envelope must
-;; agree. The marker spans reads AND mutations: a mutation redacts its own
-;; `:value` / `:params` at the source, but no declaration can reach `:error`.
+;; agree. The marker spans reads AND mutations: a mutation reply's declared
+;; `:value` / `:params` redact off-box (`trace_egress/redact-reply-declarations`),
+;; and no declaration reaches `:error` — only this unconditional arm does.
 
 (def ^:private failure-envelope
   "A 422 envelope echoing the submitted secret in `:body` and `:detail`."
@@ -870,7 +871,8 @@
   "Drive a REAL `[:rf.mutation/execute … :reply-to …]` under a concrete scope
   and settle it with an abort. `:m/save` declares `[:params :slug]` sensitive —
   the only spelling by which a mutation claims its params — so its `:params`
-  carry the canary and are cleaned at the source."
+  carry the canary raw in-process and are redacted off-box by
+  `trace_egress/redact-reply-declarations`."
   []
   (rf/configure! {:epoch-history {:trace-events-keep 80}})
   (let [captured (atom nil)]

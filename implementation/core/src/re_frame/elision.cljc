@@ -603,12 +603,20 @@
       (when (> bytes threshold)
         (warn-large-unschema'd! frame-id path bytes)))))
 
+(defn- queue?
+  "True for a persistent queue, which every walk here descends as a positional
+  container. On the JVM it is neither `vector?` nor `seq?`; `sequential?` would
+  admit it but also an `Eduction`, whose traversal runs its transducer."
+  [v]
+  #?(:clj  (instance? clojure.lang.PersistentQueue v)
+     :cljs (instance? PersistentQueue v)))
+
 (defn- oversized-strings
   "`[relative-path string]` for every string under `v` that `may-print-over?`
   `threshold`, or nil. Visits what the wire walk visits — map values by key,
-  vector and seq elements by index, set elements at the set's own path — but
-  rebuilds nothing, builds a relative path only for a hit, and skips a seq the
-  app has not forced."
+  vector, queue and seq elements by index, set elements at the set's own path —
+  but rebuilds nothing, builds a relative path only for a hit, and skips a seq
+  the app has not forced."
   [v threshold]
   (cond
     (string? v)
@@ -621,7 +629,7 @@
                    acc))
                nil v)
 
-    (and (seq? v) (not (unforced-seq? v)))
+    (or (queue? v) (and (seq? v) (not (unforced-seq? v))))
     (loop [i 0 xs (seq v) acc nil]
       (if xs
         (recur (inc i) (next xs)
@@ -659,7 +667,7 @@
 ;; schema (the walker doesn't carry it), we thread a SET of candidate
 ;; declaration-coordinate paths alongside the concrete runtime path:
 ;;
-;;   - Descending a VECTOR / SEQ element at index `i`: the index is
+;;   - Descending a VECTOR / QUEUE / SEQ element at index `i`: the index is
 ;;     UNAMBIGUOUSLY a collection coordinate (never a named slot), so each
 ;;     candidate forks into the INDEX-FREE interpretation `c` (unchanged —
 ;;     matches schema decls that descend positional containers at the same
@@ -710,7 +718,7 @@
 ;;
 ;; Both the schema-first wire walker (`walk` / `walk-decider`) and the
 ;; ad-hoc-paths classification walker (`re-frame.classification/walk-with-paths`)
-;; descend the SAME node domain — map → reduce-kv, vector|seq → positional
+;; descend the SAME node domain — map → reduce-kv, vector|queue|seq → positional
 ;; reduce with an integer index, set → element-wise pass-through — and fork
 ;; their candidate sets through the SAME `fork-decl-paths` / `fork-index-paths`
 ;; (classification choosing the fork policy), so they differ ONLY in the
@@ -738,7 +746,7 @@
 ;; advance), so that arm is fixed in the skeleton, not parameterized.
 ;;
 ;; A forced seq is normalised to a persistent vector (via the transient
-;; accumulator) for both walkers.
+;; accumulator) for both walkers; a queue keeps its type.
 
 (def ^:no-doc walk-recur
   "Distinguished `walk-tree` `:decide` sentinel meaning 'descend structurally'
@@ -768,6 +776,11 @@
         (reduce-kv (fn [acc k vv]
                      (assoc acc k (walk-tree vv (map-key state k) decider)))
                    (if (record? v) {} (empty v)) v)
+
+        ;; A queue rebuilds as a queue. Ahead of the seq arms, because a CLJS
+        ;; queue is also `seq?` and would otherwise rebuild as a vector.
+        (queue? v)
+        (into (empty v) (map-indexed #(walk-tree %2 (index state %1) decider)) v)
 
         (and (seq? v) (unforced-seq? v))
         (if unforced (unforced state v) v)
