@@ -23,7 +23,8 @@
   size in tokens that AI clients use to budget calls and pick
   size-conscious args (`max-tokens`, `cache`, `cursor`) without
   trial-and-error. Hint only; the real cap is enforced separately."
-  (:require [re-frame2-pair-mcp.tools.descriptors-knobs :as knobs]))
+  (:require [clojure.string :as str]
+            [re-frame2-pair-mcp.tools.descriptors-knobs :as knobs]))
 
 ;; ---------------------------------------------------------------------------
 ;; Recurring outputSchema fragments.
@@ -1275,6 +1276,23 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
+;; The `kind` argument handler-meta and list-handlers share.
+;; ---------------------------------------------------------------------------
+
+(def ^:private kind-enum
+  "The kinds both registrar tools accept, in the order their descriptors
+  list them. `handler_meta_test.cljs` pins it to the tools' own kind set."
+  ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector"
+   "resource" "mutation" "resource-scope" "app-schema" "flow" "http-interceptor"
+   "classification" "machine"])
+
+(def ^:private kind-property
+  {:type        "string"
+   :description (str "Registrar kind. One of " (str/join ", " kind-enum) ". NOT frame — a "
+                     "reserved-but-EMPTY registrar slot; read frames via rf/frame-ids.")
+   :enum        kind-enum})
+
+;; ---------------------------------------------------------------------------
 ;; handler-meta
 ;; ---------------------------------------------------------------------------
 
@@ -1297,9 +1315,7 @@
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, app-schema, flow, machine. NOT frame — a reserved-but-EMPTY registrar slot; read frames via rf/frame-ids."
-                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "flow" "machine"]}
+                 :properties {:kind kind-property
                               :id   {:type "string"
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
@@ -1329,8 +1345,7 @@
 (def list-handlers
   {:name "list-handlers"
    :description (str "Return every id registered under one `kind` — the discovery surface; drill into one with "
-                     "handler-meta. Supported kinds: event, sub, fx, cofx, interceptor, view, route, head, "
-                     "error-projector, resource, mutation, resource-scope, app-schema, flow, machine — frame is "
+                     "handler-meta. Supported kinds: " (str/join ", " kind-enum) " — frame is "
                      "not a kind (it returns :invalid-kind; read frames with rf/frame-ids). machine lists the "
                      "event handlers flagged :rf/machine? true, and app-schema ids are app-db path vectors. "
                      "`frame` lists only the ids that frame runs rather than the whole registrar; it is not valid "
@@ -1341,9 +1356,7 @@
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
-                 :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, interceptor, view, route, head, error-projector, resource, mutation, resource-scope, app-schema, flow, machine. NOT frame — a reserved-but-EMPTY registrar slot; read frames via rf/frame-ids."
-                                     :enum ["event" "sub" "fx" "cofx" "interceptor" "view" "route" "head" "error-projector" "resource" "mutation" "resource-scope" "app-schema" "flow" "machine"]}
+                 :properties {:kind kind-property
                               :frame {:type "string"
                                       :description (str "OPTIONAL frame id keyword, e.g. \":main\". "
                                                         "The EP-0023 forward direction: "

@@ -59,15 +59,11 @@
   the CURRENT registration, read live at request time — after a hot
   reload it no longer describes the handler that ran in an older epoch.
 
-  Supported kinds: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`,
-  `route`, `head`, `error-projector`, `resource`,
-  `mutation`, `resource-scope`, `app-schema`, `flow`, `machine` — the closed
-  v1 registrar set MINUS its reserved-but-EMPTY `frame` slot (per Spec 001
-  §Registry model;
-  the three resources-artefact kinds are EP-0016; `interceptor` is
-  EP-0022). `frame` is deliberately NOT offered: nothing is ever written to
-  that registrar slot, querying it throws
-  `:rf.error/registrar-kind-not-queryable` at the framework, and frames are
+  Supported kinds: every kind in `registrar-kinds` below — the closed v1
+  registrar set MINUS its reserved-but-EMPTY `frame` slot (per Spec 001
+  §Registry model) — plus the virtual `machine`. `frame` is deliberately
+  NOT offered: nothing is ever written to that registrar slot, querying it
+  throws `:rf.error/registrar-kind-not-queryable` at the framework, and frames are
   read through their own doors (`rf/frame-ids` / `rf/frame-meta`). Asking
   for it gets the ordinary `:reason :invalid-kind` envelope with the
   accepted-kinds hint. `flow` is a flow definition (Spec 013): its `:derive`
@@ -76,7 +72,7 @@
   `app-schema` is the app-db schema kind (Spec 010): `reg-app-schema`
   registers each schema under its canonical path, so an id is a path
   vector sent as EDN (`\"[:user]\"`) and the meta carries `:path` and the
-  registered `:schema`. The fourteen registrar kinds map directly to
+  registered `:schema`. The registrar kinds map directly to
   `rf/handler-meta`; `machine` routes through the runtime preload's
   `re-frame2-pair.runtime/machine-describe` door, which reads the
   `:rf/machine` registrar projection (Spec 005 §Querying machines —
@@ -94,11 +90,9 @@
   surface. Agents call `list-handlers {kind \"event\"}` first to find
   out what's registered, then `handler-meta` to drill in.
 
-  For every registrar kind (`event` / `sub` / `fx` / `cofx` /
-  `interceptor` / `view` / `route` / `head` /
-  `error-projector` / `resource` / `mutation` / `resource-scope` /
-  `app-schema`, whose ids are the registered paths) the list comes from
-  `re-frame2-pair.runtime/registrar-list`. For `machine` the list
+  For every registrar kind (an `app-schema` id is its registered path)
+  the list comes from `re-frame2-pair.runtime/registrar-list`. For
+  `machine` the list
   comes from `re-frame2-pair.runtime/machines-list` — every event
   handler flagged `:rf/machine? true`.
 
@@ -182,6 +176,12 @@
   the derived views over `:event`-kind metadata carrying that
   flag) — but is in `supported-kinds` below.
 
+  `:http-interceptor` (Spec 014 §Middleware) and `:classification` (Spec
+  015 §Durable app-db) go through the same doors: `list-handlers {kind
+  \"http-interceptor\"}` enumerates the definitions a frame can name in its
+  `:http-interceptors` vector, and `{kind \"classification\"}` the
+  registered `:sensitive` / `:large` path declarations.
+
   `:frame` is absent for a THIRD reason, and it is the one worth spelling
   out. `re-frame.registrar/kinds` RESERVES the slot, but nothing is ever
   written to it: frames live in `rf/frame-ids` / `rf/frame-meta`. Querying
@@ -194,13 +194,19 @@
   throw INSTEAD OF this tool's own structured envelope. Leaving it out
   is enough: `parse-kind` returns nil, and the `:invalid-kind` +
   `kinds-hint` envelope answers. There is no second refusal path to write
-  or to keep in step."
+  or to keep in step.
+
+  The set restates `re-frame.registrar/kinds` less `:frame` rather than
+  reading it, because this server keeps framework runtime out of its
+  bundle (every read is a preload call, above); `handler_meta_test.cljs`
+  pins the copy to the registrar's own set."
   #{:event :sub :fx :cofx :interceptor :view :route :head
-    :error-projector :resource :mutation :resource-scope :app-schema :flow})
+    :error-projector :resource :mutation :resource-scope :app-schema :flow
+    :http-interceptor :classification})
 
 (def ^:private supported-kinds
-  "The full set of kinds the tool accepts. The fourteen registrar kinds
-  above plus the virtual `:machine` kind."
+  "The full set of kinds both tools accept: the registrar kinds above plus
+  the virtual `:machine` kind."
   (conj registrar-kinds :machine))
 
 (defn- parse-kind
@@ -260,7 +266,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Tool — handler-meta.
 ;;
-;; Eval-form composition: for the fourteen registrar kinds we route through
+;; Eval-form composition: for the registrar kinds we route through
 ;; `re-frame2-pair.runtime/registrar-describe` (already published; carries
 ;; the `:not-registered` envelope on miss). `:machine` routes through the
 ;; preload's `machine-describe` the same way — one `rt-call`, one
@@ -432,7 +438,7 @@
 (defn- list-form
   "Build the eval form returning the sorted id vector for a kind.
 
-  DEFAULT (`frame` nil): the fourteen registrar kinds route through
+  DEFAULT (`frame` nil): the registrar kinds route through
   `re-frame2-pair.runtime/registrar-list`; `:machine` through
   `re-frame2-pair.runtime/machines-list`, which sorts the same way (Spec
   005 §Querying machines — every event handler with `:rf/machine? true`).
