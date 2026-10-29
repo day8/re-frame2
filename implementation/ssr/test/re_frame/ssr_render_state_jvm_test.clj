@@ -26,3 +26,13 @@
     (is (= {:rf/app-db {:value 9007199254740991} :rf/runtime-db {}}
            (project 9007199254740991))
         "control: its in-domain twin under the same key rides")))
+
+(deftest serialize-prints-whole-under-ambient-print-limits
+  ;; A REPL thread or a root binding sets these, and a truncated
+  ;; `[0 1 2 ...]` still reads back.
+  (let [partitions {:rf/app-db     {:items (vec (range 10)) :nested {:a {:b {:c 1}}}}
+                    :rf/runtime-db {:rf.runtime/routing {:current {:route-id :home :params {:id 7}}}}}
+        round-trip #(rf.ssr.render-state/deserialize (rf.ssr.render-state/serialize partitions))]
+    (is (= partitions (round-trip)) "control: no ambient binding")
+    (is (= partitions (binding [*print-length* 3 *print-level* 2] (round-trip)))
+        "the wire form is printed whole whatever the calling thread binds")))

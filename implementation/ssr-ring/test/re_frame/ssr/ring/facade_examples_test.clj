@@ -29,9 +29,15 @@
 (defn- call-to? [fn-name]
   #(and (seq? %) (symbol? (first %)) (= fn-name (name (first %)))))
 
+(defn- as-evaluated
+  "The example's opts with each symbol value replaced by a fn: the example
+  names a fn the reader's program defines, which this test cannot resolve."
+  [opts]
+  (into {} (map (fn [[k v]] [k (if (symbol? v) (fn [& _]) v)])) opts))
+
 (deftest ssr-handler-docstring-example-includes-payload-and-constructs
-  (let [opts (second (some-form (call-to? "ssr-handler")
-                                (example-forms #'rf.ssr.ring/ssr-handler)))]
+  (let [opts (as-evaluated (second (some-form (call-to? "ssr-handler")
+                                              (example-forms #'rf.ssr.ring/ssr-handler))))]
     (is (= opts (rf.ssr.ring.lifecycle/validate-construction-opts! opts)))))
 
 (deftest ssr-middleware-docstring-example-is-curried-and-includes-payload

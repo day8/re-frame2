@@ -173,8 +173,11 @@
                       else: the JVM keeps the head, `__rf_payload`, shell,
                       status, headers, cookies, redirects, error projection
                       and frame teardown. The renderer owns its body
-                      bytes. A throw is projected exactly
-                      like a `:root-view` render throw. Default:
+                      bytes. A throw, or a result that is not
+                      `{:body-html <string>}`
+                      (`:rf.error/ssr-ring-renderer-result-invalid`), is
+                      projected exactly like a `:root-view` render throw.
+                      Default:
                       `re-frame.ssr.ring.pipeline/local-renderer`, the
                       JVM-local `:root-view` render — the only renderer
                       that reads `:root-view`, which is why `:root-view` is
@@ -206,6 +209,10 @@
                       projector. Its default and fallback expose no throwable
                       detail.
 
+  `:renderer`, `:html-shell`, `:on-error` and `:error-view` are
+  shape-checked at construction, so a value the pipeline cannot call fails
+  there (`:rf.error/ssr-ring-fn-opt-invalid`) rather than per request.
+
   Trusted shell opts are structurally checked at construction. `:head` and
   `:body-end` are raw content hooks and must not contain untrusted input;
   `:script-src` and `:app-element-id` are escaped attribute values. Each
@@ -232,19 +239,12 @@
 
     (fn handler [ring-request] ring-response)
 
-  Per-request lifecycle (see ns docstring for full detail):
-
-    (ssr/set-request! frame-id request)            ;; before drain
-      → make-frame :frame           (drains :initial-events synchronously;
-                                     the `:rf.server/request` cofx
-                                     reads from the populated slot)
-        → flush-response-result!     (flushes error projections once;
-                                     returns {:response :public-error})
-        → classify: :redirect | projected-5xx error arm |
-                     projected-4xx/none → render-to-string + payload
-        → materialise to Ring map
-      → finally: destroy-frame!     (the SSR lifecycle contribution
-                                     clears the request slot)
+  Per request it fills the request slot, makes the request frame (which
+  drains `:initial-events`), classifies the drain's outcome — a redirect, a
+  projected 5xx, or the render through `:renderer` — and tears the frame
+  down in a `finally`. `re-frame.ssr.ring.pipeline`'s ns docstring walks the
+  steps, including the blocking-resource settle before the render and the
+  post-render re-flush that can still divert to the error page.
 
   Example:
 

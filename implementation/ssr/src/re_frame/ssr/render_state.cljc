@@ -374,16 +374,22 @@
   freeze is then a deep one, and its key-shape check and byte ceiling count
   without decoding application data. Both keys always present.
 
+  Printed whole whatever the calling thread binds `*print-length*` and
+  `*print-level*` to: a truncated `[0 1 2 ...]` still reads as EDN, so the
+  render would see the wrong value with nothing failing.
+
   Assumes a `project` result (already domain-checked); a hand-built map
   is the caller's to check."
   [partitions]
-  (into {}
-        (map (fn [partition]
-               [partition
-                (into {}
-                      (map (fn [[k v]] [(pr-str k) (pr-str v)]))
-                      (get partitions partition))]))
-        partition-keys))
+  (binding [*print-length* nil
+            *print-level*  nil]
+    (into {}
+          (map (fn [partition]
+                 [partition
+                  (into {}
+                        (map (fn [[k v]] [(pr-str k) (pr-str v)]))
+                        (get partitions partition))]))
+          partition-keys)))
 
 (defn deserialize
   "The inverse of `serialize` under the bundled SAFE EDN reader

@@ -14,13 +14,16 @@
     3. classify (Spec 011 §Drain-time error classification):
          - `:redirect` set        → short-circuit to a Location response;
          - projected 5xx          → `materialise-projected-error` — the
-           projected status + safe headers/cookies + a plain-String error
-           body (`:error-view` or the locked default), NO root-view / shell /
+           projected status + safe headers/cookies + an error body
+           (`:error-view` or the default template), NO root-view / shell /
            hydration payload / app-db;
-         - projected 4xx / none   → `build-full-response` — render the
-           root-view, build the hydration payload, wrap in the html-shell,
-           materialise to Ring (the app renders its OWN not-found /
-           bad-request UI and hydrates into a working SPA).
+         - projected 4xx / none   → `build-full-response` — settle the
+           route's blocking resources, render the body through `:renderer`
+           (by default the `:root-view`), build the hydration payload and
+           wrap it in the html-shell, then re-flush the accumulator: a sub
+           that recovered to nil during the render still diverts to the
+           error page. Otherwise materialise to Ring (the app renders its
+           OWN not-found / bad-request UI and hydrates into a working SPA).
     4. `destroy-frame-quietly!` in `finally` clears the frame and its
        request-scoped side channels.
 
@@ -42,86 +45,27 @@
 
 ;; ---- the fail-closed status rewrite reports itself ------------------------
 ;;
-;; A non-integer `:status` reaching the materialiser rewrites the app's 200 to
-;; a 500. `trace/emit!` is the dev bus, so a warning alone would leave a
-;; production host (`-Dre-frame.debug=false`) answering 500 with no record of
-;; why on either axis.
-;;
-;; WHAT REACHES THIS. The reserved
-;; `:rf.server/*` fx guard their own args UNCONDITIONALLY, so the framework's
-;; own fx path cannot feed the flip: `[:rf.server/set-status "not-an-int"]`
-;; leaves `:status 500` (a Long — the guard throws, containment fans
-;; `:rf.error/fx-handler-exception`, the SSR projector stamps it) and
-;; `[:rf.server/redirect {:status "302"}]` leaves `:redirect nil`. What remains
-;; LIVE is the path this net exists for: a HOST that hand-builds the
-;; accumulator (`re-frame.ssr.response/swap-response!`) or calls this PUBLIC
-;; materialiser with its own response map. That is a real caller — `get-response`
-;; is a documented host-adapter surface — so the arm is a backstop, not dead code,
-;; and a backstop that fires silently is the one thing it must not be.
-
-;; THE ALWAYS-ON RECORD IS CLOSED AT ITS ONE CONSTRUCTION SITE. The map literal
-;; in [[report-non-integer-status!]] below IS the record's key set. There is no
-;; separate allow-list constant to consult, and deliberately isn't one: a
-;; constant nothing reads advertises a mechanical guarantee
-;; the code does not perform, and becomes a third spelling that can
-;; drift on its own.
-;;
-;; BUILT CLOSED, never filtered down to. A deny-list scrub stays one component
-;; away from the next leak; a literal assembled key-by-key means a slot someone adds
-;; upstream has no route to Sentry even in principle.
-;;
-;; WHAT ACTUALLY ENFORCES IT is behavioural. In `status_rewrite_always_on_test`,
-;; `record-key-set-is-closed` pins the EMITTED record's key set with `=` (never
-;; `subset?`) against its own independently written expectation, and
-;; `the-record-never-carries-the-offending-value` asserts the ABSENCE of
-;; `:status` by name — the offending VALUE is the one thing this record must
-;; never carry. The independence is the point: a test that read the production
-;; set would agree with it by construction and could only ever pass.
-;;
-;;   :rf.error/id the category (union-record shape)
-;;   :frame       ALWAYS nil — see [[report-non-integer-status!]]
-;;   :time        the emit instant (union-record shape)
-;;   :where       the call site; a constant keyword, and the slot the three
-;;                sibling `:rf.ssr/*` materialiser diagnostics also carry
-;;   :status-type the offending value's CLASS NAME — program structure, not app
-;;                data (the documented `:ex-class` residual class), and the one
-;;                lead that turns "a 500 happened" into "something `str`-ed the
-;;                status"
-;;   :reason      a closed framework keyword, never prose (free prose
-;;                on this axis is how raw material finds its way back into a
-;;                record). The sentence stays on the dev trace, where a reader
-;;                who needs it is already standing
-;;   :recovery    the fail-closed disposition
+;; A non-integer `:status` reaching the materialiser rewrites the response to
+;; a 500. The reserved `:rf.server/*` fx guard their own args, so what reaches
+;; it is a host that builds the accumulator itself or calls
+;; `ssr-response->ring-response` with its own map — and the rewrite is reported
+;; on the always-on axis too, or a `-Dre-frame.debug=false` host would answer
+;; 500 with no record of why (Spec 009
+;; `:rf.error/ssr-ring-response-status-invalid`).
 
 (defn ^:private report-non-integer-status!
-  "Report ONE non-integer response `:status` on BOTH observability axes and
-  return nil. The single emit site for the fail-closed rewrite, so the two axes
-  cannot disagree about the defect they describe and no arm can forget one.
+  "Report one non-integer response `:status` on both observability axes and
+  return nil — the single emit site, so the two cannot disagree.
 
-  Axis 1 is the ALWAYS-ON error-emit record (surface #4) — the half that
-  reaches an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host, built
-  as the CLOSED seven-key literal below (the comment above this fn carries the
-  per-slot reasoning and names what enforces the closure). Axis 2 is the dev
-  trace, which keeps the diagnostics whole, INCLUDING the offending value: it
-  is DCE'd/gated, and a developer staring at a 500 wants to see the `\"404\"` that
-  caused it.
-
-  `:frame` is ALWAYS nil, and that is a deliberate constant rather than a
-  missing feature. This materialiser is a pure `(response-map, body) → Ring-map`
-  function with no frame argument; the two `with-frame` blocks in this
-  namespace both CLOSE before the happy-path call site, so an ambient read
-  would populate the slot on the error arm and leave it nil on exactly the path
-  this record exists for. A slot that is sometimes-populated with no way for
-  the consumer to tell which is worse than one that is honestly always nil —
-  the `:rf.error/malformed-hydration-payload` frameless spelling. The cost is
-  that the record takes only the corpus-wide route and not the frame-owned
-  `:observability :errors` sink, which for a wire-shape defect is the right
-  half anyway.
-
-  NON-PROJECTING: the category is a member of
-  `re-frame.ssr.error-listener/non-projection-eligible-errors`. It fires at
-  MATERIALISATION time, strictly after the status is resolved, so re-projecting
-  it could only fight the rewrite it is reporting."
+  The always-on record is the closed literal below, built key by key rather
+  than filtered down to, and it never carries the offending value;
+  `status_rewrite_always_on_test` pins its key set and that absence. The dev
+  trace keeps the value, because a developer staring at a 500 wants the
+  `\"404\"` that caused it. `:frame` is always nil: this materialiser takes no
+  frame, and a slot filled on some paths only is worse than one honestly
+  empty. Non-projecting (`error-listener/non-projection-eligible-errors`): it
+  fires after the status is resolved, so re-projecting could only fight the
+  rewrite it reports."
   [status]
   (let [;; Computed ONCE and shared by both axes.
         status-type (some-> status class .getName)]
@@ -345,21 +289,13 @@
         {:short-circuit (rf.ssr.ring.lifecycle/safe-on-error on-error request t)}))))
 
 (defn render-error-body
-  "Build a minimal HTML body from a public-error map — the host's
-  DEFAULT error template (Spec 011 §Server error projection step 5,
-  the \"or the host's default error template\" branch). Used when no
-  caller `:error-view` is registered and `render-to-string` has
-  thrown, so the host can no longer rely on the user's root-view to
-  produce wire bytes.
-
-  Built as hiccup and rendered via
-  `ssr/render-to-string` (with `:doctype? true`)
-  so the public-error map flows through position-appropriate escaping
-  the emitter already owns — the same path as a caller-supplied error view.
-
-  Carries no internal trace detail — the wire surface is locked to the
-  public-error keys; the internal Throwable already rode the trace bus
-  via `project-render-exception!`."
+  "Build the host's DEFAULT error page from a public-error map (Spec 011
+  §Server error projection step 5, the \"or the host's default error
+  template\" branch): the projected-5xx body when no `:error-view` is
+  supplied, and the fallback when one fails. Rendered through
+  `ssr/render-to-string`, so the public-error's fields are escaped by the
+  emitter, and it carries only the public-error keys — the internal fault
+  rode the trace bus."
   [{projected-error-status  :status
     projected-error-code    :code
     projected-error-message :message}]
@@ -521,35 +457,21 @@
   (boolean (when-let [status (:status public-error)]
              (<= 500 status 599))))
 
-(defn ^:private materialise-error-arm
-  "Materialise the projected-error arm onto `resp`: resolve the error body
-  (the caller's `:error-view`, or the locked default template) under the
-  request frame scope and wrap it, KEEPING the response accumulator's
-  Content-Type (a projected error is HTML — the successful-body
-  `:content-type` override does not apply). Shared by the render-throw path
-  (`project-render-throw->ring-response`) and the already-projected drain /
-  post-render 5xx path (`materialise-projected-error`)."
+(defn materialise-projected-error
+  "Materialise a projected 5xx — a drain-time handler/fx exception, a custom
+  5xx projection, a post-render recovered-to-nil sub, or a render-time throw
+  — to a Ring error response WITHOUT re-projecting: the projected `:status`
+  and the headers/cookies already on `response`, around the error body
+  (`:error-view`, or the default template) resolved in the request frame's
+  scope. No root view, shell, `__rf_payload` or app-db ships, and the
+  accumulator's Content-Type is kept, since `:content-type` labels only
+  successful bodies. Redirect precedence is the caller's. Per Spec 011
+  §Drain-time error classification."
   [frame-id response public-error opts]
   (rf/with-frame frame-id
     (ssr-response->ring-response
       response
       (resolve-error-body frame-id (:error-view opts) public-error))))
-
-(defn materialise-projected-error
-  "Materialise an ALREADY-projected 5xx (a drain-time handler/fx exception,
-  a custom 5xx projection, or a post-render recovered-to-nil sub) to a Ring
-  error response, WITHOUT re-projecting: keep the projected `:status` and the
-  safe headers/cookies already accumulated in `resp`, ship a plain-String
-  error body (`:error-view`, or the locked default template), and emit NO
-  root-view / html-shell / `__rf_payload` / app-db.
-
-  Besides avoiding a misleading half-drained page, dropping the payload
-  removes a needless partial-state egress surface when the caller opted into
-  whole-app-db hydration. Redirect precedence is honoured by the caller (it
-  branches on `:redirect` first); stale Content-Length is stripped by the
-  shared materialiser. Per Spec 011 §Drain-time error classification."
-  [frame-id response public-error opts]
-  (materialise-error-arm frame-id response public-error opts))
 
 (defn local-renderer
   "The DEFAULT `:renderer` — the JVM-local render. Resolves
@@ -572,6 +494,24 @@
   {:body-html (rf.ssr/render-to-string
                 (rf.ssr.ring.lifecycle/resolve-root-view (:root-view opts))
                 {:doctype? false})})
+
+(defn- renderer-body-html
+  "The `:body-html` string of a `:renderer` result, or a throw naming what
+  came back instead — projected like any render throw. Unchecked, a renderer
+  that returned its markup bare would ship a 200 with an empty app root."
+  [result]
+  (let [body-html (when (map? result) (:body-html result))]
+    (if (string? body-html)
+      body-html
+      (let [got  (rf.error/diag-value-summary (if (map? result) body-html result))
+            kind (if (= :nil (:type got)) "nil" (str "a " (name (:type got))))]
+        (rf.error/throw-error!
+          :rf.error/ssr-ring-renderer-result-invalid
+          'rf.ssr.ring/ssr-handler
+          (str ":renderer must return {:body-html <string>}; it returned "
+               (if (map? result) (str "a map whose :body-html is " kind) kind) ".")
+          {:recovery :return-the-body-html-string-in-a-map
+           :extra    {:got got}})))))
 
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
@@ -604,10 +544,10 @@
                 ;; everything else: head, payload, shell, status, headers,
                 ;; cookies, error projection and teardown.
                 render-body (or renderer local-renderer)
-                {:keys [body-html]}
-                (render-body {:frame-id frame-id
-                              :request  (rf.ssr/get-request frame-id)
-                              :opts     opts})
+                body-html   (renderer-body-html
+                              (render-body {:frame-id frame-id
+                                            :request  (rf.ssr/get-request frame-id)
+                                            :opts     opts}))
                 ;; Explicit head HTML bypasses route-derived attributes.
                 head-data (if explicit-head
                             {:head-html  explicit-head
@@ -631,7 +571,10 @@
             (assoc head-data
                    :body-html  body-html
                    :rf-payload hydration-payload)))
-        payload-edn (pr-str hydration-payload)
+        ;; Printed whole whatever the calling thread binds: a truncated
+        ;; `[0 1 2 ...]` still reads, so truncation would ship silently.
+        payload-edn (binding [*print-length* nil *print-level* nil]
+                      (pr-str hydration-payload))
         ;; Every shell, the default included, ships the payload by splicing
         ;; `:payload-tag`, so the escaped, id-pinned `<script>` has one
         ;; builder.
@@ -677,23 +620,16 @@
        / not a server frame).
     2. `ssr/peek-response` — pure read of the now-stamped response
        accumulator (the projection drain already ran).
-    3. `resolve-error-body` — caller-registered `:error-view` (receiving
-       the public-error map) when present, else the host default
-       template.
-    4. `ssr-response->ring-response` — materialise through the SAME
-       happy-path materialiser, so headers / cookies the drain DID
-       accumulate before the throw still ride the wire.
+    3. `materialise-projected-error` — the error body (the caller's
+       `:error-view`, receiving the public-error map, or the host default
+       template) through the SAME materialiser the happy path uses, so
+       headers / cookies the drain DID accumulate before the throw still
+       ride the wire.
 
   When projection returns nil (e.g. no server frame) the locked
   generic-500 public-error is substituted so the wire still carries a
-  well-formed fail-closed body.
-
-  The whole error projection and error-body render path runs inside the
-  request frame's scope, mirroring the happy path. `project-render-exception!`
-  stamps the per-frame response accumulator, `peek-response` reads it, and a
-  caller `:error-view` resolves through the registrar (`resolve-error-body`'s
-  `[error-view public-error]` view lookup); `resolve-error-body` re-pins
-  `*current-frame*` around its own render."
+  well-formed fail-closed body. Projection and the error-body render both
+  run in the request frame's scope, mirroring the happy path."
   [frame-id ^Throwable t opts]
   (let [public-error       (rf.ssr/project-render-exception! frame-id t)
         projected-response (rf.ssr/peek-response frame-id)
@@ -704,61 +640,20 @@
         ;; (Spec 011 §Drain-time error classification). When projection returns
         ;; nil (no server frame) the locked generic-500 is substituted.
         resolved-public-error (or public-error rf.ssr/fallback-public-error)]
-    ;; The construction-time Content-Type labels only successful bodies; a
-    ;; projected error is HTML, so `materialise-error-arm` keeps the
-    ;; accumulator's header. It re-pins the request frame for the error-body
-    ;; render, mirroring the happy path.
-    (materialise-error-arm
+    (materialise-projected-error
       frame-id projected-response resolved-public-error opts)))
 
 (defn build-full-response
-  "Render the body against `frame-id` through the render-body seam — the
-  caller's `:renderer`, or `local-renderer` rendering `:root-view` — build
-  the hydration payload, wrap in the html-shell, and materialise to a Ring
-  response.
-
-  The renderer runs once per request.
-
-  A render-time
-  throw (e.g. the `validate-tag-name!` rejection of
-  `(keyword \"has space\")`, a view-fn `(throw (ex-info ...))`, a
-  hiccup-walker structural error, a `:renderer` that throws) is routed
-  through the SAME error
-  projector that catches drain-time fx/handler exceptions. The
-  outer try/catch here:
-
-    1. Calls `ssr/project-render-exception!` — synthesises a
-       `:rf.error/ssr-render-failed` trace event, drives the active
-       projector, stamps the public-error's `:status` onto the
-       response accumulator (Spec 011 §Server error projection
-       §Where sanitisation happens — \"runtime sets
-       `:rf.server/set-status` to the public-error's `:status`\").
-    2. Reads the now-stamped response via `ssr/peek-response`
-       (pure read — the projection drain already ran).
-    3. Builds a minimal escaped HTML error body from the
-       public-error's `:message` / `:code` via `render-error-body`.
-    4. Materialises the Ring response through the same
-       `ssr-response->ring-response` materialiser the happy path
-       uses — so headers / cookies the drain DID accumulate before
-       the render-time throw still ride the wire.
-
-  The try/catch is the unification point: render-time and drain-time
-  exceptions both go through the projector, so the wire body contract
-  is uniform regardless of where the failure originated.
-
-  Note: the outer `ssr-handler`'s `:on-error` hook also wraps this
-  call. The remaining exceptions it catches are Ring-layer / transport
-  failures the projector can't see (e.g. an exception in the host's
-  Content-Type negotiator, or a re-throw from the projector pipeline
-  itself when no server frame is registered). Those use the fixed, no-detail
-  transport fallback."
+  "Render the body through the render-body seam — the caller's `:renderer`,
+  or `local-renderer` rendering `:root-view` — build the hydration payload,
+  wrap it in the html-shell, and materialise a Ring response. The renderer
+  runs once per request. A throw anywhere in that, a `:renderer`'s
+  included, is projected by `project-render-throw->ring-response`, so
+  render-time and drain-time failures share one error-body contract (Spec
+  011 §Server error projection §View-time exceptions); what escapes the
+  projector reaches the handler's `:on-error`."
   [frame-id opts]
   (try
     (build-full-response* frame-id opts)
     (catch Throwable t
-      ;; The projector stamps :status onto the response accumulator and
-      ;; the projected (fail-closed, non-200) error body is materialised
-      ;; through `project-render-throw->ring-response`. Render-time AND
-      ;; drain-time exceptions thus share one wire-body contract (Spec 011
-      ;; §Server error projection §View-time exceptions).
       (project-render-throw->ring-response frame-id t opts))))
