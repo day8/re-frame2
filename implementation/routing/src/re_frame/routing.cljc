@@ -66,12 +66,9 @@
             [re-frame.routing.subs :as rf.routing.subs]
             [re-frame.routing.url-bound :as rf.routing.url-bound]
             [re-frame.routing.url-change :as rf.routing.url-change]
-            ;; No require of `re-frame.routing.tooling` on EITHER runtime.
-            ;; The facade publishes no aliases for the algebra views, so
-            ;; every consumer — JVM
-            ;; and CLJS alike — requires the bundle-isolated tooling sibling
-            ;; directly, and `re-frame.derivation.graph` reaches it through
-            ;; `requiring-resolve` rather than through this facade.
+            ;; `re-frame.routing.tooling` stays out: it is bundle-isolated, and
+            ;; its consumers require it directly (Derivations §Routes expose
+            ;; algebra views).
             #?@(:cljs [[re-frame.views :as rf.views]])))
 
 ;; ---- public API re-exports ----------------------------------------------
@@ -79,29 +76,10 @@
 
 ;; Registry
 (def reg-route                  rf.routing.registry/reg-route)
-;; No public `clear-route` re-export here — the registrar inverse
-;; is the one kind-keyed `(rf/clear :route id)`. The registry fn below is
-;; the late-bind hook target.
 (def match-url                  rf.routing.registry/match-url)
 (def route-url                  rf.routing.registry/route-url)
 (def malformed-url?             rf.routing.registry/malformed-url?)
 (def reset-counters!            rf.routing.registry/reset-counters!)
-
-;; No `route-ids` / `route-meta` re-exports here — static-registry
-;; introspection is the generic registrar grammar,
-;; `(keys (rf/registrations {:kind :route}))` and
-;; `(rf/handler-meta {:kind :route :id id})`.
-
-;; EP-0037 R0 — the shared RouteAddress extraction law
-;; (`re-frame.routing.address`) and the one resolved-target / route-plan seam
-;; (`re-frame.routing.resolve`) are INTERNAL routing seams the navigation
-;; doors consume; they are deliberately NOT re-exported here. The plan's
-;; observable projection is the `:rf.route/planned` trace
-;; (`resolve/plan-trace-tags`), which every door commit branch emits through;
-;; a tool reads it there rather than through a facade export, exactly as CLJS
-;; tools require `re-frame.routing.tooling` directly — routing adds no public
-;; `RoutePlan` constructor (Spec 012 §Resolved target and the plan diagnostic
-;; projection).
 
 ;; Scroll positions are host-side transient state, not runtime-db state.
 (def scroll-positions-cap       rf.routing.scroll/scroll-positions-cap)
@@ -116,21 +94,6 @@
 (def counter-snapshot           rf.routing.nav-counters/counter-snapshot)
 (def routing-state-classification rf.routing.nav-counters/routing-state-classification)
 (def reset-nav-counters!        rf.routing.nav-counters/reset-cache!)
-
-;; Subs
-;; No `route-sub-fn` facade alias. `route-sub-fn` is registered
-;; DIRECTLY as the `:rf/route` runtime sub below, in this already-loaded
-;; facade, so an alias would publish a registration detail as an API. The
-;; normative read is the subscription vector `[:rf/route]`; the normative
-;; slice path is `[:rf.runtime/routing :current]` (Conventions §Reserved
-;; runtime-db keys).
-
-;; No `route-algebra-view` / `route-slice-algebra-view` facade
-;; aliases. The static route algebra and a frame's live route-slice algebra
-;; ship NO public accessor (Derivations §Routes expose algebra views) — the
-;; bodies live in the bundle-isolated `re-frame.routing.tooling`, which every
-;; consumer requires directly: Xray statically, `re-frame.derivation.graph`
-;; through `requiring-resolve` on the JVM.
 
 ;; URL-owner resolution
 (def url-owner-frame-id         rf.routing.nav-fx/url-owner-frame-id)
@@ -152,16 +115,7 @@
 (def hash-url-strategy          rf.routing.strategy/hash-url-strategy)
 (def with-base-path             rf.routing.strategy/with-base-path)
 
-;; Listener installation/removal follows the `:url-bound?` frame lifecycle.
-;; No `current-url` facade alias. A caller that wants the current path-form
-;; URL reads it off the frame's strategy (`history-url-strategy`'s own
-;; `:decode`), or calls `rf.routing.history/current-url` directly.
-
-;; Route-link render fns
-;; No `route-link-render` facade alias: tests reach the render fn through its
-;; home, `rf.routing.link/route-link-render`. `route-link-render-ssr` IS
-;; re-exported: it is the value of the JVM `:routing/route-link` late-bind hook below, a
-;; real publication rather than a convenience re-export.
+;; The value of the JVM `:routing/route-link` late-bind hook below.
 (def route-link-render-ssr      rf.routing.link/route-link-render-ssr)
 
 ;; ---- event / fx / sub / hook / listener registrations -------------------
@@ -446,22 +400,9 @@
 ;; integration points without reversing that dependency.
 
 (rf.late-bind/set-fn! :routing/reg-route          reg-route)
-;; `rf/clear` consumes :routing/clear-route, and
-;; routing `:route` removal through the OWNING fn is what emits the
-;; :rf.route/cleared trace event. The hook target is the registry fn, not a
-;; `re-frame.routing` re-export — there is none, because
-;; `(rf/clear :route id)` is the one public door.
+;; `(rf/clear :route id)` is the one public route-removal door; it reaches the
+;; owning registry fn through this hook, which emits `:rf.route/cleared`.
 (rf.late-bind/set-fn! :routing/clear-route       rf.routing.registry/clear-route)
-;; No :routing/match-url, :routing/route-url or
-;; :routing/current-url hooks — none of those three is a `re-frame.core`
-;; export, so core has nothing to late-bind to. Callers use
-;; `re-frame.routing/match-url` / `route-url` directly; a routing app requires
-;; this namespace at boot regardless. `current-url`'s home is
-;; `re-frame.routing.history/current-url`.
-;; No :routing/route-sub-fn hook and no `re-frame.routing/route-sub-fn`
-;; alias. `route-sub-fn` is registered
-;; DIRECTLY as the `:rf/route` sub above, in this already-loaded facade, so
-;; core has no need to late-bind to it, and the registration is the surface.
 
 ;; Registration-time frame-config preflight: routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs) and of
@@ -551,13 +492,3 @@
 ;; routing.
 (rf.late-bind/set-fn! :routing/link-model rf.routing.link/link-model)
 #?(:cljs (rf.late-bind/set-fn! :routing/activate-link! rf.routing.link/activate-link!))
-
-;; NOTE — there is deliberately no late-bind seam for `:prefetch :intent`.
-;; `rf/route-link` reaches `rf.routing.link/prefetch-payload`
-;; and `prefetch-intent-keys` by direct call and composes the intent handlers
-;; itself (`prefetch-intent-attrs`); a view artefact reads the same pair off
-;; `:routing/link-model`. No view artefact consumes either through a hook of
-;; its own, so publishing one would only promise reachability that does not exist. Per Spec
-;; 012 §Route-plan prefetch the law lives in `re-frame.routing.link`; a
-;; view artefact that needs it should land a real reader first and publish
-;; only the keys it reads.

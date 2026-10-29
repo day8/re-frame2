@@ -47,7 +47,7 @@
   `clojure -M:test:prod-gate` (the `-Dre-frame.debug=false` lane).
 
   What is dev-only is how the rejection is ANNOUNCED on the two EVENT doors:
-  `:rf.error/schema-validation-failure` and `:rf.error/prefetch-bad-address`
+  `:rf.error/route-url-validation` and `:rf.error/prefetch-bad-address`
   reach the caller through `trace/emit-error!`, gated on
   `rf.interop/debug-enabled?` and read once at load time. Those assertions sit
   inside `(when rf.interop/debug-enabled? …)` arms."
@@ -149,7 +149,7 @@
       (reset! pushed [])
       (let [before (current-slice)]
         (with-trace-recorder!
-          [traces {:pred #(= :rf.error/schema-validation-failure (:operation %))}]
+          [traces {:pred #(= :rf.error/route-url-validation (:operation %))}]
           (rf/dispatch-sync [:rf.route/navigate {:to     :route/probe
                                                  :params {:id "7" :extra "x"}}])
           (when rf.interop/debug-enabled?

@@ -189,13 +189,29 @@
       (assoc tags :error rf.privacy/redacted-sentinel :sensitive? true)
       tags)))
 
+(defn- route-error-id
+  "The error id a named address's `route-url` throw reports under, from the
+  throw's `ex-data`. A schema verdict rides the schemas channel:
+  `:rf.error/schema-validation-failure` for a value its `:params` / `:query`
+  schema rejects (the `:slot` + `:error` arm), `:rf.error/malformed-schema` for
+  a schema the validator cannot run. Every other throw reports its own
+  `:rf.error/id`, so an unregistered `:to` is `:rf.error/no-such-route` here as
+  it is at `route-url` and in prefetch's `:reason` (Spec 012 §Param validation
+  at the call site)."
+  [data]
+  (let [id (:rf.error/id data)]
+    (cond
+      (= :malformed-schema (:reason data))  :rf.error/malformed-schema
+      (and (= :rf.error/route-url-validation id)
+           (contains? data :error))         :rf.error/schema-validation-failure
+      :else                                 (or id :rf.error/route-url-validation))))
+
 (defn- resolve-address
   "Stage 2 for a NAMED ADDRESS (`:to`) or an IN-PLACE EDIT (neither `:to` nor
-  `:url`). Both are caller-authored, so a schema failure is the caller's bug:
-  `route-url` validates the resolved facts, and its throw emits
-  `:rf.error/schema-validation-failure` (`:where :event`) and rejects —
-  `{:effects {}}`, slice unchanged, nothing pushed. A route schema that is
-  itself malformed reports `:rf.error/malformed-schema` instead.
+  `:url`). Both are caller-authored, so an address `route-url` refuses is the
+  caller's bug: `route-url` validates the resolved facts, and its throw emits
+  one error at `:where :event` under the id `route-error-id` names and rejects
+  — `{:effects {}}`, slice unchanged, nothing pushed.
 
   A destination is taken LITERALLY (EP-0037 R5): omitted `:params` /
   `:query` / `:fragment` are empty and no ambient current-route query folds
@@ -245,11 +261,9 @@
                                      :query    (:query target)
                                      :fragment fragment}))}
       (catch #?(:clj Throwable :cljs :default) ex
-        (let [data (or (ex-data ex) {:message (ex-message ex)})
-              tags (route-error-tags route-id route-meta frame data)]
-          (if (= :malformed-schema (:reason data))
-            (rf.trace/emit-error! :rf.error/malformed-schema tags)
-            (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))
+        (let [data (or (ex-data ex) {:message (ex-message ex)})]
+          (rf.trace/emit-error! (route-error-id data)
+                                (route-error-tags route-id route-meta frame data)))
         {:effects {}}))))
 
 (defn- with-fragment
@@ -580,4 +594,4 @@
                       :request        {:url url :bypass-leave? (:bypass-leave? opts)}
                       :cause          cause
                       :url-driven?    true
-                      :default-scroll (if (= :link cause) :top :restore)))))
+                      :default-scroll (rf.routing.scroll/cause-default-strategy cause)))))

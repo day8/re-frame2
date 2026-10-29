@@ -87,68 +87,50 @@
                       " falsey or unsupported value")
                  {:slot :prefetch :value v :accepted prefetch-intent-value}))))))
 
+(defn- link-href
+  "`[path-url href]` for the address in a link's `props` (or a view
+  artefact's link target), the one href calculation `href-attrs` and
+  `link-model` share. The address is selected through the shared extractor
+  (`rf.routing.address/extract-address`), so a link cannot drift from what an
+  address is. `route-url` builds the PATH-FORM url (`/active`) — the navigation
+  identity the click's `[:rf.route/navigate {:url …}]` dispatch carries, since
+  the cascade is path-form throughout — and `encode`, the rendering frame's
+  strategy `:encode`, maps it to the rendered `:href` (`#/active` for a hash
+  app), so copy-link and open-in-new-tab land on the right address. Every
+  caller passes the RENDERING frame's `:encode`, so the server shell and the
+  hydrated client carry the same `:href` (Spec 011's structural-equivalence
+  rule); only the strategy's browser side effects are CLJS-only."
+  [props encode]
+  (let [{:keys [to params query fragment]} (rf.routing.address/extract-address props)
+        path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
+    [path-url (encode path-url)]))
+
 (defn- href-attrs
   "Synthesise the `<a>` href from the link control keys (`:to` /
-  `:params` / `:query` / `:fragment`), strip those control keys (plus
-  `:on-click`, which the CLJS path replaces and the SSR path drops, and the
-  navigation policy keys, which ride the click's dispatch) off
-  `props`, and return `[path-url base-attrs address]`. The base attrs carry the
-  synthesised `:href` plus every passthrough HTML attr; both the CLJS
-  and SSR render fns build on it so the control-key list lives in ONE
-  place and cannot drift between the two halves of the Spec 011 render
-  contract. `address` is the extracted address the href was built FROM, handed
-  back so the CLJS render's click payload names the destination through the
-  same single extraction rather than reading `props` a second time.
-
-  `route-url` builds the path-form URL
-  (`/active`); `encode` maps it to the rendered `:href` — one of the four
-  strategy consult points. The first return value is the PATH-FORM url
-  (unencoded) — it is the behavioural navigation identity carried on the
-  click's `[:rf.route/navigate {:url …}]` dispatch (the click handler routes
-  through the cascade, which is path-form throughout). The rendered `:href` is the
-  ENCODED form so copy-link / open-in-new-tab land on the right address
-  (`#/active` for a hash app). BOTH render fns pass the RENDERING frame's
-  strategy `:encode` — the CLJS render its captured frame's, the SSR render
-  the frame `rf/with-frame` pinned around the server walk — so the server
-  shell and the hydrated client carry the same `:href` (Spec 011's
-  structural-equivalence rule). Only the strategy's browser side
-  effects are CLJS-only; its pure `:encode` is not."
+  `:params` / `:query` / `:fragment`, through `link-href`), strip those
+  control keys (plus `:on-click`, which the CLJS path replaces and the SSR path
+  drops, and the navigation policy keys, which ride the click's dispatch) off
+  `props`, and return `[path-url base-attrs]`. The base attrs carry the
+  synthesised `:href` plus every passthrough HTML attr; both the CLJS and SSR
+  render fns build on it so the control-key list lives in ONE place and cannot
+  drift between the two halves of the Spec 011 render contract."
   [props encode]
-  ;; EP-0037 R0: select the address through the ONE shared extractor
-  ;; (`rf.routing.address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
-  ;; key class) rather than a bespoke destructuring, and strip the address,
-  ;; policy and behaviour keys via the shared key-class constants — so route-link cannot
-  ;; drift from what an address IS, and a policy / DOM attr can never leak into
-  ;; the synthesised href. The remaining props are the open DOM-attribute map
-  ;; (route-link's deliberate exception — Spec 012 §The extraction law).
+  ;; The shared key-class constants strip the address, policy and behaviour
+  ;; keys, so a policy key can never leak into the `<a>`. The remaining props
+  ;; are the open DOM-attribute map (route-link's deliberate exception — Spec
+  ;; 012 §The extraction law).
   ;;
   ;; EP-0037 R3: validate the `:prefetch` behaviour value HERE, in the one
   ;; calculation both halves of the render contract run, so `rf/route-link`
   ;; rejects an unsupported mode on the client AND in the SSR shell rather than
   ;; stripping it silently on the way to the `<a>`.
-  ;;
-  ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
-  ;; derived by `link-model` (bottom of this file), and that is STRUCTURAL
-  ;; rather than incidental. Neither can call the other: this fn
-  ;; must ALSO strip the control keys and hand back route-link's open
-  ;; DOM-attribute passthrough map (Spec 012 §The extraction law), which
-  ;; `link-model` must NOT do — the consuming view artefact owns its own markup
-  ;; — and this fn takes `encode` as an ARGUMENT (each render fn resolves its
-  ;; frame's strategy `:encode` and hands it in) where `link-model` resolves it
-  ;; from the `render-frame` it is handed. A shared helper would need a home both already
-  ;; require, and there is none; a namespace invented to hold this calculation
-  ;; would cost more than it saves. Do not spend an afternoon unifying them —
-  ;; but if a shared home appears for another reason, collapse both onto it.
-  ;; (The readiness projectors meet the same wall; see `re-frame.routing.readiness`.)
   (validate-prefetch! props)
-  (let [{:keys [to params query fragment] :as addr} (rf.routing.address/extract-address props)
-        path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
+  (let [[path-url href] (link-href props encode)]
     [path-url
      (-> (apply dissoc props (concat rf.routing.address/address-keys
                                      rf.routing.address/policy-keys
                                      rf.routing.address/link-behavior-keys))
-         (assoc :href (encode path-url)))
-     addr]))
+         (assoc :href href))]))
 
 (defn prefetch-payload
   "The `[:rf.route/prefetch {address}]` dispatch vector for a link whose props
@@ -403,7 +385,7 @@
            ;; the click dispatch — the cascade is path-form throughout, so the
            ;; encode touches ONLY the href. One of the four consult points.
            encode (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))
-           [url base-attrs _address] (href-attrs props encode)
+           [url base-attrs] (href-attrs props encode)
            ;; The click payload comes from the ONE synthesiser
            ;; (`navigate-payload`) over the PATH-FORM url `href-attrs`
            ;; built from the address it extracted — so the href and the
@@ -470,7 +452,7 @@
   [props & children]
   (let [render-frame          (rf.frame/resolve-current-frame)
         encode                (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))
-        [_url attrs _address] (href-attrs props encode)]
+        [_url attrs]          (href-attrs props encode)]
     (into [:a attrs] children)))
 
 ;; ---------------------------------------------------------------------------
@@ -550,12 +532,12 @@
   is the one the hydrated client renders — SSR skips the strategy's browser
   side effects, never its pure `:encode`. Per Spec 012 §Linking from views."
   [target render-frame]
-  ;; EP-0037 R0: select the address through the ONE shared extractor
-  ;; (`rf.routing.address/extract-address`) — the same closed key class `rf/route-link`,
-  ;; `route-url`, and `:rf.route/navigate` resolve through. `native-anchor?`
-  ;; still reads the FULL `target` (the `:target` / `:download` DOM attrs live
-  ;; outside the address class) — the same side `route-link-render` reads, so
-  ;; the two surfaces classify a native anchor identically by construction.
+  ;; `link-href` selects the address through the shared extractor, the same
+  ;; closed key class `rf/route-link` and `:rf.route/navigate` resolve through.
+  ;; `native-anchor?` still reads the FULL `target` (the `:target` /
+  ;; `:download` DOM attrs live outside the address class) — the same side
+  ;; `route-link-render` reads, so the two surfaces classify a native anchor
+  ;; identically by construction.
   ;;
   ;; EP-0037 R3: `link-model` is the one link calculation a view artefact's
   ;; route-link runs on BOTH hosts, so the `:prefetch` value is validated
@@ -568,20 +550,6 @@
   ;; `prefetch-payload` server-side would leave the SSR shell accepting a
   ;; mode the hydrated client refuses.
   ;;
-  ;; DELIBERATE DUPLICATION — the `route-url` + `encode` pair below is also
-  ;; derived by `href-attrs` (top of this file, the `rf/route-link` internal),
-  ;; and that is STRUCTURAL rather than incidental. Neither can call
-  ;; the other: `href-attrs` must ALSO strip the control keys and return
-  ;; route-link's open DOM-attribute passthrough map (Spec 012 §The extraction
-  ;; law), which this seam must NOT do — the consuming view artefact owns its
-  ;; own markup and passthrough attrs — and `href-attrs` takes `encode` as an
-  ;; ARGUMENT where this fn resolves it from the `render-frame` it is handed.
-  ;; Calling `href-attrs` from here would also invert the seam: it is the
-  ;; `rf/route-link` internal, this is the view-artefact-facing surface. A shared helper
-  ;; would need a home both already require, and there is none. Do not spend an
-  ;; afternoon unifying them — but if a shared home appears for another reason,
-  ;; collapse both onto it. (The readiness projectors meet the same wall; see
-  ;; `re-frame.routing.readiness`.)
   ;; FIRST, before the route lookup. `prefetch-payload` below validates too
   ;; (it calls `validate-prefetch!` before it reads the value), so this call
   ;; is redundant for the VERDICT and load-bearing for the ORDER: a props
@@ -590,20 +558,10 @@
   ;; and says nothing about the two bad keys. Leaning on the `prefetch-payload`
   ;; call alone would put `route-url` first and do exactly that.
   (validate-prefetch! target)
-  (let [{:keys [to params query fragment]} (rf.routing.address/extract-address target)
-        path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
-        encode   (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))]
-    {:href          (encode path-url)
+  (let [[path-url href] (link-href target (:encode (rf.routing.strategy/url-strategy-for-frame-id
+                                                     render-frame)))]
+    {:href          href
      :payload       (navigate-payload path-url target)
      :native?       (native-anchor? target)
      :prefetch      (prefetch-payload target)
      :prefetch-keys prefetch-intent-keys}))
-
-;; The façade owns the `:route/link` registration:
-;;
-;;   #?(:cljs (def route-link (views/reg-view* :route/link {} route-link-render))
-;;      :clj  (registrar/register! :view :route/link {:handler-fn route-link-render-ssr}))
-;;
-;; Keeping the registration in the façade means a `(require 're-frame.routing
-;; :reload)` on a fresh registrar (the `clear-all!` test-fixture path)
-;; re-installs the view.
