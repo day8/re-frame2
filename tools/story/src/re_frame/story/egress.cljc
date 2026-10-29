@@ -168,6 +168,28 @@
             :else nil))
         (or cell-overrides {})))
 
+(defn- non-edn-args
+  "Reasons for any arg value an artifact EMITS (the Copy EDN snippet's
+  `:args`) that does not survive the EDN round-trip. A function prints as
+  an unreadable tagged literal, so the pasted form cannot rebuild the cell
+  (`:view-only`); any other non-round-tripping value is `:partial`."
+  [args]
+  (keep (fn [[k v]]
+          (cond
+            (contains-fn? v)
+            {:status :view-only
+             :code   :arg-fn
+             :detail (str "the `" k "` arg is a function, which the snippet "
+                          "prints as an unreadable tagged literal — the "
+                          "pasted form cannot rebuild this arg")}
+            (not (edn-round-trips? v))
+            {:status :partial
+             :code   :arg-non-edn
+             :detail (str "the `" k "` arg value does not survive the EDN "
+                          "round-trip, so the snippet does not reproduce it")}
+            :else nil))
+        (or args {})))
+
 (defn- world-reasons
   "Reasons drawn from the variant's compiled-plan `:world` slot — the
   inputs that drive a run but may not survive into a shared/exported
@@ -244,6 +266,8 @@
                       still shares — its overrides are classified on their
                       own).
     :cell-overrides — the runtime cell-overrides map the artifact encodes.
+    :args           — the arg map the artifact emits as EDN (the Copy EDN
+                      snippet's effective args); optional.
     :dropped        — share-URL override tokens that no longer apply
                       (`share/parse-overrides-param*` → `:dropped`); optional.
 
@@ -256,9 +280,10 @@
   An artifact with no downgrade reasons is `:full`. The status is the
   LOWEST any reason implies — one view-only reason makes the whole artifact
   view-only — so the label never overstates what the recipient can do."
-  [{:keys [plan cell-overrides dropped]}]
+  [{:keys [plan cell-overrides args dropped]}]
   (let [reasons (vec (concat
                        (non-edn-overrides cell-overrides)
+                       (non-edn-args args)
                        (world-reasons plan)
                        (dropped-override-reason dropped)))
         status  (reduce (fn [acc {:keys [status]}] (worse acc status))

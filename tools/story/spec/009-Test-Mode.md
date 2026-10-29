@@ -137,7 +137,10 @@ A status pill — green when every assertion passed, red when any
 failed, grey when the variant ran but recorded zero assertions
 (possible when `:script` is non-empty but contains only
 non-assertion dispatch steps). The pill text is `"N passed"`, `"N failed of M"`,
-or `"no assertions recorded"`.
+or `"no assertions recorded"`; a run that fails on its tape alone (every
+assertion passed, but the tape shows an unconsumed failure) names that
+cause instead of reading `"0 failed of M"`. Docs shows the same pill text
+for the same run.
 
 The pill is followed by a key:
 
@@ -365,7 +368,12 @@ nothing to run renders no dot. The `:test` pane's `variant-has-tests?`
 - `:running` — `run-variant` is currently in flight.
 - `:pending` — no run recorded yet, **or** the last run produced zero
   assertions (the variant ran but produced no signal — the dot stays
-  grey rather than green). Reserved for the genuinely unknown slot;
+  grey rather than green). Such a run's own verdict is `:pass` — a
+  variant with no assertions is vacuously green
+  ([/spec/007 §Story-as-test duality](../../../spec/007-Stories.md#story-as-test-duality),
+  [017 §Run result](017-Testing-Story.md#run-result)) — and the dot, not the run
+  result, renders it grey: `record-test-run` lowers a zero-assertion
+  `:pass` to `:pending`. Reserved for the genuinely unknown slot;
   unknown / nil statuses degrade here, real terminal statuses never do.
 
 `:all-green?` on the chrome widget's summary is true only when every

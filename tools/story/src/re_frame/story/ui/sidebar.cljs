@@ -62,6 +62,7 @@
             [re-frame.story.theme.colors      :as rf.story.theme.colors]
             [re-frame.story.theme.glyphs      :as rf.story.theme.glyphs]
             [re-frame.story.theme.status      :as rf.story.theme.status]
+            [re-frame.story.ui.mode-tabs      :as rf.story.ui.mode-tabs]
             [re-frame.story.ui.promotion      :as rf.story.ui.promotion]
             [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]
             [re-frame.story.ui.sidebar-signals :as rf.story.ui.sidebar-signals]
@@ -512,7 +513,8 @@
                    (rf.story.ui.state/swap-state!
                      (fn [s] (-> s
                                  (rf.story.ui.state/select-variant variant-id)
-                                 (rf.story.ui.state/select-workspace nil)))))]
+                                 (rf.story.ui.state/select-workspace nil)
+                                 (rf.story.ui.mode-tabs/with-stored-mode-tab variant-id)))))]
   [:<>
   [:div {:style       (merge (:variant-row styles)
                              (when selected? (:variant-row-active styles)))
@@ -713,12 +715,21 @@
                        ;; the Tests pane's `store-result!` threads it: a thrown
                        ;; fx, a tape-floor failure or a `:cannot-run` refusal
                        ;; the counts alone read as green.
-                       (let [summary (-> (rf.story.ui.state/aggregate-summary
-                                           (:assertions result))
-                                         (assoc :elapsed-ms (:elapsed-ms result)
-                                                :ran-at-ms  nil
-                                                :status     (:status result)))]
-                         (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run vid summary))
+                       ;; A superseded run's verdict belongs to the newer run
+                       ;; of the variant, so it only drops the running stamp
+                       ;; this run set.
+                       (if (:superseded? result)
+                         (rf.story.ui.state/swap-state!
+                           (fn [s]
+                             (cond-> s
+                               (= :running (rf.story.ui.state/variant-test-status s vid))
+                               (rf.story.ui.state/clear-test-run vid))))
+                         (let [summary (-> (rf.story.ui.state/aggregate-summary
+                                             (:assertions result))
+                                           (assoc :elapsed-ms (:elapsed-ms result)
+                                                  :ran-at-ms  nil
+                                                  :status     (:status result)))]
+                           (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run vid summary)))
                        nil))
         (rf.story.async/catch* (fn [_]
                         ;; A rejection drops the running stamp so the

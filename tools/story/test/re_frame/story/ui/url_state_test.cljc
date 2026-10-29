@@ -234,3 +234,18 @@
       (is (= parsed
              (rf.story.ui.url-state/params-from-state
                (rf.story.ui.url-state/apply-parsed-to-state {} parsed {})))))))
+
+(deftest an-overrides-only-edit-is-no-navigation
+  (testing "the watcher pushes a history entry for a navigation and replaces
+            the entry for an edit of the focused variant's overrides alone,
+            so typing in a control leaves no Back stops"
+    (let [base {:selected-variant :story.a/x :cell-overrides {:story.a/x {:label "H"}}}
+          typed (assoc-in base [:cell-overrides :story.a/x :label] "He")]
+      (is (rf.story.ui.url-state/url-relevant-slots-changed? base typed)
+          "the edit still reaches the URL")
+      (is (not (rf.story.ui.url-state/navigation-slots-changed? base typed))
+          "but it is not a navigation")
+      (is (rf.story.ui.url-state/navigation-slots-changed?
+            base (assoc base :selected-variant :story.a/y)))
+      (is (rf.story.ui.url-state/navigation-slots-changed?
+            base (assoc-in base [:active-mode-tab :story.a/x] :docs))))))

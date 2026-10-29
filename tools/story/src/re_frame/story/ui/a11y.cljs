@@ -101,6 +101,8 @@
   [frame-id]
   (:status (get @run-state frame-id) :idle))
 
+(declare clear-violation-overlays! variant-root-selector)
+
 (defn drop-frame-state!
   "Clear all a11y state for `frame-id`. Called on variant-frame teardown
   through the `:drop-a11y-state` late-bind hook, which
@@ -131,6 +133,9 @@
   (swap! violations-by-frame dissoc frame-id)
   (swap! incomplete-by-frame dissoc frame-id)
   (swap! run-state           dissoc frame-id)
+  ;; The reset frame's elements no longer carry the violations they were
+  ;; outlined for.
+  (clear-violation-overlays! (variant-root-selector frame-id))
   nil)
 
 ;; Register this panel's violations atom into the below-the-UI browser-tier
@@ -428,6 +433,40 @@
                     (string/replace #"'"  "\\\\'"))]
     (str "[data-rf-story-variant-root='" escaped "']")))
 
+(defn variant-root-context
+  "The axe-core context for `frame-id`'s mounted variant roots: the root
+  element when one is mounted (the canvas, a workspace cell), the roots'
+  selector when the side-by-side grid mounts one per substrate cell (axe
+  scans every element a selector matches), or nil when none is mounted."
+  [frame-id]
+  (try
+    (let [doc (.-document js/globalThis)
+          sel (variant-root-selector frame-id)
+          els (when doc (.querySelectorAll doc sel))]
+      (case (if els (.-length els) 0)
+        0 nil
+        1 (aget els 0)
+        sel))
+    (catch :default _ nil)))
+
+(defn clear-violation-overlays!
+  "Remove `data-rf-a11y-violation` from `scope` and every element under
+  it — `scope` is an Element or a selector naming the roots — so a
+  re-scan or a frame reset never leaves a fixed element outlined. Any
+  other scope (nil, an axe context object) is a no-op."
+  [scope]
+  (try
+    (let [doc   (.-document js/globalThis)
+          roots (cond
+                  (and doc (string? scope)) (array-seq (.querySelectorAll doc scope))
+                  (and scope (some? (.-nodeType scope))) [scope]
+                  :else nil)]
+      (doseq [root roots
+              el   (cons root (array-seq (.querySelectorAll root "[data-rf-a11y-violation]")))]
+        (.removeAttribute el "data-rf-a11y-violation")))
+    (catch :default _ nil))
+  nil)
+
 (defn find-variant-root
   "Resolve the DOM element marked as `frame-id`'s variant root, or nil
   if not mounted (e.g. the user is viewing the variant in :docs or
@@ -492,7 +531,7 @@
   beside them in `incomplete-by-frame` and emit no warning: they are
   shown, not failed."
   ([frame-id]
-   (run-axe! frame-id (find-variant-root frame-id)))
+   (run-axe! frame-id (variant-root-context frame-id)))
   ([frame-id context]
    (cond
      ;; No variant root and no explicit context → surface the
@@ -546,6 +585,8 @@
                                    context)]
                    (swap! violations-by-frame assoc frame-id (vec (array-seq vs)))
                    (swap! incomplete-by-frame assoc frame-id (vec (some-> (.-incomplete results) array-seq)))
+                   ;; A re-scan replaces the previous scan's outlines.
+                   (clear-violation-overlays! context)
                    (doseq [v (array-seq vs)]
                      (record-violation-overlay! scope-el v)
                      (emit-warning-for-violation frame-id v))

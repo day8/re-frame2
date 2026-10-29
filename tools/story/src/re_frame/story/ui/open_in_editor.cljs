@@ -243,8 +243,8 @@
   time, but the `:rf.story.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
   must fire here too. A URI on a forbidden scheme (`javascript:` /
-  `data:` / `vbscript:`, case-insensitive, leading-whitespace tolerant)
-  is a click-time no-op. There is no positive allowlist:
+  `data:` / `vbscript:`, read the way a browser reads a scheme — see
+  `forbidden-scheme?`) is a click-time no-op. There is no positive allowlist:
   unknown custom non-dangerous schemes navigate as the developer
   intended (the spec mandates a rejection list, not an allowlist).
 

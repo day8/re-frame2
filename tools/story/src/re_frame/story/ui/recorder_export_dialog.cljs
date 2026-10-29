@@ -167,20 +167,28 @@
   so anything but a pass reads FAIL."
   [{:keys [source-id]} spec]
   (when (and rf.story.config/enabled? source-id spec)
-    (swap! ui-dialog assoc :replay-status :running :replay-failure-msg nil)
-    (rf.story.recorder.play-export-events/replay-script!
-      source-id spec
-      (fn [final-state]
-        (let [status (:status final-state)
-              msg    (when (not= :pass status)
-                       (let [first-fail (some (fn [r]
-                                                (when (false? (:passed? r)) r))
-                                              (:results final-state))]
-                         (or (:message first-fail)
-                             (str "replay " (name (or status :error))))))]
-          (swap! ui-dialog assoc
-                 :replay-status      (if (= :pass status) :pass :fail)
-                 :replay-failure-msg msg))))))
+    ;; Each replay claims a token, and only the replay still holding it
+    ;; writes its verdict, so a replay superseded by a newer one, or
+    ;; outlived by the export it ran for, never paints a later export.
+    (let [token (js-obj)]
+      (swap! ui-dialog assoc :replay-status :running :replay-failure-msg nil
+             :replay-token token)
+      (rf.story.recorder.play-export-events/replay-script!
+        source-id spec
+        (fn [final-state]
+          (let [status (:status final-state)
+                msg    (when (not= :pass status)
+                         (let [first-fail (some (fn [r]
+                                                  (when (false? (:passed? r)) r))
+                                                (:results final-state))]
+                           (or (:message first-fail)
+                               (str "replay " (name (or status :error))))))]
+            (swap! ui-dialog
+                   (fn [d]
+                     (cond-> d
+                       (identical? token (:replay-token d))
+                       (assoc :replay-status      (if (= :pass status) :pass :fail)
+                              :replay-failure-msg msg))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Styles — mirrors the recorder save-dialog modal aesthetic
@@ -302,6 +310,14 @@
   is mounted at a time."
   "story-recorder-export-dialog-title")
 
+(defn- captured-steps
+  "The steps the snapshotted recording captured, counted as the REC chip
+  and the save dialog count them (`rf.story.recorder/captured-count`)."
+  [{:keys [entries events]}]
+  (if (seq entries)
+    (rf.story.recorder/captured-count entries)
+    (count events)))
+
 (defn export-dialog
   "Render the export dialog. Returns nil when `:open?` is false on
   `@ui-dialog` so the caller can mount it unconditionally next to the
@@ -335,8 +351,8 @@
             "Recorder → :script export"
             (replay-pill replay-status replay-failure-msg)]
            [:div {:style (:hint styles)}
-            (str "Generated from " (count (:events state))
-                 " captured event" (when (not= 1 (count (:events state))) "s")
+            (str "Generated from " (captured-steps state)
+                 " captured step" (when (not= 1 (captured-steps state)) "s")
                  " against " (pr-str source-id)
                  ". Tweak the options, then copy + paste into your stories ns.")]
 

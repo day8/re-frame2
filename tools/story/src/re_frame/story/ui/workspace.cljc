@@ -70,10 +70,8 @@
             [re-frame.story.budgets :as rf.story.budgets]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.core :as rf]
-                       [re-frame.story.args :as rf.story.args]
                        [re-frame.story.config :as rf.story.config]
                        [re-frame.story.decorators :as rf.story.decorators]
-                       [re-frame.story.plan    :as rf.story.plan]
                        [re-frame.story.render  :as rf.story.render]
                        [re-frame.story.runtime :as rf.story.runtime]
                        ;; The merged `rf/frame-provider {:frame …}` shape
@@ -354,10 +352,9 @@
            ;; the effective args, the view-state overrides. The raw variant
            ;; body would miss an `:extends`-inherited `:component`, and a
            ;; cell applying no `:sub-overrides` would paint a pinned design
-           ;; state from the real app-db.
-           plan           (rf.story.plan/variant-plan
-                            variant-id
-                            {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
+           ;; state from the real app-db. A plan that does not compile
+           ;; renders its error card in this cell alone.
+           [plan plan-error] (rf.story.ui.multi-substrate/render-plan variant-id run-opts)
            view-id        (get-in plan [:world :component])
            decorator-pack (rf.story.decorators/resolve-decorator-refs
                             (get-in plan [:world :decorators] []))
@@ -378,6 +375,9 @@
                            :font-weight "normal"}}
             (str "→ " (pr-str view-id))])]
         (cond
+          plan-error
+          (rf.story.ui.multi-substrate/plan-error-card plan-error)
+
           (nil? view-id)
           [:div {:style {:color (:text-secondary rf.story.theme.colors/tokens) :font-style "italic"
                          :padding "8px 0"}}

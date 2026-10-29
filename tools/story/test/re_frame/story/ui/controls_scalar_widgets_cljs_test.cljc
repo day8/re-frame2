@@ -251,3 +251,18 @@
              handler (-> tree second :on-change)]
          (handler (input-event "loading"))
          (is (= "loading" (written [:title])))))))
+
+;; ---- a keyword arg with no schema stays a keyword --------------------------
+
+#?(:cljs
+   (deftest schemaless-keyword-arg-keeps-its-type-on-edit
+     (testing "the value-shape fallback (no props schema, as for every Fresco
+               story) coerces a keyword arg like the schema path does, so a
+               keystroke writes a keyword, not the string \":larges\""
+       (rf.story/reg-variant :story.x/v {:args {:size :large}})
+       (let [spec    (get (rf.story.ui.controls/resolve-argtypes :story.x/v {:size :large}) :size)
+             tree    (rf.story.ui.controls/scalar-widget :story.x/v [:size] :large spec)
+             handler (-> tree second :on-change)]
+         (is (= {:widget :text :coerce :keyword} spec))
+         (handler (input-event ":larger"))
+         (is (= :larger (written [:size])))))))

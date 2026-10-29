@@ -53,12 +53,11 @@
   CLJS-only for the same reason."
   (:require [clojure.string :as str]
             [reagent.core :as r]
-            [re-frame.story.assertions :as rf.story.assertions]
-            [re-frame.story.author-expectations :as rf.story.author-expectations]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
-            [re-frame.story.theme.colors :as rf.story.theme.colors]))
+            [re-frame.story.theme.colors :as rf.story.theme.colors]
+            [re-frame.story.theme.status :as rf.story.theme.status]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -150,6 +149,11 @@
                 (string? reason) reason
                 (some? reason)   (pr-str reason)
                 :else            "skipped")
+        ;; A refusal names why the runner could not attempt the assertion.
+        :cannot-run (cond
+                      (string? reason) reason
+                      (some? reason)   (pr-str reason)
+                      :else            "cannot run")
         :pass ""
         ""))))
 
@@ -278,21 +282,24 @@
 ;; spec/018 §12.6 — "fail" and "error" MUST remain distinguishable — by
 ;; icon and summary text without inventing a theme token.
 (def ^:private status->row-style
-  {:pass  (:row-pass styles)
-   :fail  (:row-fail styles)
-   :error (:row-fail styles)
-   :skip  (:row-skip styles)})
+  {:pass       (:row-pass styles)
+   :fail       (:row-fail styles)
+   :error      (:row-fail styles)
+   :skip       (:row-skip styles)
+   :cannot-run {:border-left-color (rf.story.theme.status/fg :cannot-run)}})
 
 (def ^:private status->glyph-style
-  {:pass  (:glyph-pass styles)
-   :fail  (:glyph-fail styles)
-   :error (:glyph-fail styles)
-   :skip  (:glyph-skip styles)})
+  {:pass       (:glyph-pass styles)
+   :fail       (:glyph-fail styles)
+   :error      (:glyph-fail styles)
+   :skip       (:glyph-skip styles)
+   :cannot-run {:color (rf.story.theme.status/fg :cannot-run)}})
 
 (def status-glyph
   "Status-glyph map for the strip. The three assertion verdicts come from
   the shared vocabulary (`predicates/assertion-glyph`); `:error` is the
-  strip's own extension over it.
+  strip's own extension over it, and `:cannot-run` takes the tool-wide
+  status glyph (`rf.story.theme.status`, spec/017 §`:cannot-run`).
 
   `assertion-glyph` is deliberately three-valued — it is the ASSERTION
   vocabulary, shared with the test-mode result table and the scrubber,
@@ -303,7 +310,9 @@
   the red band.
 
   Public so tests can pin the shape."
-  (assoc rf.story.predicates/assertion-glyph :error "✖"))
+  (assoc rf.story.predicates/assertion-glyph
+         :error      "✖"
+         :cannot-run (rf.story.theme.status/glyph :cannot-run)))
 
 ;; ---- rendering ------------------------------------------------------------
 
@@ -493,7 +502,7 @@
               _seed   (when (nil? @expanded)
                         (reset! expanded
                                 (into #{}
-                                      (comp (filter #(contains? #{:fail :error} (:status %)))
+                                      (comp (filter #(contains? #{:fail :error :cannot-run} (:status %)))
                                             (map :row-key))
                                       rows)))
               ;; Re-projection: group the original records (carrying
@@ -543,92 +552,3 @@
                       ;; on the element Reagent hands to React.
                       ^{:key (str gi "/" ri "/" rkey)}
                       [render-row row open? toggle])))]))])))))
-
-;; ---- authored-expectation strip -----------------------------------------
-;;
-;; The component above renders RUN-RESULT assertion records (each carries a
-;; `:passed?` verdict). This strip renders AUTHORED expectations — canonical
-;; `[:rf.assert/* …]` atoms that have NOT YET run (the explicit `:assertions`
-;; variant DATA the authoring flow emits). It is the read-only display of a
-;; variant's declared expectations: the atom + its runner cost / `:cannot-run`
-;; honesty flag (read from the requirement registry via
-;; `rf.story.author-expectations/expectation-cost`), so a reader sees what a story expects AND what
-;; runner each expectation needs, without having to run it. Distinct from the
-;; run-result strip — no verdict glyph, a runner-cost stripe instead.
-
-(def ^:private authored-styles
-  {:wrap   {:margin-top "8px"
-            :display "flex"
-            :flex-direction "column"
-            :gap "4px"}
-   :row    {:display "flex"
-            :align-items "baseline"
-            :gap "8px"
-            :padding "4px 8px"
-            :border-left "3px solid transparent"
-            :background (:bg-2 rf.story.theme.colors/tokens)
-            :border-radius "0 3px 3px 0"
-            :font-family mono-stack
-            :font-size (:caption rf.story.theme.typography/type-scale)}
-   :row-ok     {:border-left-color (:info rf.story.theme.colors/tokens)}
-   :row-cannot {:border-left-color (:warning rf.story.theme.colors/tokens)}
-   :id     {:flex "0 0 auto"
-            :color (:text-primary rf.story.theme.colors/tokens)
-            :font-weight "bold"}
-   :args   {:flex "1 1 auto"
-            :color (:text-secondary rf.story.theme.colors/tokens)
-            :white-space "nowrap" :overflow "hidden" :text-overflow "ellipsis"
-            :min-width "0"}
-   :cost   {:flex "0 0 auto"
-            :font-size (:micro rf.story.theme.typography/type-scale)
-            :color (:text-tertiary rf.story.theme.colors/tokens)}
-   :cost-cannot {:color (:warning rf.story.theme.colors/tokens)}})
-
-(defn authored-row
-  "Render one AUTHORED expectation atom (un-run) with its runner cost. Pure
-  shape: takes the canonical `[:rf.assert/* …]` atom, returns hiccup. The
-  cost (`rf.story.author-expectations/expectation-cost`) reads the requirement registry —
-  the cheapest runner that proves it + whether it `:cannot-run` headless —
-  so the declared expectation reads with its honesty floor attached."
-  [atom]
-  (let [id    (rf.story.assertions/assertion-atom-id atom)
-        args  (vec (rest atom))
-        {:keys [cheapest-runner cannot-run?]} (rf.story.author-expectations/expectation-cost atom)]
-    [:div {:data-test "story-authored-expectation-row"
-           :data-id   (str id)
-           :data-cannot-run (str (boolean cannot-run?))
-           :style     (merge (:row authored-styles)
-                             (if cannot-run?
-                               (:row-cannot authored-styles)
-                               (:row-ok authored-styles)))}
-     [:span {:style (:id authored-styles)
-             :data-test "story-authored-expectation-id"}
-      (str id)]
-     (when (seq args)
-       [:span {:style (:args authored-styles)
-               :title (str/join " " (map pr-str args))}
-        (truncate (str/join " " (map pr-str args)))])
-     [:span {:style     (merge (:cost authored-styles)
-                              (when cannot-run? (:cost-cannot authored-styles)))
-             :data-test "story-authored-expectation-cost"
-             :data-runner (str cheapest-runner)}
-      (if cannot-run?
-        (str "⚠ " (when cheapest-runner (name cheapest-runner)) " · cannot run headless")
-        (str "runner: " (if cheapest-runner (name cheapest-runner) "none")))]]))
-
-(defn authored-expectation-strip
-  "Reagent component rendering a variant's AUTHORED (declared, un-run)
-  expectations — the canonical assertion atoms on its `:assertions` slot.
-  `atoms` is the vector of `[:rf.assert/* …]` atoms. Renders nothing when
-  empty; otherwise one `authored-row` per atom, each carrying its runner
-  cost / `:cannot-run` honesty flag. Read-only — this is the display
-  companion to the authoring flow, NOT the run-result strip above."
-  [atoms]
-  (when (seq atoms)
-    [:div {:style     (:wrap authored-styles)
-           :data-test "story-authored-expectation-strip"
-           :data-count (str (count atoms))}
-     (doall
-       (for [[i atom] (map-indexed vector atoms)]
-         ^{:key (str "authored-" i)}
-         [authored-row atom]))]))

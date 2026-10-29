@@ -37,6 +37,7 @@
   as the Re-run button (spec/009)."
   (:require [reagent.core                                  :as r]
             [re-frame.story.predicates                     :as rf.story.predicates]
+            [re-frame.story.theme.status                   :as rf.story.theme.status]
             [re-frame.story.ui.test-mode.stepper-pure      :as rf.story.ui.test-mode.stepper-pure]
             [re-frame.story.ui.test-mode.stepper-state     :as rf.story.ui.test-mode.stepper-state]
             [re-frame.story.ui.test-mode.stepper-styles    :refer [styles]]))
@@ -51,8 +52,11 @@
     :current "▶"
     :pending "○"
     ;; Done rows show the shared assertion-outcome glyph
-    ;; (`predicates/assertion-glyph`); :event + unknown fall to the bullet.
-    :done    (get rf.story.predicates/assertion-glyph outcome "•")
+    ;; (`predicates/assertion-glyph`), a refusal the tool-wide `:cannot-run`
+    ;; glyph; :event + unknown fall to the bullet.
+    :done    (if (= :cannot-run outcome)
+               (rf.story.theme.status/glyph :cannot-run)
+               (get rf.story.predicates/assertion-glyph outcome "•"))
     "·"))
 
 (defn- outcome-style [{:keys [outcome]}]
@@ -60,6 +64,7 @@
     :pass  (:outcome-pass styles)
     :fail  (:outcome-fail styles)
     :skip  (:outcome-skip styles)
+    :cannot-run {:color (rf.story.theme.status/fg :cannot-run)}
     :event (:outcome-event styles)
     nil))
 

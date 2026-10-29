@@ -158,7 +158,7 @@
         result (:result slot)]
     (when result
       (let [summary (rf.story.ui.state/aggregate-summary (:assertions result))
-            {:keys [passed failed cannot-run total]} summary
+            {:keys [passed failed cannot-run]} summary
             cannot-run (or cannot-run 0)
             ;; the unified run-level verdict (spec/021 §1), via the pure
             ;; projection. A tape-floor `:fail` / `:cannot-run`
@@ -171,12 +171,7 @@
                          :cannot-run (:pill-cannot styles)
                          :pending    (:pill-pending styles)
                          (:pill-fail styles))
-            pill-text  (case status
-                         :pass       (str passed " passed")
-                         :error      "error"
-                         :cannot-run (str cannot-run " cannot-run of " total)
-                         :pending    "no assertions recorded"
-                         (str failed " failed of " total))]
+            pill-text  (rf.story.ui.test-mode.pure/summary-pill-text status summary true)]
         [:div {:style     (:section styles)
                :data-test "story-test-summary-section"}
          [:div {:style (:section-h styles)} "Summary"]
@@ -727,6 +722,10 @@
          ;; script-checkpoint, with the failed-only filter), schema
          ;; violations (consumed + unconsumed), and cannot-run refusals.
          [checks-section variant-id]
+         ;; Keyed on the variant, so a variant switch unmounts the old
+         ;; stepper (ending its run) instead of reusing one whose teardown
+         ;; closes over the first variant.
+         ^{:key (str variant-id)}
          [rf.story.ui.test-mode.stepper-view/stepper-section variant-id]
          [scrubber-section variant-id]
          [rows-section variant-id]

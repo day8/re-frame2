@@ -34,7 +34,6 @@
   {:query            ""
    :results          []
    :active           0
-   :input-ref        noop
    :on-close         noop
    :on-input-change  noop
    :on-input-keydown noop
@@ -70,3 +69,11 @@
              (mapv (comp (juxt :data-id :data-kind :aria-selected) second)
                    (result-rows tree))))
       (is (nil? (rf.test-helpers/find-by-attr tree :data-test "story-command-palette-empty"))))))
+
+(deftest the-input-focuses-itself-when-the-palette-opens
+  (testing "the input mounts with the open palette and carries :auto-focus, so
+            arrow keys and Enter reach it at once and typing never falls
+            through to the chrome hotkeys"
+    (let [input (rf.test-helpers/find-by-attr (rf.story.ui.command-palette.view/render-palette (base-props))
+                                              :data-test "story-command-palette-input")]
+      (is (true? (:auto-focus (second input)))))))

@@ -66,6 +66,7 @@
             [re-frame.story.review-dialog :as rf.story.review-dialog]
             #?@(:cljs [[reagent.core :as r]
                        [re-frame.story.config        :as rf.story.config]
+                       [re-frame.story.schemas       :as rf.story.schemas]
                        [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack sans-stack]]
                        [re-frame.story.theme.colors :as rf.story.theme.colors]])))
 
@@ -400,7 +401,23 @@
      a component-local ratom) so the next `open!`/`close!` clears it as part
      of the lifecycle."
      [promoted-id]
-     (swap! dialog-atom assoc :promoted-id promoted-id)
+     (swap! dialog-atom assoc :promoted-id promoted-id :promote-error nil)
+     nil))
+
+#?(:cljs (declare promote!))
+
+#?(:cljs
+   (defn- promote-clicked!
+     "The promote button's handler. A registration the substrate refuses —
+     an id outside `:story.*/…`, a body shape or tag error — throws, and the
+     dialog shows its message rather than leaving the author with a
+     console error alone."
+     [artifact-id draft]
+     (try
+       (when-let [pid (promote! artifact-id draft)]
+         (mark-promoted! pid))
+       (catch :default e
+         (swap! dialog-atom assoc :promote-error (or (ex-message e) (str e)))))
      nil))
 
 #?(:cljs
@@ -639,12 +656,15 @@
      (fn []
        (let [dialog @dialog-atom]
          (when (:open? dialog)
-           (let [{:keys [artifact-id draft promoted-id]} dialog
+           (let [{:keys [artifact-id draft promoted-id promote-error]} dialog
                  entry      (get @captured-atom artifact-id)
                  artifact   (:artifact entry)]
              (when artifact
                (let [snippet  (promotion-snippet artifact draft)
-                     has-id?  (some? (:variant-id draft))
+                     ;; The id grammar the registrar enforces, so an
+                     ;; unparsed or non-`:story.*` id never enables a
+                     ;; promote that can only throw.
+                     has-id?  (rf.story.schemas/variant-id? (:variant-id draft))
                      rv-state {:open?     true
                                :draft-id  (:variant-id draft)
                                :source-id (:extends draft)}]
@@ -659,7 +679,12 @@
                                         "original artifact stays as evidence.")]
                              (curation-controls artifact draft)
                              (when-let [pid promoted-id]
-                               (promote-confirmation pid))]
+                               (promote-confirmation pid))
+                             (when promote-error
+                               [:div {:role      "alert"
+                                      :data-test "story-promotion-error"
+                                      :style     {:color (:danger rf.story.theme.colors/tokens)}}
+                                (str "Promote failed: " promote-error)])]
                     :snippet           snippet
                     :placeholder-id    :story.regression/example
                     :placeholder-input ":story.your-story/regression-042"
@@ -674,9 +699,7 @@
                                         :disabled? (not has-id?)
                                         :title     (if has-id?
                                                      "Register this curated regression variant"
-                                                     "Name the variant first (edit the id above)")
-                                        :on-click  (fn []
-                                                     (when-let [pid (promote! artifact-id draft)]
-                                                       (mark-promoted! pid)))}
+                                                     "Name the variant first: a :story.<path>/<name> id (edit the id above)")
+                                        :on-click  (fn [] (promote-clicked! artifact-id draft))}
                     :on-close          close!
                     :data-test-prefix  "story-promotion"})))))))))

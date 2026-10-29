@@ -159,3 +159,37 @@
                        "a run of a variant the pane does not show leaves the pane alone")
                    (done)))
           (.catch (fail! done))))))
+
+(deftest a-headless-run-replaces-the-verdict-a-slot-holds
+  (testing "Run all and watch mode run the headless `run-variant`; it announces
+            its run, so a variant that already has a slot stores the new
+            verdict even after the pane moved on, and Docs and the Evidence
+            spine, which read the slot, never keep a stale one"
+    (async done
+      (let [vid   :story.o9jja/watched
+            other :story.o9jja/elsewhere]
+        (reg-dom-variant! vid)
+        (reg-dom-variant! other)
+        (rf.story.ui.test-mode.state/show-variant! vid)
+        (-> (canvas-run! vid)
+            (.then (fn [_]
+                     (rf.story.ui.test-mode.state/show-variant! other)
+                     (rf.story.runtime/run-variant vid)))
+            (.then (fn [result]
+                     (is (= result (get-in @rf.story.ui.test-mode.state/results-atom [vid :result]))
+                         "the headless run's verdict replaced the slot's")
+                     (done)))
+            (.catch (fail! done)))))))
+
+(deftest a-retired-generation-clears-the-running-mark
+  (testing "the step-debugger's Start retires the current run; the retirement
+            is announced, so a slot the superseded run marked running comes
+            back to Re-run instead of sticking at Running…"
+    (let [vid :story.o9jja/retired]
+      (reg-dom-variant! vid)
+      (rf.story.ui.test-mode.state/show-variant! vid)
+      (rf.story.runtime/prepare-run! vid {:run-key {:variant-id vid}})
+      (is (true? (get-in @rf.story.ui.test-mode.state/results-atom [vid :running?]))
+          "precondition: the prepared run marked the slot running")
+      (rf.story.runtime/prepare-variant vid)
+      (is (false? (get-in @rf.story.ui.test-mode.state/results-atom [vid :running?]))))))

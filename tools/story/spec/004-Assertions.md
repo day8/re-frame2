@@ -222,14 +222,18 @@ the compact version of the same shape. The strip lifts five patterns
 from Storybook's addon-tests interactions panel:
 
 1. **Structured row** — status glyph (`✓` pass / `✗` fail / `⊘` skip /
-   `✖` error) + assertion label + a one-line summary, not a raw
-   `pr-str` of the record map. The first three are the shared assertion
-   vocabulary (`re-frame.story.predicates/assertion-glyph`, deliberately
+   `✖` error / the tool-wide `:cannot-run` glyph) + assertion label + a
+   one-line summary, not a raw `pr-str` of the record map. The first
+   three are the shared assertion vocabulary
+   (`re-frame.story.predicates/assertion-glyph`, deliberately
    three-valued); `✖` is the strip's own `:error` extension, `assoc`'d on
-   locally rather than widened into it.
-2. **Auto-collapse pass · auto-expand fail** — failed **and errored** rows
-   seed open so the user lands on disclosed problems; passed / skipped
-   rows stay collapsed. A click toggles any row.
+   locally rather than widened into it; a `:cannot-run` refusal
+   ([017 §`:cannot-run`](017-Testing-Story.md)) takes its glyph and
+   colour from `re-frame.story.theme.status` and its summary is the
+   refusal's `:reason`, so it never reads as an unknown row.
+2. **Auto-collapse pass · auto-expand fail** — failed, errored **and
+   refused** rows seed open so the user lands on disclosed problems;
+   passed / skipped rows stay collapsed. A click toggles any row.
 3. **Token-coloured left border** — green / red / grey by status, so
    the eye sweeps the colour band before reading any text. An errored
    row **shares** the red band rather than claiming a colour of its own;

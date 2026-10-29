@@ -10,14 +10,13 @@
       (story/reg-story-panel <panel-id>
         {:doc          \"...\"
          :title        \"...\"             ;; sidebar / tab label
-         :placement    :right|:left|:bottom|:top|:modal
+         :placement    :right             ;; the shell's one panel host
          :render       <view-id>          ;; registered view that renders the panel
-         :enabled-when (optional)         ;; predicate fn from registry → boolean
          :for          #{<context-id>}})  ;; optional: contexts the panel belongs to
 
   The shell's panel-host component reads `(story/registrations :story-panel)`
   + the shell's `:panel-visibility` map and renders every visible
-  panel into its `:placement` slot. The `:render` view receives the
+  panel into the right-hand pane. The `:render` view receives the
   current variant-id as its single arg.
 
   Canonical boot registers these v1.0 panels:

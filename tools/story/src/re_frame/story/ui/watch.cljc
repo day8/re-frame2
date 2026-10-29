@@ -50,7 +50,8 @@
 
   When the key matches the previous tick's key we return the cached map —
   zero hashing work. When it drifts we recompute the lot once and re-seed."
-  (:require [re-frame.story.fingerprint :as rf.story.fingerprint]
+  (:require [re-frame.story.config      :as rf.story.config]
+            [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.identity    :as rf.story.identity]
             [re-frame.story.registrar   :as rf.story.registrar]
             [re-frame.story.ui.state    :as rf.story.ui.state]))
@@ -163,7 +164,10 @@
         testable   (rf.story.ui.state/testable-variant-ids
                      (:variants (rf.story.ui.state/registry-snapshot)))
         schema-sig (testable-schema-signal testable)
-        key        [tick modes subs overrides schema-sig]
+        ;; Global args fold into every variant's identity hash, and a
+        ;; `configure!` of them moves no registrar tick.
+        key        [tick modes subs overrides schema-sig
+                    (rf.story.config/get-global-args)]
         cached     @testable-hash-cache]
     (if (= key (:key cached))
       (:hashes cached)

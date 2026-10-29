@@ -78,6 +78,7 @@
             [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]
             [re-frame.story.ui.mode-tabs :as rf.story.ui.mode-tabs]
             [re-frame.story.ui.multi-substrate :as rf.story.ui.multi-substrate]
+            [re-frame.story.ui.chrome-a11y :as rf.story.ui.chrome-a11y]
             [re-frame.story.ui.panels :as rf.story.ui.panels]
             [re-frame.story.ui.play-status :as rf.story.ui.play-status]
             [re-frame.story.ui.promotion :as rf.story.ui.promotion]
@@ -666,9 +667,6 @@
      ;; intent rides the `:xray-panel` slot (or legacy
      ;; `:xray :panel`); user clicks override for the session.
      ;;
-     ;; Feature-detect-safe: `xray-embed-panel` renders a graceful
-     ;; empty state when Xray is not on the classpath.
-     ;;
      ;; The whole band is OMITTED from a published
      ;; static export. `static-mode?` is a `release` build, where Xray
      ;; cannot render at all: nothing registers its instruction set
@@ -1141,8 +1139,12 @@
              show-tb?   (rf.story.ui.state/chrome-pane-visible? :toolbar shell)
              show-sb?   (rf.story.ui.state/chrome-pane-visible? :sidebar shell)
              show-rhs?  (rf.story.ui.state/chrome-pane-visible? :rhs shell)]
+         ;; `data-rf-force-colors` renders from the opt-in atom, so a
+         ;; shell mounted after the opt-in was bootstrapped paints with it.
          [:div {:style (:root styles)
                 :data-rf-story-root true
+                :data-rf-force-colors (when (rf.story.ui.chrome-a11y/force-colors-opt-in?)
+                                        rf.story.ui.chrome-a11y/force-colors-active-value)
                 :data-rf-chrome-fullscreen (str (get-in shell [:chrome-visibility :full-screen?] false))
                 :data-rf-chrome-embed      (str (get-in shell [:chrome-visibility :embed?] false))}
           ;; The grain overlay is its own layer, not a `::before`

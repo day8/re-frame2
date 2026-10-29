@@ -37,7 +37,8 @@
    :network      {:routes {[:get "/api/cart"] {:body {:items []}}}}
    :sub-overrides {:overrides  {[:cart/total] 42}
                    :validation {:status :ok :violations []}}
-   :fidelity     #{:real-setup :sub-overrides}
+   :db-seed      {:seed {:cart {:items []}}}
+   :fidelity     #{:real-setup :db-seed :sub-overrides}
    :setup-order  [[:dispatch [:cp/init]]]
    :script-order [[:dispatch [:cp/inc]]]
    :checks       [:check/a11y]
@@ -58,7 +59,7 @@
     (is (= ["source-chain" "parent-chain" "compose"
             "merge" "strict-conflicts"
             "args" "substitutions" "effective-args" "view-args-validation"
-            "network" "sub-overrides" "fidelity"
+            "network" "sub-overrides" "db-seed" "fidelity"
             "setup-order" "script-order" "checks" "assertions" "required-runner"
             "platforms" "tags" "source"]
            (mapv :id (rf.story.ui.explain-panel/explain-sections full-explain))))))

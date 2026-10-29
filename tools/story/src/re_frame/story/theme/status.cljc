@@ -2,19 +2,17 @@
   "Story's shared **status colour vocabulary** (spec/018 §12.6 + §11).
 
   This is the single source of truth for the nine tool-wide status
-  values every Story region inherits — the sidebar signal chips, the
-  test-mode result rows, the evidence-spine beats, the play-status
-  banner, and the Story↔Xray seam all key off these tokens so a
-  `:pass` reads identically whether it is a sidebar dot, a result pill,
-  or an evidence beat.
+  values. The sidebar dots and signal chips, the test-mode visual / a11y
+  result view, and the `:cannot-run` treatment of the assertion strip,
+  the play chip and the step-debugger draw their colour, glyph and label
+  from it.
 
   ## Why a shared status layer
 
-  This namespace is the one construction every region keys off, so a
-  `:fail` reads as the same red in the sidebar, the test-mode result
-  row, and the play-status banner — the vocabulary is *constructed*
-  tool-wide rather than each region agreeing its own status→colour map
-  by convention (which drifts). Spec/018 §12.6 makes the vocabulary
+  A region that keys off this namespace reads a status the way every
+  other such region does — the vocabulary is *constructed* tool-wide
+  rather than each region agreeing its own status→colour map by
+  convention, which drifts. Spec/018 §12.6 makes the vocabulary
   normative and tool-wide.
 
   ## The contract (spec/018 §12.6)
@@ -73,7 +71,7 @@
       ;; full descriptor (colour + glyph + shape + label + emphasis):
       (status/descriptor :fail)
       ;; => {:fg \"#F47171\" :bg \"#3F1818\" :border \"#F47171\"
-      ;;     :glyph \"✗\" :shape :outline :label \"Fail\" :emphasis :high}
+      ;;     :glyph \"✗\" :shape :solid :label \"Fail\" :emphasis :high}
 
       ;; a chip / pill style map (drop into an inline :style):
       (status/chip-style :cannot-run)

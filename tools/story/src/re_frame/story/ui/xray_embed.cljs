@@ -40,9 +40,9 @@
   the panel view in `[rf/frame-provider {:frame :rf/xray} …]` per
   the Xray embedding contract — the panel's Xray-state
   subscribes resolve to `:rf/xray` regardless of the host's
-  React-context. Story authors who want a panel observing a
-  specific app frame pass `{:frame :my-app/cart}` per the contract;
-  the wrapper still resolves Xray's own UI state on `:rf/xray`.
+  React-context. Story mounts each panel with no options; the panel
+  observes the variant frame Story targets through
+  `day8.re-frame2-xray.core/set-target-frame!` on every selection.
 
   ## CLJS-only
 

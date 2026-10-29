@@ -62,3 +62,11 @@
 (deftest classify-does-not-redact-sensitive-values
   (is (= {:status :full :label "fully reproducible" :reasons []}
          (rf.story.egress/classify {:cell-overrides {:auth/token "BEARER-secret-12345"}}))))
+
+(deftest classify-fn-arg-the-artifact-emits-is-view-only
+  (testing "an arg the artifact emits as EDN is classified on its own: a
+            callback arg the variant declares makes a Copy EDN snippet
+            view-only even with no override set"
+    (let [r (rf.story.egress/classify {:args {:on-click (fn [_] nil) :label "ok"}})]
+      (is (= [:view-only [:arg-fn]] [(:status r) (mapv :code (:reasons r))])))
+    (is (= :full (:status (rf.story.egress/classify {:args {:label "ok" :n 1}}))))))

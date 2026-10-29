@@ -1510,9 +1510,20 @@
   (let [[ctx' play-promise] (run-phase-4! ctx)]
     (finalise-run! resolve play-promise ctx' start-ms)))
 
+(declare claim-run! announce-run! current-generation superseded-result)
+
 (defn run-variant
   "Allocate a frame for `variant-id`, run its setup, loaders, events, and
   play scripts, and return the unified result asynchronously.
+
+  The run goes through the one run owner like every other run of the
+  variant (`003-Render-Shell.md` §One run owner): it claims a fresh
+  generation, already resumed, before it touches the frame, so a canvas
+  run in flight on the same frame settles as superseded; and it announces
+  the generation and its settlement to `listen-runs!`, so Docs, the
+  Evidence spine and the canvas follow a Run all or a watch re-run. A run
+  that a newer generation superseded settles as `superseded-result`
+  rather than reading its successor's frame.
 
   `opts`:
     :active-modes    coll of registered mode ids; deep-merged into args
@@ -1539,12 +1550,20 @@
          (rf.story.async/resolved (unknown-variant-result variant-id))
          (let [start-ms (rf.interop/now-ms)]
            (rf.story.async/promise
-             (fn [resolve]
-               (try
-                 (let [ctx (prepare-ctx! variant-id variant-body opts)]
-                   (resume-ctx! resolve ctx start-ms))
-                 (catch #?(:clj Throwable :cljs :default) e
-                   (handle-run-error! resolve variant-id e start-ms)))))))))))
+             (fn [settle]
+               (let [{:keys [generation] :as run} (claim-run! variant-id opts)
+                     resolve (fn [result]
+                               (let [result (if (= generation (current-generation variant-id))
+                                              result
+                                              (superseded-result variant-id generation))]
+                                 (announce-run! variant-id (assoc run :result result))
+                                 (settle result)))]
+                 (announce-run! variant-id run)
+                 (try
+                   (let [ctx (prepare-ctx! variant-id variant-body opts)]
+                     (resume-ctx! resolve ctx start-ms))
+                   (catch #?(:clj Throwable :cljs :default) e
+                     (handle-run-error! resolve variant-id e start-ms))))))))))))
 
 ;; ---- the one run owner ---------------------------------------------------
 ;;
@@ -1600,24 +1619,25 @@
   ([] (reset! run-owner {}))
   ([variant-id] (swap! run-owner dissoc variant-id) nil))
 
-(defn- retire-run-attempt!
-  "End `variant-id`'s current one-run-owner attempt but keep the run's
-  inputs. A fresh generation is claimed already resumed, so a generation
-  prepared but not yet resumed can never be resumed, and a resume still in
-  flight settles as superseded. `:run-key` and `:opts` stay, so `rerun!`
-  runs the variant again with the opts the owner was last prepared with. A
-  variant the owner never prepared is left alone."
-  [variant-id]
-  (swap! run-owner
-         (fn [m]
-           (if-let [{:keys [generation run-key opts]} (get m variant-id)]
-             (let [gen (inc generation)]
-               (assoc m variant-id {:run-key     run-key
-                                    :opts        opts
-                                    :generation  gen
-                                    :resumed-gen gen}))
-             m)))
-  nil)
+(defn- claim-run!
+  "Claim a fresh generation for `variant-id` that nothing resumes: it is
+  claimed already resumed, so a generation prepared but not yet resumed
+  can never be resumed, and a resume still in flight settles as
+  superseded. The owner's `:run-key` and `:opts` stay — they are the
+  canvas's run inputs, which `rerun!` and the canvas's prepare dedupe read
+  — and `opts` is recorded only for a variant the owner never prepared.
+  Returns the run, `{:run-key K :generation G}`."
+  [variant-id opts]
+  (-> (swap! run-owner
+             (fn [m]
+               (let [cur (get m variant-id)
+                     gen (inc (get cur :generation 0))]
+                 (assoc m variant-id {:run-key     (:run-key cur)
+                                      :opts        (if cur (:opts cur) opts)
+                                      :generation  gen
+                                      :resumed-gen gen}))))
+      (get variant-id)
+      (select-keys [:run-key :generation])))
 
 (defonce ^:private run-listeners
   ;; key -> (fn [variant-id run]); see `listen-runs!`.
@@ -1626,11 +1646,15 @@
 (defn listen-runs!
   "Follow the one run owner's runs, however each was started — the canvas,
   the shell's selection edge, or `rerun!` (a Re-run, a play row, Run all,
-  the recorder export's replay, the CI `runPlay` hook). `f` is called
-  `(f variant-id run)` when a fresh generation is prepared, with `run`
-  `{:run-key K :generation G}`, and again when a resume of that generation
-  settles, with the unified `:result` added. A superseded resume is
-  announced too, so compare `:generation` with `current-generation`.
+  the recorder export's replay, the CI `runPlay` hook) or the headless
+  `run-variant` (Run all, watch mode, MCP). `f` is called
+  `(f variant-id run)` when a fresh generation is claimed, with `run`
+  `{:run-key K :generation G}`, and again when that generation's run
+  settles, with the unified `:result` added. A superseded run is announced
+  too, so compare `:generation` with `current-generation`. A generation
+  claimed only to end the current run, so that nothing will run under it
+  (the step-debugger's Start), is announced with `:retired? true` and never
+  settles.
 
   Only the caller that started a run holds its promise, so this is how a
   display follows a run somebody else started: the canvas's
@@ -1649,6 +1673,16 @@
   (doseq [f (vals @run-listeners)]
     (try (f variant-id run)
          (catch #?(:clj Throwable :cljs :default) _ nil))))
+
+(defn- retire-run-attempt!
+  "End `variant-id`'s current one-run-owner attempt but keep the run's
+  inputs (`claim-run!`), and announce the retiring generation so a display
+  marking the superseded run as running clears it. A variant the owner
+  never prepared is left alone."
+  [variant-id]
+  (when (contains? @run-owner variant-id)
+    (announce-run! variant-id (assoc (claim-run! variant-id nil) :retired? true)))
+  nil)
 
 (defn- superseded-result
   "The explicit settle-value for a resume that a newer prepare superseded

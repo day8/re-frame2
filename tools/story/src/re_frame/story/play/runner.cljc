@@ -515,7 +515,7 @@
              :results     []
              :failures    0)))
 
-(defn- cannot-run-step?
+(defn cannot-run-step?
   "True iff a step-result is a `:cannot-run` refusal — a capability /
   boundary refusal (`:cannot-run?`) or a no-DOM skip (`:skipped?`). These
   are the distinct THIRD status (spec/017 §`:cannot-run`): the step could

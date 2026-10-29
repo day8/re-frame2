@@ -36,12 +36,14 @@
   toggle) → `pushState` so the browser back-button restores the prior
   view.
 
-  Cell-override edits on the focused variant ARE pushed: no share
-  popover serialises overrides, so the live address bar is the surface
-  that shares them. `url-relevant-slots-changed?` compares the focused
-  variant's overrides slice, and `params-from-state` serialises it into
-  the `overrides=` param — a teammate pasting the URL lands on the same
-  override set. Overrides on non-focused variants stay off the URL.
+  Cell-override edits on the focused variant → `replaceState`. They
+  ride the URL — no share popover serialises overrides, so the live
+  address bar is the surface that shares them, and `params-from-state`
+  serialises the focused variant's slice into the `overrides=` param, so
+  a teammate pasting the URL lands on the same override set — but a
+  keystroke or a slider step is not a place to go Back to, and browsers
+  throttle bursts of `pushState`, which would let the address bar stop
+  tracking the edits. Overrides on non-focused variants stay off the URL.
 
   ## Idempotence
 
@@ -135,19 +137,11 @@
   (when-let [vid (:selected-variant shell)]
     (get-in shell [:cell-overrides vid])))
 
-(defn url-relevant-slots-changed?
-  "True iff any URL-encoded slot differs between two shell-state maps.
-  Pure data → data; the state-watcher uses this to skip pushState when
-  the watcher fires on a non-URL slot (e.g. `:hot-reload-tick`).
-
-  Compared slots: `:selected-variant`, `:selected-workspace`,
-  `:active-mode-tab`, `:active-modes`, `:viewport`, `:background`,
-  `:tag-filter`, `:substrate`, plus the focused variant's
-  cell-overrides slice. The overrides slice is variant-scoped (the URL
-  carries the focused variant's overrides, per `params-from-state`); a
-  controls edit on the focused variant must push so the live address
-  bar round-trips the override (no share popover serialises overrides,
-  so the live URL is the override-sharing surface)."
+(defn navigation-slots-changed?
+  "True iff a slot whose change is a navigation differs between two
+  shell-state maps — every URL-encoded slot except the focused variant's
+  cell-overrides. The state-watcher pushes a history entry for these and
+  replaces the current one for an overrides-only edit. Pure data → data."
   [old new]
   (or (not= (:selected-variant   old) (:selected-variant   new))
       (not= (:selected-workspace old) (:selected-workspace new))
@@ -156,8 +150,23 @@
       (not= (:viewport           old) (:viewport           new))
       (not= (:background         old) (:background         new))
       (not= (:tag-filter         old) (:tag-filter         new))
-      (not= (:substrate          old) (:substrate          new))
-      (not= (focused-overrides   old) (focused-overrides   new))))
+      (not= (:substrate          old) (:substrate          new))))
+
+(defn url-relevant-slots-changed?
+  "True iff any URL-encoded slot differs between two shell-state maps.
+  Pure data → data; the state-watcher uses this to skip the URL write
+  when the watcher fires on a non-URL slot (e.g. `:hot-reload-tick`).
+
+  Compared slots: the navigation slots (`navigation-slots-changed?`),
+  plus the focused variant's cell-overrides slice. The overrides slice is
+  variant-scoped (the URL carries the focused variant's overrides, per
+  `params-from-state`); a controls edit on the focused variant must reach
+  the URL so the live address bar round-trips the override (no share
+  popover serialises overrides, so the live URL is the override-sharing
+  surface)."
+  [old new]
+  (or (navigation-slots-changed? old new)
+      (not= (focused-overrides old) (focused-overrides new))))
 
 ;; ---- hydrator: URL params → shell-state apply ---------------------------
 
@@ -506,7 +515,7 @@
        `post-apply-fn`, a Back/Forward pop to a URL whose override arg-key
        has since been renamed/removed would install it as a live orphan
        override with no drop/report, unlike the mount path. Production wires this
-       to `rf.story.share/hydrate-from-url!` so both hydration paths run the
+       to `rf.story.ui.share/hydrate-from-url!` so both hydration paths run the
        identical filter; running it inside the guard (rather than as a
        bare after-the-fact call) keeps it consistent with every other
        hydration step in this ns — none of them provoke a reactive
@@ -548,8 +557,10 @@
      (def ^:private state-watcher-key ::url-state-watcher)
 
      (defn install-state-watcher!
-       "Watch `shell-state-atom`; on every URL-relevant change push the
-       canonical URL via `history.pushState`. No-op when the watcher
+       "Watch `shell-state-atom`; on every URL-relevant change write the
+       canonical URL — `history.pushState` for a navigation
+       (`navigation-slots-changed?`), `history.replaceState` for an edit
+       of the focused variant's overrides alone. No-op when the watcher
        fires on a non-URL slot or while a popstate hydration is in
        flight. Idempotent: re-installing replaces the previous watch
        (same watch-key)."
@@ -559,7 +570,9 @@
                     (when (and (not (hydrating?))
                                (url-relevant-slots-changed? old new))
                       (let [url (url-from-state new (current-location-shape))]
-                        (push! url))))))
+                        (if (navigation-slots-changed? old new)
+                          (push! url)
+                          (replace! url)))))))
 
      (defn remove-state-watcher! [shell-state-atom]
        (remove-watch shell-state-atom state-watcher-key))

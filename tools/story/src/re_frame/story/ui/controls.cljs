@@ -223,7 +223,9 @@
     (boolean? v) {:widget :boolean}
     (integer? v) {:widget :number}
     (number? v)  {:widget :number}
-    (keyword? v) {:widget :text}
+    ;; Coerced like the schema path's `:keyword`, so an edit keeps a
+    ;; keyword arg a keyword rather than turning `:large` into ":large".
+    (keyword? v) {:widget :text :coerce :keyword}
     :else        {:widget :text}))
 
 (defn normalize-argtype-spec

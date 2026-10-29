@@ -123,6 +123,12 @@
           (rf.story.ui.open-in-editor/open! "JavaScript:alert(1)")
           (rf.story.ui.open-in-editor/open! " data:text/html,xxx")
           (rf.story.ui.open-in-editor/open! "vbscript:msgbox(1)")
+          ;; a browser strips a tab or newline inside the scheme and a
+          ;; leading control character before it, so these are the same
+          ;; script schemes
+          (rf.story.ui.open-in-editor/open! "java\tscript:alert(1)")
+          (rf.story.ui.open-in-editor/open! "java\nscript:alert(1)")
+          (rf.story.ui.open-in-editor/open! "\u0001javascript:alert(1)")
           (is (= [] @calls)
               "no forbidden-scheme URI reaches the navigator")
           ;; an unknown, non-dangerous scheme passes through (no allowlist)

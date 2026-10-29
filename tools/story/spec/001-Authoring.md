@@ -998,7 +998,7 @@ Body:
 ```clojure
 {:doc          "..."
  :title        "Display name"
- :placement    :right | :left | :bottom | :top | :modal
+ :placement    :right                               ; the shell's one panel host
  :render       <view-id>                            ; registered :view that renders the panel
  :for          #{<context-id>}}                    ; optional — restrict to specific story-tool contexts
 ```

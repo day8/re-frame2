@@ -43,9 +43,18 @@
     :pass
 
     ;; zero assertions: the variant ran but produced no signal, so the
-    ;; sidebar dot reads 'not yet run' rather than green
+    ;; sidebar dot reads 'not yet run' rather than green. Both writers pass
+    ;; the run's own :status, which is :pass for such a run.
+    {:total 0 :passed 0 :failed 0 :skipped 0 :all-passed? false :status :pass}
+    :pending
+
+    ;; the same summary without a :status derives :pending from the counts
     {:total 0 :passed 0 :failed 0 :skipped 0 :all-passed? false}
-    :pending))
+    :pending
+
+    ;; a run-level :status still wins once something was judged
+    {:total 2 :passed 2 :failed 0 :skipped 0 :all-passed? true :status :fail}
+    :fail))
 
 ;; ---- pure: test-summary aggregation -------------------------------------
 
