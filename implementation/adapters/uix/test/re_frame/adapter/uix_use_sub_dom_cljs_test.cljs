@@ -489,7 +489,7 @@
                     "only the mounted reader's disposal callback is still armed on the shared reaction")
                 (finally
                   (try (.unmount churn) (catch :default _ nil))
-                  (try (.unmount held) (catch :default _ nil))))))))))))
+                  (try (.unmount held) (catch :default _ nil)))))))))))
 
 (deftest use-sub-reacquires-after-eviction
   (rf.adapter.react-shared-suite/assert-use-sub-reacquires-after-eviction cfg))
