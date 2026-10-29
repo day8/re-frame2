@@ -43,14 +43,6 @@ Everything the skill loads during normal operation ships under this directory �
 
 This skill does not depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool; an upstream finding names the specific missing or under-specified surface in the draft.
 
-## Typical output
-
-A good run of the skill produces, in one response:
-
-- the user's actual goal and the friction the session evidenced, each finding tied to a concrete moment
-- why `re-frame2-pair` was not enough, and the smallest credible change at the correct owner (pair tool vs upstream framework)
-- when asked — one focused, copy-pasteable GitHub issue draft the user can file, edit, combine, or discard
-
 ## Install
 
 `re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata, but neither names a live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest. The install path is to link the skill from a full monorepo clone — or, like every skill here, to install this directory alone under the portable Agent-Skill contract (`npx skills add`) the family ships under, described in [`skills/README.md` §Layout convention](https://github.com/day8/re-frame2/blob/main/skills/README.md#layout-convention). Prefer linking over copying in any case: a `cp -r` copy snapshots the skill and silently drifts from the maintained source as the repo moves.
