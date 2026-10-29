@@ -350,7 +350,7 @@
      ;; runtime has established that a child is generated do we extract
      ;; the allocator's established `<type>#<n>` counter. Actor-id spelling
      ;; therefore never decides fixed-vs-generated provenance, and the
-     ;; public/pure spawn effect shape remains unchanged.
+     ;; discriminator stays out of the public/pure spawn effect shape.
      :work-generation (rf.machines.work/spawn-work-generation
                         (contains? args :fixed-actor-id)
                         spawned-id
