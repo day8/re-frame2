@@ -147,7 +147,7 @@
 
 (defn build-arg-form
   "Render a build-id keyword in EXACTLY the string form the `:build` MCP
-  arg accepts back. The arg coercer (`fresh-keyword`) is
+  arg accepts back. The arg coercer (`fresh-keyword-checked`) is
   colon-tolerant, so the canonical round-trippable form is the keyword's
   own `pr-str` (`:examples/machine-epochs`) — copy-pasting it from an
   error into `:build` resolves to the same build. Used to keep the

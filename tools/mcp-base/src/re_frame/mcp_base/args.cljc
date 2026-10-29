@@ -162,8 +162,8 @@
 ;; Minting a keyword from an agent string lets the caller choose what the
 ;; JVM interns: each unique string costs an allocation and an insert into
 ;; the process-global keyword table, and the keyword lives as long as
-;; anything references it. On the pinned Clojure (1.12.4) the table holds
-;; keywords by reference and reclaims those nothing references any more,
+;; anything references it. The table holds keywords by weak reference and
+;; reclaims those nothing references any more,
 ;; so the cost is churn and retention bounded by what the server keeps,
 ;; not a permanent leak. A long-running MCP server sees the most such
 ;; input, and it arrives even without a hostile actor: a careless agent
@@ -179,11 +179,12 @@
 ;;                       keyword. The right primitive for finite option
 ;;                       sets and registry-backed lookups.
 ;;
-;;   - `fresh-keyword` — the policy-gated intern. INTERNS by design (the
-;;                       call site is allocating a new identifier, not
-;;                       resolving an existing one). Reserve it for an
-;;                       operator-gated write path; prefer
-;;                       `fresh-keyword-checked` when the id has a grammar.
+;;   - `fresh-keyword-checked` — the policy-gated intern. INTERNS by
+;;                       design (the call site is allocating a new
+;;                       identifier, not resolving an existing one), after
+;;                       checking the id's grammar and length on the
+;;                       string. Reserve it for an operator-gated write
+;;                       path.
 ;;
 ;; `parse-mode` routes through `safe-keyword` — every caller passes a
 ;; finite `recognised` set, so the bounded gate fits cleanly.
@@ -222,7 +223,7 @@
   unbounded stream of unique strings choose what the JVM interns: an
   allocation and an insert into the process-global keyword table per
   string, each keyword retained as long as anything references it. The
-  pinned Clojure (1.12.4) reclaims a keyword nothing references, so this
+  JVM reclaims a keyword nothing references, so this
   is churn and retention rather than a permanent leak, and long-lived MCP
   servers see the most of it. `safe-keyword` checks set
   membership BEFORE constructing the keyword, so a caller-supplied
@@ -266,42 +267,6 @@
 
     :else nil))
 
-(defn fresh-keyword
-  "Coerce an agent-supplied id into a keyword, INTERNING it. The
-  primitive for operator-gated write paths that deliberately allocate
-  a fresh identifier. Strips a leading
-  `:` if present (some agents may serialise EDN-ish). Returns nil for
-  nil / blank input.
-
-  Namespaced keywords are supported (`\"ns/name\"` ⇒ `:ns/name`).
-
-  ## When to call
-
-  Every `fresh-keyword` call on a hitherto-unseen input interns a new
-  keyword: an allocation and an insert into the JVM's process-global
-  keyword table, retained as long as anything references it (the pinned
-  Clojure 1.12.4 reclaims one nothing references, so this is churn and
-  retention, not a permanent leak). Reserve this primitive for sites where the
-  write policy accepts the allocation:
-
-    - **Operator-gated write paths** that allocate a NEW identifier —
-      story-mcp's `--allow-writes` flag plus `:story.<path>/<name>`
-      grammar bound; `register-variant`'s `:variant-id`.
-  Grammar validation alone does not bound the number of valid names.
-  For registry lookups, finite option sets, mode keywords, and slice
-  keywords, use `safe-keyword` against the live finite allowlist;
-  `fresh-keyword` would intern every rejected spelling before lookup."
-  [v]
-  (cond
-    (keyword? v) v
-    (nil? v)     nil
-    (string? v)
-    (when-let [[ns-part name-part] (normalise-keyword-string v)]
-      (if ns-part
-        (keyword ns-part name-part)
-        (keyword name-part)))
-    :else nil))
-
 (def ^:private default-fresh-keyword-max-len
   "Upper bound on the combined `ns` + `name` character count a
   `fresh-keyword-checked` id may carry before it is rejected WITHOUT
@@ -312,20 +277,24 @@
   512)
 
 (defn fresh-keyword-checked
-  "Like `fresh-keyword`, but validate the DECOMPOSED `[ns-part name-part]`
-  string shape against `shape-ok?` (and a length cap) BEFORE interning —
-  so an id that fails the caller's grammar leaves NO keyword in the JVM
-  table. Returns the interned keyword on success, or `nil`
-  when the input is nil / blank / over-long / fails `shape-ok?` (the
-  caller maps `nil` to its own structured error).
+  "Coerce an agent-supplied id into a keyword, INTERNING it, once the
+  DECOMPOSED `[ns-part name-part]` string shape passes `shape-ok?` and a
+  length cap — so an id that fails the caller's grammar leaves NO keyword
+  in the JVM table. A leading `:` is stripped, and `\"ns/name\"` reads
+  as `:ns/name`. Returns the interned keyword on success, or `nil` when
+  the input is nil / blank / over-long / fails `shape-ok?` (the caller
+  maps `nil` to its own structured error).
 
-  `fresh-keyword` interns first and lets a downstream registrar reject on
-  grammar — but the reject happens AFTER the intern, so a hostile or
-  malfunctioning client can make the server intern a keyword for every
-  failed write attempt even though each correctly returns an error. The
-  grammar check must run on the STRING shape, before the keyword is
-  constructed. `shape-ok?` receives `[ns-part name-part]` (either may be
-  `nil` for a bare name) and returns truthy iff the id is admissible.
+  The primitive for operator-gated write paths that deliberately allocate
+  a fresh identifier, such as story-mcp's `register-variant` behind
+  `--allow-writes`. A grammar bounds each id's shape, not how many valid
+  ids exist, so the operator gate stays the allocation policy; registry
+  lookups and finite option sets use `safe-keyword` instead. The grammar
+  check runs on the STRING, before the keyword is constructed: rejecting
+  after an intern would let a client make the server intern a keyword
+  for every failed write. `shape-ok?` receives `[ns-part name-part]`
+  (either may be `nil` for a bare name) and returns truthy iff the id is
+  admissible.
 
   For string inputs, `:max-len` (default 512) caps the combined
   `ns`+`name` length — a defence against a single enormous-id intern

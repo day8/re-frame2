@@ -9,9 +9,9 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 `args` owns:
 
-- The cross-MCP parser catalogue (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`).
+- The cross-MCP parser catalogue (`parse-boolean`, `parse-positive-int`, `fresh-keyword-checked`, `safe-keyword`, `parse-mode`).
 - The default-handling posture for each parser (call-sites supply the default; the parser is policy-free).
-- The keyword-interning safety rule: bounded lookups route through `safe-keyword`; only deliberate, operator-gated allocation paths use `fresh-keyword`.
+- The keyword-interning safety rule: bounded lookups route through `safe-keyword`; only deliberate, operator-gated allocation paths use `fresh-keyword-checked`.
 
 `args` does NOT own:
 
@@ -31,19 +31,18 @@ The rejection posture (default-suppress vs default-allow) is named at the call-s
 |---|---|---|---|
 | `parse-boolean` | bools, strings (`"true"`/`"false"`/`"1"`/`"0"`/`"yes"`/`"no"`/`"y"`/`"n"`/`"on"`/`"off"`, case-insensitive), keywords (`:true`/`:false`), nil | boolean | Unrecognised → `default`. Call-sites wrap to bake the default. |
 | `parse-positive-int` | finite in-range numbers, integer strings | positive int or `default` | Numbers floor toward zero, then clamp to 1. Invalid or out-of-domain inputs return `default`. |
-| `fresh-keyword` | keywords, strings (leading `:` optional), nil | keyword or `nil` | INTERNS by design — reserved for operator-gated paths that deliberately allocate a new id. It is not a registry lookup helper. |
-| `fresh-keyword-checked` | keywords, strings (leading `:` optional), nil; a `[ns name] → bool` shape predicate; optional `max-len` | keyword or `nil` | Validates a string's decomposed shape and length before interning. Keyword inputs are already interned, so they are shape-checked but not length-checked. |
+| `fresh-keyword-checked` | keywords, strings (leading `:` optional), nil; a `[ns name] → bool` shape predicate; optional `max-len` | keyword or `nil` | INTERNS by design, after validating a string's decomposed shape and length — reserved for operator-gated paths that deliberately allocate a new id; not a registry lookup helper. Keyword inputs are already interned, so they are shape-checked but not length-checked. |
 | `safe-keyword` | keywords, strings, nil | keyword from `allowed` set, or `nil` | Bounded-allowlist gate — never interns a fresh JVM keyword on rejection. Use for finite options and live registry lookups. |
 | `parse-mode` | enum-shaped strings / keywords | one of an allowed set, otherwise `default` | Routes through `safe-keyword`; rejected values fall to `default`. |
 
 ## Keyword-interning safety
 
-The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md)) applies to MCP argument parsing. Every `(keyword raw-agent-string)` call against unbounded user input lets the caller choose what the host interns: a compromised agent submitting N unique strings per call costs N interns (an allocation and an insert into the JVM's process-global keyword table each), and every keyword the server then keeps, in a registry, a cache or a stored body, lives as long as it is kept. On the pinned Clojure (1.12.4) the table holds keywords by reference and reclaims those nothing references any more, so the cost is churn and retention bounded by what the server keeps, not a permanent leak; CLJS keeps no global keyword table at all. An MCP server is a long-running process, so it sees the most such input.
+The same threat model that drives `:rf.http/max-decoded-keys` ([`../../../spec/014-HTTPRequests.md` §Keyword-interning cap](../../../spec/014-HTTPRequests.md)) applies to MCP argument parsing. Every `(keyword raw-agent-string)` call against unbounded user input lets the caller choose what the host interns: a compromised agent submitting N unique strings per call costs N interns (an allocation and an insert into the JVM's process-global keyword table each), and every keyword the server then keeps, in a registry, a cache or a stored body, lives as long as it is kept. The JVM table holds keywords by weak reference and reclaims those nothing references any more, so the cost is churn and retention bounded by what the server keeps, not a permanent leak; CLJS keeps no global keyword table at all. An MCP server is a long-running process, so it sees the most such input.
 
 The cross-MCP rule:
 
 1. **`safe-keyword` is the default primitive.** Every cross-MCP arg whose set of valid values is *bounded* — modes, enum-like opts, registered tool ids — uses `safe-keyword` with the allowlist passed in.
-2. **`fresh-keyword` / `fresh-keyword-checked` are reserved for operator-gated allocation paths.** When an argument is by design a new identifier, prefer `fresh-keyword-checked` so its grammar and string length are validated before interning. A grammar limits per-id shape, not the number of valid ids; the operator gate remains the allocation policy.
+2. **`fresh-keyword-checked` is reserved for operator-gated allocation paths.** When an argument is by design a new identifier, it validates the grammar and string length before interning. A grammar limits per-id shape, not the number of valid ids; the operator gate remains the allocation policy.
 3. **`parse-mode` routes through `safe-keyword`.** The convention's enum-shaped parser is internally safe; consumers should use it rather than rolling their own.
 
 The keyword-interning cap (`:rf.http/max-decoded-keys`) defends against the body-decode threat; this convention defends against the argument-parse threat. Both close the same DoS / keyword-table-poisoning vector.

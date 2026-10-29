@@ -196,7 +196,7 @@
       size-capped on the EDN-string arm,
 
   so a hostile caller cannot mint unbounded keywords through it. Mirrors
-  the `fresh-keyword` policy (`tools/mcp-base/spec/args.md` §Keyword-
+  the `fresh-keyword-checked` policy (`tools/mcp-base/spec/args.md` §Keyword-
   interning safety): interning is permitted only behind a gate that
   bounds the allocation cost. Non-string keys (already-keyword keys from
   the direct-invoke test path) pass through unchanged; non-collection

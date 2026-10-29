@@ -56,7 +56,7 @@
 
   The WRITE-side handlers (`register-variant`) are the documented
   exception: by design they extend the registry with a fresh keyword.
-  Those callers intern via `rf.mcp-base.args/fresh-keyword` directly, bounded by
+  Those callers intern via `rf.mcp-base.args/fresh-keyword-checked`, bounded by
   the operator-gated `--allow-writes` flag (the registry itself is the
   bounded set; the operator chose to open it)."
   (:require [clojure.string :as str]

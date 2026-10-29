@@ -30,12 +30,12 @@
                  the wire.
 
   `:rf.egress/*` — the framework's egress-opts vocabulary: the named
-                 boundary `:rf.egress/profile` and the seven per-call
-                 policy keys a server relays INTO the framework
-                 (`include-sensitive?` / `include-large?` /
-                 `include-digests?` / `threshold-bytes` and the three
-                 `:rf/epoch-record`-only axes). These are the keys the
-                 `-opt` defs below carry; they travel INWARD, never onto
+                 boundary `:rf.egress/profile` and the per-call policy
+                 keys a server relays INTO the framework. The four
+                 `-opt` defs below carry `include-sensitive?` /
+                 `include-large?` / `include-digests?` /
+                 `threshold-bytes`; the `:rf/epoch-record`-only axes are
+                 the framework's own. They travel INWARD, never onto
                  the wire — a wire arg drops the `?` and the namespace.
 
   Unqualified envelope slots — `:dropped-sensitive` /
@@ -214,9 +214,9 @@
   `^[a-zA-Z0-9_.-]{1,64}$`, wire-keys MUST omit the trailing `?`.
   The walker option keyword (this one, `:rf.egress/include-sensitive?`)
   is a NAMESPACED framework key — internal, not a wire-key — so it
-  retains the predicate `?`. The predicate FUNCTION name
-  `include-sensitive?` (see `re-frame.mcp-base.sensitive`) likewise
-  retains `?` — the idiom belongs on predicates."
+  retains the predicate `?`, as a consumer's predicate FUNCTION does
+  (story-mcp's `tools.args/include-sensitive?`) — the idiom belongs on
+  predicates."
   :rf.egress/include-sensitive?)
 
 (def include-digests-opt

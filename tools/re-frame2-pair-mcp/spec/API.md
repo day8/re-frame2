@@ -66,7 +66,7 @@ impl: [`src/re_frame2_pair_mcp/tools/wire.cljs`](../src/re_frame2_pair_mcp/tools
    wins; no surprise from the cache. The arg is **colon-tolerant**
    (rf2-8ohwv): `"examples/step-deck"` and `":examples/step-deck"`
    resolve to the same keyword — coerced via
-   `re-frame.mcp-base.args/fresh-keyword`, which strips a leading colon
+   `re-frame.mcp-base.args/fresh-keyword-checked`, which strips a leading colon
    before interning. A bare `keyword` on the colon form would mint the
    malformed `::examples/step-deck` and probe a build that doesn't
    exist; that footgun is closed.

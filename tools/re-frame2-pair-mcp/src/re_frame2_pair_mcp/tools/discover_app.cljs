@@ -311,7 +311,7 @@
                   ;; alongside `:build-id`. The two carry
                   ;; the same value; `:build` matches the INPUT arg name so
                   ;; an agent copies it straight back into a later tool's
-                  ;; `:build` slot (round-trippable). `fresh-keyword` reads
+                  ;; `:build` slot (round-trippable). `fresh-keyword-checked` reads
                   ;; both `"examples/step-deck"` and `":examples/step-deck"`
                   ;; back to this same keyword.
                   (with-frame-resolution (assoc health :ok? true

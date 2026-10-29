@@ -90,7 +90,7 @@
 (defn watch-epochs-tool [conn raw-args]
   (let [build-id  (wire/arg-build conn raw-args)
         ;; Colon-tolerant `:frame` coercion (the shared
-        ;; `fresh-keyword` path) so a `:rf/default`-with-colon frame-id
+        ;; `fresh-keyword-checked` path) so a `:rf/default`-with-colon frame-id
         ;; resolves instead of minting the malformed `::rf/default`.
         ;; Same coercion `dispatch` uses.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)

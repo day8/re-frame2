@@ -233,21 +233,6 @@
 ;; payload strings (every serialized payload-bearing slot, not only :text).
 ;; ---------------------------------------------------------------------------
 
-(defn- sum-payload-by
-  "Sum `(f s)` across every string the consumer's `wire-payload-strings`
-  surfaces for `result` — every serialized payload-bearing wire slot, not
-  only the `:text` slots — accessed via `io`. The shared fold body under
-  `sum-payload-tokens` / `sum-payload-chars` — the only thing that differs
-  between them is the per-string measure `f` (`token-estimate` vs
-  `count`). Non-string slots are skipped; a nil / empty content vector
-  folds to zero."
-  [io result f]
-  (transduce (comp (filter string?)
-                   (map f))
-             +
-             0
-             (wire-payload-strings io result)))
-
 (defn sum-payload-tokens
   "Sum `rf.mcp-base.overflow/token-estimate` across every wire payload string the
   consumer's `wire-payload-strings` surfaces for `result` (every
@@ -257,25 +242,14 @@
 
   Multi-part responses share one cumulative budget rather than per-key
   — a single oversize slot or an aggregate of many small slots both
-  trip the cap."
+  trip the cap. Non-string slots are skipped; a nil / empty content
+  vector sums to zero."
   [io result]
-  (sum-payload-by io result rf.mcp-base.overflow/token-estimate))
-
-(defn sum-payload-chars
-  "Sum the character count across every wire payload string the
-  consumer's `wire-payload-strings` surfaces for `result` (every
-  serialized payload-bearing slot, not only `:text`), accessed via `io`.
-  Used by the secondary character ceiling. The primary token estimate
-  floors each payload string independently; an absolute character sum
-  prevents many sub-four-character slots from disappearing into those
-  per-string quotients.
-
-  Returns the cumulative `(count s)` across the payload strings. The
-  caller decides the multiplier (`cap * 8` in `apply-cap` — generous
-  enough for English / EDN to pass through unchanged, tight enough
-  that a payload doubled by undercount still trips the cap)."
-  [io result]
-  (sum-payload-by io result count))
+  (transduce (comp (filter string?)
+                   (map rf.mcp-base.overflow/token-estimate))
+             +
+             0
+             (wire-payload-strings io result)))
 
 (def ^:const byte-cap-multiplier
   "Multiplier for the secondary character ceiling. English/EDN is
