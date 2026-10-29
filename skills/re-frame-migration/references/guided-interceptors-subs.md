@@ -169,7 +169,7 @@ Read the `enrich` body and propose the path; author confirms.
               (assoc-in ctx [:effects :db] (or (f prev-db event) prev-db))))})
 ```
 
-Before 1.3.0, `enrich` wrote `f`'s result through with no `nil` guard, so a `nil` cleared app-db. Port the 1.3.0 body unless the app relied on that, and then return an explicit `{}`, because v2 coerces `{:db nil}` to `{}` with a dev warning. The unconditional `:db` write costs nothing when `f` changes nothing, since an `identical?` db commits nothing. Register one id per distinct `f`: a ref's argument stays data ([M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile)), so `f` cannot be one.
+Before 1.3.0, `enrich` wrote `f`'s result through with no `nil` guard, so a `nil` became the event's `:db` effect. `do-fx` skips a `nil` `:db` from 1.1.0, so app-db kept its pre-event value and the event's own db change was lost; 1.0.x wrote the `nil` to app-db. Port the 1.3.0 body unless the app relied on that: to keep the 1.1.0–1.2.x result, fall back to the coeffect db, `(get-in ctx [:coeffects :db])`, instead of `prev-db`; to keep 1.0.x's, return an explicit `{}`, because v2 coerces `{:db nil}` to `{}` with a dev warning. The unconditional `:db` write costs nothing when `f` changes nothing, since an `identical?` db commits nothing. Register one id per distinct `f`: a ref's argument stays data ([M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile)), so `f` cannot be one.
 
 ### `after`
 

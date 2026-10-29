@@ -140,13 +140,14 @@ mechanical and flags the rest (`rf2-8odvg`):
 
 `BODY` in a `reg-event-db` always evaluates to the new app-db, so `{:db BODY}` is
 a faithful, semantics-preserving wrap regardless of how complex `BODY` is — with
-one subtlety. If `BODY` can evaluate to `nil` (a `when` / `if`-without-else /
+one exception. If `BODY` can evaluate to `nil` (a `when` / `if`-without-else /
 `cond`-without-`:else` / `and` / `or` / bare `get` / `some->` tail, a literal
-`nil`, …) the codemod does not silently rewrite it. Under the new model a bare
-`nil` return is a clean no-op (and `{:db nil}` coerces to `{:db {}}` — see
-`rf2-ekq28v`), so the author may now prefer that reading over faithfully
-reproducing the v1 "write nil to app-db" footgun. The codemod flags these for
-human review.
+`nil`, …) the wrap is not faithful, so the codemod does not silently rewrite it.
+v1's `do-fx` (re-frame 1.1.0 and later) commits only a truthy `:db`, so a `nil`
+body leaves app-db unchanged, while v2 coerces `{:db nil}` to `{:db {}}`
+([Spec 002 §The `:db` commit / no-op return family](../../../spec/002-Frames.md#the-db-commit--no-op-return-family)),
+so the wrapped handler clears app-db. A bare `nil` return is a v2 no-op and
+reproduces v1. The codemod flags these for human review.
 
 The nil analysis is conservative and local: `:nil-capable` means **not proven
 non-nil**. It answers "non-nil" only for a body it can prove is: a literal
