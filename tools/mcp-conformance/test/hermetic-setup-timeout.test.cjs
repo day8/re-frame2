@@ -27,7 +27,7 @@ const { runTrusted } = require(
   path.join(__dirname, '..', 'scripts', 'run-re-frame2-pair-live-hermetic-suite.cjs'),
 );
 
-test('runTrusted kills a hung setup command within its timeout, loop stays live (rf2-wqi4n4 finding 2)', async () => {
+test('runTrusted kills a hung setup command within its timeout, loop stays live', async () => {
   // This timer fires only if the loop keeps turning while runTrusted awaits.
   let loopStayedLive = false;
   const liveProbe = setTimeout(() => { loopStayedLive = true; }, 200);
@@ -43,7 +43,7 @@ test('runTrusted kills a hung setup command within its timeout, loop stays live 
 // On Windows both signals map to the unconditional TerminateProcess, so the
 // child dies on SIGTERM there; on the Linux CI runner the handler is honoured
 // and the escalation is exercised.
-test('runTrusted SIGKILLs a SIGTERM-ignoring setup child — the reject does not cancel the fallback (rf2-i4d5wr)', async () => {
+test('runTrusted SIGKILLs a SIGTERM-ignoring setup child — the reject does not cancel the fallback', async () => {
   // runTrusted does not expose the child, so the child reports its own pid.
   const pidFile = path.join(os.tmpdir(), `rf2-i4d5wr-sigterm-ignore-${process.pid}-${Date.now()}.pid`);
   const IGNORE_SIGTERM = `

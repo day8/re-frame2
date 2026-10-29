@@ -17,7 +17,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-test('every watchdog exits 2 and closes each hung client first (rf2-2js41 finding 2, rf2-wqi4n4 finding 1)', () => {
+test('every watchdog exits 2 and closes each hung client first', () => {
   for (const [harness, markers] of [
     // runWithWatchdog over the primary client.
     ['runner-watchdog-hang-harness.cjs', ['HARNESS: client.close() invoked']],

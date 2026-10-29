@@ -525,7 +525,7 @@ function makeShadowTreeReaper({
     }
     // FAIL CLOSED wherever ownership could not be established: nothing of the
     // sort is ours to kill, and "we could not tell" is not a proven teardown
-    // either (AC3).
+    // either.
     const rootClass = evidence.rootClass;
     const rootError = evidence.error;
     if (rootClass === 'stranger') {

@@ -56,7 +56,7 @@ test('assertOverflowBody rejects a wrong :limit and a token-count not above the 
   }
 });
 
-test('a fractional :cap-tokens is rejected through BOTH slots (rf2-gwye.41)', () => {
+test('a fractional :cap-tokens is rejected through BOTH slots', () => {
   assert.throws(() => validateOverflowText(overflowText(5000.5, 6250), 'text-slot'), /:cap-tokens MUST be int/);
   assert.throws(
     () => validateOverflowWrapper({ 'rf.mcp/overflow': validBody({ 'cap-tokens': 5000.5 }) }, 'structured'),

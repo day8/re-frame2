@@ -61,7 +61,7 @@ test('RED: each single-tool annotation regression throws and names the tool', ()
 
 // The per-tool loop only visits live tools, so a `closed-world` row naming a
 // removed tool needs its own check.
-test('RED: rf2-6i2yi4 finding 4 — a `closed-world` row naming a REMOVED tool is caught, not silently tolerated', () => {
+test('RED: a `closed-world` row naming a REMOVED tool is caught, not silently tolerated', () => {
   const staleFixture = {
     classifications: {
       'read-live': 'read-only',

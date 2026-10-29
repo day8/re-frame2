@@ -78,13 +78,13 @@ test('makeCleanup AWAITS a slow promise-returning browser.close() and grades it 
   );
 });
 
-test('makeCleanup escalates SIGTERM→SIGKILL and AWAITS the eventual exit (rf2-7ckmwx finding 1)', async () => {
+test('makeCleanup escalates SIGTERM→SIGKILL and AWAITS the eventual exit', async () => {
   const shadow = makeFakeShadow({ exitOnKillMs: 80 });
   await cleanupWith({ ...shadowDeps(shadow), shadowTermGraceMs: 50, shadowKillGraceMs: 5000 })();
   assert.deepEqual([shadow.killSignals, shadow.exited], [['SIGTERM', 'SIGKILL'], true]);
 });
 
-test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DIRTY, after attempting BOTH (rf2-j538f7.19 AC1/AC3/AC6)', async () => {
+test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DIRTY, after attempting BOTH', async () => {
   let closes = 0;
   // No isConnected(), so disconnection cannot be proven.
   const browser = { close: () => { closes += 1; return Promise.reject(new Error('close failed')); } };
@@ -106,7 +106,7 @@ test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DI
 
 // The never-settling row also proves the cap: without it the close never
 // returns.
-test('a browser close that rejects or overruns its cap is CLEAN only when isConnected() proves disconnection (rf2-j538f7.19 AC1/AC2)', async () => {
+test('a browser close that rejects or overruns its cap is CLEAN only when isConnected() proves disconnection', async () => {
   for (const [close, connected, expected] of [
     [() => Promise.reject(new Error('transport already closed')), false, [true, 'disconnected']],
     [() => new Promise(() => {}), true, [false, 'dirty']],
@@ -132,7 +132,7 @@ test('makeCleanup is idempotent and grades a shadow that exits on SIGTERM CLEAN 
 });
 
 // The wrapper has EXITED in every row, so only the reap decides the grade.
-test('the owned-tree reap grades the run: a survivor or an unproven reap is DIRTY and named, none is CLEAN (rf2-kzbf AC1/AC3/AC4)', async () => {
+test('the owned-tree reap grades the run: a survivor or an unproven reap is DIRTY and named, none is CLEAN', async () => {
   for (const [reap, clean, issue] of [
     [{ owned: [4242, 4243], survivors: [4243] }, false, /4243/],
     [{ error: 'could not enumerate the process table (EPERM)' }, false, /could NOT be proven/],
@@ -144,7 +144,7 @@ test('the owned-tree reap grades the run: a survivor or an unproven reap is DIRT
   }
 });
 
-test('the owned-tree reap runs even when the wrapper never exited, and both failures are reported (rf2-kzbf AC2)', async () => {
+test('the owned-tree reap runs even when the wrapper never exited, and both failures are reported', async () => {
   const shadow = makeFakeShadow();
   const report = await cleanupWith({
     ...shadowDeps(shadow),
@@ -158,7 +158,7 @@ test('the owned-tree reap runs even when the wrapper never exited, and both fail
   );
 });
 
-test('ownedDescendants claims our subtree and fences every row it cannot prove ours (rf2-kzbf)', () => {
+test('ownedDescendants claims our subtree and fences every row it cannot prove ours', () => {
   for (const [label, table, notBeforeMs, opts, expected] of [
     ['the whole subtree, never an unrelated peer',
       [{ pid: 1, ppid: 0, createdMs: 1000 }, { pid: 100, ppid: 1, createdMs: 5000 },
@@ -193,7 +193,7 @@ test('ownedDescendants claims our subtree and fences every row it cannot prove o
 // A stranger wearing our number, or an empty tree, is not itself a teardown
 // failure; missing proof is. Reporting dirty only after a kill is not
 // fail-closed.
-test('makeShadowTreeReaper kills nothing it cannot prove ours, and errors where the proof is missing (rf2-kzbf AC2/AC3)', async () => {
+test('makeShadowTreeReaper kills nothing it cannot prove ours, and errors where the proof is missing', async () => {
   for (const [label, opts, error] of [
     ['a RECYCLED root pid',
       { readTable: () => [{ pid: 100, ppid: 1, createdMs: 1000 }, { pid: 200, ppid: 100, createdMs: 6000 }] }, null],
@@ -215,7 +215,7 @@ test('makeShadowTreeReaper kills nothing it cannot prove ours, and errors where 
   }
 });
 
-test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits (rf2-kzbf audit, AC1)', async () => {
+test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits', async () => {
   const killed = [];
   const out = await reaper({
     rootExited: () => true,
@@ -232,7 +232,7 @@ test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits (rf2-k
 
 // A tree-kill that returns success while removing nothing must grade the
 // effect, never the call.
-test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-kzbf)', async () => {
+test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing', async () => {
   const killed = [];
   const out = await reaper({
     spawnedAtMs: 0,
@@ -252,7 +252,7 @@ test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-
 // A real cross-spawn'd `.cmd` wrapper that exits at once after launching a
 // long-lived grandchild: the npx/shadow-cljs shape. The wrapper/grandchild
 // split is a cmd.exe-shim artefact, so this runs on Windows only.
-test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then reaped (rf2-kzbf AC1/AC2)', { skip: process.platform !== 'win32' ? 'Windows-only: models the cmd.exe shim cross-spawn interposes' : false }, async () => {
+test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then reaped', { skip: process.platform !== 'win32' ? 'Windows-only: models the cmd.exe shim cross-spawn interposes' : false }, async () => {
   const crossSpawn = require('cross-spawn');
   const fs = require('node:fs');
   const os = require('node:os');

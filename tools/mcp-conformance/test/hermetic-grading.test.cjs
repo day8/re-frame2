@@ -26,7 +26,7 @@ function finalize(report) {
   return { code, sentinels, flushed };
 }
 
-test('only a CLEAN report emits the pass sentinel and exits 0; a DIRTY one flushes diagnostics and exits 2 (rf2-j538f7.19 AC7)', () => {
+test('only a CLEAN report emits the pass sentinel and exits 0; a DIRTY one flushes diagnostics and exits 2', () => {
   for (const [report, expected] of [
     [{ clean: true }, { code: 0, sentinels: 1, flushed: 0 }],
     [{ clean: false, browser: { state: 'dirty' }, shadow: { state: 'alive' }, issues: [] },

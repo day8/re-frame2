@@ -37,7 +37,7 @@ function wipe(unlinkError, statExists) {
   });
 }
 
-test('wipeStalePortFileCandidate continues past a failed unlink only when the file is gone and the failure was benign (rf2-6i2yi4)', () => {
+test('wipeStalePortFileCandidate continues past a failed unlink only when the file is gone and the failure was benign', () => {
   const escape = new Error(
     `refusing to unlink ${CANDIDATE}: symlink-escape accident-gating — realpath resolves outside the allowed root`,
   );
