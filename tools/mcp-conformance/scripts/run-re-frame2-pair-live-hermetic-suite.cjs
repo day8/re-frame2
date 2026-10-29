@@ -1089,7 +1089,9 @@ function readPortFile(
   // `safeReadFileInside` THROWS on a containment escape; we let that
   // propagate so an escaped candidate is a FATAL orchestration error, not
   // a silently-trusted read. A candidate that simply doesn't exist yet
-  // returns `null` — try the next.
+  // returns `null`, and one that cannot be read right now (EBUSY / EPERM
+  // while shadow-cljs writes it on Windows, EISDIR) is skipped the same
+  // way — the 100 ms poll reads it again.
   for (const p of candidates) {
     let txt;
     try {
@@ -1097,6 +1099,7 @@ function readPortFile(
       if (contents == null) continue; // not present yet — try next
       txt = contents.trim();
     } catch (e) {
+      if (!isContainmentEscape(e)) continue;
       // A containment escape (symlinked candidate / parent that resolves
       // outside FIXTURE_DIR) is a fatal orchestration error — DO NOT fall
       // through and trust the file. Re-throw with context so the caller's
@@ -1236,7 +1239,9 @@ function probeShadowRuntimeReady(nreplPort, hostname = '127.0.0.1') {
       // false `:runtime-not-preloaded`.
       if (txt.includes(':results') && txt.includes('true') && !txt.includes('No application')) {
         finish(true);
-      } else if (txt.includes('"status"') && txt.includes('done')) {
+      } else if (txt.includes('6:status') && txt.includes('4:done')) {
+        // Bencode spells the `status` key `6:status` and its `done`
+        // value `4:done`.
         // Op completed but no `:results` — either an error or empty.
         finish(false);
       }
@@ -1541,6 +1546,19 @@ async function main() {
   if (!exists(path.join(FIXTURE_DIR, 'node_modules'))) {
     log(`installing fixture deps in ${FIXTURE_DIR}`);
     await runTrusted('npm', ['install', '--no-audit', '--no-fund'], FIXTURE_DIR);
+  }
+
+  // ---- The fixture's dev-http port must be free -------------------------
+  // When FIXTURE_HTTP_PORT is already bound, shadow-cljs logs a warning and
+  // runs with no dev-http, and the http and bundle probes below then accept
+  // whichever process holds the port: Chromium attaches to another build
+  // and the run fails a minute later with the wrong diagnosis.
+  if (await probeTcp(FIXTURE_HTTP_PORT)) {
+    throw new Error(
+      `fixture dev-http port ${FIXTURE_HTTP_PORT} is already in use — another ` +
+        'fixture run, or a fixture JVM a dirty teardown left behind, holds it. ' +
+        'Free the port and re-run.',
+    );
   }
 
   // ---- Boot shadow-cljs watch ------------------------------------------

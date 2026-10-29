@@ -46,6 +46,19 @@ test('readPortFile refuses an external port file behind a symlinked parent or le
   });
 });
 
+test('readPortFile skips a candidate it cannot read yet rather than calling it an escape', () => {
+  withTmpDirs((fixture) => {
+    // A directory where the file belongs reads as EISDIR, the same benign
+    // class as a Windows lock while shadow-cljs writes the file.
+    const shadowPort = path.join(fixture, '.shadow-cljs', 'nrepl.port');
+    const rootPort = path.join(fixture, '.nrepl-port');
+    fs.mkdirSync(shadowPort, { recursive: true });
+    assert.equal(readPortFile([shadowPort], fixture), null);
+    fs.writeFileSync(rootPort, '4711');
+    assert.deepEqual(readPortFile([shadowPort, rootPort], fixture), { port: 4711, source: rootPort });
+  });
+});
+
 test('readPortFile returns null until a candidate exists, skips a missing one, and reads the first present one', () => {
   withTmpDirs((fixture) => {
     const shadowPort = path.join(fixture, '.shadow-cljs', 'nrepl.port');
