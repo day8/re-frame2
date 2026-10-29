@@ -87,8 +87,10 @@
                         and :warnings are PATH-projected at egress (EP-0025
                         fail-open: a value AT a classified path redacts; a
                         value re-keyed into a :warnings record at a
-                        non-app-db position ships RAW — classify the app-db
-                        PATH to redact it at the source). The epoch rows
+                        non-app-db position ships RAW — classification
+                        acts at egress, by path, and never rewrites the
+                        record, so classifying the app-db path does not
+                        reach the re-keyed copy). The epoch rows
                         (:effects / :sub-runs / :renders) and each :narrative
                         beat are epoch data and cross the off-box epoch
                         projector; a beat carries a :trace-event-count in
@@ -175,9 +177,11 @@
                                   ;; classification, same as :snapshot.
                                   ;; EP-0025 FAIL-OPEN: :warnings are trace-event
                                   ;; records — a secret re-keyed into a non-app-db
-                                  ;; position ships RAW (there is no value-match;
-                                  ;; classify the app-db PATH to redact at the
-                                  ;; source). scrub-rendered recurses the nested
+                                  ;; position ships RAW (there is no value-match,
+                                  ;; and classification acts at egress by path,
+                                  ;; so classifying the app-db path never
+                                  ;; reaches the copy). scrub-rendered recurses
+                                  ;; the nested
                                   ;; trees and the gate stays symmetric (incl?
                                   ;; true forwards raw). The epoch rows and the
                                   ;; :narrative beats are epoch data, so they cross

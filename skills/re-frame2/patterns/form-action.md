@@ -126,13 +126,12 @@ The action handler validates **in its own body** and emits per-platform effects:
    ;; 400 arm in dev too. The token is optional for the client and unconstrained
    ;; here so the server's CSRF arm owns its rejection.
    :schema [:cat [:= :cart/add-item]
-            [:map [:csrf-token {:optional true :sensitive? true} :any]]]
-   ;; Registration-owned classification of the event PAYLOAD, and NOT a
-   ;; duplicate of the `:sensitive?` prop above: that prop redacts the
-   ;; schema-VALIDATION-FAILURE trace, and a POST that validates cleanly
-   ;; produces none — yet a SUCCESSFUL dispatch still ships the whole POST
-   ;; envelope verbatim on `:rf.event/v`. This redacts that surface, and it
-   ;; is always-on where the tripwire above elides.
+            [:map [:csrf-token {:optional true} :any]]]
+   ;; Registration-owned classification of the event PAYLOAD, declared once.
+   ;; It redacts the token wherever the args are observed: on `:rf.event/v`,
+   ;; where `:app/server-init` put the whole POST envelope, and in a `:schema`
+   ;; failure trace above alike. It is always-on, so it still holds in the
+   ;; release build where the tripwire above is gone.
    :sensitive [[:csrf-token]]
    :rf.cofx/requires [:rf.server/request
                       :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
@@ -205,7 +204,7 @@ Every form POST MUST carry a CSRF token; the server MUST reject a bad one *befor
 
 **The compare fails closed on both limbs, and getting that wrong is silent.** The handler answers 403 unless the session **has** an active token *and* it equals the submitted one — which is why the arm above reads `(not (and (some? active-token) (= …)))`. Do **not** write `(not= (:csrf-token form-params) active-token)`: on a request with no session `active-token` is `nil`, an attacker's token-less POST supplies `nil`, `nil` equals `nil`, and the arm never fires. The one shape that looks tidiest is the one that opens the endpoint.
 
-Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme. The submitted token never enters the draft: the failure arm's `select-keys` writes editable fields only. The action's registration carries `:sensitive [[:csrf-token]]` to classify its event payload (§Canonical declaration) — that is the declaration covering an ordinary *successful* dispatch, where the structural event schema's `:sensitive?` mark reaches validation-failure traces only (spec 015 §Registration-owned transient classification). If the app seeds a session/form token into app-db, the writing event also classifies that durable path with a `:sensitive` effect.
+Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite`/`HttpOnly`/`Secure`) are host concerns — the pattern names *where* the check happens, not *which* scheme. The submitted token never enters the draft: the failure arm's `select-keys` writes editable fields only. The action's registration carries `:sensitive [[:csrf-token]]` to classify its event payload (§Canonical declaration) — one declaration that redacts the token on an ordinary successful dispatch and in a schema-validation-failure trace alike, so the structural event schema carries no `:sensitive?` mark of its own (spec 015 §Registration-owned transient classification). If the app seeds a session/form token into app-db, the writing event also classifies that durable path with a `:sensitive` effect.
 
 ## File uploads
 
@@ -226,7 +225,7 @@ The scrub is per-named-path, owned by the registration, not a whole-action toggl
 - **Skipping the `action` attribute.** A JS-only form breaks progressive enhancement. Always emit `method` + `action`; `:on-submit` is additive.
 - **Validating only on the client.** Client validation is UX; the server is the authority. Re-check the body in the **handler**, on every POST.
 - **Comparing the tokens with `not=` alone.** It fails **open** on a session-less request — require both limbs (§CSRF).
-- **Requiring the CSRF token in the field schema.** A live production bug — the release build 400s every client submission. Type the draft and the validation call with the **fields**; the token is `{:optional true :sensitive? true}` on the event-args schema (§Canonical declaration).
+- **Requiring the CSRF token in the field schema.** A live production bug — the release build 400s every client submission. Type the draft and the validation call with the **fields**; the token is `{:optional true}` on the POST envelope and on the event's structural `:schema`, classified by the registration's `:sensitive [[:csrf-token]]` (§Canonical declaration).
 - **Assuming `:form-params` arrives as domain data.** The host parses the body but does not keywordise or coerce it, so a *valid* submission takes the failure arm — a correct token 403s and `"2"` fails an `:int` field.
 - **Normalising inside the action handler.** It grows two platform arms and two chances to diverge. One seam, above the dispatch, server side only (§Canonical declaration).
 - **Letting `:schema` be the server-side check.** The commonest way to ship an unvalidated form endpoint: declare `:schema`, read it as "the framework checks this", write no branch. It elides from the production build, so the endpoint that passes every test accepts anything in production. Keep the `:schema` as the dev tripwire and the introspection surface; write the branch as the guard.

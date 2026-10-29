@@ -302,19 +302,21 @@ A validation failure carries the failing value, which is what makes it debuggabl
 
 When a classified path fails its schema, the trace's `:value`, `:explain` (which would repeat the value) and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot. The declaration holds before any event runs, so the first bad value ever written there already fails redacted. A path classified `:large` fails with a `:rf.size/large-elided` marker in place of the value. [Keep secrets out of traces](keep-secrets-out-of-traces.md#classify-a-durable-secret-in-app-db) covers `reg-classification`.
 
-**A value passing through: mark its schema.** An event's payload, a coeffect, an effect's arguments, a subscription's value and a machine's `:data` are checked against their own schemas, and two reserved keys in a schema slot's properties map change what that check's failure trace carries:
+**An event, effect or subscription value: declare it on the registration.** An event's payload, an effect's arguments and a subscription's value are checked against their registration's `:schema`, and that registration's `:sensitive` paths cover the check's failure trace as well as the value's other traces, so a payload path is declared once:
 
 ```clojure
 (rf/reg-event :auth/sign-in
-  {:sensitive [[:password]]                                  ;; the event's own traces
+  {:sensitive [[:password]]           ;; every trace of the payload, a failing one included
    :schema    [:cat [:= :auth/sign-in]
                     [:map [:email :string]
-                          [:password {:sensitive? true} :string]]]}   ;; its validation failures
+                          [:password :string]]]}
   (fn [{:keys [db]} [_ credentials]]
     {:db (assoc db :auth/pending? true)}))
 ```
 
-The registration's `:sensitive` paths classify the payload wherever the event is traced ([Classify a transient payload on the registration](keep-secrets-out-of-traces.md#classify-a-transient-payload-on-the-registration)); the schema prop is what redacts a payload that fails its schema.
+An event's paths index its payload, the vector's second element ([Classify a transient payload on the registration](keep-secrets-out-of-traces.md#classify-a-transient-payload-on-the-registration)). A failure that matches a sensitive path also redacts `:explain` and `:explain-humanized` whole, and the trace carries `:sensitive? true` at its top level.
+
+**A coeffect or a machine's `:data`: mark its schema.** Their failure traces follow the schema's own marks. Two reserved keys in a schema slot's properties map change what a failure trace carries, and on an event, effect or sub schema they add a local mark beside what the registration declares:
 
 - **`:sensitive? true`**: when the value fails, its value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level.
 - **`:large? true`**: the value is replaced with a `:rf.size/large-elided` marker instead of putting megabytes into the trace. A value marked both ways is redacted; sensitive wins, since even the size says something about a secret.
