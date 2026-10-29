@@ -176,12 +176,14 @@
 
 #?(:clj
    (defn- run-blocking
-     "Drive `run!` and block until terminal status is reached or
-     `timeout-ms` expires."
+     "Drive `run!` over the variant's first compiled play and block until
+     terminal status is reached or `timeout-ms` expires."
      ([variant-id] (run-blocking variant-id 5000))
      ([variant-id timeout-ms]
-      (let [done (atom nil)]
-        (rf.story.play.runner-events/run! variant-id (fn [state] (reset! done state)))
+      (let [done (atom nil)
+            spec (first (rf.story.play.runner-events/variant-plays variant-id))]
+        (rf.story.play.runner-events/run! variant-id (:name spec) spec
+                                          (fn [state] (reset! done state)))
         (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
           (loop []
             (cond
@@ -591,115 +593,6 @@
            (is (= :story.runner/trace (get-in (first @trace-events) [:tags :frame])))
            (finally
              (unreg listener-id)))))))
-
-;; ---- multi-play ----------------------------------------------------------
-
-#?(:clj
-   (defn- run-play-blocking
-     "Drive a specific play via `run-play!` and block until terminal."
-     ([variant-id play-key] (run-play-blocking variant-id play-key 5000))
-     ([variant-id play-key timeout-ms]
-      (let [done (atom nil)]
-        (rf.story.play.runner-events/run-play! variant-id play-key (fn [s] (reset! done s)))
-        (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-          (loop []
-            (cond
-              @done @done
-              (> (System/currentTimeMillis) deadline)
-              (throw (ex-info "run-play-blocking timeout"
-                              {:variant-id variant-id
-                               :play-key   play-key}))
-              :else (do (Thread/sleep 5) (recur)))))))))
-
-#?(:clj
-   (deftest run-play-keys-state-per-play
-     (rf/reg-event :rt/inc
-       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-     (rf.story/reg-variant :story.multi/keyed
-       {:setup []
-        :plays  [{:name "first"  :auto-run? false
-                  :script [[:dispatch-sync [:rt/inc]]
-                           [:assert-db [:n] 1]]}
-                 {:name "second" :auto-run? false
-                  :script [[:dispatch-sync [:rt/inc]]
-                           [:assert-db [:n] 2]]}]})
-     (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/keyed) 5000)
-     (run-play-blocking :story.multi/keyed "first")
-     (run-play-blocking :story.multi/keyed "second")
-     (is (= [:pass :pass "second"]
-            [(:status (rf.story.play.runner-events/current-state-for-play :story.multi/keyed "first"))
-             (:status (rf.story.play.runner-events/current-state-for-play :story.multi/keyed "second"))
-             (:play-key (rf.story.play.runner-events/current-state :story.multi/keyed))]))))
-
-#?(:clj
-   (deftest run-play-sets-active-play
-     ;; run-play! and select-play! both set the key the toolbar reads; only
-     ;; run-play! runs
-     (rf/reg-event :rt/touch
-       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-     (rf.story/reg-variant :story.multi/active
-       {:setup []
-        :plays  [{:name "alpha" :auto-run? false
-                  :script [[:dispatch-sync [:rt/touch]]]}
-                 {:name "beta"  :auto-run? false
-                  :script [[:dispatch-sync [:rt/touch]]]}]})
-     (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/active) 5000)
-     (run-play-blocking :story.multi/active "beta")
-     (is (= "beta" (rf.story.play.runner-events/active-play-key :story.multi/active)))
-     (rf.story.play.runner-events/select-play! :story.multi/active "alpha")
-     (is (= "alpha" (rf.story.play.runner-events/active-play-key :story.multi/active)))
-     (is (nil? (rf.story.play.runner-events/current-state-for-play :story.multi/active "alpha")))))
-
-#?(:clj
-   (defn- await-done [done what]
-     (let [deadline (+ (System/currentTimeMillis) 5000)]
-       (loop []
-         (cond
-           (some? @done) @done
-           (> (System/currentTimeMillis) deadline) (throw (ex-info (str what " timeout") {}))
-           :else (do (Thread/sleep 5) (recur)))))))
-
-#?(:clj
-   (deftest run-all-plays-sequences-runs
-     (rf/reg-event :rt/touch
-       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-     (rf.story/reg-variant :story.multi/all
-       {:setup []
-        :plays  [{:name "a" :auto-run? false
-                  :script [[:dispatch-sync [:rt/touch]]
-                           [:assert-db [:n] 1]]}
-                 {:name "b" :auto-run? false
-                  :script [[:dispatch-sync [:rt/touch]]
-                           [:assert-db [:n] 2]]}
-                 {:name "c" :auto-run? false
-                  :script [[:dispatch-sync [:rt/touch]]
-                           [:assert-db [:n] 3]]}]})
-     (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/all) 5000)
-     (let [done (atom nil)]
-       (rf.story.play.runner-events/run-all-plays! :story.multi/all (fn [final] (reset! done final)))
-       (is (= [["a" :pass] ["b" :pass] ["c" :pass]]
-              (mapv (juxt :play-key :status) (await-done done "run-all-plays")))))))
-
-#?(:clj
-   (deftest auto-run-multi-runs-only-opted-in-plays
-     (rf/reg-event :rt/inc
-       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-     (rf.story/reg-variant :story.multi/auto
-       {:setup []
-        :plays  [{:name "first-default-true"
-                  :script [[:dispatch-sync [:rt/inc]]
-                           [:assert-db [:n] 1]]}
-                 {:name "second-default-false"
-                  :script [[:dispatch-sync [:rt/inc]]
-                           [:assert-db [:n] 99]]}
-                 {:name "third-opted-in"
-                  :auto-run? true
-                  :script [[:dispatch-sync [:rt/inc]]]}]})
-     (rf.story.async/deref-blocking (rf.story/run-variant :story.multi/auto) 5000)
-     (let [done (atom nil)]
-       (rf.story.play.runner-events/auto-run! :story.multi/auto (fn [final] (reset! done final)))
-       (is (= ["first-default-true" "third-opted-in"]
-              (mapv :play-key (await-done done "auto-run multi")))))))
 
 ;; ---- concurrent-run race ------------------------------------------------
 ;;

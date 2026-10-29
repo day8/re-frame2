@@ -20,6 +20,7 @@
             [re-frame.story.frames    :as rf.story.frames]
             [re-frame.story.identity  :as rf.story.identity]
             [re-frame.story.loaders   :as rf.story.loaders]
+            [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.runtime   :as rf.story.runtime]
             [re-frame.story.ui.watch  :as rf.story.ui.watch]
             ;; Two namespaces registering the same event id with different
@@ -825,6 +826,24 @@
             {:setup      [[:test/tape-go]]
              :assertions [[:rf.assert/schema-error {:where :event :event :some/evt}]]})
           :rf.assert/schema-error)))))
+
+(deftest a-tape-assertion-refusal-reads-as-a-refusal-in-the-play-run-state
+  ;; Both step sites that bridge a record (an [:assert …] checkpoint and a
+  ;; bare :dispatch-sync of an :rf.assert/* event) keep the refusal and its
+  ;; hint, so the chip and CI read :cannot-run, as the unified result does.
+  (rf/reg-event :test/tape-go-2 (fn [{:keys [db]} _] {:db (assoc db :go true)}))
+  (in-an-epoch-eliding-build
+    (fn []
+      (doseq [[vid step] [[:story.noepoch/checkpoint [:assert [:rf.assert/dispatched? [:test/tape-go-2]]]]
+                          [:story.noepoch/bare [:dispatch-sync [:rf.assert/dispatched? [:test/tape-go-2]]]]]]
+        (rf.story/reg-variant vid {:script [[:dispatch-sync [:test/tape-go-2]] step]})
+        (let [r     (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)
+              state (rf.story.play.runner-events/current-state vid)
+              step  (peek (:results state))]
+          (is (= [:cannot-run :cannot-run true true]
+                 [(:status r) (:status state) (:cannot-run? step) (string? (:message step))])
+              (str vid)))
+        (rf.story/destroy-variant! vid)))))
 
 (deftest unmet-schema-error-records-one-fail-row
   (testing "an unmet declared schema-error is one :fail row, with no second

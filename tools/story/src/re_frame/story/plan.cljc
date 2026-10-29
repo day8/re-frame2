@@ -1651,9 +1651,8 @@
         ;; script, not just `script*` (the primary/first play alone).
         ;; `[:world :scripts]` retains every play, and the runtime
         ;; auto-runs each `:auto-run? true` one in order
-        ;; (`rf.story.play.runner/auto-runnable-plays` — the single definition both
-        ;; `runtime/run-phase-4!` and `runner-events/auto-run!` delegate
-        ;; to). Runner-selection trusts `:required-runner` VERBATIM, so an
+        ;; (`rf.story.play.runner/auto-runnable-plays`, the single definition
+        ;; `runtime/run-phase-4!` delegates to). Runner-selection trusts `:required-runner` VERBATIM, so an
         ;; auto-run play OTHER than the first whose step lifts capability
         ;; (e.g. an `:assert-dom` checkpoint → `:dom`) that this slot did
         ;; not reflect would let `:auto` selection pick a runner that cannot

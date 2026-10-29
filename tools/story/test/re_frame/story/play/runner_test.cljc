@@ -210,6 +210,19 @@
     (is (= [1 0] [(:count summ) (:idx (:first summ))]))
     (is (nil? (rf.story.play.runner/fail-summary (assoc s :status :pass))))))
 
+(deftest fail-summary-leaves-out-refusals
+  ;; the banner counts and names failures, as `finish` grades them
+  (let [refused [:flush-presence]
+        failed  [:assert-db [:k] 2]
+        s       (-> (started [refused failed])
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 0 refused {:cannot-run? true :message "no presence host"}))
+                    (rf.story.play.runner/record-step-result
+                      (rf.story.play.runner/step-fail 1 failed {:message "no"}))
+                    (rf.story.play.runner/finish 10))
+        summ    (rf.story.play.runner/fail-summary s)]
+    (is (= [:fail 1 1] [(:status s) (:count summ) (:idx (:first summ))]))))
+
 (deftest trace-record-shape
   (is (= {:variant-id :story.foo/v :idx 2 :step [:dispatch [:a]]
           :summary "dispatch [:a]" :name "happy" :passed? true :message nil}

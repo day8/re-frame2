@@ -15,26 +15,30 @@
 
 ;; ---- variants-with-play-scripts ------------------------------------------
 
-(deftest discovery-from-injected-registrations
-  (is (= [:story.a/with-script :story.c/with-map-form]
-         (rf.story.play.ci-runner/variants-with-play-scripts
+(defn- inject!
+  "Put `id->body` straight into the side-table under `kind`: the
+  schema-validated reg-variant* path needs the canonical vocabulary, which
+  discovery does not."
+  [kind id->body]
+  (swap! rf.story.registrar/kind->id->body update kind merge id->body))
+
+(deftest discovery-reads-the-compiled-plays
+  (inject! :fragment {:fragment.ci/opener {:script [[:dispatch-sync [:fragment/step]]]}})
+  (inject! :variant
            {:story.a/with-script    {:script [[:dispatch [:foo]]]}
             :story.b/without-script {:setup [[:bar]]}
             :story.c/with-map-form  {:script {:script [[:wait 0]] :auto-run? true}}
             :story.d/empty-script   {:script []}
             :story.e/empty-map      {:script {:script []}}
-            :story.f/empty-plays    {:plays []}}))))
-
-(deftest discovery-from-live-registrar
-  ;; Injected straight into the side-table: the schema-validated reg-variant*
-  ;; path needs the canonical vocabulary, which discovery does not.
-  (swap! rf.story.registrar/kind->id->body update :variant assoc
-         :story.t/script    {:script [[:dispatch [:foo]]]}
-         :story.t/no-script {:setup [[:foo]]}
-         :story.t/another   {:script {:script [[:wait 0]]}})
-  (is (= [:story.t/another :story.t/script]
+            :story.f/empty-plays    {:plays []}
+            :story.g/compose-only   {:compose [:fragment.ci/opener]}})
+  (is (= [:story.a/with-script :story.c/with-map-form :story.g/compose-only]
          (rf.story.play.ci-runner/variants-with-play-scripts))
-      "sorted, whatever the registration order"))
+      "sorted; a variant whose only script a composed fragment supplies runs a play")
+  (is (= [{:variant-id :story.g/compose-only :play-key nil :name nil
+           :script-len 1 :auto-run? true}]
+         (filterv #(= :story.g/compose-only (:variant-id %))
+                  (rf.story.play.ci-runner/ci-rows)))))
 
 ;; ---- terminal? -----------------------------------------------------------
 
@@ -80,6 +84,12 @@
 
 (deftest ci-rows-enumerates-plays-per-variant
   ;; one row per play, in declaration order; a bare script is one row keyed nil
+  (inject! :variant
+           {:story.a/single  {:script {:name "single-named" :script [[:dispatch [:a]]]}}
+            :story.b/multi   {:plays [{:name "happy" :script [[:dispatch [:b1]]]}
+                                      {:name "error" :script [[:dispatch [:b2]] [:wait 0]]}]}
+            :story.c/no-play {:setup []}
+            :story.x/bare    {:script [[:dispatch [:a]]]}})
   (is (= [{:variant-id :story.a/single :play-key "single-named" :name "single-named"
            :script-len 1 :auto-run? true}
           {:variant-id :story.b/multi :play-key "happy" :name "happy"
@@ -88,9 +98,4 @@
            :script-len 2 :auto-run? false}
           {:variant-id :story.x/bare :play-key nil :name nil
            :script-len 1 :auto-run? true}]
-         (rf.story.play.ci-runner/ci-rows
-           {:story.a/single  {:script {:name "single-named" :script [[:dispatch [:a]]]}}
-            :story.b/multi   {:plays [{:name "happy" :script [[:dispatch [:b1]]]}
-                                      {:name "error" :script [[:dispatch [:b2]] [:wait 0]]}]}
-            :story.c/no-play {:setup []}
-            :story.x/bare    {:script [[:dispatch [:a]]]}}))))
+         (rf.story.play.ci-runner/ci-rows))))

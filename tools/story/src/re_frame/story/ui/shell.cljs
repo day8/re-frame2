@@ -531,9 +531,8 @@
 ;; `:selected-variant` (a `?variant=…` deep link) — and that selection
 ;; change fires the already-installed `selection-watcher`, which schedules
 ;; its OWN auto-run for the same variant. Without a guard, both paths
-;; schedule a `js/setTimeout` calling `play-runner-events/auto-run!` for
-;; the same variant, so its `:script` runs (and every event in it
-;; dispatches) TWICE.
+;; schedule a `js/setTimeout` running the same variant, so its `:script`
+;; runs (and every event in it dispatches) TWICE.
 ;;
 ;; `mount-time-autorun-vid` is the pure decision this guard reduces to: it
 ;; takes the selection observed BEFORE `hydrate-url-state!` ran and the

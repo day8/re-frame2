@@ -90,8 +90,8 @@
 (defonce
   ^{:doc "frame-id → play-key. The play the toolbar is
          currently focused on. Default is the first play's name (or
-         nil for single-script variants). Changed by the dropdown's
-         `select-play!`. Reagent ratom on CLJS."}
+         nil for single-script variants). Set by every `run!`, so the
+         dropdown's run of a play focuses it. Reagent ratom on CLJS."}
   active-play
   #?(:cljs (r/atom {})
      :clj  (atom  {})))
@@ -122,11 +122,11 @@
          only ever drop beats, never misattribute them.
 
          Keyed by the `[frame-id play-key]` PAIR, not
-         `frame-id` alone. A multi-play sequencer (`run-plays-sequentially!`
-         / `runtime/run-phase-4!`) accumulates boundaries across several
+         `frame-id` alone. A multi-play sequencer (`runtime/run-phase-4!`)
+         accumulates boundaries across several
          play-keys on ONE frame (`:clear-boundaries? false`); the per-`[frame
          play-key]` run-token guard (`current-state-for-play`) does NOT block
-         a CONCURRENT `run!` / `run-play!` for a DIFFERENT
+         a CONCURRENT `run!` for a DIFFERENT
          play-key on the SAME frame — that concurrent call's default
          `:clear-boundaries? true` would wipe a shared frame-id
          bucket out from under the in-flight sequence. Keying by the pair
@@ -140,17 +140,6 @@
          time, not a reactive UI input."}
   step-boundaries
   (atom {}))
-
-(defonce ^:private ^{:doc "Set of variant ids that have already received
-                          the both-:script-and-:plays console
-                          warning. One warning per variant per page
-                          lifetime keeps the console quiet.
-                          Re-armed by `clear-all-runs!` so a fresh test
-                          + each hot-reload reset can warn again (a
-                          warn-once cache that is never reset suppresses
-                          the affordance across test order + hot-reload)."}
-  warned-both-slots
-  (atom #{}))
 
 (defn current-state
   "Read the current run-state for `frame-id`, or nil if no run exists."
@@ -246,10 +235,9 @@
   run's boundaries.
 
   Owned by every entry that WRITES boundaries: the public driver
-  `run!` (clears its OWN resolved play-key), the multi-play sequencers
-  (`run-plays-sequentially!`, the orchestrator `runtime/run-phase-4!` —
-  which also covers its no-auto-plays branch) clear each play-key they are
-  ABOUT to drive, and the stepper start `rf.story.play/begin-stepper!` (via the
+  `run!` (clears its OWN resolved play-key), the multi-play sequencer (the
+  orchestrator `runtime/run-phase-4!`, which also covers its no-auto-plays
+  branch) clears each play-key it is ABOUT to drive, and the stepper start `rf.story.play/begin-stepper!` (via the
   `:clear-step-boundaries` late-bind seam, always play-key nil — the
   stepper only ever walks the default play). So a non-orchestrator re-run /
   replay-in-place / stepping session never inherits stale accumulated
@@ -287,21 +275,14 @@
 (defn clear-all-runs!
   "Wipe ALL per-variant run-state across every frame — the four
   per-process atoms (`run-state` / `runs-by-play` / `active-play` /
-  `step-boundaries`) AND the `warned-both-slots` one-shot warning cache.
-  Used by the Story test-fixture helper so a fresh test doesn't observe a
-  previous test's play outcomes; `clear-state!` is the per-frame
-  counterpart called from teardown.
-
-  Clearing `warned-both-slots` here re-arms the both-`:script`-and-
-  `:plays` console warning per test and per hot-reload reset, following
-  the warn-once-clear pattern: a warn-once cache that is never reset
-  suppresses the affordance across test order + hot-reload."
+  `step-boundaries`). Used by the Story test-fixture helper so a fresh test
+  doesn't observe a previous test's play outcomes; `clear-state!` is the
+  per-frame counterpart called from teardown."
   []
   (reset! run-state      {})
   (reset! runs-by-play   {})
   (reset! active-play    {})
   (reset! step-boundaries {})
-  (reset! warned-both-slots #{})
   nil)
 
 (defn- update-state!
@@ -364,79 +345,18 @@
   (cond-> spec
     (contains? spec :script) (update :script rf.story.assertions/fold-script)))
 
-(defn variant-play-script
-  "Resolve the `:script` body on `variant-id`, parse it, and FOLD its
-  script. Returns the normalised spec map per `rf.story.play.runner/parse-spec` with
-  every shipping `:assert-db` / `:assert-dom` step rewritten to the
-  canonical `[:assert …]` checkpoint. Variants without `:script`
-  return `{:script [] :auto-run? true}`.
-
-  Note: variants declaring `:plays` resolve to the FIRST play's spec —
-  matching the single-script call sites + the toolbar's 'default play'
-  behaviour. Callers that need the full plays vector should use
-  `variant-plays` instead."
-  [variant-id]
-  (let [body  (handler-meta variant-id)
-        plays (rf.story.play.runner/variant-body->plays body)]
-    (fold-spec
-      (cond
-        ;; Multi-play (:plays slot) — default to the first play.
-        (and (seq plays) (contains? body :plays))
-        (first plays)
-
-        ;; Single-script (:script slot).
-        :else
-        (rf.story.play.runner/parse-spec (when body (:script body)))))))
-
-;; ---- multi-play warning (one-shot) ---------------------------------------
-
-(defn- warn-both-slots-once!
-  [variant-id]
-  (when (and variant-id (not (contains? @warned-both-slots variant-id)))
-    (swap! warned-both-slots conj variant-id)
-    #?(:cljs
-       (try
-         (js/console.warn
-           (str "[re-frame.story.play] " (pr-str variant-id)
-                " declares BOTH :script and :plays — preferring :plays."
-                " Pick one per variant to silence this warning."))
-         (catch :default _ nil))
-       :clj
-       (binding [*out* *err*]
-         (println (str "[re-frame.story.play] " (pr-str variant-id)
-                       " declares BOTH :script and :plays — preferring :plays."
-                       " Pick one per variant to silence this warning."))))))
-
 (defn variant-plays
-  "Resolve the canonical vector of parsed plays for `variant-id`. Pure
-  data → data; works on JVM + CLJS (multi-play).
-
-  - `:plays` present → returns the parsed plays vector (size >= 1).
-  - `:script` present → returns a single-entry vector wrapping the
-    parsed single-script spec.
-  - Both present → warns once, prefers `:plays`.
-  - Neither → returns `[]`."
+  "The plays `variant-id` runs: the compiled plan's `[:world :scripts]`
+  (`rf.story.play/compiled-plays`), folded and arg-substituted, with a
+  `:compose`d fragment's script included, so discovery reads the program
+  the runtime executes (spec/017 §Variant plan). A variant whose plan does
+  not compile falls back to its body's own plays, so it is still listed and
+  its run reports the plan error. `[]` for a variant with no play."
   [variant-id]
-  (let [body (handler-meta variant-id)]
-    (when (and body
-               (contains? body :script)
-               (contains? body :plays))
-      (warn-both-slots-once! variant-id))
-    ;; FOLD every resolved play's script so the runtime consumes the
-    ;; folded plan: `:assert-db` / `:assert-dom` steps become canonical
-    ;; `[:assert …]` checkpoints before the run loop.
-    (mapv fold-spec (rf.story.play.runner/variant-body->plays body))))
-
-(defn resolve-play
-  "Resolve a `(variant-id, play-key)` pair to the parsed, FOLDED play spec,
-  or nil. `play-key` may be nil — meaning 'the default play' (first
-  entry for multi-play, the single script for `:script`).
-  Multi-play. The script is folded via `variant-plays`."
-  [variant-id play-key]
-  (let [plays (variant-plays variant-id)]
-    (if (nil? play-key)
-      (first plays)
-      (rf.story.play.runner/find-play plays play-key))))
+  (try
+    (rf.story.play/compiled-plays variant-id nil)
+    (catch #?(:clj Exception :cljs :default) _
+      (mapv fold-spec (rf.story.play.runner/variant-body->plays (handler-meta variant-id))))))
 
 ;; ---- trace emission ------------------------------------------------------
 
@@ -525,28 +445,41 @@
            " failed (expected " (pr-str (:expected rec))
            ", actual " (pr-str (:actual rec)) ")")))
 
+(defn- record-step-fail
+  "The step result for a failed accumulator record `rec`. A `:cannot-run?`
+  record (a tape-projected assertion in a build that elides epoch) stays a
+  refusal carrying its hint, as `exec-assert-browser-atom!` reports one, so
+  the run-state agrees with the unified result
+  (`rf.story.play.runner/cannot-run-step?`). Either way the step is marked
+  `:recorded?`: its record is already on the accumulator, so the unified
+  result must not count it again (`rf.story.play.runner/run-state-failures`,
+  `run-state-refusals`)."
+  [idx step rec message]
+  (rf.story.play.runner/step-fail idx step
+                                  (if (:cannot-run? rec)
+                                    {:cannot-run? true
+                                     :reason      (:reason rec)
+                                     :message     (or (:hint rec) message)
+                                     :recorded?   true}
+                                    {:expected  (:expected rec)
+                                     :actual    (:actual rec)
+                                     :message   message
+                                     :recorded? true})))
+
 (defn- dispatch-step-result
   "Build the step result for a (possibly-assertion-bearing) :dispatch /
   :dispatch-sync. If new failed records appeared in the frame's
   `:rf.story/assertions` since `prev` — an `:rf.assert/*` event whose
   reg-event handler recorded a `:passed? false` record, or a captured
   `:rf.error/exception` record for a dispatch that threw or named no
-  handler — surface the first as a step-fail carrying its own message
-  (`failed-record-message`). Otherwise step-skip (no assertion
-  contribution to pass/fail).
-
-  The step-fail is marked `:recorded?` — its record is already on the
-  accumulator, so the unified result must not count it a second time
-  (`rf.story.play.runner/run-state-failures`)."
+  handler — surface the first through `record-step-fail`, carrying its own
+  message (`failed-record-message`). Otherwise step-skip (no assertion
+  contribution to pass/fail)."
   [frame-id prev idx step]
   (let [failed (failed-since frame-id prev)]
     (if (seq failed)
       (let [rec (first failed)]
-        (rf.story.play.runner/step-fail idx step
-                          {:expected  (:expected rec)
-                           :actual    (:actual rec)
-                           :message   (failed-record-message rec)
-                           :recorded? true}))
+        (record-step-fail idx step rec (failed-record-message rec)))
       (rf.story.play.runner/step-skip idx step))))
 
 (defn- boundary-result->step
@@ -995,14 +928,10 @@
               (cond
                 (nil? rec)            (rf.story.play.runner/step-skip idx step)
                 (false? (:passed? rec))
-                (rf.story.play.runner/step-fail idx step
-                                  {:expected  (:expected rec)
-                                   :actual    (:actual rec)
-                                   :message   (or (:reason rec)
-                                                  (str (:assertion rec) " "
-                                                       (pr-str (:payload rec)) " failed"))
-                                   ;; `rec` IS the accumulator record.
-                                   :recorded? true})
+                (record-step-fail idx step rec
+                                  (or (:reason rec)
+                                      (str (:assertion rec) " "
+                                           (pr-str (:payload rec)) " failed")))
                 :else                 (rf.story.play.runner/step-pass idx step))))))))
 
 (defn- frame-router-state
@@ -1275,15 +1204,14 @@
 ;;     `sub-equals` / `dispatched?` / `state-is` / `no-warnings` /
 ;;     `effect-emitted`) are DISPATCHED through `settled-boundary`; the
 ;;     reg-event handler records the canonical record on the slot;
-;;   - DOM-family atoms are evaluated by the DOM executor;
+;;   - DOM-family atoms are evaluated by the DOM executor, and the
+;;     browser-tier oracle family inline by `exec-assert-browser-atom!`,
+;;     which records its verdict: the only place a terminal
+;;     `:rf.assert/a11y-structural` is judged;
 ;;   - tape-evaluated atoms (`:rf.assert/schema-error`, the causal / cascade
-;;     family, the browser-tier oracle family) record a no-op step-skip and
-;;     are NEVER dispatched — the result boundary owns their verdict against
-;;     the epoch tape. So this path does NOT double-process the schema /
-;;     causal kinds the plan collector already feeds to `result/run-result`'s
-;;     tape matchers (the critical guard — the `exec-assert!`
-;;     `tape-evaluated-assertion?` branch is the single source of truth for
-;;     that split).
+;;     family) record a no-op step-skip and are NEVER dispatched: the result
+;;     boundary judges them against the epoch tape, so this path does not
+;;     process them twice (`tape-evaluated-assertion?` draws that split).
 
 (defn- terminal-settle-refusal-record
   "The assertion record for a terminal atom whose PRE-READ SETTLE refused or
@@ -1339,10 +1267,11 @@
   not a runner step stream; their verdict is the slot record
   `record-result-map` / `result/run-result` folds into the unified status).
 
-  The tape-evaluated families (schema-error / causal / browser-tier) carry
-  no reg-event handler; `exec-assert!` records a no-op step-skip for them
-  and never dispatches — the result boundary already evaluates them against
-  the epoch tape from the plan, so they are NOT double-processed here.
+  The tape-evaluated families (schema-error / causal) carry no reg-event
+  handler; `exec-assert!` records a no-op step-skip for them and never
+  dispatches, since the result boundary judges them against the epoch tape.
+  The browser-tier family is evaluated and recorded here, inline
+  (`exec-assert-browser-atom!`).
 
   A pre-read settle that REFUSED or THREW PREVENTS the assertion from
   being evaluated at all, and lands as a `:cannot-run` / `:error` record
@@ -1919,17 +1848,13 @@
   that need a promise can wrap with `js/Promise.` themselves;
   `done-cb` is the canonical completion hook.
 
-  Idempotent w.r.t. concurrent runs — calling `run!` while a previous
-  run is in flight cancels the previous run's `done-cb` (the new one
-  takes over the run-state slot).
+  A `run!` while a previous run of the same play is in flight takes over
+  the run-state slot; the stale loop stops at its next step and settles
+  its own `done-cb` with the last-known state (`settle-abort!`).
 
-  Arities:
-  - `[variant-id]`                — run the default play (the first
-                                    play of `:plays`, or the single
-                                    `:script`).
-  - `[variant-id done-cb]`        — as above + completion callback.
-  - `[variant-id play-key spec done-cb]` — multi-play form:
-                                    drive a specific play. `play-key`
+  `spec` is a compiled play, an entry of the plan's `[:world :scripts]`
+  as `runtime/run-phase-4!` passes it. Arities:
+  - `[variant-id play-key spec done-cb]` — drive `spec`. `play-key`
                                     is the play's `:name` string (or
                                     nil for the single-script case);
                                     callers handing a hand-built `spec`
@@ -1946,21 +1871,11 @@
                                     positionally aligned. Defaults to
                                     `{:clear-boundaries? true}` — the
                                     standalone single-play contract."
-  ([variant-id]
-   (run! variant-id nil nil nil nil))
-  ([variant-id done-cb]
-   ;; Two-arity: variant-id + done-cb. Picks the default play.
-   (run! variant-id nil nil done-cb nil))
   ([variant-id play-key spec done-cb]
    (run! variant-id play-key spec done-cb nil))
   ([variant-id play-key spec done-cb {:keys [clear-boundaries?]
                                       :or   {clear-boundaries? true}}]
-   (let [spec  (or spec
-                   (resolve-play variant-id play-key)
-                   ;; Fall back to the single-script path so the default
-                   ;; play of a `:script` variant Just Works.
-                   (variant-play-script variant-id))
-         pk    (or play-key (:name spec))
+   (let [pk    (or play-key (:name spec))
          init  (rf.story.play.runner/initial-state spec)
          ;; Stamp a fresh token on every run. The loop reads it back from
          ;; the state map; if a concurrent run! replaces the state mid-loop,
@@ -1979,8 +1894,8 @@
      ;; an id at or before the first boundary (in the orchestrator path
      ;; setup runs in phase-2, before phase-4 drives `run!`).
      ;;
-     ;; A MULTI-PLAY sequencer (`run-plays-sequentially!`, the orchestrator
-     ;; `runtime/run-phase-4!`) passes `:clear-boundaries? false` for the
+     ;; A MULTI-PLAY sequencer (the orchestrator `runtime/run-phase-4!`)
+     ;; passes `:clear-boundaries? false` for the
      ;; 2nd…Nth play so the boundaries ACCUMULATE across the whole auto-run
      ;; sequence. The narrative spans the CONCATENATED script
      ;; (`(mapcat :script auto-plays)`), and `:epoch-id` only ever increases
@@ -2002,109 +1917,6 @@
      (set-active-play! variant-id pk)
      (run-loop! variant-id pk token done-cb)
      started)))
-
-(defn run-play!
-  "Run the play identified by `play-key` (a play's `:name`) for
-  `variant-id` (multi-play). Passing nil picks the default
-  play (first entry for multi-play, the single script for
-  `:script`).
-
-  Drives the frame AS IT STANDS, like `run!`. The author-facing 'Run play'
-  is a FRESH run through the one run owner — `runtime/rerun!`."
-  ([variant-id play-key]
-   (run-play! variant-id play-key nil))
-  ([variant-id play-key done-cb]
-   (run! variant-id play-key nil done-cb)))
-
-(defn select-play!
-  "Set `variant-id`'s active play to `play-key` WITHOUT running it. Used
-  by the toolbar dropdown when the user picks a play but hasn't pressed
-  Re-run yet."
-  [variant-id play-key]
-  (set-active-play! variant-id play-key))
-
-(declare run-plays-sequentially!)
-
-(defn auto-run!
-  "Run the play script if `:auto-run?` is true. Called from the shell
-  after the variant mounts. No-op when the variant has no
-  `:script` / `:plays` slot or no play declares `:auto-run? true`.
-
-  Multi-play: every play with `:auto-run? true` is run in ORDER
-  (sequentially) so they don't race against the same frame. By
-  the per-play default (first play true, rest false) only the first
-  play auto-runs on mount; subsequent plays opt in explicitly."
-  ([variant-id]
-   (auto-run! variant-id nil))
-  ([variant-id done-cb]
-   (when rf.story.config/enabled?
-     (let [plays      (variant-plays variant-id)
-           auto-plays (rf.story.play.runner/auto-runnable-plays plays)]
-       (cond
-         (empty? auto-plays)
-         nil
-
-         ;; Single auto-run play — direct fire so the single-script
-         ;; callers keep their run shape.
-         (= 1 (count auto-plays))
-         (let [spec (first auto-plays)]
-           (run! variant-id (:name spec) spec done-cb))
-
-         ;; Multiple auto-run plays — sequence them so a later play
-         ;; doesn't trample the frame mid-run.
-         :else
-         (run-plays-sequentially! variant-id auto-plays done-cb))))))
-
-;; ---- run-all (sequential) -----------------------------------------------
-
-(defn- run-plays-sequentially!
-  "Internal: run `plays` against `variant-id` one after another.
-  Resolves `done-cb` with a vector of terminal states once every play
-  has finished (or the loop is interrupted by a missing frame).
-
-  Clears the per-dispatch-step settle boundaries for EVERY play-key this
-  sequence is about to drive, ONCE up front, then drives each play with
-  `:clear-boundaries? false` so each play's OWN `[variant-id play-key]`
-  slot ACCUMULATES across the sequence (boundaries are keyed by the pair, not by `variant-id` alone, so this clear can never
-  wipe a DIFFERENT, concurrently-running play-key's slot on this same
-  frame — see `step-boundaries`'s docstring). The evidence narrative spans
-  the CONCATENATED play scripts, and `:epoch-id` only ever increases across
-  the run (independent of ring eviction), so each play's
-  boundaries tail the previous play's for `stamp-tape`'s dispatch-order
-  zip to stay aligned. Letting each `run!` clear would leave only the
-  last play's boundaries, mis-attributing later-play effects to
-  earlier-play steps."
-  [variant-id plays done-cb]
-  (let [acc (atom [])]
-    (doseq [pk (map :name plays)]
-      (clear-step-boundaries! variant-id pk))
-    (letfn [(step! [remaining]
-              (if (empty? remaining)
-                (when done-cb
-                  (try (done-cb @acc)
-                       (catch #?(:clj Throwable :cljs :default) _ nil)))
-                (let [spec (first remaining)
-                      pk   (:name spec)]
-                  (run! variant-id pk spec
-                        (fn [final]
-                          (swap! acc conj final)
-                          (step! (rest remaining)))
-                        {:clear-boundaries? false}))))]
-      (step! plays))))
-
-(defn run-all-plays!
-  "Run every play declared on `variant-id` in order, sequentially
-  (multi-play). Calls `done-cb` with a vector of per-play
-  terminal states once every play has completed. Returns nil.
-
-  No-op when the variant carries no plays. Drives the frame AS IT STANDS;
-  the author-facing 'Run all' is `runtime/rerun!` with `{:play :all}`."
-  ([variant-id]
-   (run-all-plays! variant-id nil))
-  ([variant-id done-cb]
-   (let [plays (variant-plays variant-id)]
-     (when (seq plays)
-       (run-plays-sequentially! variant-id (vec plays) done-cb)))))
 
 ;; ---- step-debugger seam -------------------------------------------------
 ;;
