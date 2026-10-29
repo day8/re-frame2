@@ -88,4 +88,7 @@
               (rf.story/destroy-variant! :story.cljs.hang/token-swap)
               (done))))
       ;; Mid-:wait, a concurrent run! stamps a fresher run token on the slot.
-      (js/setTimeout #(rf.story.play.runner-events/run! :story.cljs.hang/token-swap) 15))))
+      (js/setTimeout #(let [vid  :story.cljs.hang/token-swap
+                            spec (first (rf.story.play.runner-events/variant-plays vid))]
+                        (rf.story.play.runner-events/run! vid (:name spec) spec nil))
+                     15))))

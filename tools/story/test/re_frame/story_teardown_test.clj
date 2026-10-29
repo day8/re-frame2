@@ -139,8 +139,9 @@
     (rf.story.frames/allocate! vid (rf.story/resolve-decorators vid))
     (rf.story.loaders/start-loaders! vid)
     (rf.story.loaders/finish-loaders! vid)
-    (let [done (promise)]
-      (rf.story.play.runner-events/run! vid (fn [_] (deliver done :ok)))
+    (let [done (promise)
+          spec (first (rf.story.play.runner-events/variant-plays vid))]
+      (rf.story.play.runner-events/run! vid (:name spec) spec (fn [_] (deliver done :ok)))
       (deref done 5000 :timeout))
     (is (= [true true true] (present)))
     (rf.story/destroy-variant! vid)
