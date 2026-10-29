@@ -367,7 +367,7 @@
 
 (def default-backoff
   "The single source of truth for the exponential-backoff defaults,
-  read by `compute-backoff-ms`'s `:or` map. Naming the def makes the
+  read by `compute-backoff-ms` for each absent or nil key. Naming the def makes the
   defaults a referenceable constant Spec 014 §Retry and backoff can point
   at, so a change edits one place rather than an inline literal that
   could silently drift from the spec."
@@ -377,16 +377,17 @@
   "Per Spec 014 §Retry and backoff. Returns the delay in ms before the
   next attempt. `attempt` is the failing attempt number (1-based).
 
-  Defaults (`default-backoff`): base-ms 250, factor 2, max-ms 5000.
+  Defaults (`default-backoff`): base-ms 250, factor 2, max-ms 5000. A nil
+  value takes its default exactly as an absent key does.
 
   Per Spec 014 §Retry and backoff — `:jitter true` adds random ±25%
   jitter to each delay (offset uniformly in [-0.25 × capped, +0.25 ×
   capped])."
-  [{:keys [base-ms factor max-ms jitter]
-    :or   {base-ms (:base-ms default-backoff)
-           factor  (:factor default-backoff)
-           max-ms  (:max-ms default-backoff)}} attempt]
-  (let [raw      (* base-ms (Math/pow factor (max 0 (dec attempt))))
+  [{:keys [base-ms factor max-ms jitter]} attempt]
+  (let [base-ms  (or base-ms (:base-ms default-backoff))
+        factor   (or factor (:factor default-backoff))
+        max-ms   (or max-ms (:max-ms default-backoff))
+        raw      (* base-ms (Math/pow factor (max 0 (dec attempt))))
         capped   (min raw max-ms)
         ;; (- 1.0 (* 2.0 (rand))) is uniform in [-1.0, +1.0]; scaled by
         ;; 0.25 × capped this yields a true ±25% offset matching the

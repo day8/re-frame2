@@ -844,6 +844,10 @@
   (the production-elision seam) and, for the terminal arm, on the
   real-retry-sequence guard.
 
+  The nested `:failure` is self-identified, as the category row's is, so it
+  carries the request url the privacy pass needs to redact the url's quotes
+  in its `:message` (Spec 014 §Privacy §4).
+
   The nested intermediate `:failure` may carry a raw
   error `:body` / `:body-text` (a retryable `:rf.http/http-4xx` /
   `:rf.http/http-5xx`); stamp the off-box `:omit` disposition forward
@@ -857,7 +861,7 @@
                           :url             (:url ctx)
                           :attempt         (:attempt ctx)
                           :max-attempts    (get-in ctx [:retry :max-attempts])
-                          :failure         failure
+                          :failure         (self-identify failure ctx)
                           :next-backoff-ms next-backoff-ms
                           :recovery        recovery}
                          (true? (:sensitive? ctx)))

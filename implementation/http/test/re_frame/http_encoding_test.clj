@@ -12,7 +12,9 @@
     {}                                     6 5000
     {}                                     0 250
     {:base-ms 100 :factor 3}               3 900
-    {:base-ms 1000 :factor 2 :max-ms 3000} 3 3000))
+    {:base-ms 1000 :factor 2 :max-ms 3000} 3 3000
+    {:base-ms nil :factor nil :max-ms nil} 5 4000
+    {:base-ms 1000 :factor 2 :max-ms nil}  4 5000))
 
 (deftest compute-backoff-ms-jitter-respects-clamp
   ;; Raw delay at attempt 10 is 512000, clamped to 2000; jitter must spread
