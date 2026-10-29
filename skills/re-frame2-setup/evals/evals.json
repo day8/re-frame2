@@ -110,6 +110,14 @@
        "The explicit upgrade request is sufficient authorization: no confirmation is requested merely to write compatible versions already requested by the author.",
        "Selected versions are written as exact pins, with React and ReactDOM kept compatible with the view library; a concrete compatibility conflict is reported rather than ignored.",
        "The framework coordinates remain on the requested reviewed checkout, and the handoff includes the actual install and terminating compile results."
+     ]},
+    {"id": 25, "name": "watch-port-taken", "should_trigger": true,
+     "prompt": "Scaffold a re-frame2 counter in this empty directory. Another project's shadow-cljs watch is already serving on port 8280.",
+     "expected_output": "The agent scaffolds, installs, compiles and runs the starter test as usual, then starts the watch detached and reads the URL off the dev-http line in the watch's own output, never out of shadow-cljs.edn. With 8280 taken it moves this project's :dev-http to a free port, stops this project's shadow-cljs process with `npx shadow-cljs stop`, restarts the watch, and reports the port the watch printed.",
+     "expectations": [
+       "The reported URL is the one the watch printed; http://localhost:8280/ is not reported as this app while another project's watch holds that port.",
+       "The port moves in this project's shadow-cljs.edn :dev-http, and the restart runs `npx shadow-cljs stop` in this project before the new watch, rather than starting a second watch that joins the running process as a client and quits when its stdin closes.",
+       "The other project's watch is left running: only the scaffolded project's shadow-cljs process is stopped."
      ]}
   ]
 }
