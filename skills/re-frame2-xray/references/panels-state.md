@@ -25,15 +25,13 @@ change. Section order, top → bottom, each card titled as shown:
 - **`:rf/spawned › <id>`** — one section per parent machine, holding
  the actors it spawned.
 - **`:rf/route`** — the current-route slice (a singleton section).
-- **`:rf/pending-navigation`** · **`:rf/elision`** — singleton sections
- for the remaining reserved areas. There are no others.
+- **`:rf/pending-navigation`** — a singleton section, the last reserved
+ area. There are no others.
 
 Empty/absent reserved areas are omitted — no "no X here" placeholder
 clutter. The `:rf/*` titles are labels: those areas are read from the
 frame's runtime-db partition, not from app-db. The mapping is normative
-in §021 §4.2, cited below; its mock-up draws the titles as uppercase
-captions (`APP STATE`, `MACHINE :title/flow`), but the shipped cards use
-the titles above.
+in §021 §4.2, cited below.
 
 When the L2 spine is at head (no historical epoch focused), sections show
 the most-recent epoch's state with its inline diffs — current db,
