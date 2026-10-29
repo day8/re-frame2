@@ -77,7 +77,7 @@
 
 ;; The generator's reference project — the identity every template test and
 ;; README example uses. The default route writes exactly this project; an
-;; author-supplied name is a rename.
+;; author-supplied name is derived by SKILL.md §Project identity.
 (def reference-identity
   {:name "acme/my-app" :top "acme" :main "my-app"})
 

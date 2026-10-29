@@ -26,6 +26,7 @@ allowed-tools:
   - Bash(npm view * version)
   - Bash(npx shadow-cljs watch *)
   - Bash(npx shadow-cljs compile *)
+  - Bash(npx shadow-cljs stop)
   - Bash(shadow-cljs watch *)
   - Bash(shadow-cljs compile *)
   - Read

@@ -93,7 +93,7 @@
   (claims
    [["SKILL.md" @skill-md "references/first-counter.md" "the default route reads first-counter.md"]
     ["SKILL.md" @skill-md "nothing else needs reading" "first-counter.md is the whole default"]
-    ["README.md" @readme-md "Both routes land on the same canonical scaffold" "Lock 0 makes this literally true"]]))
+    ["README.md" @readme-md "Both routes land on the same canonical scaffold" "the derivation lock makes this literally true"]]))
 
 (deftest deps-versions-frames-lockstep-as-build-discipline
   (let [body @deps-versions-md]
