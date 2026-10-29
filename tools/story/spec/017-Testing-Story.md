@@ -978,8 +978,8 @@ the existing framework drain and a flush-hook seam over it.
   DISPATCH behind a synthetic DOM event (`exec-click!` / `exec-type!` /
   `exec-focus!` fire the event and the handler's `dispatch` schedules its
   drain through `interop/next-tick`, a macrotask, never inline), and the
-  MOUNT the auto-run outruns (leading sync-class steps run inside the
-  canvas's post-commit hook, while the canvas has committed its loading
+  MOUNT the auto-run outruns (leading sync-class steps run as the
+  canvas's post-commit resume fires, while the canvas has committed its loading
   skeleton and the variant's own markup is not yet in the document).
   Note the dispatch case is not "nothing drains the queue": `re-frame.router/dispatch-sync!`
   pushes its seed at the FRONT of the queue and drains, so an assertion

@@ -27,7 +27,8 @@
       UPDATE (no unmount/remount)
             |
       a run of variant-b -> lands in variant-b's slot; a later run of
-      variant-a, no longer shown, leaves variant-a's slot as it was
+      variant-a, no longer shown, replaces variant-a's slot, as every
+      variant with a slot follows its runs
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
   discovers it and mounts real DOM via `react-dom/client`; `:node-test`
@@ -149,10 +150,13 @@
                               variant B lands in B's slot")
                          (let [a-before (slot-result va)]
                            (-> (canvas-run! va)
-                               (.then (fn [_]
-                                        (is (identical? a-before (slot-result va))
-                                            "a run of A, no longer shown, leaves A's
-                                             slot as it was")))))))
+                               (.then (fn [a-result]
+                                        (is (not (identical? a-before (slot-result va)))
+                                            "a later run of A, no longer shown,
+                                             replaces A's slot")
+                                        (is (= a-result (slot-result va))
+                                            "A's slot holds that later run's
+                                             result")))))))
                 (.then (fn [_] (finish)))
                 (.catch (fn [e]
                           (is false (str "a run rejected: " e))

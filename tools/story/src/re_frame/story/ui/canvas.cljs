@@ -502,10 +502,14 @@
   calling it too for the same generation collapses to one execution.
 
   The 0-arity reads the shell, for the lifecycle hooks (which run outside
-  render), and always RESUMES: the render-phase call below may already
-  have prepared the run under the current key, and only a post-commit
-  resume lets the script's DOM steps see the view that render produced
-  (`rf.story.runtime/resume-run!`). The 2-arity takes a `run-key` the
+  render), and always RESUMES, one macrotask after the commit: the
+  render-phase call below may already have prepared the run under the
+  current key, and only a post-commit resume lets the script's DOM steps
+  see the view that render produced (`rf.story.runtime/resume-run!`). The
+  resume waits out the commit because a lifecycle hook runs inside it,
+  where the substrate's synchronous flush cannot commit, so a script run
+  there would read the DOM as it stood before its own dispatches
+  (`rf.story.play.substrate-boundary`). The 2-arity takes a `run-key` the
   caller already holds, so `canvas-inner`'s render-phase call never derefs
   the shell atom — a deref there would subscribe that render to every
   shell write — and with `resume?` false it only PREPARES."
@@ -513,9 +517,9 @@
    (when rf.story.config/enabled?
      (let [shell      @rf.story.ui.state/shell-state-atom
            variant-id (:selected-variant shell)]
-       (run-if-needed! variant-id (when variant-id (run-key shell variant-id)))
+       (run-if-needed! variant-id (when variant-id (run-key shell variant-id)) false)
        (when variant-id
-         (rf.story.runtime/resume-run! variant-id)))))
+         (js/setTimeout #(rf.story.runtime/resume-run! variant-id) 0)))))
   ([variant-id key] (run-if-needed! variant-id key true))
   ([variant-id key resume?]
    (when rf.story.config/enabled?
