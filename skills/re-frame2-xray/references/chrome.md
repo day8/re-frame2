@@ -24,7 +24,7 @@ Static. It does **not** re-scope the process-global definition catalogues
 (events / subs / routes / interceptors / machine definitions read the same in
 every frame, Spec 001); what it moves are the per-frame *live* projections —
 each Dynamic tab's observed-frame state and the Static tabs' per-frame slices
-(machine snapshots, the flows registry, the app-db schemas the frame
+(machine snapshots, the flows the frame runs, the app-db schemas it
 resolves, the current-route slice; see [`panels.md` §Static mode](panels.md)).
 
 - **The control always renders.** On a single-frame app it is a working
@@ -93,7 +93,7 @@ the focused epoch, reinstalling that frame's WHOLE frame-state — both app-db
 AND runtime-db — from the epoch's `:frame-state-after` via
 `(rf.epoch/restore-epoch! …)` (which installs atomically through
 `replace-frame-state!`, not the `:db-after` projection alone, so machine
-snapshots / the route slice / elision declarations / SSR metadata revive
+snapshots / the route slice / SSR metadata revive
 alongside app-db) — disabled when no epoch is focused; on the rare framework
 failure (epoch aged out) it shows a brief inline flash, never a modal.
 
@@ -139,7 +139,8 @@ events · frame switch · registered handlers · settings · command verbs**.
 Mode-aware (Dynamic vs Static), recency-boosted; `Ctrl+Enter` pops out a
 poppable item. Command verbs include Clear trace buffer, Reset
 redacted-events counter, Snapshot app-db, Toggle theme, Cycle
-reduced-motion, Jump to Settings, Toggle mode, Open pop-out, Close
+reduced-motion, Jump to Settings, Toggle mode, Open Xray in a pop-out
+window, Close
 command palette (Cycle display density rides the separate `settings`
 source). There is **no clear-epoch-history verb** — Xray's
 `:epoch-history` slot mirrors the framework's ring, so clearing it would
@@ -203,11 +204,10 @@ Xray off-box sink uses: `include-sensitive?` and `include-large?` both default
 `egress-value`).
 
 Do **not** tell a user this command drops the *raw* `app-db`, and do not
-present it as a way to copy a secret-bearing value off-box: a focused frame
-holding `{:auth {:token "secret"}}` (or any owner-classified sensitive
-path — a durable app-db path classified by the `:sensitive` commit-plane
-effect, a projection-relative `:sensitive` on a subsystem definition; per
-EP-0025) is redacted in the snapshot. **This command exposes no raw-capture
+present it as a way to copy a secret-bearing value off-box: a path the
+frame classifies `:sensitive` (through `reg-classification`, or a machine
+or resource spec's own `:sensitive`; Spec 015) is redacted in the
+snapshot. **This command exposes no raw-capture
 opt-in:** it always uses the redacted, size-elided projection. Pair's
 `--allow-sensitive-reads` and per-call inclusion options belong to its
 separate agent runtime interface and do not change Xray's console or
