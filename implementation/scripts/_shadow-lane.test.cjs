@@ -261,6 +261,10 @@ test('a second run waits, names the holder, and proceeds once the holder release
     b.err.includes(`waiting for build lane held by ${a.child.pid} (${REPO_ROOT}, first-build)`),
     `the waiting line names the holder's pid, worktree and command:\n${b.err}`,
   );
+  assert.ok(
+    b.err.includes(`; lock file ${lock} (delete it if ${a.child.pid} is not a shadow-cljs build)`),
+    `the waiting line names the lock file to delete:\n${b.err}`,
+  );
   await sleep(300);
   assert.equal(b.out.includes('HELD'), false, 'the second run took a lane that was held');
   a.child.stdin.write('release\n');
@@ -285,6 +289,34 @@ test('a killed holder\'s lock is reclaimed by the next run with no manual step',
   assert.doesNotMatch(b.err, /waiting for build lane/);
   assert.equal(fs.existsSync(lock), false);
   assert.deepEqual(leftovers(lock), []);
+});
+
+// A holder that dies hard frees its pids, and the OS can hand them to unrelated live
+// processes. Each stand-in here began after the record named it, so it is not the holder.
+test('a lock whose recorded pids now name processes that began later is reclaimed', { timeout: TIMEOUT_MS }, async () => {
+  const lock = freshLock();
+  const strangers = [0, 1].map(() => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    live.add(child);
+    return child;
+  });
+  const anHourAgo = new Date(Date.now() - 3600000).toISOString();
+  fs.writeFileSync(lock, `${JSON.stringify({
+    pid: strangers[0].pid,
+    child: strangers[1].pid,
+    childAt: anHourAgo,
+    worktree: REPO_ROOT,
+    command: 'long-dead-build',
+    started: anHourAgo,
+    token: '0123456789abcdef',
+  })}\n`);
+  const b = start(['take', 'successor'], { RF2_SHADOW_LANE_LOCK: lock });
+  await eventually(() => b.code !== undefined, 'the run to reclaim a lane held by recycled pids', 20000);
+  assert.equal(b.code, 0, b.err);
+  assert.match(b.err, new RegExp(`reclaimed the build lane from dead holder ${strangers[0].pid} `));
+  assert.ok(strangers.every((s) => isAlive(s.pid)), 'the reclaim touched the unrelated processes');
+  assert.equal(fs.existsSync(lock), false);
+  for (const s of strangers) s.kill('SIGKILL');
 });
 
 test('a waiter that is killed leaves the holder\'s lock as it was', { timeout: TIMEOUT_MS }, async () => {
