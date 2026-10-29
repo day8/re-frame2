@@ -80,6 +80,13 @@
            {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1] :status :pass}]}
            {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1] :status :fail}]}))))
 
+(deftest diff-assertions-sees-a-flip-in-an-earlier-occurrence
+  (let [run (fn [first-status]
+              {:assertions [{:assertion :rf.assert/path-equals :payload [[:n] 1] :status first-status}
+                            {:assertion :rf.assert/path-equals :payload [[:n] 1] :status :pass}]})]
+    (is (= {:changed [{:selector [:rf.assert/path-equals [[:n] 1]] :baseline :pass :current :fail}]}
+           (rf.story.diff/diff-assertions (run :pass) (run :fail))))))
+
 (deftest diff-checks-verdict-delta
   (is (= {:changed [{:selector :checkout/valid :baseline :pass :current :fail}]}
          (rf.story.diff/diff-checks

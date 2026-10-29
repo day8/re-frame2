@@ -386,14 +386,19 @@
 
 (defn- assertions-by-selector
   "Map every assertion record in a run to its `:status`, keyed by the stable
-  assertion selector `[:assertion :payload]`. Pure data → data. A duplicate
-  selector keeps the LAST record's status (verdicts of equal-identity
-  assertions agree by construction — the §Schema-rule multiset pairing mints
-  one record per consumed violation)."
+  assertion selector `[:assertion :payload]`. Pure data → data. A repeated
+  selector (one checkpoint asserted at two points of a script) keys its
+  n-th occurrence (n ≥ 1) as `[:assertion :payload n]`, so a flip in any
+  occurrence shows."
   [run]
-  (into {}
-        (map (fn [a] [[(:assertion a) (vec (:payload a))] (:status a)]))
-        (:assertions run)))
+  (first
+    (reduce (fn [[m seen] a]
+              (let [sel (vector (:assertion a) (vec (:payload a)))
+                    n   (get seen sel 0)]
+                [(assoc m (if (zero? n) sel (conj sel n)) (:status a))
+                 (assoc seen sel (inc n))]))
+            [{} {}]
+            (:assertions run))))
 
 (defn diff-assertions
   "Verdict delta over the two runs' `:assertions` records, keyed by the

@@ -3785,7 +3785,9 @@ wants first.
   (`:added` / `:removed` selectors + `:changed` verdict flips, each entry a
   `{:selector … :baseline … :current …}`) — a `:pass` → `:fail` flip on one
   assertion reads as a one-entry `:changed`, not a wall of records, and the
-  `:payload` disambiguates two same-id assertions at different paths;
+  `:payload` disambiguates two same-id assertions at different paths; a
+  selector repeated within one run keys its n-th occurrence (n ≥ 1) as
+  `[:assertion :payload n]`;
 - `:checks` — a verdict delta over the check records, keyed by the `:check`
   id (the same `:added` / `:removed` / `:changed` shape) — the check identity
   is its id, not its underlying assertion records;
