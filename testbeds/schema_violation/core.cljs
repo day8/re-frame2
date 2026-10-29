@@ -95,8 +95,7 @@
 ;;            fails its reg-cofx :schema — a HALTING production hard error)
 ;; ----------------------------------------------------------------------------
 ;;
-;; Per EP-0017, `reg-cofx` is a value-returning supplier — there is no
-;; v1 ctx->ctx idiom and no `inject-cofx`. A recordable coeffect
+;; Per EP-0017, `reg-cofx` is a value-returning supplier. A recordable coeffect
 ;; (`:rf.cofx/requires`) rides the durable causal record (epoch ledger,
 ;; replay, SSR payload, Xray), so a bad value is NOT a recoverable
 ;; dev-only trace: it is `:rf.error/cofx-value-invalid`, a PRODUCTION
