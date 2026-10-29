@@ -99,6 +99,28 @@
           "the failure record carries the Malli explanation"))
     (rf.story/destroy-variant! :story.malli/bad)))
 
+(deftest path-matches-explanation-redacts-a-sensitive-value
+  ;; Malli's explain carries the value it validated; on a classified path
+  ;; the record's :explanation must be as leak-free as its :actual, whether
+  ;; the asserted path is the sensitive leaf or a map holding it.
+  (rf/reg-event :test/login
+    (fn [{:keys [db]} _] {:db (assoc db :auth {:token "BEARER-secret-12345" :user "ada"})}))
+  (rf.story/reg-variant :story.malli/classified
+    {:setup     [[:test/login]]
+     :sensitive {:app-db [[:auth :token]]}
+     :script    [[:dispatch-sync [:rf.assert/path-matches [:auth :token] :int]]
+                 [:dispatch-sync [:rf.assert/path-matches [:auth] [:map [:token :int] [:user :int]]]]]})
+  (let [r       (run-v! :story.malli/classified)
+        records (filter #(= :rf.assert/path-matches (:assertion %)) (:assertions r))]
+    (is (= [false false] (mapv :passed? records)))
+    (is (every? #(re-find #":rf/redacted" (:explanation %)) records)
+        "the explanation keeps its shape, the sentinel standing in for the secret")
+    (is (re-find #"ada" (:explanation (second records)))
+        "a value on an unclassified path still explains its own failure")
+    (is (not (re-find #"BEARER-secret" (pr-str records)))
+        "no slot of either record carries the raw token"))
+  (rf.story/destroy-variant! :story.malli/classified))
+
 (deftest sub-equals-pass
   (testing ":rf.assert/sub-equals compares the subscription's value, recording a mismatch"
     (rf/reg-event :test/init
@@ -271,20 +293,11 @@
     (rf.story/destroy-variant! :story.ssot/dispatched)))
 
 ;; `dispatched-events` feeds `:rf.assert/dispatched?` and the loaders'
-;; vector-form `:loaders-complete-when`. Spec 009 §Privacy: a sensitive
-;; epoch's trigger event is dropped while the local-render egress profile
-;; redacts, so it never reaches a record's `:actual`; and an `:rf.assert/*`
-;; trigger is a verdict the runner dispatched, never behaviour under test.
-;; Both branches are pure over the tape, so the tests feed a synthetic one.
-
-(defn- with-egress-profile
-  "Run `thunk` with Story's egress profile bound to `profile`, restoring the
-  prior value (the fixture does not reset it)."
-  [profile thunk]
-  (let [prev @rf.story.config/session-egress-profile]
-    (rf.story.config/set-egress-profile! profile)
-    (try (thunk)
-         (finally (rf.story.config/set-egress-profile! prev)))))
+;; vector-form `:loaders-complete-when`. Spec 009 §Privacy: needles match the
+;; raw trigger events, and the record shows a sensitive epoch's trigger as
+;; `[event-id :rf/redacted]` while the local-render egress profile redacts;
+;; an `:rf.assert/*` trigger is a verdict the runner dispatched, never
+;; behaviour under test.
 
 (defn- with-tape
   "Run `thunk` with the private `frame-tape` projection redefed to return
@@ -293,20 +306,47 @@
   [tape thunk]
   (with-redefs-fn {#'rf.story.assertions/frame-tape (constantly tape)} thunk))
 
-(deftest dispatched-events-drops-sensitive-trigger-when-redacting
-  (let [tape [{:trigger-event [:auth/login]}
-              {:trigger-event [:auth/submit {:password "hunter2"}] :rf.epoch/sensitive? true}
-              {:trigger-event [:rf.assert/path-equals [:cart] {}]}
-              {:trigger-event [:cart/checkout]}]
-        events (fn [profile]
-                 (with-tape tape
-                   #(with-egress-profile profile
-                      (fn [] (rf.story.assertions/dispatched-events :any-frame)))))]
-    (is (= [[:auth/login] [:cart/checkout]] (events :rf.egress/local-redacted))
-        "redacting drops the sensitive trigger, and the assertion trigger always drops")
+(deftest dispatched?-matches-raw-and-records-projected
+  (let [tape     [{:trigger-event [:auth/login]}
+                  {:trigger-event [:auth/submit {:password "hunter2"}] :rf.epoch/sensitive? true}
+                  {:trigger-event [:rf.assert/path-equals [:cart] {}]}
+                  {:trigger-event [:cart/checkout] :rf.epoch/sensitive? true}]
+        epochs   (with-tape tape #(@#'rf.story.assertions/dispatched-epochs :any-frame))
+        evaluate @#'rf.story.assertions/evaluate-dispatched?
+        redacted (evaluate epochs false [[:auth/submit {:password "hunter2"}]])]
     (is (= [[:auth/login] [:auth/submit {:password "hunter2"}] [:cart/checkout]]
-           (events :rf.egress/local-raw))
-        "under :rf.egress/local-raw the operator opted in, so the sensitive trigger projects")))
+           (with-tape tape #(rf.story.assertions/dispatched-events :any-frame)))
+        "matching reads every raw trigger, and the assertion trigger always drops")
+    (is (= [true [:auth/submit :rf/redacted] [[:auth/login] [:auth/submit :rf/redacted] [:cart/checkout]]]
+           [(:passed? redacted) (:expected redacted) (:actual redacted)])
+        "a sensitive trigger still matches, and reaches the record redacted")
+    (is (= [[:auth/login] [:auth/submit {:password "hunter2"}] [:cart/checkout]]
+           (:actual (evaluate epochs true [:cart/checkout])))
+        "a frame revealed to :rf.egress/local-raw records the raw triggers")))
+
+(deftest a-classified-variant-asserts-and-waits-on-what-it-dispatched
+  ;; Once setup fills a classified path every later epoch is sensitive, so
+  ;; matching has to read the raw triggers for either form to work at all.
+  (rf/reg-event :auth/login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-x")}))
+  (rf/reg-event :cart/checkout (fn [{:keys [db]} _] {:db (assoc db :checked-out? true)}))
+  (rf.story/reg-variant :story.classified/dispatched
+    {:setup     [[:auth/login] [:cart/checkout]]
+     :sensitive {:app-db [[:auth :token]]}
+     :script    [[:dispatch-sync [:rf.assert/dispatched? :cart/checkout]]]})
+  (rf.story/reg-variant :story.classified/loaders
+    {:loaders               [[:auth/login]]
+     :loaders-complete-when [[:auth/login]]
+     :setup                 [[:cart/checkout]]
+     :sensitive             {:app-db [[:auth :token]]}})
+  (is (= [:pass [true]]
+         (let [r (run-v! :story.classified/dispatched)]
+           [(:status r) (mapv :passed? (:assertions r))])))
+  (is (= [:pass true]
+         (let [r (run-v! :story.classified/loaders)]
+           [(:status r) (get-in r [:app-db :checked-out?])]))
+      "the vector :loaders-complete-when completes, so setup runs")
+  (rf.story/destroy-variant! :story.classified/dispatched)
+  (rf.story/destroy-variant! :story.classified/loaders))
 
 (deftest effect-emitted-projects-from-tape-effects
   (testing ":rf.assert/effect-emitted reads the same tape :effects projection as
