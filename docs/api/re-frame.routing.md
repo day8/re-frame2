@@ -219,8 +219,8 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
     - A request identical to the current location does nothing and runs no guards. Any other request runs the current route's `:can-leave` guard, then the `:can-enter` guards of the target and its ancestors, parent first, and the first `false` ends it (see [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending) and [`:rf.route/entry-denied`](#rfrouteentry-denied-denial)).
     - A request that changes only the fragment then updates `:fragment`, pushes the URL and scrolls. It keeps the navigation token and does not re-run `:on-match` or the resource plan.
     - Any other allowed request commits: the route slice is written, the URL pushed or replaced, `:on-match` dispatched, the resource plan run and the scroll applied. If resource planning fails, the route commits with `:transition :error`, no partial resource ensures run, and `:on-match` is skipped.
-- **Errors**: both leave the route slice unchanged and push nothing.
-    - `:rf.error/schema-validation-failure` (`:where :event`): `route-url` cannot build the target, because `:to` is not registered, a path param is missing, or the route's schemas reject the params or query. `route-url`'s error is under `:error`, elided when the route's schema marks a slot `:sensitive?`.
+- **Errors**: each leaves the route slice unchanged and pushes nothing.
+    - `:rf.error/schema-validation-failure` (`:where :event`): the route's schemas reject the params or query. Any other reason `route-url` cannot build the target reports `route-url`'s own id, also at `:where :event`: an unregistered `:to` as `:rf.error/no-such-route`, a missing path param as `:rf.error/missing-route-param`, an uncaptured one as `:rf.error/route-url-validation`. Either way `route-url`'s error is under `:error`, elided when the route's schema marks a slot `:sensitive?`.
     - `:rf.error/navigate-bad-request`: the request breaks one of the rules below, checked before any guard runs. `:reason` names the rule, and `:keys` the offending keys.
 
     <a id="navigate-request-rules"></a>
