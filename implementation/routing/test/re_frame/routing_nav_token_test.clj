@@ -177,3 +177,43 @@
                           [:rf.runtime/routing :current])]
         (is (= [[:fail :next] :idle nil]
                [@order (:transition slice) (:error slice)]))))))
+
+(defn- hydrate-then-navigate!
+  "Hydrate route A carrying the server's `server-token`, capture the live token
+  on A, navigate to B, then complete A's work under the captured token.
+  Returns `[captured token-on-B result-delivered-into-B]`."
+  [server-token]
+  (rf/reg-route :route/a {} "/a")
+  (rf/reg-route :route/b {} "/b")
+  (rf/reg-event :a/loaded (fn [{:keys [db]} [_ reply]] {:db (assoc db :a-result (:value reply))}))
+  (rf/reg-event :a/load-more
+                {:rf.cofx/requires [:rf.route/nav-token]}
+                (fn [{:keys [db] :rf.route/keys [nav-token]} _] {:db (assoc db :captured nav-token)}))
+  (rf/reg-event :a/complete
+                (fn [_ [_ token]]
+                  {:fx [[:rf.route/with-nav-token {:rf/reply-to [:a/loaded]
+                                                   :nav-token   token
+                                                   :route-id    :route/a
+                                                   :value       "A-page-2"}]]}))
+  (rf/dispatch-sync [:rf/hydrate {:rf/app-db     {}
+                                  :rf/runtime-db {:rf.runtime/routing
+                                                  {:current {:route-id :route/a :params {} :query {}
+                                                             :fragment nil :transition :idle :error nil
+                                                             :nav-token server-token}}}}])
+  (rf/dispatch-sync [:a/load-more])
+  (let [captured (:captured (rf/app-db-value :rf/default))]
+    (visit! "/b")
+    (rf/dispatch-sync [:a/complete captured])
+    [captured
+     (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :nav-token])
+     (:a-result (rf/app-db-value :rf/default))]))
+
+(deftest a-hydrated-token-the-client-would-mint-next-is-minted-past
+  (testing "a fresh server process serves nav-1, which is the fresh client's own
+            next token: the first client navigation mints past it, so work
+            captured on the hydrated route is stale on the new one"
+    (is (= ["nav-1" "nav-2" nil] (hydrate-then-navigate! "nav-1")))))
+
+(deftest a-hydrated-token-ahead-of-the-client-is-minted-past
+  (testing "a server token ahead of the client's counter floors the next mint"
+    (is (= ["nav-7" "nav-8" nil] (hydrate-then-navigate! "nav-7")))))

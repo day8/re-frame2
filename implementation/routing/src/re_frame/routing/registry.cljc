@@ -724,6 +724,11 @@
           (map (fn [[k raw]] [k (normalize-type-form raw)]))
           (schema-slot-entries schema))))
 
+(def ^:private uuid-literal-re
+  "The lower-case 8-4-4-4-12 hex spelling CLJS `parse-uuid` requires, so a
+  `:uuid` capture coerces from the same strings on both hosts."
+  #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
 (def ^:private int-literal-re
   "A strict integer-literal guard for `:int` query-value
   coercion, applied **identically on JVM and CLJS**. A value is coerced to
@@ -801,9 +806,9 @@
     `\" 12\"`, `\"abc\"`, a >2^53 literal) stays a string on BOTH hosts;
     the route's `:query`/`:params` schema then flags the type mismatch via
     the layered validator.
-  - `:uuid` — coerced to a UUID object via the host-symmetric, total
-    `parse-uuid` (returns nil → string passthrough on a non-UUID; never
-    throws). This is what makes the canonical Spec 012 `:uuid` PATH route
+  - `:uuid` — coerced to a UUID object when the string is the 8-4-4-4-12
+    hex spelling in either case, identically on JVM and CLJS (any other
+    string passes through; never throws). This is what makes the canonical Spec 012 `:uuid` PATH route
     (`{:path \"/articles/:id\" :params [:map [:id :uuid]]}`) round-trip a
     real UUID URL to `{:id #uuid \"...\"}` rather than 404.
   - `[:rf.route/enum-keyword {token kw} {kw token}]` — declared as
@@ -835,8 +840,13 @@
     ;; and divergent canonical href. Lowercasing first matches the form
     ;; `re-frame.identity/canonical-bytes` already blesses. A non-UUID string →
     ;; `parse-uuid` nil (both hosts) → leave the RAW (original-case) string for
-    ;; the validator to reject.
-    (if (string? v) (or (parse-uuid (str/lower-case v)) v) v)
+    ;; the validator to reject. `uuid-literal-re` gates the parse because JVM
+    ;; `parse-uuid` is `UUID/fromString`, which also accepts short groups and a
+    ;; sign (`1-1-1-1-1`) that CLJS `parse-uuid` refuses.
+    (if (string? v)
+      (let [lower (str/lower-case v)]
+        (or (when (re-matches uuid-literal-re lower) (parse-uuid lower)) v))
+      v)
 
     (= :boolean type-form)
     (case v "true" true "false" false v)
