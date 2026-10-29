@@ -3369,10 +3369,7 @@ bound it:
   registrar, so under `:advanced` + `goog.DEBUG=false` neither the slot
   nor the source bytes reach the bundle (JVM builds are always-on). A
   production runtime answers with coordinates and no body.
-- **`reg-event` scope.** No other kind on the enum above (`sub`, `fx`,
-  `cofx`, `interceptor`, `view`, `route`, `head`,
-  `error-projector`, `resource`, `mutation`, `resource-scope`,
-  `app-schema`) carries the
+- **`reg-event` scope.** No other kind on the enum above carries the
   slot — fall back to `:rf.mcp/source-uri` and the filesystem
   there. Machine guards and actions do carry the same key, but
   through the framework's derived `:machine-guard` / `:machine-action`
@@ -3387,7 +3384,8 @@ bound it:
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
 `fx` / `cofx` / `interceptor` / `view` / `route` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
-`app-schema` / `flow` / `machine`), `id` (string, **required** — EDN-encoded
+`app-schema` / `flow` / `http-interceptor` / `classification` /
+`machine`), `id` (string, **required** — EDN-encoded
 keyword, composite vector, or `app-schema` path vector), `frame` (string, optional — a frame id keyword;
 the EP-0023 forward direction, see below), `build` (string, optional).
 
@@ -3448,8 +3446,11 @@ that combination returns `{:ok? false :reason :frame-unsupported-for-machine
 the `:interceptor` kind (EP-0022 — `reg-interceptor`; its meta
 surfaces the registered `:rf/interceptor-descriptor`), and the
 `:app-schema` kind (Spec 010 — `reg-app-schema`; its id is the canonical
-path vector, and its meta carries `:path` and the registered `:schema`).
-The fourteen registrar kinds route through
+path vector, and its meta carries `:path` and the registered `:schema`),
+the `:http-interceptor` kind (Spec 014 §Middleware — `reg-http-interceptor`)
+and the `:classification` kind (Spec 015 — `reg-classification`). The
+tool's set restates `re-frame.registrar/kinds` less `:frame`, and a test
+pins it to that set. Every registrar kind routes through
 `(re-frame2-pair.runtime/registrar-describe kind id)`. For a
 `:resource-scope` the meta surfaces the named scope resolver's declared
 `:inputs` map + `:whole-db?` cost (the EP-0016 disposition-2
@@ -3482,7 +3483,8 @@ symbol these forms emit is a public top-level `defn` in it.
 {:ok?              true
  :kind             :event | :sub | :fx | :cofx | :interceptor | :view |
                    :route | :head | :error-projector |
-                   :resource | :mutation | :resource-scope | :app-schema | :machine
+                   :resource | :mutation | :resource-scope | :app-schema |
+                   :flow | :http-interceptor | :classification | :machine
  :id               <registered-id>
  :ns               my.app.user
  :line             42
@@ -3558,9 +3560,9 @@ There is no `realm` arg — the EP-0013 realm substrate was deleted in full
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
 (including the resources-artefact `:resource` / `:mutation` /
 `:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — the `:interceptor`
-kind — EP-0022 — and the `:app-schema` kind; plus
-the virtual `:machine` kind). The fourteen
-registrar kinds lift the id vector off the registrar's per-kind
+kind — EP-0022 — the `:app-schema` kind, and the `:http-interceptor` and
+`:classification` kinds; plus the virtual `:machine` kind). The registrar
+kinds lift the id vector off the registrar's per-kind
 map via `(re-frame2-pair.runtime/registrar-list kind)` —
 `list-handlers {kind "resource-scope"}` enumerates a resources app's
 named scope resolvers, `list-handlers {kind "interceptor"}` the ids
@@ -3577,7 +3579,8 @@ so the vector is stable across kinds.
 {:ok?   true
  :kind  :event | :sub | :fx | :cofx | :interceptor | :view |
         :route | :head | :error-projector |
-        :resource | :mutation | :resource-scope | :app-schema | :machine
+        :resource | :mutation | :resource-scope | :app-schema |
+        :flow | :http-interceptor | :classification | :machine
  :ids   [<id> ...]
  :count <integer>}
 ```

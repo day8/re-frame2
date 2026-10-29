@@ -13,7 +13,8 @@
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
-            [re-frame2-pair-mcp.tools.handler-meta :as hm]))
+            [re-frame2-pair-mcp.tools.handler-meta :as hm]
+            [re-frame.registrar :as rf.registrar]))
 
 (def ^:private args-js tu/args->js)
 (def ^:private extract-edn tu/extract-edn)
@@ -65,11 +66,44 @@
   (some #(when (= name (:name %)) %) registry/tool-descriptors))
 
 (deftest descriptors-advertise-the-accepted-kinds
-  ;; Each descriptor's enum is written by hand, apart from the tool's kind set.
+  ;; The descriptors' enum is written by hand, apart from the tools' kind set.
   (doseq [tool-name ["handler-meta" "list-handlers"]]
     (is (= (set (map name @#'hm/supported-kinds))
            (set (get-in (find-descriptor tool-name) [:inputSchema :properties :kind :enum])))
         tool-name)))
+
+;; ---------------------------------------------------------------------------
+;; Kinds. The server keeps framework runtime out of its bundle, so the tools
+;; restate the registrar's closed kind set; these pins keep the copy whole.
+;; ---------------------------------------------------------------------------
+
+(def ^:private queryable-registrar-kinds
+  "Every registrar kind but the reserved-but-EMPTY `:frame`, which both
+  tools refuse (`list-handlers-refuses-the-reserved-empty-frame-kind`)."
+  (disj rf.registrar/kinds :frame))
+
+(deftest registrar-kinds-are-the-registrar-set-less-frame
+  (is (= queryable-registrar-kinds @#'hm/registrar-kinds)))
+
+(deftest both-tools-accept-every-registrar-kind
+  ;; Run one at a time: each run installs its own runtime stub.
+  (async done
+    (let [cases (for [kind (sort queryable-registrar-kinds)
+                      [tool tool-name args door]
+                      [[hm/list-handlers-tool "list-handlers" {:kind (name kind)}
+                        (str "(re-frame2-pair.runtime/registrar-list " kind ")")]
+                       [hm/handler-meta-tool "handler-meta" {:kind (name kind) :id ":x/y"}
+                        (str "(re-frame2-pair.runtime/registrar-describe " kind " ")]]]
+                  [tool tool-name args door kind])]
+      (settle (reduce (fn [p [tool tool-name args door kind]]
+                        (.then p (fn [_]
+                                   (-> (run-tool tool args [])
+                                       (.then (fn [[form _]]
+                                                (is (str/includes? (str form) door)
+                                                    (str tool-name " reaches the runtime for " kind))))))))
+                      (js/Promise.resolve nil)
+                      cases)
+              done))))
 
 ;; ---------------------------------------------------------------------------
 ;; Argument refusals, before any runtime round-trip. The missing-kind
