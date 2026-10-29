@@ -2,7 +2,7 @@
 
 Type B walkthroughs covering event handlers, registration shape, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, a leftover `:rf/runtime` app-db key (dead app data), machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
 
-The **M-11** view-under-frame sweep (subscribing plain `(defn …)` Reagent views → `reg-view`) is its own leaf: [`guided-views-m11.md`](guided-views-m11.md). For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
+The **M-11** sweep (a bare `dispatch` / `subscribe` in a callback that runs after the render) is its own leaf: [`guided-views-m11.md`](guided-views-m11.md). For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 
 ## Contents
 
@@ -226,4 +226,4 @@ Flag the held `dom-node`, `force-update-all` and raw-HTML sites in the end-of-sw
 
 The Type B rules exist because the rewrite **cannot** be inferred from the call site alone. If you find yourself wanting to "just rewrite" one of these without asking — stop. The whole point of Type B is that asking is cheaper than rolling back a wrong rewrite.
 
-The only Type B item the agent can apply without asking is when the author has pre-authorised a specific decision shape upfront (e.g. "for every plain Reagent fn under a non-default frame, just convert to `reg-view`; flag the rest"). Bank those pre-authorisations in the report so the author can audit.
+The only Type B item the agent can apply without asking is when the author has pre-authorised a specific decision shape upfront (e.g. "for every `:on-*` handler that bare-dispatches, capture the frame at render time; flag the rest"). Bank those pre-authorisations in the report so the author can audit.
