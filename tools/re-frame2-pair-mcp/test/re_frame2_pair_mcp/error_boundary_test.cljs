@@ -6,7 +6,8 @@
   differ only in which `:reason` wins:
 
   - `server.cljs` `invoke-and-guard` — anything thrown while the tool body
-    builds its request, before the nREPL round-trip. The ex-data merges
+    builds its request, and a failed or interrupted nREPL round-trip (a
+    connection that closes while the op is pending). The ex-data merges
     UNDER `{:reason :handler-threw :message …}`: `:reason` is the
     envelope's discriminator, and the site's rides in `:rf.error/id`.
   - `tools/probe.cljs` `err->result` — anything thrown while shaping the
