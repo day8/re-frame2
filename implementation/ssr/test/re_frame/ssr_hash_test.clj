@@ -100,3 +100,22 @@
            (rf.ssr.emit/render-to-string [:div {:style {:width 10.5M}} "x"] {})))
     (is (= "<select><option value=\"2\" selected>two</option></select>"
            (rf.ssr.emit/render-to-string [:select {:value 2N} [:option {:value 2} "two"]] {})))))
+
+(deftest non-finite-doubles-render-as-javascript-prints-them
+  (testing "NaN and the infinities render as `String(x)` spells them, never in
+            reader syntax, so the server's text matches React's client render;
+            a finite double is the control"
+    (doseq [[n expected] [[##NaN "NaN"]
+                          [##Inf "Infinity"]
+                          [##-Inf "-Infinity"]
+                          [Float/POSITIVE_INFINITY "Infinity"]
+                          [2.5 "2.5"]]]
+      (is (= (str "<span>" expected "</span>")
+             (rf.ssr.emit/render-to-string [:span n] {}))
+          (pr-str n))))
+  (testing "in an attribute value too"
+    (is (= "<meter value=\"NaN\" max=\"Infinity\"></meter>"
+           (rf.ssr.emit/render-to-string [:meter {:value ##NaN :max ##Inf}] {}))))
+  (testing "the data digest reads them the same way, as CLJS does"
+    (is (= "[NaN Infinity -Infinity]"
+           (rf.ssr.hash/canonical-data-edn [##NaN ##Inf ##-Inf])))))

@@ -14,6 +14,14 @@
         (str "CLJS digest should equal the JVM digest for the same value"
              "  canonical=" (pr-str canonical) "  hash=" h))))
 
+(deftest non-finite-numbers-print-as-javascript-spells-them
+  ;; `re-frame.ssr-hash-test` pins the same spellings on the JVM, for the
+  ;; emitter's text and the digest alike.
+  (is (= ["NaN" "Infinity" "-Infinity" "2.5"]
+         (mapv rf.ssr.hash/canonical-number [##NaN ##Inf ##-Inf 2.5])))
+  (is (= "[NaN Infinity -Infinity]"
+         (rf.ssr.hash/canonical-data-edn [##NaN ##Inf ##-Inf]))))
+
 (deftest jvm-cljs-hash-parity-non-ascii
   ;; Both sides hash UTF-8 bytes; hashing UTF-16 code units instead would
   ;; diverge only on multi-byte content.

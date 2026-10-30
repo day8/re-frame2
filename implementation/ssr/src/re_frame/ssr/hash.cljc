@@ -83,9 +83,11 @@
       (`re-frame.ssr.wire/portable-number?`), so no client renders or digests
       the server's value in another representation. The one divergence is a
       `.cljc` literal: CLJS reads `10.50M` as the double `10.5`;
+    - NaN and the infinities print `\"NaN\"`, `\"Infinity\"` and
+      `\"-Infinity\"`, as `String(x)` spells them, where `pr-str` would
+      print the reader's `##NaN` / `##Inf` / `##-Inf` on both hosts;
     - every other number keeps its default `pr-str` form, which carries no
-      suffix: integers agree across runtimes, and NaN and the infinities
-      print `##NaN` / `##Inf` on both hosts.
+      suffix, so integers agree across runtimes.
 
   Residual: a subnormal double (magnitude below about 2.2e-308) can differ in
   its last digit, where the JDK picks the closer of two short candidates and
@@ -99,8 +101,10 @@
        (or (instance? Double number) (instance? Float number))
        (let [d (double number)]
          (cond
-           (or (Double/isNaN d) (Double/isInfinite d)) (pr-str number)
-           (zero? d)                                   "0"
+           (Double/isNaN d)                     "NaN"
+           (= Double/POSITIVE_INFINITY d)       "Infinity"
+           (= Double/NEGATIVE_INFINITY d)       "-Infinity"
+           (zero? d)                            "0"
            ;; `str` is `Float/toString` for a float, so a float keeps the
            ;; short digits it prints with rather than its widened double's.
            :else (js-decimal-string (java.math.BigDecimal. (str number)))))
@@ -113,7 +117,9 @@
 
        :else (pr-str number))
      :cljs
-     (pr-str number)))
+     ;; `str` is `String(n)`; `pr-str` agrees with it except on NaN and the
+     ;; infinities.
+     (str number)))
 
 ;; FNV-1a runs over a UTF-8 byte stream on both sides.
 ;; Why UTF-8 bytes, not UTF-16 code units?
