@@ -358,25 +358,32 @@
           (seq (:sensitive spec)) (update :sensitive read-as callable)
           (seq (:large spec))     (update :large read-as callable))))))
 
+(defn- reply-owner-spec
+  "The registration a family continuation reply's declarations come from: a
+  read reply's resource, read the way the reply carries the data
+  (`feed-reply-spec`), or a mutation reply's `:mutation`. Nil for an
+  unregistered owner or a reply naming none."
+  [reply]
+  (if (resource-reply? reply)
+    (let [rid (second (:resource/key reply))]
+      (some-> (when (keyword? rid) (rf.resources.registry/resource-meta rid))
+              feed-reply-spec))
+    (let [mid (:mutation reply)]
+      (when (keyword? mid) (rf.resources.mutation-registry/mutation-meta mid)))))
+
 (defn- redact-reply-declarations
-  "A family continuation reply with its owner's projection-relative
-  declarations redacted through `redact-continuation-reply`: a read reply's
-  resource, read the way the reply carries the data (`feed-reply-spec`), or a
-  mutation reply's `:mutation`. Needed because a spec that declares only paths
+  "`carrier`, a family continuation reply or a transport reply's result, with
+  its owner `spec`'s projection-relative declarations redacted through
+  `redact-continuation-reply`. Needed because a spec that declares only paths
   classifies `:serialize`, so the coarse arm misses it while the durable entry
   or instance redacts the same bytes. Applied at egress rather than source
-  because the app's own `:reply-to` handler is entitled to the real values. An
-  unregistered owner rides here: the coarse arm has already tokenized it."
-  [reply]
-  (let [spec (if (resource-reply? reply)
-               (let [rid (second (:resource/key reply))]
-                 (some-> (when (keyword? rid) (rf.resources.registry/resource-meta rid))
-                         feed-reply-spec))
-               (let [mid (:mutation reply)]
-                 (when (keyword? mid) (rf.resources.mutation-registry/mutation-meta mid))))]
-    (if spec
-      (rf.resources.classification/redact-continuation-reply reply spec)
-      reply)))
+  because the handlers receiving the carrier are entitled to the real values.
+  A nil `spec`, an unregistered owner's, rides here: the coarse arm has already
+  tokenized it."
+  [carrier spec]
+  (if spec
+    (rf.resources.classification/redact-continuation-reply carrier spec)
+    carrier))
 
 (defn- tokenize
   "`v` tokenized content-free. A token rides as it is, because `redact-value`
@@ -399,7 +406,7 @@
               (if (some? (get projected slot))
                 (update projected slot tokenize)
                 projected))
-            (if owner-redacts? reply (redact-reply-declarations reply))
+            (if owner-redacts? reply (redact-reply-declarations reply (reply-owner-spec reply)))
             (cond-> reply-error-slot owner-redacts? (into reply-payload-slot)))))
 
 (defn- carrier-family-value?
@@ -465,34 +472,41 @@
        (family-work-id? (:work/id (nth v 1)))
        (map? (nth v 2))))
 
-(defn- transport-owner-redacts?
-  "Whether the owner a transport reply's verification `payload` names makes the
-  coarse claim: the resource its work id names, or a mutation attempt's
-  `:mutation-id`. An unregistered owner fails closed; a payload naming none
-  rides."
+(defn- transport-owner
+  "The owner a transport reply's verification `payload` names, as
+  `[named? spec]`: the resource its work id names, or a mutation attempt's
+  `:mutation-id`, with that owner's registration (nil when unregistered).
+  `named?` is false for a payload naming neither."
   [payload]
-  (let [subject     (nth (:work/id payload) 1 nil)
-        disposition (fn [spec] (if spec
-                                 (rf.resources.classification/whole-entry-disposition spec)
-                                 :redact))]
-    (not= :serialize
-          (cond
-            (keyword? subject)                (disposition (rf.resources.registry/resource-meta subject))
-            (keyword? (:mutation-id payload)) (disposition (rf.resources.mutation-registry/mutation-meta
-                                                             (:mutation-id payload)))
-            :else                             :serialize))))
+  (let [subject (nth (:work/id payload) 1 nil)
+        mid     (:mutation-id payload)]
+    (cond
+      (keyword? subject) [true (rf.resources.registry/resource-meta subject)]
+      (keyword? mid)     [true (rf.resources.mutation-registry/mutation-meta mid)]
+      :else              [false nil])))
 
 (defn- project-transport-result
   "A transport reply's `result` with the slots a continuation reply's would
-  take: `:value` tokenizes when the owner named by `payload` redacts, and the
-  `:error` envelope tokenizes unconditionally (`reply-error-slot`)."
+  take, from the owner `payload` names (`transport-owner`): `:value` tokenizes
+  when that owner makes the coarse claim, an unregistered owner failing closed,
+  and otherwise its declared paths substitute (`redact-reply-declarations`);
+  the `:error` envelope tokenizes unconditionally (`reply-error-slot`). A
+  feed's declaration reads as written rather than through `feed-reply-spec`,
+  because the result carries the single decoded page it is written against. A
+  payload naming no owner leaves `:value` riding."
   [result payload]
-  (reduce (fn [projected slot]
-            (if (some? (get projected slot))
-              (update projected slot tokenize)
-              projected))
-          result
-          (cond-> reply-error-slot (transport-owner-redacts? payload) (conj :value))))
+  (let [[named? spec]  (transport-owner payload)
+        owner-redacts? (and named?
+                            (not= :serialize
+                                  (if spec
+                                    (rf.resources.classification/whole-entry-disposition spec)
+                                    :redact)))]
+    (reduce (fn [projected slot]
+              (if (some? (get projected slot))
+                (update projected slot tokenize)
+                projected))
+            (if owner-redacts? result (redact-reply-declarations result spec))
+            (cond-> reply-error-slot owner-redacts? (conj :value)))))
 
 (defn- project-embedded-keys
   "Projects the family's own data inside a carrier value `v` (`carrier-slot`)
