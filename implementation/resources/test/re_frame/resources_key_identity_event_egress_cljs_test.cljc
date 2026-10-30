@@ -35,12 +35,14 @@
 
 (def ^:private sunk (atom []))
 (def ^:private managed-args (atom nil))
+(def ^:private replied (atom nil))
 
 (defn- request [_params _ctx] {:request {:method :get :url "/x"}})
 
 (defn- init! []
   (reset! sunk [])
   (reset! managed-args nil)
+  (reset! replied nil)
   (rf.observability/clear-observability-sinks!)
   (rf/register-observability-sink! ::errors (fn [record] (swap! sunk conj record)))
   (rf/make-frame {:id frame-id :observability {:errors [{:sink ::errors}]}})
@@ -57,8 +59,14 @@
   (rf/reg-resource :r/plain {:scope         {:from-db :t/caller-scope}
                              :params-schema [:map [:slug :string]]}
                    request)
+  (rf/reg-resource :r/paths {:scope         {:from-db :t/caller-scope}
+                             :params-schema [:map [:slug :string]]
+                             :sensitive     [[:token]]}
+                   request)
   (rf/reg-mutation :m/coarse {:params-schema [:map [:slug :string]] :sensitive? true} request)
   (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]} request)
+  (rf/reg-mutation :m/paths {:params-schema [:map [:slug :string]] :sensitive [[:token]]} request)
+  (rf/reg-event :app/replied (fn [_ [_ reply]] (reset! replied reply) {}))
   (rf/reg-event :app/replied-and-failed (fn [_ _] (throw (ex-info "reply target failed" {})))))
 
 (use-fixtures :each
@@ -222,3 +230,64 @@
                                        :error  {:kind :rf.http/http-5xx :body {:echo V}}})]
         (is (every? #(redacted-token? (get-in % [2 :error])) copies)
             "the failure envelope tokenizes whatever the owner")))))
+
+;; ===========================================================================
+;; a transport reply's result takes its owner's declared paths
+;; ===========================================================================
+
+;; An owner declaring only paths classifies `:serialize`, so its coarse claim
+;; leaves the value alone and the declared paths substitute instead, as they do
+;; on the continuation reply carrying the same value to its `:reply-to` target.
+
+(defn- event-copies
+  "The off-box copies, event args opted in, of every event the frame ran that
+  `pred` accepts, by carrier: each epoch record's `:trigger-event` and its
+  trace's `:rf.event/v`."
+  [pred]
+  (let [records  (mapv #(rf/project-egress % {:rf.egress/include-event-args? true})
+                       (rf.epoch/epoch-history frame-id))
+        accepted (fn [vs] (filterv #(and (vector? %) (pred %)) vs))]
+    {:trigger-event (accepted (map :trigger-event records))
+     :rf.event/v    (accepted (for [r records ev (:trace-events r)]
+                                (get-in ev [:tags :rf.event/v])))}))
+
+(deftest a-transport-replys-result-takes-its-owners-declared-paths
+  (doseq [[kind owner transport-id] [[:resource :r/paths :rf.resource.internal/succeeded]
+                                     [:mutation :m/paths :rf.mutation.internal/succeeded]]]
+    (testing (str kind)
+      (let [rows (atom [])]
+        (rf/register-listener! :trace ::rows (fn [ev] (swap! rows conj ev)))
+        (try
+          (rf/dispatch-sync (case kind
+                              :resource [:rf.resource/ensure {:resource owner :params {:slug "p"}
+                                                              :scope    :rf.scope/global
+                                                              :owner    [:app :reader 1]
+                                                              :reply-to [:app/replied]}]
+                              :mutation [:rf.mutation/execute {:mutation owner :params {:slug "p"}
+                                                               :instance [owner "p"]
+                                                               :reply-to [:app/replied]}])
+                            {:frame frame-id})
+          (rf/dispatch-sync (conj (:on-success @managed-args) {:status :ok :value {:token V :ok 1}})
+                            {:frame frame-id})
+          (finally (rf/unregister-listener! :trace ::rows)))
+        (let [transport (event-copies #(= transport-id (first %)))
+              reply-to  (event-copies #(and (= :app/replied (first %))
+                                            (= kind (get-in % [1 :rf.reply/work-kind]))))
+              on-box    (filterv #(and (vector? %) (= transport-id (first %)))
+                                 (keep #(get-in % [:tags :rf.event/v]) @rows))]
+          (doseq [[copy vs] transport]
+            (is (seq vs) (str "the transport event rides " copy))
+            (is (every? #(= :rf/redacted (get-in % [2 :value :token])) vs)
+                (str "the declared path redacts on " copy))
+            (is (every? #(= 1 (get-in % [2 :value :ok])) vs)
+                (str "control: the undeclared sibling rides on " copy)))
+          (doseq [[copy vs] reply-to]
+            (is (seq vs) (str "the :reply-to target event rides " copy))
+            (is (every? #(= {:token :rf/redacted :ok 1} (get-in % [1 :value])) vs)
+                (str "control: the continuation reply redacts the path on " copy)))
+          (is (= [] (leak-paths [transport reply-to] V)) "no off-box copy carries the raw value")
+          (is (seq on-box) "the on-box trace carries the transport event")
+          (is (every? #(= {:token V :ok 1} (get-in % [2 :value])) on-box)
+              "the on-box trace keeps the raw value")
+          (is (= {:token V :ok 1} (:value @replied))
+              "the app's own :reply-to handler receives the raw value"))))))

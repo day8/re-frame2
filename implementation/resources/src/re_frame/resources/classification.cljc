@@ -150,8 +150,9 @@
   one declaring neither axis returns `reply` unchanged.
 
   Reads and mutations alike call it only at off-box egress
-  (`trace_egress/redact-reply-declarations`), because the app's own
-  `:reply-to` handler is entitled to the real values. A mutation's coarse
+  (`trace_egress/redact-reply-declarations`), on a continuation reply and on
+  a transport reply's result, because the handlers receiving them are
+  entitled to the real values. A mutation's coarse
   claim is likewise applied only off-box (`trace_egress`). Matching is
   index-free, so a declaration such as `[:data :email]` covers every item of
   an infinite feed's merged list, as it does on the durable side."
