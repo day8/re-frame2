@@ -40,8 +40,7 @@
 
   The runtime sampler only reads; `watch-until` never dispatches or
   mutates. The descriptor carries the read-only annotation."
-  (:require [cljs.reader]
-            [re-frame2-pair-mcp.nrepl :as nrepl]
+  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
@@ -110,15 +109,7 @@
   (let [build-id   (wire/arg-build conn raw-args)
         frame      (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         signals    (record/parse-signals-arg (wire/arg raw-args :signals))
-        pred       (let [p (wire/arg raw-args :pred)]
-                     (cond
-                       (map? p) p
-                       (string? p) (try (let [v (cljs.reader/read-string p)]
-                                          (when (map? v) v))
-                                        (catch :default _ nil))
-                       (object? p) (try (js->clj p :keywordize-keys true)
-                                        (catch :default _ nil))
-                       :else nil))
+        pred       (record/parse-pred-arg (wire/arg raw-args :pred))
         ;; Validate `:timeout-ms` as a positive-millisecond integer up
         ;; front, the SAME contract the other timeout-aware tools use
         ;; (`tail-build :wait-ms`, `eval-cljs` / `dispatch` `:timeout-ms`
