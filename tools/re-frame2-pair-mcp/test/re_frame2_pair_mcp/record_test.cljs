@@ -19,6 +19,24 @@
                     ["(not edn"                             nil]]]
     (is (= out (record/parse-signals-arg in)) (pr-str in))))
 
+(deftest json-signals-and-pred-name-keywords
+  ;; JSON carries no keywords, and the runtime samples with `get-in` /
+  ;; `subscribe` and compares with `=`, so a JSON signal path or comparand
+  ;; must arrive naming keywords or the watch can never hold.
+  (is (= [{:app-db [:cart 0 "items"]} {:sub [:cart/total "x"]}]
+         (record/parse-signals-arg #js [#js {:app-db #js [":cart" "0" "items"]}
+                                        #js {:sub #js [":cart/total" "x"]}])))
+  (is (= [{:app-db [:upload :status]}]
+         (record/parse-signals-arg #js {:app-db #js [":upload" ":status"]})))
+  (doseq [[in out] [[#js {:signal 0 :equals ":done"}       {:signal 0 :equals :done}]
+                    [#js {:signal 0 :path #js [":upload" ":status"] :equals ":done"}
+                     {:signal 0 :path [:upload :status] :equals :done}]
+                    [#js {:signal 0 :equals "done"}        {:signal 0 :equals "done"}]
+                    ["{:signal 0 :equals :done}"           {:signal 0 :equals :done}]]]
+    (is (= out (record/parse-pred-arg in)) (pr-str in)))
+  (is (= [:ok {:pred {:signal 0 :equals :done}}]
+         (record/parse-stop-arg #js {:pred #js {:signal 0 :equals ":done"}}))))
+
 (deftest parse-stop-arg-shapes
   ;; A malformed `stop` must not collapse to `{}`, the default window; the
   ;; unreadable case is pinned through the tool below.
@@ -120,17 +138,32 @@
                       (done)))))))
 
 (deftest watch-until-resolves-on-held-predicate
+  ;; The stub answers `:held?`, so the poll form is read for what decides it
+  ;; live: the JSON signal and comparand must reach it as keywords.
   (async done
-    (-> (tu/with-stubbed-eval! {:held? true :sample {0 :done} :t 1712}
-          #(watch-until/watch-until-tool
-             (fresh-conn)
-             #js {:signals "[{:app-db [:upload :status]}]"
-                  :pred    #js {:signal 0 :equals "done"}}))
-        (.then (fn [r]
-                 (is (= {:ok? true :held? true :sample {0 :done} :t 1712}
-                        (dissoc (tu/extract-edn r) :elapsed-ms))
-                     "the satisfying sample rides back")
-                 (done))))))
+    (let [forms  (atom [])
+          orig   nrepl/cljs-eval-value
+          canned (js/Promise.resolve {:held? true :sample {0 :done} :t 1712})
+          stub   (fn
+                   ([_conn _build form] (swap! forms conj form) canned)
+                   ([_conn _build form _opts] (swap! forms conj form) canned))]
+      (set! nrepl/cljs-eval-value stub)
+      (-> (watch-until/watch-until-tool
+            (fresh-conn)
+            #js {:signals #js [#js {:app-db #js [":upload" ":status"]}]
+                 :pred    #js {:signal 0 :equals ":done"}})
+          (.then (fn [r]
+                   (is (= {:ok? true :held? true :sample {0 :done} :t 1712}
+                          (dissoc (tu/extract-edn r) :elapsed-ms))
+                       "the satisfying sample rides back")
+                   (let [poll (str (some #(when (str/includes? % "sample-signals") %) @forms))]
+                     (is (str/includes? poll "(quote [{:app-db [:upload :status]}])")
+                         "the signal samples a keyword path")
+                     (is (str/includes? poll "(= (get sample 0) (quote :done))")
+                         "the predicate compares against the keyword"))))
+          (.finally (fn []
+                      (tu/restore-eval! stub orig)
+                      (done)))))))
 
 (deftest watch-until-times-out-with-last-sample
   ;; The timeout is the watch's normal outcome, so it rides non-isError.

@@ -77,6 +77,47 @@
 ;; ---------------------------------------------------------------------------
 ;; Signal-arg parsing — shared with watch-until.
 ;; ---------------------------------------------------------------------------
+;;
+;; JSON carries no keywords, and the runtime samples and compares with
+;; `get-in` / `subscribe` / `=`, so a JSON-object `signals` or `pred` is
+;; coerced the way watch-epochs coerces its `pred`: a path parses as
+;; `get-path`'s does (`args/parse-path-arg`), and a comparand or query
+;; argument mints a keyword from a colon-led string (`args/->id-keyword`).
+;; The EDN-string forms read as EDN and are not touched.
+
+(defn- json-value
+  "A JSON comparand or query argument as the datum it names: a colon-led
+  string within the id grammar is that keyword (`\":done\"` is `:done`),
+  and every other value rides as sent."
+  [v]
+  (if (and (string? v) (str/starts-with? v ":"))
+    (or (args/->id-keyword v) v)
+    v))
+
+(defn- json-signal
+  "One JSON signal object as the signal map the runtime samples."
+  [o]
+  (let [m (js->clj o :keywordize-keys true)]
+    (cond-> m
+      (and (map? m) (contains? m :app-db)) (assoc :app-db (args/parse-path-arg (wire/arg o :app-db)))
+      (and (map? m) (sequential? (:sub m))) (update :sub #(mapv json-value %)))))
+
+(defn parse-pred-arg
+  "The `pred` data map `pred-source` compiles, from an EDN string or a JSON
+  object (whose `:path` and `:equals` are coerced as above); nil for any
+  other shape."
+  [p]
+  (cond
+    (map? p)    p
+    (string? p) (try (let [v (cljs.reader/read-string p)]
+                       (when (map? v) v))
+                     (catch :default _ nil))
+    (object? p) (try (let [m (js->clj p :keywordize-keys true)]
+                       (cond-> m
+                         (contains? m :path)   (assoc :path (args/parse-path-arg (wire/arg p :path)))
+                         (contains? m :equals) (update :equals json-value)))
+                     (catch :default _ nil))
+    :else       nil))
 
 (defn parse-signals-arg
   "Normalise the `signals` MCP arg into a vector of signal maps the
@@ -86,9 +127,9 @@
     - a single JS signal object, OR
     - an EDN-encoded string (`\"[{:focus true} {:dom \\\"#c\\\"}]\"`).
 
-  Each signal map is keywordised. Returns `nil` when the arg is absent /
-  blank / not a collection so the caller can emit the `:no-signals`
-  refusal. Recognised signal shapes (validated runtime-side):
+  Each JSON signal is keywordised and coerced as above. Returns `nil` when
+  the arg is absent / blank / not a collection so the caller can emit the
+  `:no-signals` refusal. Recognised signal shapes (validated runtime-side):
   `{:app-db [path]}`, `{:sub [query-v]}`, `{:dom \"sel\" :attr \"name\"}`,
   `{:focus true}`."
   [raw]
@@ -96,8 +137,7 @@
     (nil? raw) nil
 
     (array? raw)
-    (let [v (js->clj raw :keywordize-keys true)]
-      (when (sequential? v) (vec v)))
+    (mapv json-signal raw)
 
     (string? raw)
     (let [trimmed (str/trim raw)]
@@ -111,7 +151,7 @@
             :else                    nil))))
 
     (object? raw)
-    (let [m (try (js->clj raw :keywordize-keys true) (catch :default _ nil))]
+    (let [m (try (json-signal raw) (catch :default _ nil))]
       (when (map? m) [m]))
 
     :else nil))
@@ -129,8 +169,9 @@
 
     - `[:ok {}]`   — absent `stop` (runtime applies its default
                      wall-clock window).
-    - `[:ok m]`    — a parsed EDN string or a JS object keywordised —
-                     with only the recognised keys retained.
+    - `[:ok m]`    — a parsed EDN string or a JS object keywordised (its
+                     `:pred` through `parse-pred-arg`) — with only the
+                     recognised keys retained.
 
   The failure shape `[:err :invalid-stop-edn]` is returned when a `stop`
   EDN STRING fails to `read-string`, OR reads cleanly but is not a map
@@ -145,7 +186,8 @@
     (object? raw) (let [m (try (js->clj raw :keywordize-keys true)
                                (catch :default _ ::reader-fail))]
                     (if (map? m)
-                      [:ok (select-keys m [:ms :changes :pred])]
+                      [:ok (cond-> (select-keys m [:ms :changes :pred])
+                             (contains? m :pred) (assoc :pred (parse-pred-arg (wire/arg raw :pred))))]
                       [:err :invalid-stop-edn]))
     (string? raw) (let [parsed (try (cljs.reader/read-string raw)
                                     (catch :default _ ::reader-fail))]
