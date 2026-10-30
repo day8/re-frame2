@@ -302,7 +302,7 @@ rather than by bare keyword (see [`Conventions.md`](Conventions.md)
 | `force-fx-stub-id` | `{:decorators [[story/force-fx-stub-id :http {:status :pending}]]}` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub` |
 | `layout-debug-measure-id` | `{:decorators [[story/layout-debug-measure-id]]}` — Storybook-style layout measure overlay | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
 | `layout-debug-outline-id` | `{:decorators [[story/layout-debug-outline-id]]}` — Pesticide-style coloured outlines on every descendant | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
-| `layout-debug-pseudo-id` | `{:decorators [[story/layout-debug-pseudo-id #{:hover}]]}` — pseudo-state forcing; the ref-arg is a set from `#{:hover :focus :active :visited}`, default `#{:hover}` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
+| `layout-debug-pseudo-id` | `{:decorators [[story/layout-debug-pseudo-id #{:hover}]]}` — pseudo-state outline (Story's indicator, not the author's pseudo-class styles); the ref-arg is a set from `#{:hover :focus :active :visited}`, default `#{:hover}` | [`005-SOTA-Features.md`](005-SOTA-Features.md) §Layout-debug overlay trio |
 
 ## Variant `:script` slot (rf2-0wrud)
 

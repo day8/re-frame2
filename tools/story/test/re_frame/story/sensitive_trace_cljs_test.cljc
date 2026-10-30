@@ -292,3 +292,14 @@
     (rf.story.config/set-frame-egress-profile! :story.iso/raised :rf.egress/local-raw)
     (is (true?  (rf.story.config/include-sensitive? :story.iso/raised)) "explicit reveal wins over the redacting pin")
     (is (false? (rf.story.config/include-sensitive? :story.iso/other)) "an unoverridden frame stays at the redacting pin")))
+
+(deftest per-frame-redact-wins-over-revealing-session-pin
+  (testing "a per-frame narrowing beats a raw pin, and a sibling with no
+            override still inherits the pin"
+    (rf.story.config/set-session-egress-profile! :rf.egress/local-raw)
+    (rf.story.config/set-frame-egress-profile! :story.iso/narrowed :rf.egress/local-redacted)
+    (is (false? (rf.story.config/include-sensitive? :story.iso/narrowed)) "explicit redact wins over the raw pin")
+    (is (true? (rf.story.config/suppress-sensitive?
+                 (sensitive-dispatch-event :story.iso/narrowed [:auth/login]) :story.iso/narrowed))
+        "a later sensitive event for the narrowed frame is suppressed")
+    (is (true? (rf.story.config/include-sensitive? :story.iso/sibling)) "an unoverridden frame inherits the raw pin")))

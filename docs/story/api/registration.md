@@ -287,7 +287,7 @@ Every decorator body also accepts `:doc`.
 
 ### Story-panel body
 
-`:title` (a string), `:placement` (`:right`, `:left`, `:bottom`, `:top` or `:modal`) and `:render` (a view id, rendered with the selected variant id) are required. `:for` optionally limits the panel to a set of variant and story ids; the panel shows when the selected variant, or its story, is in the set. `:doc` is a string.
+`:title` (a string), `:placement` (`:right`, the shell's one panel host) and `:render` (a view id, rendered with the selected variant id) are required. `:for` optionally limits the panel to a set of variant and story ids; the panel shows when the selected variant, or its story, is in the set. `:doc` is a string.
 
 ### Tag body
 

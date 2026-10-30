@@ -331,7 +331,8 @@
 
   The decorate-and-render primitive is the SHARED
   seam in `re-frame.story.ui.multi-substrate`, called by BOTH the canvas
-  single-pane path (below), the workspace cell, AND the `render-variant`
+  single-pane path (below), the side-by-side grid's cells, the workspace
+  cell, AND the `render-variant`
   host hook (`re-frame.story.canonical/render-host-scope`), so the live
   canvas and render-variant paint the identical decorated tree. Re-exported
   here so the canvas / workspace call sites keep one import."

@@ -402,9 +402,10 @@
 ;;
 ;;   frame-egress-profiles  ─►  {frame-id → :rf.egress/local-raw, ...}
 ;;
-;; Only frames an operator has EXPLICITLY revealed appear in the map; every
-;; other frame — and any frameless / unknown event — resolves to the
-;; fail-closed default `:rf.egress/local-redacted`. A reveal is therefore an
+;; Only frames an operator has EXPLICITLY set, revealed or narrowed, appear
+;; in the map; every other frame — and any frameless / unknown event —
+;; resolves to the session pin, whose default is the fail-closed
+;; `:rf.egress/local-redacted`. A reveal is therefore an
 ;; explicit per-frame act; narrowing a single frame back to the default
 ;; scrubs only THAT frame's buffered sensitive traces (see
 ;; `set-frame-egress-profile!` + the per-frame toggle-off callbacks), never
@@ -457,9 +458,10 @@
   ^{:doc "Atom holding Story's PER-FRAME local-render `:rf.egress/*` profile
          overrides — `{frame-id → profile}` (EP-0015 issue 7,
          per-(tool,frame) visibility grain). A frame absent from the map
-         resolves to `:rf.egress/local-redacted` (suppress sensitive
-         display — fail-closed); only a frame an operator has explicitly
-         revealed to `:rf.egress/local-raw` carries an entry. Read by every
+         resolves to the session pin, `:rf.egress/local-redacted` (suppress
+         sensitive display — fail-closed) unless pinned otherwise; a frame
+         an operator has explicitly set, revealed or narrowed, carries an
+         entry. Read by every
          Story trace listener via `include-sensitive?` /
          `suppress-sensitive?` — each call passes the frame the event /
          recording targets, so the whole-event `:sensitive?` redact/pass
@@ -593,16 +595,17 @@
 
   - `:rf.egress/local-raw` reveals `frame-id`'s sensitive trace/recorder/
     DOM-capture data.
-  - `:rf.egress/local-redacted` (or `nil`) narrows `frame-id` back to the
-    fail-closed default and REMOVES its override entry. Per Spec 009
+  - `:rf.egress/local-redacted` (or `nil`) narrows `frame-id` to the
+    fail-closed default. It is stored as the frame's override like any
+    other profile, so it holds under a revealing session pin. Per Spec 009
     §Privacy §Retroactive-scrub a reveal → redact narrowing for
     this frame invokes the registered `toggle-off-callbacks` with
     `frame-id`, so that frame's buffered sensitive traces are scrubbed —
     other frames are untouched. The reveal is NOT a one-way trapdoor.
   - An unknown profile keyword is rejected by `configure!` /
     `set-frame-egress-profile!`'s caller before reaching here;
-    defence-in-depth, a non-member value coerces to the fail-closed default
-    (and removes the override). A `nil` `frame-id` is a no-op.
+    defence-in-depth, a non-member value coerces to the fail-closed default.
+    A `nil` `frame-id` is a no-op.
 
   A widening (redact → reveal) and any same-class transition do NOT invoke
   the callbacks. Returns nil."
@@ -612,9 +615,7 @@
                  profile
                  default-egress-profile)
           prev (resolve-egress-profile frame-id)]
-      (if (= next default-egress-profile)
-        (swap! frame-egress-profiles dissoc frame-id)
-        (swap! frame-egress-profiles assoc frame-id next))
+      (swap! frame-egress-profiles assoc frame-id next)
       (when (and (profile-includes-sensitive? prev)
                  (not (profile-includes-sensitive? next)))
         (run-toggle-off-callbacks! frame-id))))

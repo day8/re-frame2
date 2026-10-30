@@ -210,16 +210,25 @@
     (seq? tree)    (map expand-to-cells tree)
     :else          tree))
 
+(def ^:private cell-subject @#'rf.story.ui.multi-substrate/cell-subject)
+
 (defn- grid-cells
   "`[substrate view-id]` for each cell of the side-by-side grid (the
-  `role=\"group\"` node), name-sorted by substrate."
+  `role=\"group\"` node), name-sorted by substrate. The view-id is the one
+  the cell's `:subject` hands its `cell-subject` call, beneath any
+  decorator wrap."
   [tree]
-  (let [nodes #(tree-seq (some-fn vector? seq?) seq %)
-        grid  (some #(when (and (vector? %) (map? (second %)) (= "group" (:role (second %)))) %)
-                    (nodes tree))]
+  (let [nodes   #(tree-seq (some-fn vector? seq?) seq %)
+        grid    (some #(when (and (vector? %) (map? (second %)) (= "group" (:role (second %)))) %)
+                      (nodes tree))
+        view-of (fn [subject]
+                  (some (fn [node]
+                          (when (and (vector? node) (= cell-subject (first node)))
+                            (let [[_ _render-fn _variant-id view-id] node] view-id)))
+                        (nodes subject)))]
     (->> (nodes grid)
          (filter #(and (vector? %) (react-class? (first %))))
-         (map (fn [[_ {:keys [substrate view-id]}]] [substrate view-id]))
+         (map (fn [[_ {:keys [substrate subject]}]] [substrate (view-of subject)]))
          (sort-by (comp name first)))))
 
 (deftest an-extends-child-takes-the-grid-it-inherits

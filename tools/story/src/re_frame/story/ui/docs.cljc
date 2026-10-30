@@ -290,18 +290,19 @@
   "Project the SAME unified run-result Test mode wrote into the compact
   status summary Docs shows (spec/022 §1 — a current test-status summary).
   Pure data → data. THE docs↔Test agreement point: the verdict is
-  `rf.story.ui.test-mode.pure/run-status` over the result + its `aggregate-summary` fold, the
+  `rf.story.ui.test-mode.pure/run-status` over the result + its `pane-summary`, the
   EXACT projection Test mode's summary pill uses — so a tape-floor `:fail` /
   a `:cannot-run` refusal reads identically in Docs and Test, and Docs can
   never disagree with Test about whether a variant is green.
 
   `result` is the variant's unified run-result (or nil — never run yet);
-  `summary` is its `aggregate-summary` fold (pass/fail/cannot-run/total).
-  Returns:
+  `summary` is its `rf.story.ui.test-mode.pure/pane-summary`
+  (pass/fail/cannot-run/total). Returns:
 
       {:status :pass|:fail|:error|:cannot-run|:pending
        :passed <n> :failed <n> :cannot-run <n> :total <n>
-       :ran?   <bool>}                ; a run has executed (vs :pending)
+       :ran?   <bool>}                ; a run has settled, even with no
+                                      ; assertions (a `:pending` verdict)
 
   A nil result is `:pending` with zero counts — Docs renders 'not run yet'
   and points at Test mode rather than fabricating a verdict."
@@ -313,7 +314,7 @@
      :failed     (or failed 0)
      :cannot-run (or cannot-run 0)
      :total      (or total 0)
-     :ran?       (boolean (and result (not= :pending status)))}))
+     :ran?       (some? result)}))
 
 (defn view-arg-schema-rows
   "Project a plan's `[:world :view-args-schema]` into the view-arg schema
@@ -808,7 +809,7 @@
      control surface; the Re-run affordance lives in Test mode."
      [variant-id plan]
      (let [result   (rf.story.ui.evidence-spine/result-for variant-id)
-           summary  (rf.story.ui.state/aggregate-summary (:assertions result))
+           summary  (rf.story.ui.test-mode.pure/pane-summary result)
            status   (status-summary result summary)
            badges   (fidelity-badges plan)
            worlds   (world-input-chips plan)
