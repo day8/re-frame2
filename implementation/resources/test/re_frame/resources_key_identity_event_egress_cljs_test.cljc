@@ -57,6 +57,8 @@
   (rf/reg-resource :r/plain {:scope         {:from-db :t/caller-scope}
                              :params-schema [:map [:slug :string]]}
                    request)
+  (rf/reg-mutation :m/coarse {:params-schema [:map [:slug :string]] :sensitive? true} request)
+  (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]} request)
   (rf/reg-event :app/replied-and-failed (fn [_ _] (throw (ex-info "reply target failed" {})))))
 
 (use-fixtures :each
@@ -170,3 +172,53 @@
     (is (= P (get-in (trigger-of copies :rf.resource/ensure) [1 :params :slug]))
         "and on the request")
     (is (= {} (leaks-by-copy copies S)) "the scope tokenizes on every copy")))
+
+;; ===========================================================================
+;; a transport reply's result takes its owner's coarse claim
+;; ===========================================================================
+
+;; Managed HTTP settles an attempt by dispatching
+;; `[<internal-reply-id> <verification-payload> <result>]`, so the decoded
+;; response rides that event's own copies. Its owner is the one the payload's
+;; work id names.
+
+(def ^:private V "TRANSPORT-VALUE-SENTINEL-m07")
+
+(defn- settle-transport!
+  "Start `owner`'s work for `slug`, settle it through the transport `callback` with
+  `outcome`, and return the settle epoch's two copies of the transport reply
+  event, event args opted in: the trace's `:rf.event/v` and the record's
+  `:trigger-event`."
+  [kind owner slug callback outcome]
+  (rf/dispatch-sync (case kind
+                      :resource [:rf.resource/ensure {:resource owner :params {:slug slug}
+                                                      :scope    :rf.scope/global
+                                                      :owner    [:app :reader 1]}]
+                      :mutation [:rf.mutation/execute {:mutation owner :params {:slug slug}
+                                                       :instance [owner slug]}])
+                    {:frame frame-id})
+  (rf/dispatch-sync (conj (get @managed-args callback) outcome) {:frame frame-id})
+  (let [record  (rf/project-egress (last (rf.epoch/epoch-history frame-id))
+                                   {:rf.egress/include-event-args? true})
+        trigger (:trigger-event record)]
+    (into [trigger]
+          (keep #(let [v (get-in % [:tags :rf.event/v])]
+                   (when (= (first trigger) (first v)) v)))
+          (:trace-events record))))
+
+(deftest a-transport-replys-result-takes-its-owners-coarse-claim
+  (doseq [[kind coarse plain] [[:resource :r/coarse :r/plain] [:mutation :m/coarse :m/plain]]]
+    (testing (str kind)
+      (let [copies (settle-transport! kind coarse "ok" :on-success {:status :ok :value {:v V}})]
+        (is (< 1 (count copies)) "the trigger and the live :rf.event/v copies")
+        (is (every? #(redacted-token? (get-in % [2 :value])) copies)
+            "a coarse owner's value tokenizes on every copy")
+        (is (= [] (leak-paths copies V))))
+      (let [copies (settle-transport! kind plain "ok" :on-success {:status :ok :value {:v V}})]
+        (is (every? #(= {:v V} (get-in % [2 :value])) copies)
+            "control: a plain owner's value rides"))
+      (let [copies (settle-transport! kind plain "failed" :on-failure
+                                      {:status :error
+                                       :error  {:kind :rf.http/http-5xx :body {:echo V}}})]
+        (is (every? #(redacted-token? (get-in % [2 :error])) copies)
+            "the failure envelope tokenizes whatever the owner")))))

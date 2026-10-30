@@ -419,8 +419,9 @@
   FX carriers, where `handle-one-fx` stamps an effect's args under
   `:rf.fx/args` and `do-fx` the effect vector under `:rf.event/fx`, and the
   event carriers, the dispatched event vector under `:rf.event/v` and an
-  error trace's bare `:event`, which carry a resource request's payload and a
-  continuation reply riding its `:reply-to` target."
+  error trace's bare `:event`, which carry a resource request's payload, a
+  transport reply's result and a continuation reply riding its `:reply-to`
+  target."
   #{:rf.fx/args :rf.event/fx :rf.event/v :event})
 
 (defn- resource-request-event?
@@ -450,6 +451,49 @@
        owner?                     (assoc :params params))
      (and owner? owner-redacted?)]))
 
+(defn- transport-reply-event?
+  "Whether `v` is a family transport reply
+  `[<internal-reply-id> <verification-payload> <result>]`, the event managed
+  HTTP dispatches with the decoded response. The payload's work id is the
+  proof."
+  [v]
+  (and (vector? v)
+       (= 3 (count v))
+       (keyword? (nth v 0))
+       (contains? #{"rf.resource.internal" "rf.mutation.internal"} (namespace (nth v 0)))
+       (map? (nth v 1))
+       (family-work-id? (:work/id (nth v 1)))
+       (map? (nth v 2))))
+
+(defn- transport-owner-redacts?
+  "Whether the owner a transport reply's verification `payload` names makes the
+  coarse claim: the resource its work id names, or a mutation attempt's
+  `:mutation-id`. An unregistered owner fails closed; a payload naming none
+  rides."
+  [payload]
+  (let [subject     (nth (:work/id payload) 1 nil)
+        disposition (fn [spec] (if spec
+                                 (rf.resources.classification/whole-entry-disposition spec)
+                                 :redact))]
+    (not= :serialize
+          (cond
+            (keyword? subject)                (disposition (rf.resources.registry/resource-meta subject))
+            (keyword? (:mutation-id payload)) (disposition (rf.resources.mutation-registry/mutation-meta
+                                                             (:mutation-id payload)))
+            :else                             :serialize))))
+
+(defn- project-transport-result
+  "A transport reply's `result` with the slots a continuation reply's would
+  take: `:value` tokenizes when the owner named by `payload` redacts, and the
+  `:error` envelope tokenizes unconditionally (`reply-error-slot`)."
+  [result payload]
+  (reduce (fn [projected slot]
+            (if (some? (get projected slot))
+              (update projected slot tokenize)
+              projected))
+          result
+          (cond-> reply-error-slot (transport-owner-redacts? payload) (conj :value))))
+
 (defn- project-embedded-keys
   "Projects the family's own data inside a carrier value `v` (`carrier-slot`)
   and leaves everything else untouched. Returns `[projected sensitive?]`.
@@ -469,7 +513,9 @@
       and its `:error` tokenizes unconditionally (`project-family-reply-slots`);
     - a family reply's `:correlation` gives its `:scope` the scope rule;
     - a resource request event's (`resource-request-event?`) `:scope` and
-      `:params` take its scoped key's rule (`project-request-identity`).
+      `:params` take its scoped key's rule (`project-request-identity`);
+    - a transport reply event's (`transport-reply-event?`) result takes a
+      continuation reply's slot rule (`project-transport-result`).
   Spec 015 §Projection — applying classification at a boundary"
   [value frame-id named?]
   (cond
@@ -504,6 +550,12 @@
             (resource-request-event? value)
             (let [[payload owner-redacted?] (project-request-identity (nth value 1) frame-id)]
               (record-sensitive-projection! owner-redacted? (assoc value 1 payload)))
+
+            (transport-reply-event? value)
+            (let [projected (update value 2 project-transport-result (nth value 1))]
+              (if (= projected value)
+                value
+                (record-sensitive-projection! true projected)))
 
             :else value)
 
