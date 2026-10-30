@@ -19,11 +19,13 @@
     tag that selects within the wrapper's class so the rule is scoped
     to the variant being rendered.
 
-  - `:rf.story/layout-debug.pseudo` — Pseudo-state forcing. Adds a
-    class to the wrapper that, via the injected stylesheet, applies
-    `:hover` / `:focus` / `:active` / `:visited` styling to all
-    descendants. Ref-args supply which states to force as a set; the
-    default is `#{:hover}`.
+  - `:rf.story/layout-debug.pseudo` — Pseudo-state outline. Adds a
+    `force-<state>` class to the wrapper per requested state, and the
+    injected stylesheet paints Story's indicator for that state (an
+    outline, a tint, a link colour) on the descendants, for inspection.
+    It does not apply the author's own `:hover` / `:focus` / `:active` /
+    `:visited` rules. Ref-args supply the states as a set; the default is
+    `#{:hover}`.
 
   ## Authoring
 
@@ -125,8 +127,9 @@
     "}"))
 
 (defn build-pseudo-stylesheet
-  "Return the CSS string for the pseudo-state decorator. Forces the
-  named pseudo-classes on every descendant by class-swapping. Pure
+  "Return the CSS string for the pseudo-state decorator: one indicator
+  rule per named state, scoped to the wrapper's `force-<state>` class.
+  It marks the state and does not force the pseudo-class itself. Pure
   data → data.
 
   `states` is a set of pseudo-class keywords from
@@ -134,9 +137,7 @@
   [wrap-class states]
   (let [parts (for [s states]
                 (case s
-                  :hover    (str "." wrap-class " * { outline: 1px dashed #ff0; }"
-                                 "." wrap-class ".force-hover *:hover, "
-                                 "." wrap-class ".force-hover * { /* forced hover */ }")
+                  :hover    (str "." wrap-class ".force-hover * { outline: 1px dashed #ff0; }")
                   :focus    (str "." wrap-class ".force-focus * { outline: 2px solid #4af; }")
                   :active   (str "." wrap-class ".force-active * { filter: brightness(0.92); }")
                   :visited  (str "." wrap-class ".force-visited a { color: #b58fff; }")
@@ -227,7 +228,7 @@
        :wrap outline-wrap})
     (rf.story.registrar/reg-decorator*
       id-pseudo
-      {:doc  (str "Pseudo-state forcing — ref-args is a set from "
+      {:doc  (str "Pseudo-state outline — ref-args is a set from "
                   "#{:hover :focus :active :visited}; default #{:hover}.")
        :kind :hiccup
        :wrap pseudo-wrap})

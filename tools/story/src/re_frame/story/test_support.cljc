@@ -139,7 +139,7 @@
 
   Declare it with the FN form — never the map form — in a `.cljc` test:
 
-      (use-fixtures :each (story/use-fixtures {:adapter plain-atom/adapter}))
+      (use-fixtures :each (story-test/use-fixtures {:adapter plain-atom/adapter}))
 
   `opts` — see the namespace docstring (`:adapter` REQUIRED, `:install`
   optional). The framework reset installs the adapter + ensures the

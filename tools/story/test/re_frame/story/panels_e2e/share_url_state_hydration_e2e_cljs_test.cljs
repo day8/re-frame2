@@ -27,7 +27,8 @@
   - an unregistered `substrate=` ends as `:reagent` (pass 2 cannot revive it);
   - an all-stale `overrides=` leaves NO `[:cell-overrides variant-id]` slice
     and still records the dropped-override drift hint;
-  - a valid `substrate=` + valid `overrides=` hydrate normally."
+  - a valid `substrate=` + valid `overrides=` hydrate normally;
+  - an override of an arg only a restored mode supplies is kept."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -166,3 +167,30 @@
               "a declared override hydrates into the focused variant's slice")
           (is (nil? (get-in s [:rf.story/share-import-hint :story.sample/card]))
               "no drift hint when nothing was dropped"))))))
+
+;; =========================================================================
+;; (4) an override of an arg only an active mode supplies hydrates
+;; =========================================================================
+
+(deftest mode-supplied-arg-override-hydrates
+  (testing "with `modes=` restoring a mode that supplies an arg the variant
+            does not declare itself, the Controls panel shows that arg, so
+            pass 2 keeps its override beside the declared one and records no
+            drift hint"
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
+      {:register-stories (fn []
+                           (register-variant!)
+                           (register-substrates!)
+                           (rf.story/reg-mode :Mode.app/dark {:args {:accent "#000"}}))}
+      (fn []
+        (hydrate-from-url-params!
+          {"variant"   "story.sample/card"
+           "modes"     "Mode.app/dark"
+           "overrides" (pr-str {:label "Shared" :accent "#fff"})})
+        (let [s (rf.story.ui.state/get-state)]
+          (is (= [:Mode.app/dark] (:active-modes s)) "pass 1 restored the mode")
+          (is (= {:label "Shared" :accent "#fff"}
+                 (get-in s [:cell-overrides :story.sample/card]))
+              "the mode-supplied :accent override is kept with the declared :label one")
+          (is (nil? (get-in s [:rf.story/share-import-hint :story.sample/card]))
+              "no drift hint: nothing was dropped"))))))

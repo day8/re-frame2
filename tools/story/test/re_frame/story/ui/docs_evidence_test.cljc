@@ -36,6 +36,12 @@
            (rf.story.ui.docs/status-summary
              {:status :pass}
              {:passed 1 :failed 0 :cannot-run 0 :total 1 :all-passed? true}))))
+  (testing "a run that settled with no assertions is :pending but HAS run, so
+            the pill reads 'no assertions recorded' as the Tests pane does"
+    (is (= {:status :pending :passed 0 :failed 0 :cannot-run 0 :total 0 :ran? true}
+           (rf.story.ui.docs/status-summary
+             {:status :pass}
+             {:passed 0 :failed 0 :cannot-run 0 :total 0}))))
   (testing "a tape-floor :fail wins over green assertion counts, exactly as in Test mode"
     (is (= :fail (:status (rf.story.ui.docs/status-summary
                             {:status :fail}

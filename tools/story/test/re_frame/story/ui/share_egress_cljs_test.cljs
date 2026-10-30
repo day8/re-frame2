@@ -214,7 +214,7 @@
        :setup   []
        :args     {:label "Hi" :count 1}
        :argtypes {:flavour {:control :select}}})
-    (is (every? (rf.story.ui.share/declared-arg-keys :story.dak/v)
+    (is (every? (rf.story.ui.share/declared-arg-keys :story.dak/v [])
                 [:label :count :flavour])
         "both :args keys and the :argtypes-only key are declared")))
 

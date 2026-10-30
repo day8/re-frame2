@@ -7,7 +7,8 @@
     'never blank the canvas' rule;
   - `loader-incomplete-record` builds the `:rf.error/loader-incomplete`
     projection the canvas surfaces;
-  - the grid's `safe-render-cell` names an unregistered substrate inline;
+  - the grid's `safe-render-cell` names an unregistered substrate inline,
+    and wraps every cell's subject in the variant's decorators;
   - `render-decorated-view`, the seam the `render-variant` host shares
     with the canvas, applies the variant's decorators."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -157,6 +158,50 @@
     (is (not-any? #(re-find #"is not registered" %)
                   (hiccup-text-flatten
                     (rf.story.ui.multi-substrate/multi-substrate-grid :story.substrate.ok/probe))))))
+
+;; ===========================================================================
+;; the side-by-side grid decorates every cell
+;; ===========================================================================
+
+(defn- grid-cell-subjects
+  "The `:subject` each grid cell's boundary renders, one per substrate cell."
+  [grid]
+  (->> (tree-seq coll? seq grid)
+       (filter #(and (map? %) (contains? % :subject)))
+       (mapv :subject)))
+
+(deftest grid-cells-wrap-the-subject-in-the-variants-decorators
+  (testing "spec/002 §Decorator composition order: every substrate cell wraps
+            its subject in the variant's :hiccup decorators, as the single pane
+            does, while an undecorated variant's cells stay bare"
+    (let [prev @rf.story.ui.multi-substrate/substrate->render-fn]
+      (try
+        (doseq [substrate [:reagent :uix]]
+          (rf.story.ui.multi-substrate/register-substrate!
+            substrate (fn [_vid _view-id _args] [:span.leaf "leaf"])))
+        (rf.story/reg-decorator :deco/grid-themed
+          {:kind :hiccup :wrap (fn [body _] [:div.themed body])})
+        (rf/reg-view* :views/grid-probe (fn [_] [:span.leaf "leaf"]))
+        (rf.story/reg-variant :story.griddeco/decorated
+          {:component  :views/grid-probe
+           :substrates #{:reagent :uix}
+           :decorators [[:deco/grid-themed]]
+           :setup      []})
+        (rf.story/reg-variant :story.griddeco/bare
+          {:component  :views/grid-probe
+           :substrates #{:reagent :uix}
+           :setup      []})
+        (let [themed?   #(= :div.themed (first %))
+              bare      (grid-cell-subjects
+                          (rf.story.ui.multi-substrate/multi-substrate-grid :story.griddeco/bare))
+              decorated (grid-cell-subjects
+                          (rf.story.ui.multi-substrate/multi-substrate-grid :story.griddeco/decorated))]
+          (is (= 2 (count bare)) "control: one cell per declared substrate")
+          (is (not-any? themed? bare) "control: an undecorated variant's cells render the bare subject")
+          (is (= 2 (count decorated)) "one cell per declared substrate")
+          (is (every? themed? decorated) "every cell's subject carries the decorator's wrapper"))
+        (finally
+          (reset! rf.story.ui.multi-substrate/substrate->render-fn prev))))))
 
 ;; ===========================================================================
 ;; render-variant host APPLIES decorators

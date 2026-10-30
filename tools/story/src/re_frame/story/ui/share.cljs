@@ -99,13 +99,15 @@
           (catch :default _ nil))))))
 
 (defn declared-arg-keys
-  "The set of TOP-LEVEL arg-keys `variant-id` currently declares — the
-  share-import contract a stale URL override is checked against.
+  "The set of TOP-LEVEL arg-keys `variant-id` currently declares with
+  `active-modes` on — the share-import contract a stale URL override is
+  checked against.
   The same surface the controls panel exposes as editable
   args: the union of
 
-    - the resolved args' keys (`rf.story.args/resolve-args` WITHOUT cell-overrides
-      — the global / story / variant-chain `:args` layers);
+    - the effective args' keys under `active-modes` and WITHOUT
+      cell-overrides — the global / mode / story / variant-chain `:args`
+      layers, as the Controls panel shows them;
     - the variant's + parent story's explicit `:argtypes` keys;
     - the compiled view-args (props) schema's top-level `:map` entry keys
       (`rf.story.view-args/compiled-view-args-schema`).
@@ -115,12 +117,12 @@
   override rather than dropping all. Best-effort: any read failure
   contributes its empty layer; the resolved-args layer alone is the
   floor."
-  [variant-id]
+  [variant-id active-modes]
   (when (and variant-id (rf.story.registrar/registered? :variant variant-id))
     (let [story-id   (rf.story.args/parent-story-id variant-id)
           vb         (rf.story.registrar/handler-meta :variant variant-id)
           sb         (when story-id (rf.story.registrar/handler-meta :story story-id))
-          arg-keys   (set (keys (rf.story.plan/effective-args variant-id)))
+          arg-keys   (set (keys (rf.story.plan/effective-args variant-id {:active-modes active-modes})))
           argtype-ks (into (set (keys (:argtypes sb)))
                            (keys (:argtypes vb)))
           schema     (rf.story.view-args/compiled-view-args-schema variant-id)
@@ -175,17 +177,19 @@
     ;; ran first) rather than re-deriving it from the raw URL — guarantees
     ;; this pass operates on `url-state`'s authoritative, validated
     ;; selection and can never diverge from it.
-    (let [variant-id (:selected-variant @rf.story.ui.state/shell-state-atom)
+    (let [shell      @rf.story.ui.state/shell-state-atom
+          variant-id (:selected-variant shell)
           valid?     (and variant-id (rf.story.registrar/registered? :variant variant-id))
           parsed0    (rf.story.share/parse-overrides-param* (.get params "overrides"))
           ;; Second stage: drop overrides for args the focused variant no
           ;; longer declares (renamed / removed) so they are REPORTED, not
           ;; merged as orphan live args. Only meaningful for a valid variant
           ;; (its declared-key contract). `declared-arg-keys` returns nil →
-          ;; keep-all degrade.
+          ;; keep-all degrade. The modes are the ones `url-state` restored,
+          ;; so an override of an arg only an active mode supplies is kept.
           parsed     (if valid?
                        (rf.story.share/drop-stale-overrides parsed0
-                                                   (declared-arg-keys variant-id))
+                                                   (declared-arg-keys variant-id (:active-modes shell)))
                        parsed0)
           overrides  (:overrides parsed)
           dropped    (:dropped parsed)]

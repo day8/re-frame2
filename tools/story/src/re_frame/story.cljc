@@ -413,7 +413,7 @@
      ```
      {:doc       \"...\"
       :title     \"...\"
-      :placement :right | :left | :bottom | :top | :modal
+      :placement :right                  ;; the shell's one panel host
       :render    <view-id>
       :for       #{<context-id>}}   ;; optional
      ```
@@ -1803,7 +1803,8 @@
   rf.story.layout-debug/id-outline)
 
 (def layout-debug-pseudo-id
-  "Per `005-SOTA-Features.md` §Layout-debug overlay trio — pseudo-state forcing. Ref-args is a set
+  "Per `005-SOTA-Features.md` §Layout-debug overlay trio — pseudo-state outline: Story's indicator
+  for each requested state, not the author's own pseudo-class styles. Ref-args is a set
   from `#{:hover :focus :active :visited}`; default is `#{:hover}`:
 
       (story/reg-variant :story.link/hovered

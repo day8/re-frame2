@@ -195,9 +195,10 @@ panel:
 - **Measure.** Rulers + gap visualisation on hover (Storybook's
   addon-measure equivalent).
 - **Outline.** Pesticide-style outline of every DOM node.
-- **Pseudo-state forcing.** `:hover`, `:focus`, `:active`, `:visited`
-  via class-swap; pairs with visual-regression for state-coverage
-  snapshots.
+- **Pseudo-state outline.** Outlines the variant's elements for each
+  requested `:hover`, `:focus`, `:active` or `:visited` state, for
+  inspection; it marks the targeted state and does not apply the
+  author's own pseudo-class styles.
 
 Per Phase 2 §5.2 #2. Cheap to ship; framework-agnostic; all three
 together are best-in-class. See

@@ -335,8 +335,9 @@
   render inline rather than aborting). `effective-args` is the resolved args
   map every `:wrap` fn receives as `[body effective-args]`.
 
-  The ONE decorate primitive both the canvas single-pane path and the
-  `render-variant` host hook call, so the two agree on the decorated tree."
+  The ONE decorate primitive the canvas single pane, the side-by-side
+  grid's cells and the `render-variant` host hook call, so all of them
+  agree on the decorated tree."
   [view-hiccup hiccup-decorators effective-args]
   (try
     (rf.story.decorators/apply-hiccup-decorators hiccup-decorators view-hiccup effective-args)
@@ -435,7 +436,7 @@
        (when (not= props (gobj/get state "props"))
          #js {:props props :error nil}))
      :reagent-render
-     (fn [{:keys [render-fn variant-id substrate view-id eff-args]}]
+     (fn [{:keys [variant-id substrate subject]}]
        (if-let [error (gobj/get (.-state ^js (r/current-component)) "error")]
          [:div {:style (:error-cell styles)}
           [:div {:style (:error-head styles)}
@@ -448,12 +449,16 @@
           ;; subject and none of the grid's chrome.
           [:div {:style (merge (:cell-body styles) (cell-subject-style variant-id))
                  :data-rf-story-variant-root (pr-str variant-id)}
-           [cell-subject render-fn variant-id view-id eff-args]]]))}))
+           subject]]))}))
 
 (defn- safe-render-cell
-  "Render `view-id` under `substrate` inside the `cell-boundary` error
+  "Render `view-id` under `substrate`, wrapped in the variant's
+  `hiccup-decorators` as the single pane wraps it (`002-Runtime.md`
+  §Decorator composition order), inside the `cell-boundary` error
   boundary. Per `002-Runtime.md` §Substrate hooks a substrate failure
-  surfaces inline rather than aborting the whole grid.
+  surfaces inline rather than aborting the whole grid. The decorated tree
+  renders inside the boundary, so a throw from a wrapped subject stays in
+  its cell, and `safe-decorated-view` catches a `:wrap` that throws.
 
   The registry lookup and the missing-substrate diagnostic below are the
   CELL-level pair. `render-view` above carries the fragment-level pair
@@ -463,7 +468,7 @@
   untouched.
 
   Returns a Reagent component."
-  [variant-id substrate view-id eff-args]
+  [variant-id substrate view-id eff-args hiccup-decorators]
   (let [render-fn (get @substrate->render-fn substrate)]
     (cond
       (nil? render-fn)
@@ -478,11 +483,12 @@
              "at app boot.")]]
 
       :else
-      [cell-boundary {:render-fn  render-fn
-                      :variant-id variant-id
+      [cell-boundary {:variant-id variant-id
                       :substrate  substrate
-                      :view-id    view-id
-                      :eff-args   eff-args}])))
+                      :subject    (safe-decorated-view
+                                    [cell-subject render-fn variant-id view-id eff-args]
+                                    hiccup-decorators
+                                    eff-args)}])))
 
 ;; ---- pure: substrate set resolution -------------------------------------
 
@@ -569,11 +575,8 @@
 
   Each cell renders inside a Reagent error boundary so a throw in one
   substrate's render doesn't take down its neighbours (`002-Runtime.md` §Substrate hooks).
-
-  Note: per-substrate decorator stacks (`002-Runtime.md` §Decorator composition order)
-  are not yet threaded through here — `safe-render-cell` renders the
-  raw view-id under each substrate. When that work lands, resolve the
-  decorator pack here and thread it into each cell's render."
+  Every cell wraps its subject in the variant's `:hiccup` decorators, read
+  off the same plan, so a cell paints what the single pane paints."
   [variant-id]
   (let [shell      @rf.story.ui.state/shell-state-atom
         run-opts   {:active-modes   (:active-modes shell)
@@ -589,7 +592,11 @@
         substrates (resolve-substrate-set (:world plan) nil
                                           (or (:substrate shell) :reagent))
         view-id    (get-in plan [:world :component])
-        eff-args   (get-in plan [:world :effective-args] {})]
+        eff-args   (get-in plan [:world :effective-args] {})
+        ;; The canvas renders the stack's resolution `:errors` below the
+        ;; grid, as it does below the single pane.
+        hiccup-decorators (:hiccup (rf.story.decorators/resolve-decorator-refs
+                                     (get-in plan [:world :decorators] [])))]
     (if plan-error
       (plan-error-card plan-error)
     ;; The multi-substrate grid is the canvas's labelled landmark when a
@@ -607,4 +614,4 @@
        [:div {:key         (name substrate)
               :role        "region"
               :aria-label  (str (name substrate) " substrate cell")}
-        (safe-render-cell variant-id substrate view-id eff-args)])])))
+        (safe-render-cell variant-id substrate view-id eff-args hiccup-decorators)])])))
