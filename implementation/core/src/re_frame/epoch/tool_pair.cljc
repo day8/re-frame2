@@ -1845,6 +1845,11 @@
   the same reason `project-fx-tags` keys off the slot pair rather than off
   `:rf.fx/handled` at the emit end.
 
+  The same projector speaks for the event carriers (`:rf.event/v`, `:event`),
+  where a resource request names its entry and a continuation reply rides its
+  `:reply-to` target, so under a lifted `:rf.egress/include-event-args?` the
+  scope and a `:sensitive?` owner's params still tokenize.
+
   Same posture as its sibling in every other respect: off-box default, lifted by
   the trusted-local `:rf.egress/include-sensitive?`, no-op when no resources artefact is
   loaded, idempotent, nil/non-sequential-preserving."
@@ -1860,6 +1865,19 @@
                 trace-event))
             trace-events)
       trace-events)))
+
+(defn- project-captured-carrier
+  "`v`, a record slot captured verbatim from the trace tag `tag-slot`, projected
+  by the resource family's carrier projector as that tag is
+  (`omit-off-box-fx-args-resource-keys`), so the record and the trace it was
+  captured from agree about a resource's identity once an opt-in hands the
+  slot back. Same posture: lifted by the trusted-local
+  `:rf.egress/include-sensitive?`, no-op when no resources artefact is loaded."
+  [v tag-slot frame-id {:rf.egress/keys [include-sensitive?]}]
+  (if-let [project (when-not include-sensitive?
+                     (rf.late-bind/get-fn :resources/project-fx-args-egress))]
+    (get (project {tag-slot v} frame-id) tag-slot)
+    v))
 
 (defn- redact-fx-entry
   "Fail-closed projection of ONE `[<fx-id> <args> …]` entry of the
@@ -2269,9 +2287,12 @@
         ;; scope-resolved projector above; same fail-closed off-box default.
         (omit-off-box-resource-trace-keys frame-id opts)
         ;; …and the SAME keys where they ride the FX-ARGS carriers
-        ;; (`:rf.fx/args` / `:rf.event/fx`) of rows the family does NOT own —
+        ;; (`:rf.fx/args` / `:rf.event/fx`) and the event carriers
+        ;; (`:rf.event/v` / `:event`) of rows the family does NOT own —
         ;; reached by SLOT, since the arm above is reached by op namespace and a
         ;; lowered `ensure` addresses its work by scoped key inside the effects.
+        ;; At the off-box default the event carriers are already reduced to
+        ;; their ids above, so this matters under a lifted event-args opt-in.
         (omit-off-box-fx-args-resource-keys frame-id opts)
         ;; …then fail closed on the fx-args carriers THEMSELVES.
         ;; The step above speaks for the resource family's scoped keys inside
@@ -2370,27 +2391,30 @@
   through unchanged.
 
   `opts` `:rf.egress/include-fx-args? true` is the trusted-local opt-in; it
-  keeps the raw `:args`. It is ORTHOGONAL to the app-db `:rf.egress/include-sensitive?`
-  / `:rf.egress/include-large?` opt-ins (fx args are a different keyspace, not app-db
-  values), so those do NOT lift it.
+  keeps the `:args`, which then take the resource family's carrier projection
+  the `:rf.fx/args` tag they were captured from takes
+  (`project-captured-carrier`). It is ORTHOGONAL to the app-db
+  `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` opt-ins (fx args
+  are a different keyspace, not app-db values), so those do NOT lift it.
 
   Idempotent: a row whose `:args` was already replaced with `:rf/redacted`
   re-redacts to the same sentinel. A row carrying no `:args` key passes
   through (no slot to fabricate)."
-  [effect-row {:rf.egress/keys [include-fx-args?]}]
-  (if (or include-fx-args? (not (contains? effect-row :args)))
-    effect-row
-    (assoc effect-row :args :rf/redacted)))
+  [effect-row frame-id {:rf.egress/keys [include-fx-args?] :as opts}]
+  (cond
+    (not (contains? effect-row :args)) effect-row
+    include-fx-args? (update effect-row :args project-captured-carrier :rf.fx/args frame-id opts)
+    :else            (assoc effect-row :args :rf/redacted)))
 
 (defn- elide-effects-slot
   "Project the structured `:effects` vector for off-box egress:
   walk each row through `elide-effect-row`, fail-closed-redacting the
   payload-bearing `:args` slot. Nil- and non-sequential-preserving (the
   slot may already be a scalar sentinel)."
-  [effects opts]
+  [effects frame-id opts]
   (if-not (sequential? effects)
     effects
-    (mapv #(elide-effect-row % opts) effects)))
+    (mapv #(elide-effect-row % frame-id opts) effects)))
 
 (defn- elide-trigger-event-slot
   "Project the `:trigger-event` slot for off-box egress.
@@ -2426,7 +2450,9 @@
   `:rf/redacted` at `:trigger-event`).
 
   `opts` `:rf.egress/include-event-args? true` is the trusted-local opt-in that keeps
-  raw args. It is orthogonal to
+  the args, which then take the resource family's carrier projection the
+  `:rf.event/v` tag they were captured from takes (`project-captured-carrier`).
+  It is orthogonal to
   the app-db `:rf.egress/include-sensitive?` / `:rf.egress/include-large?` opt-ins (event args
   are a different keyspace, not app-db values), so those do NOT lift it,
   matching the `:effects` `:args` / runtime-db boundaries.
@@ -2434,9 +2460,10 @@
   Idempotent: a second pass over an already-projected `[<id> :rf/redacted
   …]` re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
   Nil-preserving (a halted record may carry no `:trigger-event`)."
-  [trigger-event {:rf.egress/keys [include-event-args?]}]
+  [trigger-event frame-id {:rf.egress/keys [include-event-args?] :as opts}]
   (cond
-    (or include-event-args? (nil? trigger-event)) trigger-event
+    (nil? trigger-event) trigger-event
+    include-event-args?  (project-captured-carrier trigger-event :rf.event/v frame-id opts)
     ;; The canonical shape is a non-empty event vector `[<id> <arg> …]`.
     ;; Retain the head event-id keyword (the non-payload summary); fail
     ;; closed on every positional / map arg in the tail.
@@ -2513,7 +2540,7 @@
 
       ;; Trigger args are not app-db-rooted and fail closed.
       (contains? record :trigger-event)
-      (update :trigger-event elide-trigger-event-slot opts)
+      (update :trigger-event elide-trigger-event-slot frame-id opts)
 
       (contains? record :trace-events)
       (update :trace-events elide-trace-events-slot frame-id opts)
@@ -2523,7 +2550,7 @@
 
       ;; Effect args are not app-db-rooted and fail closed.
       (contains? record :effects)
-      (update :effects elide-effects-slot opts))))
+      (update :effects elide-effects-slot frame-id opts))))
 
 (defn project-record
   "The PER-KIND projector `re-frame.projection/project-egress` dispatches a
