@@ -61,13 +61,30 @@
                     row  (if (zero? j) row (conj row v))]
                 (recur (inc j) row p)))))))))
 
+(def ^:private longest-tool-name
+  (apply max (map count registry/tool-names)))
+
+(def ^:private max-echoed-name-chars
+  "How much of an unknown tool name the refusal echoes. A longer name is no
+  typo of a listed one, and echoing it whole would make the refusal as large
+  as whatever the caller sent."
+  128)
+
+(defn- echoed-name
+  [name]
+  (if (and (string? name) (> (count name) max-echoed-name-chars))
+    (str (subs name 0 max-echoed-name-chars) "...")
+    name))
+
 (defn- nearest-tool
   "Closest registered tool name to `name` by edit distance, or nil when
   nothing is within a sensible threshold (avoid an actively-misleading
   suggestion for a wildly-off name). Threshold scales loosely with the
-  typo'd length so short names need a near-exact match."
+  typo'd length so short names need a near-exact match. A name more than
+  twice the longest listed one is past the threshold for every name (the
+  distance is at least the length difference), so it is not searched."
   [name]
-  (when (and (string? name) (seq name))
+  (when (and (string? name) (seq name) (<= (count name) (* 2 longest-tool-name)))
     (let [[best d] (reduce (fn [[_ bd :as acc] cand]
                              (let [cd (edit-distance name cand)]
                                (if (< cd bd) [cand cd] acc)))
@@ -82,15 +99,17 @@
   recovery-shaped `:hint` (the surface's honest-error standard — cf.
   cache.cljs `:rf.mcp/cache-hit` :hint, roots_discovery.cljs discovery
   hints, server.cljs port hints) pointing the agent at `tools/list` plus
-  the live catalogue, and a `:did-you-mean` when a near name exists."
+  the live catalogue, and a `:did-you-mean` when a near name exists. An
+  over-long name is echoed cut to `max-echoed-name-chars`."
   [name]
   (let [near (nearest-tool name)
-        base (str "unknown tool" (when name (str " `" name "`")) "; "
+        echo (echoed-name name)
+        base (str "unknown tool" (when name (str " `" echo "`")) "; "
                   (when near (str "did you mean `" near "`? "))
                   "call `tools/list` to see the available tools.")]
     (cond-> {:ok?           false
              :reason        :unknown-tool
-             :tool          name
+             :tool          echo
              :hint          base
              :available-tools registry/tool-names}
       near (assoc :did-you-mean near))))
