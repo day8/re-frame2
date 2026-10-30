@@ -117,9 +117,10 @@
 ;; checkpoint and must honour its result: a terminal DOM atom must not read a
 ;; substrate whose commit threw or timed out, and the settle failure must
 ;; reach `:rf.story/assertions`, the one accumulator the terminal verdict
-;; folds. A DOM atom records nothing under a headless runner, so the
-;; accumulator holds zero records when the failure is dropped and exactly one
-;; when it is honoured.
+;; folds. Both test lanes run on a host with no DOM, where a DOM atom that
+;; IS evaluated records its own `:cannot-run` with the executor's no-DOM
+;; reason, so the record's status and reason tell an honoured settle failure
+;; from a dropped one.
 
 (def ^:private terminal-frame
   ;; a registered frame: `record!` dispatches into its app-db
@@ -166,14 +167,19 @@
   (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
   (let [recs (terminal-records)]
     (is (= [[:cannot-run true]] (mapv (juxt :status :cannot-run?) recs)))
+    (is (re-find #"flush-timeout" (str (:reason (first recs))))
+        "the settle's refusal, not the atom's own no-DOM evaluation")
     (is (= :cannot-run (rf.story.requirements/aggregate-status recs nil)))))
 
 (deftest a-settled-terminal-assertion-still-evaluates
-  ;; a commit that succeeds mints no refusal record
+  ;; a commit that succeeds mints no refusal record: the one record is the
+  ;; atom's own evaluation, here the no-DOM refusal
   (terminal-frame!)
   (install-hooks! {:provides :dom :flush! {:dom (fn [_] nil)}})
   (rf.story.play.runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
-  (is (empty? (terminal-records))))
+  (let [recs (terminal-records)]
+    (is (= [[rf.story.assertions/id-dom-text :cannot-run]] (mapv (juxt :assertion :status) recs)))
+    (is (re-find #"no DOM" (str (:reason (first recs)))))))
 
 (deftest a-headless-terminal-assertion-is-untouched
   ;; below :cljs-reactive no hook is consulted, even one whose :dom flush throws

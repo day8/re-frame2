@@ -157,7 +157,7 @@
   (let [slot   (get @rf.story.ui.test-mode.state/results-atom variant-id)
         result (:result slot)]
     (when result
-      (let [summary (rf.story.ui.state/aggregate-summary (:assertions result))
+      (let [summary (rf.story.ui.test-mode.pure/pane-summary result)
             {:keys [passed failed cannot-run]} summary
             cannot-run (or cannot-run 0)
             ;; the unified run-level verdict (spec/021 §1), via the pure

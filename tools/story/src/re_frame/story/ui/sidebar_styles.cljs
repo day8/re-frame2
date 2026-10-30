@@ -184,6 +184,7 @@
                    :color (:text-primary rf.story.theme.colors/tokens)}
    :widget-pass  {:color (:success rf.story.theme.colors/tokens)}
    :widget-fail  {:color (:danger rf.story.theme.colors/tokens)}
+   :widget-cannot {:color (:warning rf.story.theme.colors/tokens)}
    :widget-run   {:color (:warning rf.story.theme.colors/tokens)}
    :widget-pend  {:color (:text-tertiary rf.story.theme.colors/tokens)}
    :widget-btn   {:margin-top "4px"

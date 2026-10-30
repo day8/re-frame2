@@ -1199,3 +1199,90 @@
       (is (= :rf.error/bad-classification
              (-> (exception-record-of r) :error :data :rf.error/id)))
       (is (not= :pass (:status r))))))
+
+;; ===========================================================================
+;; RUNNER REFUSALS — an atom the runner could not prove is never a pass
+;; ===========================================================================
+
+(defn- run-with! [vid opts]
+  (rf.story.async/deref-blocking (rf.story/run-variant vid opts) 5000))
+
+(defn- verdict-of
+  "`[status runner [[assertion status] …] [refusal-reason …] [[check status] …]]`."
+  [r]
+  [(:status r) (:runner r)
+   (mapv (juxt :assertion :status) (:assertions r))
+   (mapv :reason (:cannot-run r))
+   (mapv (juxt :check :status) (:checks r))])
+
+;; spec/017 §Runner policy: the runner MUST NOT fake an assertion it cannot
+;; prove. A runner that claims `:dom` passes the requirements preflight, so
+;; on a host with no DOM (the JVM) the atom's own refusal is the only one.
+(deftest dom-atom-on-a-host-without-a-dom-records-cannot-run
+  (rf/reg-event :probe/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+  (rf.story/reg-variant :story.nodom/terminal
+    {:setup [[:probe/ok]] :assertions [[:rf.assert/dom-visible "#nope"]]})
+  (rf.story/reg-variant :story.nodom/in-script
+    {:setup [[:probe/ok]] :script [[:assert [:rf.assert/dom-visible "#nope"]]]})
+  (testing "a terminal DOM atom under a runner that claims :dom"
+    (doseq [opts [{:runner :dom} {:runner :auto}]]
+      (is (= [:cannot-run :dom [[:rf.assert/dom-visible :cannot-run]] [] []]
+             (verdict-of (run-with! :story.nodom/terminal opts)))
+          (pr-str opts))))
+  (testing "in-script, the refusal is the atom's record, counted once"
+    (is (= [:cannot-run :dom [[:rf.assert/dom-visible :cannot-run]] [] []]
+           (verdict-of (run-with! :story.nodom/in-script {:runner :dom})))))
+  (testing "control: the default :headless runner refuses the atom at preflight as well"
+    (is (= [:cannot-run :headless [[:rf.assert/dom-visible :cannot-run]]
+            [:runner-lacks-capability] []]
+           (verdict-of (run-with! :story.nodom/terminal nil))))))
+
+;; spec/017 §`:cannot-run`: a check that proved nothing is not a pass, and
+;; the refusal is attributed to the check.
+(deftest check-whose-atom-was-refused-reads-cannot-run
+  (rf/reg-event :probe/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+  (rf.story/reg-check :check.refused/dom-only {:assertions [[:rf.assert/dom-visible "#x"]]})
+  (rf.story/reg-check :check.refused/mixed
+    {:assertions [[:rf.assert/path-equals [:ok] true] [:rf.assert/dom-text "#banner" "Saved"]]})
+  (rf.story/reg-check :check.refused/fails {:assertions [[:rf.assert/path-equals [:ok] false]]})
+  (doseq [[vid check expected] [[:story.refused/dom-only :check.refused/dom-only [:cannot-run :cannot-run]]
+                                [:story.refused/mixed    :check.refused/mixed    [:cannot-run :cannot-run]]
+                                [:story.refused/fails    :check.refused/fails    [:fail :fail]]]]
+    (rf.story/reg-variant vid {:setup [[:probe/ok]] :checks [check]})
+    (let [r (run-with! vid nil)]
+      (is (= expected [(:status r) (:status (first (:checks r)))])
+          (str vid " — [run check]")))))
+
+;; spec/017 §Requirement inference: check atoms count toward
+;; `:required-runner`, so `:auto` escalates for them; a fixed runner stays
+;; fixed and refuses the atom, attributed to its check.
+(deftest auto-runner-counts-check-atoms-and-a-fixed-runner-refuses-them
+  (rf/reg-event :probe/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+  (rf.story/reg-check :check.tier/caused {:assertions [[:rf.assert/caused {:event :probe/ok}]]})
+  (rf.story/reg-variant :story.tier/own {:setup [[:probe/ok]] :checks [:check.tier/caused]})
+  (rf.story/reg-variant :story.tier/inherited {:extends :story.tier/own})
+  (doseq [vid [:story.tier/own :story.tier/inherited]]
+    (let [auto  (run-with! vid {:runner :auto})
+          fixed (run-with! vid nil)]
+      (is (= [:cljs-reactive true]
+             [(:runner auto) (contains? (:required-runner auto) :reactive-counts)])
+          (str vid " — :auto picks the runner the check needs"))
+      (is (= [:cannot-run :headless [:runner-lacks-capability] [[:check.tier/caused :cannot-run]]]
+             ((juxt :status :runner #(mapv :reason (:cannot-run %)) #(mapv (juxt :check :status) (:checks %)))
+              fixed))
+          (str vid " — the fixed default refuses the check's atom")))))
+
+;; An `:error` result is scoped to its own run like a settled one, so
+;; identical re-runs carry identical evidence and an equal `:run-hash`.
+(deftest error-result-carries-only-its-own-runs-epochs
+  (rf/reg-event :probe/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (rf.story/reg-variant :story.err/wait-in-setup
+    {:loaders [[:probe/inc]] :setup [[:dispatch [:probe/inc]] [:wait 1]]})
+  ;; One call site for every run: the error record carries the exception's
+  ;; stack trace, which `:run-hash` reads.
+  (let [rs (mapv (fn [_] (run-with! :story.err/wait-in-setup nil)) (range 3))]
+    (is (= [:error :error :error] (mapv :status rs)))
+    (is (pos? (count (:epoch-tape (first rs)))) "the run committed epochs before it threw")
+    (is (apply = (map (comp count :epoch-tape) rs))
+        "each errored result carries its own run's epochs, not every earlier run's")
+    (is (apply = (map :run-hash rs)))))

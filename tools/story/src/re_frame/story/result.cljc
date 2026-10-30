@@ -251,96 +251,55 @@
 ;; check result MUST show BOTH the check id AND the underlying assertion
 ;; records. The plan carries the expanded check→assertion-atoms mapping;
 ;; the run carries the evaluated records. `check-records` pairs them: each
-;; check id groups the records its assertion atoms produced (matched by the
-;; assertion atom's id + payload), and the check's `:status` aggregates its
-;; group via the ONE aggregation rule.
-
-(defn- atom-id
-  "The `:rf.assert/*` id at the head of an assertion atom, or nil."
-  [a]
-  (when (and (vector? a) (pos? (count a)))
-    (let [h (first a)] (when (keyword? h) h))))
-
-(defn- atom-payload
-  "The payload (args after the id) of an assertion atom."
-  [a]
-  (when (vector? a) (vec (rest a))))
-
-(def ^:private redactable-pair
-  "For each assertion id whose evaluator may rebuild the run RECORD's
-  `:payload` from a REDACTED expected value, the fn that finds the
-  `[coordinate expected]` pair inside a payload:
-  `rf.story.assertions/evaluate-path-equals` / `evaluate-sub-equals` rebuild
-  the whole payload as `[path-or-sub-vec :rf/redacted]`, and
-  `evaluate-dispatched?` rebuilds a matched sensitive event as
-  `[[event-id :rf/redacted]]`. The compiled check plan's atom, by contrast,
-  always carries the RAW author-declared value — plan atoms are never
-  redacted (redaction only happens at run time, against a live frame). An
-  exact-payload match between the two therefore cannot identify a
-  sensitive assertion."
-  {rf.story.assertions/id-path-equals identity
-   rf.story.assertions/id-sub-equals  identity
-   rf.story.assertions/id-dispatched  first})
-
-(defn- record-matches-atom?
-  "True iff assertion `record` was produced by assertion `atom-v` — same
-  `:rf.assert/*` id AND same payload. Pure data → data. The payload match
-  disambiguates two atoms of the same id against different paths within
-  one check.
-
-  For the REDACTION-PRONE ids (`redactable-pair`), a record whose expected
-  was REDACTED (`[path :rf/redacted]` or `[[event-id :rf/redacted]]`, while
-  the check plan's atom still carries the raw value) is matched on its
-  path / sub-vec / event id alone — a structural coordinate no evaluator
-  redacts. Without that, a sensitive check never groups its own record and
-  aggregates vacuously to `:pass`. Every other record matches its whole
-  payload, so a same-path checkpoint pinning a different value stays out
-  of the check."
-  [record atom-v]
-  (let [id      (atom-id atom-v)
-        payload (vec (:payload record))
-        pair-in (get redactable-pair id)
-        pair    (when pair-in (pair-in payload))]
-    (boolean
-      (and (= (:assertion record) id)
-           (if (and (vector? pair) (= :rf/redacted (second pair)))
-             (let [atom-pair (pair-in (atom-payload atom-v))]
-               (and (vector? atom-pair) (= (first pair) (first atom-pair))))
-             (= payload (atom-payload atom-v)))))))
+;; check id groups the records its assertion atoms produced (matched by
+;; `rf.story.assertions/record-matches-atom?`, which also matches a redacted
+;; record to its raw atom), and the check's `:status` aggregates its group
+;; via the ONE aggregation rule.
 
 (defn check-record
   "Build ONE check record (spec/017 §Run result — Check record) for
   `check-id` over its `assertion-atoms` (the atoms the plan expanded the
-  check into) against the run's evaluated `records`. Pure data → data.
+  check into) against the run's evaluated `records` and its `:cannot-run`
+  refusals `unmet`. Pure data → data.
 
-  The group is every evaluated record matching one of the check's atoms
-  (by id + payload); the check `:status` aggregates the group via the ONE
-  aggregation rule (`rf.story.requirements/aggregate-status`). An atom with no
-  matching record (the assertion never ran) contributes nothing to the
-  group — the run-level aggregation still sees the ungrouped records, so a
-  check that did not run does not mask the run verdict.
+  The group is every evaluated record matching one of the check's atoms;
+  the check `:status` aggregates the group, together with every refusal
+  whose `:unit` is one of the check's atoms, via the ONE aggregation rule
+  (`rf.story.requirements/aggregate-status`). So a check whose atom the
+  runner refused before evaluating it reads `:cannot-run`, attributed to
+  the check (spec/017 §`:cannot-run`), rather than a `:pass` over a group
+  that proved nothing. An atom with neither a record nor a refusal (the
+  assertion never ran) contributes nothing — the run-level aggregation
+  still sees the ungrouped records, so a check that did not run does not
+  mask the run verdict.
 
   Returns `{:check check-id :status … :assertions [record …]}`."
-  [check-id assertion-atoms records]
-  (let [group (into []
-                    (filter (fn [r]
-                              (some #(record-matches-atom? r %) assertion-atoms)))
-                    records)]
-    {:check      check-id
-     :status     (rf.story.requirements/aggregate-status group nil)
-     :assertions group}))
+  ([check-id assertion-atoms records]
+   (check-record check-id assertion-atoms records nil))
+  ([check-id assertion-atoms records unmet]
+   (let [group   (into []
+                       (filter (fn [r]
+                                 (some #(rf.story.assertions/record-matches-atom? r %)
+                                       assertion-atoms)))
+                       records)
+         atoms   (set assertion-atoms)
+         refused (filterv #(contains? atoms (:unit %)) unmet)]
+     {:check      check-id
+      :status     (rf.story.requirements/aggregate-status group refused)
+      :assertions group})))
 
 (defn check-records
   "Build the run's check records from the plan's `check->atoms`
-  (`{check-id [assertion-atom …]}` — the expanded check assertions) and the
-  run's evaluated assertion `records`. Pure data → data. Empty when the
-  plan declares no checks. The checks are emitted in `check->atoms`
-  iteration order; pass an ordered map (or a vector of `[id atoms]` pairs)
-  to pin order."
-  [check->atoms records]
-  (into []
-        (map (fn [[check-id atoms]] (check-record check-id atoms records)))
-        (or check->atoms [])))
+  (`{check-id [assertion-atom …]}` — the expanded check assertions), the
+  run's evaluated assertion `records` and its `:cannot-run` refusals
+  `unmet` (`check-record`). Pure data → data. Empty when the plan declares
+  no checks. The checks are emitted in `check->atoms` iteration order; pass
+  an ordered map (or a vector of `[id atoms]` pairs) to pin order."
+  ([check->atoms records] (check-records check->atoms records nil))
+  ([check->atoms records unmet]
+   (into []
+         (map (fn [[check-id atoms]] (check-record check-id atoms records unmet)))
+         (or check->atoms []))))
 
 ;; ===========================================================================
 ;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule)
@@ -950,10 +909,10 @@
         records        (-> (assertion-records assertions)
                            (into (:records schema-match))
                            (into (:records causal-match)))
-        checks         (check-records check->atoms records)
+        unmet          (settled-evidence-refusals-removed unmet records)
+        checks         (check-records check->atoms records unmet)
         consumed       (into (or consumed-selectors #{})
                              (:consumed-selectors schema-match))
-        unmet          (settled-evidence-refusals-removed unmet records)
         base-status    (rf.story.requirements/aggregate-status records unmet)
         ;; Agreement floor over the SAME projected evidence — the violations
         ;; + effects `project-evidence` already derived, not a re-walk of the

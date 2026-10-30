@@ -287,3 +287,24 @@
     (is (= 1 (:passed summary)))
     (is (= 2 (:failed summary)))
     (is (false? (:all-passed? summary)))))
+
+;; ---- a refused variant gets its own chip ----------------------------------
+
+;; spec/017 §`:cannot-run`: Story UI MUST render `:cannot-run` distinctly, so
+;; a refused variant is neither hidden in the ✓/✗ counts nor missing.
+#?(:cljs
+   (deftest widget-counts-a-cannot-run-variant
+     (doseq [vid [:story.x/a :story.x/b]]
+       (rf.story/reg-variant vid {:tags #{:test} :setup []
+                                  :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]}))
+     (let [chips (fn []
+                   (let [tree   (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
+                                                                 (rf.story.ui.state/registry-snapshot))
+                         counts (first (find-by-data-test tree "story-test-widget-counts"))]
+                     (into [] (comp (filter vector?) (map #(nth % 2))) (drop 2 counts))))]
+       (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run :story.x/a
+                                      {:total 1 :passed 1 :failed 0 :all-passed? true :status :pass})
+       (is (= ["✓ 1" "✗ 0" "○ 1"] (chips)) "control: no refusal, no ⊘ chip")
+       (rf.story.ui.state/swap-state! rf.story.ui.state/record-test-run :story.x/b
+                                      {:total 0 :passed 0 :failed 0 :status :cannot-run})
+       (is (= ["✓ 1" "✗ 0" "⊘ 1"] (chips))))))

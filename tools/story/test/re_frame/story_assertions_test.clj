@@ -154,6 +154,48 @@
            ((juxt :passed? :actual) (first (:assertions (run-v! :story.sub/runtime))))))
     (rf.story/destroy-variant! :story.sub/runtime)))
 
+;; spec 004 §Privacy rule 1: a sub declaring its whole output sensitive
+;; (spec/015's own `:partner/api-token` example) records the sentinel in
+;; every value-bearing slot, though its query vector names no app-db path.
+(deftest sub-equals-record-projects-a-sensitive-sub-output
+  (rf/reg-event :test/store-key
+    (fn [{:keys [db]} _] {:db (assoc-in db [:tenant :partner-api-key] "PARTNER-KEY-SECRET")}))
+  (rf/reg-sub :partner/api-token {:sensitive [[]]}
+    (fn [db _] (get-in db [:tenant :partner-api-key])))
+  (rf/reg-sub :partner/api-token-public
+    (fn [db _] (get-in db [:tenant :partner-api-key])))
+  (rf.story/reg-check :check.privacy/key-stored
+    {:assertions [[:rf.assert/sub-equals [:partner/api-token] "PARTNER-KEY-SECRET"]]})
+  (rf.story/reg-variant :story.privacy/sub-classified
+    {:setup  [[:test/store-key]]
+     :script [[:assert [:rf.assert/sub-equals [:partner/api-token] "PARTNER-KEY-SECRET"]]
+              [:assert [:rf.assert/sub-equals [:partner/api-token] "WRONG"]]]})
+  (rf.story/reg-variant :story.privacy/sub-check
+    {:setup [[:test/store-key]] :checks [:check.privacy/key-stored]})
+  (rf.story/reg-variant :story.privacy/sub-public
+    {:setup  [[:test/store-key]]
+     :script [[:assert [:rf.assert/sub-equals [:partner/api-token-public] "PARTNER-KEY-SECRET"]]]})
+  (let [r       (run-v! :story.privacy/sub-classified)
+        records (filterv #(= :rf.assert/sub-equals (:assertion %)) (:assertions r))]
+    (is (= [[true :rf/redacted :rf/redacted [[:partner/api-token] :rf/redacted]]
+            [false :rf/redacted :rf/redacted [[:partner/api-token] :rf/redacted]]]
+           (mapv (juxt :passed? :expected :actual :payload) records))
+        "the raw comparison still decides pass and fail; the records carry the sentinel")
+    (is (not (str/includes? (pr-str (:assertions r)) "PARTNER-KEY-SECRET"))
+        "no slot of either record, reason included, carries the secret"))
+  (let [r (run-v! :story.privacy/sub-check)]
+    (is (= [[:check.privacy/key-stored :pass [:rf/redacted]]]
+           (mapv (juxt :check :status #(mapv :actual (:assertions %))) (:checks r)))
+        "a check still groups its redacted record")
+    (is (not (str/includes? (pr-str (select-keys r [:assertions :checks])) "PARTNER-KEY-SECRET"))))
+  (let [r (run-v! :story.privacy/sub-public)]
+    (is (= [[true "PARTNER-KEY-SECRET"]]
+           (mapv (juxt :passed? :actual) (:assertions r)))
+        "control: an unclassified sub's record keeps the value it returned"))
+  (rf.story/destroy-variant! :story.privacy/sub-classified)
+  (rf.story/destroy-variant! :story.privacy/sub-check)
+  (rf.story/destroy-variant! :story.privacy/sub-public))
+
 (deftest state-is-pass
   (testing ":rf.assert/state-is reads the machine snapshot in the runtime-db
             partition, recording expected and actual on a mismatch"

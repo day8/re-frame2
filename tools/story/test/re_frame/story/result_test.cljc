@@ -57,6 +57,21 @@
                 :check/a     [[:rf.assert/path-equals [:a] 1]]}
                [a nowarn b]))))))
 
+(deftest check-attributes-a-refusal-of-its-own-atom
+  ;; spec/017 §`:cannot-run`: a refusal lives in the run's `:cannot-run`
+  ;; slot, not in a record, so a check whose atom the runner refused has
+  ;; an empty group — which must not read as a pass.
+  (let [dom     [:rf.assert/dom-visible "#x"]
+        ok      [:rf.assert/path-equals [:ok] true]
+        ok-rec  {:assertion :rf.assert/path-equals :payload [[:ok] true] :status :pass}
+        refusal {:status :cannot-run :reason :runner-lacks-capability :unit dom}]
+    (is (= [[:check/dom :cannot-run []] [:check/mixed :cannot-run [ok-rec]] [:check/ok :pass [ok-rec]]]
+           (mapv (juxt :check :status :assertions)
+                 (rf.story.result/check-records
+                   [[:check/dom [dom]] [:check/mixed [ok dom]] [:check/ok [ok]]]
+                   [ok-rec] [refusal])))
+        "a refusal reaches only the checks naming its unit")))
+
 (deftest check-keeps-out-a-same-path-checkpoint-pinning-another-value
   ;; [:count] 0 before an increment, the check [:count] 1 after: the check
   ;; reads its own record, not the earlier checkpoint's failure

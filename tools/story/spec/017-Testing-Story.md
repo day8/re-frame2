@@ -2063,9 +2063,13 @@ tokens it requires:
   `:headless` / `:hiccup`).
 
 A plan's `:required-runner` slot is the UNION of every setup-step,
-script-step, and terminal-assertion token set — capability tokens, NOT a
-tier scalar. The plan compiler (`re-frame.story.plan`) fills the slot
-through this registry, so the inference has one home.
+script-step, terminal-assertion and check-atom token set — capability
+tokens, NOT a tier scalar. The plan compiler (`re-frame.story.plan`) fills
+the slot through this registry, so the inference has one home. Check atoms
+count, own and inherited alike, so `{:runner :auto}` escalates for a
+requirement that lives only in a check, while a fixed runner never chooses
+from the slot and refuses such an atom as `:cannot-run`, attributed to its
+check (§`:cannot-run`), rather than raising the run to a richer tier.
 
 ### `:cannot-run` refusal
 

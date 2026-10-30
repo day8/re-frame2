@@ -53,6 +53,27 @@
     {:script [[:click "#go"]]}                   :dom
     {:assertions [[:rf.assert/visual-snapshot]]} :browser))
 
+;; A check atom counts as the plan's `:required-runner` counts it (spec/017
+;; §Requirement inference): own, inherited through `:extends`, or composed.
+(deftest runner-requirement-counts-received-check-atoms
+  (rf.story.registrar/clear-all!)
+  (try
+    (rf.story.registrar/reg-check* :check.rr/dom {:assertions [[:rf.assert/dom-visible "#x"]]})
+    (rf.story.registrar/reg-variant* :story.rr/own {:checks [:check.rr/dom]})
+    (rf.story.registrar/reg-variant* :story.rr/inherited {:extends :story.rr/own})
+    (rf.story.registrar/reg-variant* :story.rr/composed {:compose [:check.rr/dom]})
+    (rf.story.registrar/reg-variant* :story.rr/none {:setup [[:dispatch [:e]]]})
+    (let [chip (fn [vid]
+                 (:value (:runner-requirement
+                           (rf.story.ui.sidebar-signals/variant-signals
+                             (rf.story.registrar/handler-meta :variant vid) :pending))))]
+      (is (= [:dom :dom :dom :headless]
+             (mapv chip [:story.rr/own :story.rr/inherited :story.rr/composed :story.rr/none])))
+      (doseq [vid [:story.rr/own :story.rr/inherited :story.rr/composed]]
+        (is (contains? (:required-runner (rf.story.plan/variant-plan vid)) :dom)
+            (str vid " — the plan agrees with the chip"))))
+    (finally (rf.story.registrar/clear-all!))))
+
 ;; ---- frame-binding axis (a binding, not a tier) --------------------------
 
 (deftest frame-binding-signal-shape

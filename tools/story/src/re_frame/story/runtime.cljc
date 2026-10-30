@@ -944,6 +944,8 @@
                                (assoc decorator-stack :frame-setup [])
                                (dissoc (:world plan) :loaders :loaders-complete-when
                                        :loaders-teardown))
+    ;; The refusal's error result is scoped to this run like any other.
+    (stamp-epoch-baseline! ctx)
     (refuse-unresolved-decorators! variant-id decorator-stack))
   ;; Allocate from the compiled `:world` — one argument carrying every
   ;; scenario slot the frame needs (classification, the lowered frame
@@ -1290,7 +1292,7 @@
             nil))
         (rf.story.async/catch*
           (fn [e]
-            (settle! #(handle-run-error! resolve variant-id e start-ms))
+            (settle! #(handle-run-error! resolve ctx e start-ms))
             nil)))))
 
 (defn- plan-construction-error?
@@ -1473,16 +1475,28 @@
                                      (catch #?(:clj Throwable :cljs :default) _ nil))
             :else                  (record-error! variant-id :phase-0-setup nil e))
           (rf.story.loaders/error! variant-id (ex-data e))
-          (record-result-map ctx start-ms)))
+          ;; A throw inside the phase chain loses the threaded ctx, so the
+          ;; baseline phase 0 stamped is read back from the frame: without
+          ;; it the result would carry every earlier run's epochs, and its
+          ;; evidence and `:run-hash` would drift across identical re-runs.
+          (record-result-map
+            (update ctx :epoch-baseline
+                    #(or % (rf.story.assertions/run-epoch-baseline variant-id)))
+            start-ms)))
       (catch #?(:clj Throwable :cljs :default) _
         (frame-free)))))
 
 (defn- handle-run-error!
   "Catch-branch for the orchestrator and for the play chain's rejection
-  path: resolve `resolve` with `run-error-result` for `e`. Never throws,
-  so the run's promise always settles."
-  [resolve variant-id e start-ms]
-  (resolve (run-error-result {:variant-id variant-id} e start-ms)))
+  path: resolve `resolve` with `run-error-result` for `e`. `ctx` is the
+  run's ctx as far as the caller holds it — `{:variant-id …}` at least;
+  its `:plan`, `:runner-selection` and `:epoch-baseline`, when present, give
+  the error result the plan hash, runner and run slice a settled result
+  carries. Never throws, so the run's promise always settles."
+  [resolve ctx e start-ms]
+  (resolve (run-error-result
+             (select-keys ctx [:variant-id :plan :runner-selection :epoch-baseline])
+             e start-ms)))
 
 (defn- unknown-variant-result
   "The error result returned when `rf.story.frames/variant-body` finds no
@@ -1578,7 +1592,7 @@
                    (let [ctx (prepare-ctx! variant-id variant-body opts)]
                      (resume-ctx! resolve ctx start-ms generation))
                    (catch #?(:clj Throwable :cljs :default) e
-                     (handle-run-error! resolve variant-id e start-ms))))))))))))
+                     (handle-run-error! resolve {:variant-id variant-id} e start-ms))))))))))))
 
 ;; ---- the one run owner ---------------------------------------------------
 ;;
@@ -1826,7 +1840,7 @@
                    (= :unknown-variant (:error attempt))
                    (resolve (unknown-variant-result variant-id))
                    (:error attempt)
-                   (handle-run-error! resolve variant-id (:error attempt) start-ms)
+                   (handle-run-error! resolve {:variant-id variant-id} (:error attempt) start-ms)
                    ;; Run phase 4 against the prepared ctx, re-checking the
                    ;; generation before publishing so a supersession DURING the
                    ;; async script settles as superseded rather than reading the
@@ -1850,7 +1864,7 @@
                                                                   :play-selection selection))]
                      (finalise-run! resolve play-promise ctx' start-ms my-gen done-cb)))
                  (catch #?(:clj Throwable :cljs :default) e
-                   (handle-run-error! resolve variant-id e start-ms)))))))))))
+                   (handle-run-error! resolve (merge {:variant-id variant-id} (:ctx attempt)) e start-ms)))))))))))
 
 (defn rerun!
   "Run `variant-id` again FRESH, through the one run owner:

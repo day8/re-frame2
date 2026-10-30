@@ -609,35 +609,39 @@
   & args]` at this checkpoint. Drives the DOM executor,
   records the CANONICAL `:rf.assert/dom-*` record on the frame slot (so the
   unified result's `:assertions` carries the real folded id, not a
-  synthetic one), and returns the runner step-result. A no-DOM headless
-  context records a `{:skipped? true}` step — `:cannot-run` at assertion
-  granularity (the slot mirror keeps it OUT of the recorded outcomes so it
-  is not a vacuous pass), never a silent green."
+  synthetic one), and returns the runner step-result. A host with no DOM
+  records the atom `:cannot-run` (the `exec-assert-browser-atom!` refusal
+  shape) — never nothing, because a terminal or check atom has no step
+  stream to carry a skip, and a runner that merely CLAIMS `:dom` passes the
+  requirements preflight (spec/017 §Runner policy: the runner MUST NOT fake
+  an assertion it cannot prove)."
   [frame-id idx step atom-v]
   (let [aid      (first atom-v)
         selector (nth atom-v 1 nil)
         result   (if (= :rf.assert/dom-text aid)
                    (rf.story.play.dom/assert-text selector (nth atom-v 2 nil))
-                   (rf.story.play.dom/assert-visible selector (get dom-atom->mode aid :visible)))]
-    ;; Record the canonical DOM-family assertion record on the slot (unless
-    ;; the step was a no-DOM skip — a skip proved nothing, so it must not
-    ;; read as a vacuous pass).
-    (when-not (:skipped? result)
-      (rf.story.assertions/record!
-        frame-id
-        (cond-> {:assertion    aid
-                 :passed?      (boolean (:passed? result))
-                 :payload      (vec (rest atom-v))
-                 :source-coord (:source (rf.story.registrar/handler-meta :variant frame-id))}
-          (contains? result :expected) (assoc :expected (:expected result))
-          (contains? result :actual)   (assoc :actual   (:actual result))
-          (:message result)            (assoc :reason   (:message result)))))
+                   (rf.story.play.dom/assert-visible selector (get dom-atom->mode aid :visible)))
+        skipped? (boolean (:skipped? result))
+        message  (if skipped?
+                   (or (:message result) (str "no DOM — cannot prove " (pr-str atom-v)))
+                   (:message result))]
+    (rf.story.assertions/record!
+      frame-id
+      (cond-> {:assertion    aid
+               :passed?      (boolean (:passed? result))
+               :payload      (vec (rest atom-v))
+               :source-coord (:source (rf.story.registrar/handler-meta :variant frame-id))}
+        skipped?                     (assoc :cannot-run? true :status :cannot-run)
+        (contains? result :expected) (assoc :expected (:expected result))
+        (contains? result :actual)   (assoc :actual   (:actual result))
+        message                      (assoc :reason   message)))
     (cond
-      (:skipped? result) (rf.story.play.runner/step-fail idx step
-                                           {:skipped? true
-                                            :message  (or (:message result)
-                                                          (str "no DOM — cannot prove "
-                                                               (pr-str atom-v)))})
+      ;; Recorded on the slot just above — `:recorded?` keeps the unified
+      ;; result from counting the refusal twice.
+      skipped?           (rf.story.play.runner/step-fail idx step
+                                           {:skipped?  true
+                                            :message   message
+                                            :recorded? true})
       (:passed? result)  (rf.story.play.runner/step-pass idx step)
       ;; Recorded on the slot just above — `:recorded?` keeps the unified
       ;; result from counting it twice.
