@@ -233,35 +233,41 @@
 
     - non-assertion events (`assertion-event?` false) get `:event` —
       a neutral tick: the step mutated state but recorded nothing.
-    - `:rf.assert/*` events consume one record off the `:assertions`
-      vector in declared order. `:passed?` true ⇒ :pass; false ⇒
-      :fail; `:rf.assert/skipped` ⇒ :skip.
-    - if `:assertions` runs short (e.g. a phase-0 setup error bailed
-      before play even started) the trailing assertion steps render
-      as `:fail` so the user sees the gap.
+    - a dispatched `:rf.assert/*` event takes ITS OWN record: the first
+      not-yet-taken record that event produced
+      (`rf.story.assertions/record-matches-atom?`). The other records on
+      `:assertions` — an `[:assert …]` checkpoint's, which has no tick, and
+      the terminal ones — are never taken by a tick. `:passed?` true ⇒
+      :pass; false ⇒ :fail; `:rf.assert/skipped` ⇒ :skip.
+    - an assertion event with no record of its own (e.g. a phase-0 setup
+      error bailed before play even started) renders `:fail` so the user
+      sees the gap.
 
   Pure data → data; JVM-testable."
   [play-events assertions]
   (let [records (vec (or assertions []))]
     (loop [out      []
            remain   play-events
-           rec-idx  0
+           taken    #{}
            step-idx 0]
       (if (empty? remain)
         out
         (let [ev         (first remain)
               assert?    (assertion-event? ev)
-              record     (when assert? (nth records rec-idx nil))
+              rec-idx    (when assert?
+                           (first (keep-indexed
+                                    (fn [i r]
+                                      (when (and (not (contains? taken i))
+                                                 (rf.story.assertions/record-matches-atom? r ev))
+                                        i))
+                                    records)))
+              record     (when rec-idx (nth records rec-idx))
               aid        (when record (:assertion record))
               passed?    (when record (:passed? record))
               status     (cond
                            (not assert?)                :event
                            (= :rf.assert/skipped aid)   :skip
                            passed?                      :pass
-                           record                       :fail
-                           ;; assertion event but no matching record —
-                           ;; play bailed early; render as fail so the
-                           ;; gap is visible.
                            :else                        :fail)
               row        {:index   step-idx
                           :event   ev
@@ -269,7 +275,7 @@
                           :status  status}]
           (recur (conj out row)
                  (rest remain)
-                 (if assert? (inc rec-idx) rec-idx)
+                 (cond-> taken rec-idx (conj rec-idx))
                  (inc step-idx)))))))
 
 (defn epoch-id-slice
@@ -360,6 +366,30 @@
 ;; All pure data → data; JVM-testable. Render-what-is-present: a slot the
 ;; substrate does not populate projects to an empty vector, NEVER a
 ;; fabricated row.
+
+(defn pane-summary
+  "The Tests pane summary for `result`: the `aggregate-summary` fold over
+  its assertion records, plus one `:cannot-run` for each unit the runner
+  refused that no record carries. A refusal lives in the result's
+  `:cannot-run` slot, so a run refused before evaluating anything has no
+  record at all; counted per distinct `:unit`, since one refused step or
+  atom can carry several refusal rows, and a unit that is (or, as an
+  `[:assert …]` step, wraps) an atom with its own record is already counted
+  there. Pure data → data."
+  [result]
+  (let [records  (vec (:assertions result))
+        summary  (rf.story.ui.state.tests/aggregate-summary records)
+        recorded? (fn [atom-v]
+                    (some #(rf.story.assertions/record-matches-atom? % atom-v) records))
+        carried? (fn [unit]
+                   (and (vector? unit)
+                        (or (recorded? unit)
+                            (and (= :assert (first unit)) (recorded? (second unit))))))
+        refused  (count (into #{} (comp (map :unit) (remove carried?)) (:cannot-run result)))]
+    (cond-> summary
+      (pos? refused) (-> (update :cannot-run + refused)
+                         (update :total + refused)
+                         (assoc :all-passed? false)))))
 
 (defn run-status
   "The top-level run verdict for `result` (spec/021 §1; spec/018 §12.6 status

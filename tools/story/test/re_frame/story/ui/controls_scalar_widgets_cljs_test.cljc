@@ -266,3 +266,24 @@
          (is (= {:widget :text :coerce :keyword} spec))
          (handler (input-event ":larger"))
          (is (= :larger (written [:size])))))))
+
+;; ---- an inherited or composed argtype builds its widget -------------------
+
+;; spec/017 §Total merge order: `:argtypes` deep-merge root → fragments →
+;; child, so the compiled plan's `[:world :argtypes]` is the variant's.
+#?(:cljs
+   (deftest inherited-and-composed-argtypes-build-their-widget
+     (let [select {:control :select :options [:s :m :l] :doc "Button size"}]
+       (rf.story/reg-story :story.inh {:doc "inherited argtypes"})
+       (rf.story/reg-variant :story.inh/parent {:args {:size :m} :argtypes {:size select}})
+       (rf.story/reg-variant :story.inh/child {:extends :story.inh/parent})
+       (rf.story/reg-fragment :fragment.inh/sized {:argtypes {:size select}})
+       (rf.story/reg-variant :story.inh/composed {:args {:size :m} :compose [:fragment.inh/sized]})
+       (rf.story/reg-variant :story.inh/plain {:args {:size :m}})
+       (let [spec   #(get (rf.story.ui.controls/resolve-argtypes % {:size :m}) :size)
+             parent (spec :story.inh/parent)]
+         (is (= :select (:widget parent)))
+         (is (= parent (spec :story.inh/child)) "an :extends child inherits the select")
+         (is (= parent (spec :story.inh/composed)) "a :compose fragment supplies the select")
+         (is (= {:widget :text :coerce :keyword} (spec :story.inh/plain))
+             "control: with no argtype the value shape decides")))))

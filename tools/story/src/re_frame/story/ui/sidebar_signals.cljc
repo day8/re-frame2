@@ -241,7 +241,8 @@
 
 (defn required-runner-kind
   "Pure data → data: the cheapest concrete runner kind that can prove the
-  variant `body`'s declared script steps + setup + terminal assertions, via
+  variant `body`'s declared script steps + setup + terminal assertions +
+  received check atoms (a `resolved-body`'s `::check-atoms`), via
   the canonical `requirements` registry. Unions the per-step / per-assertion
   capability tokens (`rf.story.requirements/required-tokens`) and picks the
   `rf.story.requirements/cheapest-runner`. Returns a runner-kind keyword (one of
@@ -252,7 +253,9 @@
         ;; A `resolved-body`'s composed-fragment script leads, as the plan
         ;; compiler prepends it to the primary play.
         script     (into (vec (::composed-script body)) (body-script-steps body))
-        assertions (or (:assertions body) [])
+        ;; Its received checks' atoms count as the plan's `:required-runner`
+        ;; counts them (spec/017 §Requirement inference).
+        assertions (into (vec (:assertions body)) (::check-atoms body))
         tokens     (rf.story.requirements/required-tokens setup script assertions)]
     (or (rf.story.requirements/cheapest-runner tokens) :headless)))
 
@@ -336,15 +339,20 @@
   `re-frame.story.plan/compile-body` folds it: `:setup` appends root →
   composed fragments → own; each `folded-slots` map merges fragments → root
   → child, the later layer winning a key; a composed fragment's script rides
-  under `::composed-script`, which the compiler prepends to the primary play.
-  `:script` / `:plays` / `:assertions` stay the body's own, since they are
-  child-only, and so is `:compose`, so only the body's own is read. An
-  unregistered parent or fragment contributes nothing (plan construction
-  refuses both with its own error). Reads the Story side-table; never
-  compiles a plan."
+  under `::composed-script`, which the compiler prepends to the primary play;
+  and the atoms of every check the compiler hands the run — root → own
+  `:checks`, then each `:compose` id naming a check — ride under
+  `::check-atoms`. `:script` / `:plays` / `:assertions` stay the body's own,
+  since they are child-only, and so is `:compose`, so only the body's own is
+  read. An unregistered parent, fragment or check contributes nothing (plan
+  construction refuses each with its own error). Reads the Story
+  side-table; never compiles a plan."
   [body]
   (let [lineage   (reverse (map second (rf.story.ui.watch/extends-ancestors body)))
         fragments (keep #(rf.story.registrar/handler-meta :fragment %) (:compose body))
+        check-ids (distinct (concat (mapcat :checks (concat lineage [body]))
+                                    (filter #(rf.story.registrar/registered? :check %)
+                                            (:compose body))))
         layers    (concat fragments lineage [body])
         fold      (fn [k]
                     (reduce (fn [acc layer]
@@ -356,7 +364,10 @@
     (reduce (fn [acc k] (if-some [v (fold k)] (assoc acc k v) acc))
             (assoc body
                    :setup            (into [] (mapcat :setup) (concat lineage fragments [body]))
-                   ::composed-script (into [] (mapcat body-script-steps) fragments))
+                   ::composed-script (into [] (mapcat body-script-steps) fragments)
+                   ::check-atoms     (into []
+                                           (mapcat #(:assertions (rf.story.registrar/handler-meta :check %)))
+                                           check-ids))
             folded-slots)))
 
 ;; ===========================================================================

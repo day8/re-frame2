@@ -815,7 +815,7 @@
                                  (:variants registry))))
   ([shell _registry variant-ids]
    (let [summary     (rf.story.ui.state/test-summary shell variant-ids)
-         {:keys [total passed failed running pending all-green?]} summary
+         {:keys [total passed failed cannot-run running pending all-green?]} summary
          any-run?    (pos? running)
          watch-on?   (rf.story.ui.state/test-watch-mode? shell)
          headline    (cond
@@ -839,6 +839,10 @@
                :data-test "story-test-widget-counts"}
          [:span {:style (:widget-pass styles)} (str "✓ " passed)]
          [:span {:style (:widget-fail styles)} (str "✗ " failed)]
+         ;; A refused variant is neither passed nor failed; spec/017
+         ;; §`:cannot-run` has Story UI render it distinctly.
+         (when (pos? cannot-run)
+           [:span {:style (:widget-cannot styles)} (str "⊘ " cannot-run)])
          (when (pos? running)
            [:span {:style (:widget-run styles)} (str "▸ " running)])
          (when (pos? pending)

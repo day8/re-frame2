@@ -589,7 +589,8 @@
 
 (defn- compute-required-runner
   "Union the capability tokens demanded by every setup step, script step,
-  and terminal assertion, through the `re-frame.story.requirements` registry
+  terminal assertion and check atom (`assertions` carries both), through the
+  `re-frame.story.requirements` registry
   (§Runner requirements). `:headless` work contributes the empty set (which
   resolves to the cheapest `:headless` runner). An in-script `[:assert …]`
   checkpoint's wrapped-atom tokens are folded by `rf.story.requirements/step-tokens`,
@@ -1664,7 +1665,11 @@
         ;; (the common case) and extends it to every other auto-run
         ;; play.
         auto-run-scripts (vec (mapcat :script (rf.story.play.runner/auto-runnable-plays scripts*)))
-        required     (compute-required-runner setup auto-run-scripts assertions)
+        ;; Check atoms count too, own and inherited: `:auto` escalates for a
+        ;; requirement that lives only in a check, while a fixed runner never
+        ;; reads this slot to choose and refuses the atom per unit instead
+        ;; (spec/017 §Requirement inference).
+        required     (compute-required-runner setup auto-run-scripts expect-atoms)
         ;; ---- source coords ----
         source       (:source child)
         platforms    (or (:platforms ctx) #{:client})

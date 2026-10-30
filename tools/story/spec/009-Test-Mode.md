@@ -395,7 +395,7 @@ slot, so the chrome widget and the pane stay in sync.
 |-------------------------------------------------------|---------------------------------------|
 | `[data-test="story-test-widget"]`                     | The widget root.                      |
 | `[data-test="story-test-widget-headline"]`            | "Tests · N/M" headline strip.         |
-| `[data-test="story-test-widget-counts"]`              | "✓ N · ✗ M · ▸ K · ○ L" count chips.  |
+| `[data-test="story-test-widget-counts"]`              | "✓ N · ✗ M · ⊘ C · ▸ K · ○ L" count chips; ⊘ (cannot-run), ▸ and ○ render only when positive. |
 | `[data-test="story-test-widget-run-all"]`             | The Run all button.                   |
 | `[data-test="story-test-widget-watch-toggle"]`        | The watch-mode eye-icon chip; `aria-pressed` reflects the on/off state, `data-state` reads "on" / "off". |
 | `[data-test="story-test-widget-empty"]`               | "no :test variants" empty state.      |

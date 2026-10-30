@@ -71,6 +71,7 @@
     dispatched into the frame). So the set is eight ids, only seven of
     which are registered."
   (:require [re-frame.core                :as rf]
+            [re-frame.classification      :as rf.classification]
             [re-frame.epoch               :as rf.epoch]
             [re-frame.interop             :as rf.interop]
             [re-frame.privacy             :as rf.privacy]
@@ -191,6 +192,12 @@
   whole ring (`0` is never a real `:epoch-id`). Pure data → data."
   [epoch-baseline ring]
   (filterv #(> (or (:epoch-id %) 0) (or epoch-baseline 0)) ring))
+
+(defn run-epoch-baseline
+  "`frame-id`'s current run baseline (set by the runtime's phase 0), or nil
+  when no run has prepared the frame."
+  [frame-id]
+  (get @run-epoch-baselines frame-id))
 
 (defn set-run-epoch-baseline!
   "Scope `frame-id`'s tape-projected assertions to the epochs committed
@@ -494,7 +501,10 @@
 ;;
 ;; Projection rides `re-frame.core/project-egress` (the frame-aware
 ;; wire-egress walker) keyed on the asserted path + the variant frame; a path
-;; with no sensitive declaration passes through unchanged.
+;; with no sensitive declaration passes through unchanged. A sub's value is
+;; first projected through its own registration classification
+;; (`re-frame.classification/project-sub-value`), so a sub declaring its
+;; output sensitive redacts whatever its query vector carries.
 ;; ---------------------------------------------------------------------------
 
 (defn redact-at
@@ -674,14 +684,21 @@
   ;; full frame-state is required so a runtime-db-projection sub (e.g.
   ;; `:rf/machine` and any app sub deriving off it) resolves its real value.
   ;;
-  ;; Redaction: a sub reading a sensitive path propagates the sensitive
-  ;; marker into its output value (spec/015 §reg-sub). We project the
-  ;; sub's value through `project-egress` keyed on the SUB's root path
-  ;; (`(rest sub-vec)` is the args; the first element is the sub-id, not
-  ;; an app-db path). Where the sub-vec carries an app-db path (the
-  ;; common `[:sub/id & path]` shape) the projection redacts; otherwise
-  ;; the value passes through unchanged.
+  ;; Redaction (spec 004 §Privacy): the comparison reads the raw value and
+  ;; the record carries the projected one. Two projections compose. The
+  ;; sub's own `reg-sub {:sensitive …}` declaration classifies its OUTPUT
+  ;; (spec/015 §Registration-owned transient classification), applied by
+  ;; core's `project-sub-value`, the projection a `:sub/run` trace of the
+  ;; same query carries. Then the args path: a `[:sub/id & path]` sub reads
+  ;; app-db at `(rest sub-vec)`, so app-db classification at that path
+  ;; redacts through `redact-at`.
   (let [sub-path     (vec (rest sub-vec))
+        project      (fn [v]
+                       (redact-at frame-id sub-path
+                                  (try
+                                    (rf.classification/project-sub-value v sub-vec frame-id)
+                                    (catch #?(:clj Throwable :cljs :default) _
+                                      rf.privacy/redacted-sentinel))))
         raw          (try
                        (rf.subs/compute-sub sub-vec frame-state)
                        (catch #?(:clj Throwable :cljs :default) _
@@ -689,14 +706,14 @@
         threw?       (= raw ::compute-error)
         actual       (cond
                        threw?  :rf.assert/sub-threw
-                       :else   (redact-at frame-id sub-path raw))
+                       :else   (project raw))
         passed?      (and (not threw?)
                           (path-equals-passed? raw expected actual))
-        ;; Project the author-supplied `:expected` against the
-        ;; sub's args-path so a sensitive sub's expected value does not leak.
+        ;; The author-supplied `:expected` takes the same projection, so a
+        ;; sensitive sub's expected value does not leak.
         exp-redacted (if (or threw? (sentinel-expected? expected))
                        expected
-                       (redact-at frame-id sub-path expected))]
+                       (project expected))]
     {:passed?  passed?
      :expected exp-redacted
      :actual   actual
@@ -1013,6 +1030,45 @@
   (when (and (vector? assertion-atom) (pos? (count assertion-atom)))
     (let [h (first assertion-atom)]
       (when (keyword? h) h))))
+
+(def ^:private redactable-pair
+  "For each assertion id whose evaluator may rebuild the run RECORD's
+  `:payload` from a REDACTED expected value, the fn that finds the
+  `[coordinate expected]` pair inside a payload: `evaluate-path-equals` /
+  `evaluate-sub-equals` rebuild the whole payload as
+  `[path-or-sub-vec :rf/redacted]`, and `evaluate-dispatched?` rebuilds a
+  matched sensitive event as `[[event-id :rf/redacted]]`. An authored atom,
+  by contrast, always carries the RAW declared value — atoms are never
+  redacted (redaction only happens at run time, against a live frame). An
+  exact-payload match between the two therefore cannot identify a
+  sensitive assertion."
+  {id-path-equals identity
+   id-sub-equals  identity
+   id-dispatched  first})
+
+(defn record-matches-atom?
+  "True iff assertion `record` was produced by assertion `atom-v` — same
+  `:rf.assert/*` id AND same payload. Pure data → data. The payload match
+  disambiguates two atoms of the same id against different paths.
+
+  For the REDACTION-PRONE ids (`redactable-pair`), a record whose expected
+  was REDACTED (`[path :rf/redacted]` or `[[event-id :rf/redacted]]`, while
+  the atom still carries the raw value) is matched on its path / sub-vec /
+  event id alone — a structural coordinate no evaluator redacts. Every
+  other record matches its whole payload, so a same-path checkpoint pinning
+  a different value stays a different assertion."
+  [record atom-v]
+  (let [id           (assertion-atom-id atom-v)
+        atom-payload (when (vector? atom-v) (vec (rest atom-v)))
+        payload      (vec (:payload record))
+        pair-in      (get redactable-pair id)
+        pair         (when pair-in (pair-in payload))]
+    (boolean
+      (and (= (:assertion record) id)
+           (if (and (vector? pair) (= :rf/redacted (second pair)))
+             (let [atom-pair (pair-in atom-payload)]
+               (and (vector? atom-pair) (= (first pair) (first atom-pair))))
+             (= payload atom-payload))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema-error expectation — parse the declared atom into its surface

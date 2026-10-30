@@ -78,7 +78,7 @@
 ;; ---- compiled-plan resolver (the ONE shared entry) -----------------------
 
 (defonce ^:private cache
-  ;; {variant-id schema} valid for one stamp — the registrar's
+  ;; {variant-id {:view-args-schema … :argtypes …}} valid for one stamp — the registrar's
   ;; `mutation-tick` plus the global args. A single stamp slot, not a
   ;; {stamp → {id → schema}} nest: every registrar write invalidates ALL
   ;; cached schemas (a hot-reloaded view changes its props schema), so
@@ -105,13 +105,43 @@
   an args-validation veto (`:rf.error/story-view-args-invalid`) does not
   erase it: the schema that validation used rides on the error and is
   returned, so args that genuinely miss a required prop on every layer
-  show the schema they violate."
+  show the schema they violate. The merged `[:world :argtypes]` the same
+  compile wrote rides beside it; the veto carries no argtypes.
+
+  Returns `{:view-args-schema … :argtypes …}`, or nil."
   [variant-id]
   (try
-    (-> (rf.story.cell-plan/cell-plan variant-id) :world :view-args-schema)
+    (-> (rf.story.cell-plan/cell-plan variant-id) :world
+        (select-keys [:view-args-schema :argtypes]))
     (catch #?(:clj Exception :cljs :default) e
       (when (= :rf.error/story-view-args-invalid (:rf.error/id (ex-data e)))
-        (:view-args-schema (ex-data e))))))
+        {:view-args-schema (:view-args-schema (ex-data e))}))))
+
+(defn- compiled-world
+  "`compile-schema`'s answer for `variant-id`, memoized per
+  `[variant-id mutation-tick global-args]` (see the ns docstring)."
+  [variant-id]
+  (let [stamp [(rf.story.registrar/current-mutation-tick)
+               (rf.story.config/get-global-args)]
+        c     @cache]
+    (if (and (= stamp (:stamp c)) (contains? (:by-id c) variant-id))
+      (get (:by-id c) variant-id)
+      (let [world (compile-schema variant-id)]
+        (swap! cache
+               (fn [{prev-stamp :stamp prev-by :by-id}]
+                 (if (= prev-stamp stamp)
+                   {:stamp stamp :by-id (assoc prev-by variant-id world)}
+                   {:stamp stamp :by-id {variant-id world}})))
+        world))))
+
+(defn compiled-argtypes
+  "Return REGISTERED `variant-id`'s argtypes as the COMPILED plan merges
+  them (`[:world :argtypes]`, root → composed fragments → child — spec/017
+  §Total merge order), so an argtype a variant inherits through `:extends`
+  or receives through `:compose` is there. Nil when the plan cannot compile.
+  Memoized like `compiled-view-args-schema`."
+  [variant-id]
+  (:argtypes (compiled-world variant-id)))
 
 (defn compiled-view-args-schema
   "Return the view-args (props) schema for a REGISTERED `variant-id`,
@@ -129,15 +159,4 @@
   but does not recompile the plan on every call between two registrar
   writes."
   [variant-id]
-  (let [stamp [(rf.story.registrar/current-mutation-tick)
-               (rf.story.config/get-global-args)]
-        c     @cache]
-    (if (and (= stamp (:stamp c)) (contains? (:by-id c) variant-id))
-      (get (:by-id c) variant-id)
-      (let [schema (compile-schema variant-id)]
-        (swap! cache
-               (fn [{prev-stamp :stamp prev-by :by-id}]
-                 (if (= prev-stamp stamp)
-                   {:stamp stamp :by-id (assoc prev-by variant-id schema)}
-                   {:stamp stamp :by-id {variant-id schema}})))
-        schema))))
+  (:view-args-schema (compiled-world variant-id)))

@@ -289,11 +289,16 @@
   ([variant-id]
    (resolve-argtypes variant-id (rf.story.plan/effective-args variant-id)))
   ([variant-id eff-args]
-   (let [vb      (rf.story.registrar/handler-meta :variant variant-id)
-         story   (rf.story.args/parent-story-id variant-id)
+   (let [story   (rf.story.args/parent-story-id variant-id)
          sb      (when story (rf.story.registrar/handler-meta :story story))
+         ;; The variant layer is the COMPILED plan's `[:world :argtypes]`,
+         ;; so an argtype inherited through `:extends` or received through
+         ;; `:compose` builds its widget (spec/017 §Total merge order). A plan
+         ;; that cannot compile falls back to the variant's own body.
+         vtypes  (or (rf.story.view-args/compiled-argtypes variant-id)
+                     (:argtypes (rf.story.registrar/handler-meta :variant variant-id)))
          types   (merge (normalize-argtypes (:argtypes sb))
-                        (normalize-argtypes (:argtypes vb)))
+                        (normalize-argtypes vtypes))
          ;; The view-args (props) schema off the COMPILED plan — the
          ;; single source of truth (`[:world :view-args-schema]`), resolved
          ;; first-match `[:rf/props :schema]` through the shared resolver.

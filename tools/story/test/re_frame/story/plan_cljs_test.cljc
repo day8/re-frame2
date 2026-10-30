@@ -210,6 +210,19 @@
       (is (contains? (:required-runner p) :app-db)
           "the DOM-free :dispatch script still contributes :app-db"))))
 
+(deftest required-runner-counts-check-atoms-own-and-inherited
+  ;; spec/017 §Requirement inference: `:auto` selection reads this slot, so a
+  ;; requirement living only in a check must be in it.
+  (let [checks {:check.r/dom {:assertions [[:rf.assert/dom-visible "#x"]]}}
+        m      {:story.r/own       {:setup [[:dispatch [:a]]] :checks [:check.r/dom]}
+                :story.r/inherited {:extends :story.r/own}
+                :story.r/composed  {:setup [[:dispatch [:a]]] :compose [:check.r/dom]}
+                :story.r/none      {:setup [[:dispatch [:a]]]}}
+        req    #(:required-runner (rf.story.plan/variant-plan % {:lookup m :check-lookup checks}))]
+    (doseq [vid [:story.r/own :story.r/inherited :story.r/composed]]
+      (is (contains? (req vid) :dom) (str vid)))
+    (is (not (contains? (req :story.r/none) :dom)) "control: no check, no :dom")))
+
 (deftest required-runner-unions-across-every-auto-run-play
   (testing "a NON-first :auto-run? true play whose step lifts capability is
             unioned into :required-runner. `:auto` runner-selection trusts

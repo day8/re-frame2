@@ -15,6 +15,7 @@
             [re-frame.story.async     :as rf.story.async]
             [re-frame.story.config    :as rf.story.config]
             [re-frame.story.loaders   :as rf.story.loaders]
+            [re-frame.story.play      :as rf.story.play]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.runtime   :as rf.story.runtime]
@@ -691,6 +692,43 @@
              [(rs nil nil) (rs {} {:total 0}) (rs {} {:total 2 :failed 0 :all-passed? true})
               (rs {} {:total 2 :failed 1}) (rs {} {:total 2 :failed 0 :cannot-run 1})])))))
 
+;; spec/017 §`:cannot-run` (Story UI MUST render `:cannot-run` distinctly):
+;; a run refused before it evaluated anything has no record, so the pane
+;; counts the refused units the result's `:cannot-run` slot names.
+(deftest test-mode-pane-summary-counts-refusals-no-record-carries
+  (let [ps   rf.story.ui.test-mode.pure/pane-summary
+        pill (fn [result]
+               (let [summary (ps result)]
+                 (rf.story.ui.test-mode.pure/summary-pill-text
+                   (rf.story.ui.test-mode.pure/run-status result summary) summary true)))
+        dom  [:rf.assert/dom-visible "#x"]
+        lack (fn [unit] {:status :cannot-run :reason :runner-lacks-capability :unit unit})]
+    (testing "refused units with no record: each distinct unit counts once"
+      (is (= "1 cannot-run of 1"
+             (pill {:status :cannot-run :assertions [] :cannot-run [(lack [:click "#x"])
+                                                                    (lack [:click "#x"])]})))
+      (is (= "1 cannot-run of 1"
+             (pill {:status :cannot-run :assertions [] :cannot-run [{:status :cannot-run
+                                                                     :reason :no-runner-satisfies}]}))))
+    (testing "a refused atom with its own record — or the [:assert …] step
+              wrapping it — is counted once, through the record"
+      (is (= "1 cannot-run of 1"
+             (pill {:status     :cannot-run
+                    :assertions [{:assertion :rf.assert/dom-visible :payload ["#x"] :status :cannot-run}]
+                    :cannot-run [(lack dom) (lack [:assert dom])]}))))
+    (testing "a refusal beside records is not a pass"
+      (is (= {:passed 1 :cannot-run 1 :total 2 :all-passed? false}
+             (select-keys (ps {:status     :cannot-run
+                               :assertions [{:assertion :rf.assert/path-equals :payload [[:ok] true] :status :pass}]
+                               :cannot-run [(lack dom)]})
+                          [:passed :cannot-run :total :all-passed?]))))
+    (testing "end to end: a terminal DOM atom refused under the default runner"
+      (rf/reg-event :probe/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
+      (rf.story/reg-variant :story.pane/refused
+        {:setup [[:probe/ok]] :assertions [[:rf.assert/dom-visible "#x"]]})
+      (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.pane/refused) 5000)]
+        (is (= [:cannot-run "1 cannot-run of 1"] [(:status r) (pill r)]))))))
+
 (deftest test-mode-check-rows
   (testing "check-rows groups :checks by id with pass/fail counts and the
             projected assertion rows (spec/021 §1); no checks is an empty state"
@@ -783,26 +821,46 @@
 (deftest test-mode-play-step-statuses-maps-events-to-status
   (let [steps    rf.story.ui.test-mode.pure/play-step-statuses
         statuses #(mapv :status (steps %1 %2))
-        rec      (fn [a p] {:assertion a :passed? p})]
+        rec      (fn [a p & payload] {:assertion a :passed? p :payload (vec payload)})]
     (testing "one row per play event: events read :event, assertions take :pass /
-              :fail from their records"
+              :fail from their own records"
       (let [play [[:auth/email-changed "alice"] [:auth/submit]
-                  [:rf.assert/path-equals [[:user :email] "alice"]]
-                  [:rf.assert/path-equals [[:user :submitted?] true]]]]
+                  [:rf.assert/path-equals [:user :email] "alice"]
+                  [:rf.assert/path-equals [:user :submitted?] true]]]
         (is (= [[:event 0 ":auth/email-changed" (nth play 0)]
                 [:event 1 ":auth/submit" (nth play 1)]
                 [:pass 2 ":rf.assert/path-equals" (nth play 2)]
                 [:fail 3 ":rf.assert/path-equals" (nth play 3)]]
                (map (juxt :status :index :label :event)
-                    (steps play [(rec :rf.assert/path-equals true)
-                                 (rec :rf.assert/path-equals false)]))))))
+                    (steps play [(rec :rf.assert/path-equals true [:user :email] "alice")
+                                 (rec :rf.assert/path-equals false [:user :submitted?] true)]))))))
     (testing ":rf.assert/skipped reads :skip; an assertion with no record (the
               fail-fast gap) reads :fail so the gap shows"
       (is (= [:skip] (statuses [[:rf.assert/skipped]] [(rec :rf.assert/skipped false)])))
-      (is (= [:pass :fail] (statuses [[:rf.assert/path-equals [[:k] 1]]
-                                      [:rf.assert/path-equals [[:k] 2]]]
-                                     [(rec :rf.assert/path-equals true)]))))
+      (is (= [:pass :fail] (statuses [[:rf.assert/path-equals [:k] 1]
+                                      [:rf.assert/path-equals [:k] 2]]
+                                     [(rec :rf.assert/path-equals true [:k] 1)]))))
+    (testing "two identical dispatched assertions take one record each, in order"
+      (is (= [:fail :pass] (statuses [[:rf.assert/path-equals [:k] 1]
+                                      [:rf.assert/path-equals [:k] 1]]
+                                     [(rec :rf.assert/path-equals false [:k] 1)
+                                      (rec :rf.assert/path-equals true [:k] 1)]))))
     (is (= [] (steps [] []) (steps nil nil)) "empty inputs")))
+
+;; An `[:assert …]` checkpoint records first but has no tick, so a tick that
+;; took records in order would wear the checkpoint's verdict.
+(deftest test-mode-play-step-statuses-key-each-tick-to-its-own-record
+  (rf/reg-event :probe/a (fn [{:keys [db]} _] {:db (assoc db :a 1 :b 2)}))
+  (doseq [[vid checkpoint dispatched expected]
+          [[:story.ticks/checkpoint-passes [:rf.assert/path-equals [:a] 1] [:rf.assert/path-equals [:b] 999] :fail]
+           [:story.ticks/checkpoint-fails  [:rf.assert/path-equals [:a] 999] [:rf.assert/path-equals [:b] 2] :pass]]]
+    (rf.story/reg-variant vid {:script [[:dispatch [:probe/a]] [:assert checkpoint] dispatched]})
+    (let [r (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)]
+      (is (= [[":probe/a" :event] [":rf.assert/path-equals" expected]]
+             (mapv (juxt :label :status)
+                   (rf.story.ui.test-mode.pure/play-step-statuses
+                     (rf.story.play/variant-play-events vid) (:assertions r))))
+          (str vid)))))
 
 (deftest test-mode-epoch-id-slice-trigger-event-alignment
   (let [slice rf.story.ui.test-mode.pure/epoch-id-slice

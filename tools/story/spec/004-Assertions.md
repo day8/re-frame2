@@ -282,11 +282,16 @@ The rules:
    `:rf.assert/path-equals [:auth :token] ...` lookup against a slot classified
    sensitive records `:actual :rf/redacted`, NOT the raw value. The
    `evaluate-path-equals` / `evaluate-sub-equals` evaluators project
-   `:actual` keyed on the asserted path; `evaluate-sub-equals` keys on the
-   sub-vec's args path (`(rest sub-vec)`), so a parameterised sub
-   `[:sub/id :user :ssn]` reading a sensitive `[:user :ssn]` redacts. A bare
-   sub-id whose args carry no app-db path relies on sub-engine marker
-   propagation (spec/015 §Derived sensitivity) — tracked separately.
+   `:actual` keyed on the asserted path. `evaluate-sub-equals` first
+   projects the sub's value through the sub's own registration
+   classification — `(rf/reg-sub :partner/api-token {:sensitive [[]]} …)`
+   records `:rf/redacted` whatever its query vector carries, the same
+   projection a `:sub/run` trace of that query gets
+   ([spec/015 §Registration-owned transient classification](../../../spec/015-Data-Classification.md#registration-owned-transient-classification))
+   — and then keys on the sub-vec's args path (`(rest sub-vec)`), so a
+   parameterised sub `[:sub/id :user :ssn]` reading a sensitive
+   `[:user :ssn]` redacts too. Nothing propagates beyond those two
+   ([spec/015 §No propagation, no taint](../../../spec/015-Data-Classification.md#no-propagation-no-taint)).
 2. **`:expected`, `:payload`, and `:reason` are projected too.** An author who pins the *raw* expected value against a
    sensitive path does not leak it: `:expected` is projected against the
    same path before it lands on the record (→ `:rf/redacted`), `:payload`
