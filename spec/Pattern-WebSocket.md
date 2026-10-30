@@ -730,9 +730,9 @@ Credential expiry across reconnects has two recovery paths, both supported by th
 
 ## SSR
 
-The connection machine **no-ops in SSR mode** — `:spawn`'s spawn fx is `:platforms #{:client}` (the WebSocket API doesn't exist server-side); `:after` timers do not schedule under SSR (per [011 §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)). The server renders the machine's current state (typically `:disconnected`) statically; the client hydrates and starts the connection on its own.
+The connection machine is **not suppressed in SSR mode**. `:spawn` runs identically on the server (per [005 §SSR mode](005-StateMachines.md#ssr-mode)) — the `:rf.machine/spawn` fx carries no `:platforms` — so a `:ws/connect` that reaches a server frame enters `:active` and spawns the `:websocket/socket` actor. Only `:after` timers skip scheduling there (per [011 §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)).
 
-This mirrors the rule for any client-only fx: the `:platforms` metadata gates execution; the server's fx resolver silently no-ops it.
+What keeps a socket off the server is the actor's own fxs: register each fx that touches the host socket (open, send, close) with `:platforms #{:client}` — the WebSocket API doesn't exist server-side — as `examples/patterns/websocket/messages.cljs` registers its `:ws.socket/*` fxs. The server's fx resolver then skips them and emits `:rf.fx/skipped-on-platform` (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)). Issue `:ws/connect` from client code, so the server renders the machine at `:disconnected` and the client starts the connection after hydration; hydration re-creates no spawned actor, so a connection begun on the server is not resumed on the client.
 
 ## Anti-patterns
 

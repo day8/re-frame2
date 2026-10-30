@@ -1,12 +1,12 @@
 # SSR authoring (wiring, head/meta, hydration checks)
 
-SSR has two halves: a **per-request server frame** that renders body + head to a string, and a **client bootstrap** that hydrates from the server-supplied payload. This leaf is the authoring surface for the **two registration channels SSR apps own**: (a) `reg-head` plus its query helpers, which turn `<title>`/`<meta>`/`<link>`/JSON-LD into pure data-from-app-db; and (b) the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs that a `:rf/hydrate` handler dispatches to detect deploy drift between the rendering server and the bundled client. Both ship in `day8/re-frame2-ssr`; the schema-digest check resolves its client-side value through an optional-artefact late-bind hook (`:schemas/app-schemas-digest`), while the version check reads the SSR artefact's own compiled-in `pattern-protocol-version` constant (no hook). Both are pre-baked into the runtime's default `:rf/hydrate` handler so most apps inherit them for free.
+SSR has two halves: a **per-request server frame** that renders body + head to a string, and a **client bootstrap** that hydrates from the server-supplied payload. This leaf is the authoring surface for **two SSR channels**: (a) `reg-head` plus its query helpers, which turn `<title>`/`<meta>`/`<link>`/JSON-LD into pure data-from-app-db; and (b) the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs the shipped `:rf/hydrate` handler dispatches to detect deploy drift between the rendering server and the bundled client. Both ship in `day8/re-frame2-ssr`; the schema-digest check resolves its client-side value through an optional-artefact late-bind hook (`:schemas/app-schemas-digest`), while the version check reads the SSR artefact's own compiled-in `pattern-protocol-version` constant (no hook). Both checks are built into the shipped `:rf/hydrate` handler, so every app inherits them.
 
 **Namespace aliases used below.** `rf/` is `re-frame.core`, which carries the `reg-head` REGISTRAR and nothing else of SSR's head surface. `ssr/` is `[re-frame.ssr :as ssr]` and `head/` is `[re-frame.ssr.head :as head]` — the head READS live there, not on the façade, because requiring `re-frame.ssr` is what installs SSR and there is nothing for a façade copy to guard against (spec/API.md §SSR).
 
 ## When to load
 
-Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; **extending** the framework's shipped `:rf/hydrate` handler (it ships by default — you rarely write your own; re-register only as documented framework-extension code to change the merge policy); debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events; wiring the server handler and the client boot (next section). Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
+Authoring `<title>` / `<meta>` / JSON-LD for an SSR app; seeding client-only state around hydration (the shipped `:rf/hydrate` handler replaces both partitions, and that policy is locked); debugging `:rf.ssr/version-mismatch` / `:rf.ssr/schema-digest-mismatch` / `:rf.ssr/compatibility-check-skipped` trace events; wiring the server handler and the client boot (next section). Load alongside `patterns/boot.md` if the task is whole-app bootstrap.
 
 ## Wiring the two halves
 
@@ -84,7 +84,7 @@ The SSR pipeline calls this internally; reach for it only when emitting custom H
 
 ## `:rf.ssr/check-version` — payload version vs runtime version
 
-Dispatch from a `:rf/hydrate` handler. Compares the payload's `:rf/version` against the SSR artefact's compiled-in pattern-protocol version (the same value both wire ends read); emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :warning`) on disagreement. The hydrate handler still applies — locked best-effort posture.
+Dispatched by the shipped `:rf/hydrate` handler. Compares the payload's `:rf/version` against the SSR artefact's compiled-in pattern-protocol version (the same value both wire ends read); emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :warning`) on disagreement. The hydrate handler still applies — locked best-effort posture.
 
 Two input forms:
 
@@ -109,31 +109,27 @@ Same shape and gating as `:rf.ssr/check-version`. Compares the payload's `:rf/sc
 
 Same no-hook → `:rf.ssr/compatibility-check-skipped` posture.
 
-## The canonical `:rf/hydrate` handler
+## The shipped `:rf/hydrate` handler
 
-The runtime ships this handler by default in `re-frame.ssr` — **most apps inherit it and never write their own.** `:rf/hydrate` is a reserved `:rf/*` event (Cardinal rule 7; `spec/Conventions.md`), so an ordinary app-level `(rf/reg-event :rf/hydrate …)` is **overriding a framework event** — do it only as a deliberate, documented **framework-extension** when you need a non-replace merge policy (the default is `:replace-frame-state`, server-authoritative, spec-locked).
+`re-frame.ssr` registers the `:rf/hydrate` handler itself, and every app uses it; there is no app-side handler to write. `:rf/hydrate` is a reserved `:rf/*` event (Cardinal rule 7; `spec/Conventions.md`) and not a replaceable default, so an app-namespace `(rf/reg-event :rf/hydrate …)` is a collision, not an extension: on a frame made without `:images` the id is then registered by two namespaces, the dispatch raises `:rf.error/ambiguous-registration`, and hydration never runs.
 
-If you do override, you take over the shipped handler's safety contract and **MUST preserve all of it** — the snippet below is the recipe shape, not a drop-in replacement (it omits guards for brevity). The shipped `re-frame.ssr` handler (`implementation/ssr/src/re_frame/ssr/hydrate.cljc`):
+**Hydration replaces both partitions, and the policy is locked.** The payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, SSR metadata), and the handler installs both in one atomic frame-state transition, replacing whatever the client seeded before it. The policy is `:replace-frame-state`, server-authoritative, and has no merge alternative ([`spec/011-SSR.md` §Resolved decisions](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md#replace-frame-state-is-the-locked-hydration-merge-policy)). The handler also:
 
-- **fails closed on a malformed payload** — a non-map payload, or a present-but-non-map `:rf/app-db` / `:rf/runtime-db` slice, is rejected, the existing client db is left untouched, and `:rf.error/malformed-hydration-payload` is emitted (never silently installs garbage as the whole app-db);
-- **merges the runtime metadata** under `[:rf.runtime/ssr :hydration]` (the payload's version) onto the payload's runtime-db slice;
-- **platform-gates the check fxs at the handler level** so server-side `:rf/hydrate` runs (test harness / isomorphic loopback) don't emit `:rf.fx/skipped-on-platform` per check.
+- **fails closed on a malformed payload** — a non-map payload, or a present-but-non-map `:rf/app-db` / `:rf/runtime-db` slice, is rejected, the existing client frame-state is left untouched, and `:rf.error/malformed-hydration-payload` is emitted;
+- **fails closed on a frame-id mismatch** — a present `:rf/frame-id` naming a different frame is rejected the same way, with `:rf.error/hydration-frame-id-mismatch`;
+- **writes the hydration metadata** — the payload's version, at `[:rf.runtime/ssr :hydration :version]` in the installed runtime-db;
+- **platform-gates the two check fxs at the handler level**, so a server-side `:rf/hydrate` run (test harness / isomorphic loopback) emits no `:rf.fx/skipped-on-platform` per check.
 
-Drop any of these and you reintroduce a fail-open hydration path. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
+It is registered `{:rf/framework-authority? true :sensitive [[]]}`: framework authority lets it emit the reserved `:rf.db/runtime` effect, and `:sensitive [[]]` classifies the whole payload, so the event's trace and egress records carry `:rf/redacted` in its place. The body is `implementation/ssr/src/re_frame/ssr/hydrate.cljc`; the contract is [`spec/011-SSR.md §The :rf/hydrate event`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md#the-rfhydrate-event).
+
+**Seed client-only state after hydration.** State only the client has — a draft restored from `sessionStorage`, a UI preference — is seeded by dispatching your own event once `ssr/hydrate!` returns and before the hydrating mount, so the first client render reads it. Seeded before `hydrate!`, it is overwritten.
 
 ```clojure
-(rf/reg-event :rf/hydrate
-  {:doc       "Install a coherent frame-state (app-db + serializable runtime-db) from the server payload."
-   :platforms #{:client}}                                ;; hydration is client-side only
-  (fn [_ [_ {:rf/keys [version frame-id app-db runtime-db schema-digest]}]]
-    {:db            app-db                               ;; app-db partition (replace, not merge)
-     :rf.db/runtime (cond-> runtime-db                   ;; runtime-db partition (replace, not merge)
-                      version (assoc-in [:rf.runtime/ssr :hydration :version] version))
-     :fx (cond-> [[:rf.ssr/check-version version]]
-           schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
+;; Client boot. :app/restore-client-state is your own event.
+(ssr/hydrate! {:frame :rf/default})                                  ;; install the server's state
+(rf/dispatch-sync [:app/restore-client-state] {:frame :rf/default})  ;; then seed client-only state
+;; …then mount with the adapter's render, as in the Client row above.
 ```
-
-Matches the shipped `re-frame.ssr` handler (`implementation/ssr/src/re_frame/ssr/hydrate.cljc`) and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve the `[:rf.runtime/ssr :hydration]` metadata merge** (a runtime-db path).
 
 ## The trace events you'll see
 
@@ -145,7 +141,7 @@ All three are catalogued in [`009 §Error event catalogue`](https://github.com/d
 | `:rf.ssr/schema-digest-mismatch` | payload `:rf/schema-digest` ≠ client `:schemas/app-schemas-digest` | `:op-type :warning` |
 | `:rf.ssr/compatibility-check-skipped` | schema-digest check only — no `:schemas/app-schemas-digest` hook registered (the version check reads the SSR-owned constant, never skips) | `:op-type :warning` |
 
-These `:rf.ssr/*` events are **trace-channel** diagnostics — DCE-eligible in CLJS production builds, JVM-gated on `re-frame.debug`. **Keep them distinct from the promoted `:rf.error/ssr-*` records below:** `:rf.ssr/version-mismatch`, `:rf.ssr/schema-digest-mismatch` and `:rf.ssr/compatibility-check-skipped` are compatibility *diagnostics* that do **not** ride the always-on error-emit substrate; they elide in a production CLJS client build unless the build keeps the trace surface (`:closure-defines {goog.DEBUG true}`), and none is a catalogued `:rf.error/*` record. So do not expect *these* at an `:observability :errors` sink — they never arrive there. To track this drift in production, instrument it deliberately: detect the condition in your own app code (your `:rf/hydrate` extension) and dispatch an app event that ships through the production observability surface (a frame or `rf/configure!` `:observability` sink wired with `rf/register-observability-sink!`, per [`production-observability.md`](production-observability.md)). The default version / schema-digest checks remain dev-and-server diagnostics on the trace channel. `:rf.ssr/hydration-mismatch` is different: every hydrating root reports the recoveries React makes as an always-on structural record as well as the dev trace (`spec/011-SSR.md` §Hydration-mismatch detection), and an attribute-only divergence reaches neither — React's development `console.error` is its only signal.
+These `:rf.ssr/*` events are **trace-channel** diagnostics — DCE-eligible in CLJS production builds, JVM-gated on `re-frame.debug`. **Keep them distinct from the promoted `:rf.error/ssr-*` records below:** `:rf.ssr/version-mismatch`, `:rf.ssr/schema-digest-mismatch` and `:rf.ssr/compatibility-check-skipped` are compatibility *diagnostics* that do **not** ride the always-on error-emit substrate; they elide in a production CLJS client build unless the build keeps the trace surface (`:closure-defines {goog.DEBUG true}`), and none is a catalogued `:rf.error/*` record. So do not expect *these* at an `:observability :errors` sink — they never arrive there. To track this drift in production, instrument it deliberately: detect the condition in your own client boot code, from the payload `ssr/hydrate!` returns, and dispatch an app event that ships through the production observability surface (a frame or `rf/configure!` `:observability` sink wired with `rf/register-observability-sink!`, per [`production-observability.md`](production-observability.md)). The default version / schema-digest checks remain dev-and-server diagnostics on the trace channel. `:rf.ssr/hydration-mismatch` is different: every hydrating root reports the recoveries React makes as an always-on structural record as well as the dev trace (`spec/011-SSR.md` §Hydration-mismatch detection), and an attribute-only divergence reaches neither — React's development `console.error` is its only signal.
 
 > **The SSR render/projection failures DO ride the always-on axis (EP-0008).** Separately from the `:rf.ssr/*` compatibility diagnostics above, the **seven** production-reachable SSR error categories — the four `:rf.error/ssr-*` records plus `:rf.error/malformed-hydration-payload`, `:rf.error/sanitised-on-projection` and `:rf.error/hydration-frame-id-mismatch` — ride the **always-on error-emit axis** (surface #4). On a long-lived JVM SSR host, an off-box shipper (Sentry / Datadog) registered with `rf/register-observability-sink!` under an `:observability :errors` entry (the frame's, or the `rf/configure!` process default for frameless records) receives these structured records **even under `-Dre-frame.debug=false`**, where the dev trace surface is elided — the off-box record, not the wire response, is the telemetry. These are **non-event** records: they carry no `:event` / `:event-id` (some carry only `:frame` + `:exception` + category-specific slots), so a sink must branch on `(:error record)` and not assume the per-event shape. So you need not route SSR production drift only through the `:rf/public-error` projector or the dev trace — the always-on records ARE the production egress for these categories. (The recoverable-degradation and post-commit members are non-projecting: their riding the axis changes what shippers see, never the wire status.) See [`production-observability.md` §The promoted-SSR records](production-observability.md) — the single roster, category by category with each one's slots and projection disposition; this leaf deliberately does not keep a second copy — and [`009 §What IS available in production`](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md#what-is-available-in-production).
 
@@ -157,7 +153,7 @@ The server renders the whole page in one response; it does not stream regions. D
 
 - **`reg-head` fns subscribe like sub fns.** Inside the fn, `(subscribe ...)` derefs against the static `app-db` value (same path as views via `compute-sub`). No reactive deref.
 - **One `:head` per route.** No composition. Routes that want to share head logic reference the same id, or call a shared helper from each head fn.
-- **The default `:rf/hydrate` already dispatches the checks.** It ships in `re-frame.ssr`; most apps never write their own. Re-registering replaces a reserved framework event — do it only as documented framework-extension code to change the merge policy, and preserve the malformed-payload fail-closed guard, the runtime-metadata merge, and the handler-level platform gate.
+- **The shipped `:rf/hydrate` already dispatches the checks.** It ships in `re-frame.ssr`, and an app never registers its own: from an app namespace the id is ambiguous on a frame made without `:images`, and hydration does not run. Client-only state is your own event, dispatched after `ssr/hydrate!` returns.
 - **`:platforms #{:client}` gates both fxs.** Server-side dispatches no-op silently; don't sprinkle `:platforms` guards inside your own code.
 - **The fxs never throw.** An absent `:schemas/app-schemas-digest` hook → the schema-digest check emits `:rf.ssr/compatibility-check-skipped` (warning), not a crash; the version check reads the SSR-owned constant and never skips. Read the trace surface to confirm wiring.
 - **Head drift is silent.** The head is data: `head-model` resolves against the just-hydrated state (`:rf/app-db` plus the `:rf/runtime-db` route slice), so a host that wants to compare the head the server rendered recomputes the model on the client and compares it itself. The runtime ships no head check, and a head-only divergence emits **no** `:rf.ssr/hydration-mismatch`.
