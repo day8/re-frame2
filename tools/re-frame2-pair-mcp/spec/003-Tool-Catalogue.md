@@ -519,6 +519,9 @@ other honest `:ok? false` envelope on this surface does:
 `:available-tools` is the same name set `tools/list` enumerates;
 `:did-you-mean` (and the `did you mean …` clause inside `:hint`) appears
 only when the bad name is within a small edit distance of a real tool.
+A name longer than 128 characters is echoed in `:tool` and `:hint` as its
+first 128 characters followed by `...`, so the refusal stays small however
+long the name.
 A model that typo'd a name self-corrects from the envelope without a
 `tools/list` round-trip.
 
@@ -2006,7 +2009,8 @@ filter rides server-side so non-matching epochs never cross the wire
 events) shrinks how many records match, though not what one record
 costs. Accepts either a number (sugar for
 `>= N`) or a comparison string `">N"` / `">=N"` / `"<N"` / `"<=N"` /
-`"=N"`. Epochs whose `:trace-events` slot was elided (long-aged ring
+`"=N"`; any other value (a unit suffix such as `">100ms"` included) is
+refused up front with `:rf.mcp/invalid-arg` naming `:pred`. Epochs whose `:trace-events` slot was elided (long-aged ring
 entries) carry no derivable timing and never match a numeric
 threshold.
 

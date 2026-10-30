@@ -27,3 +27,19 @@
                    (is (false? (:discovered? snap))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
+
+(deftest an-over-long-unknown-name-is-echoed-cut
+  ;; Echoed whole, a name packed up to the frame cap would come back twice
+  ;; over, and the near-name search would run in time linear in it.
+  (async done
+    (-> (server/handle-call-for-tests {} (apply str (repeat 32000 "x")) #js {} nil)
+        (.then (fn [result]
+                 (let [edn (tu/extract-edn result)]
+                   (is (tu/error? result))
+                   (is (= :unknown-tool (:reason edn)))
+                   (is (= (str (apply str (repeat 128 "x")) "...") (:tool edn))
+                       "the echo is the name's first 128 characters")
+                   (is (< (count (tu/extract-text result)) 4000) "the whole refusal stays small")
+                   (is (not (contains? edn :did-you-mean))))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))

@@ -60,7 +60,8 @@
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.cursor :as cursor]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
-            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame.mcp-base.cap :as rf.mcp-base.cap]))
 
 (def ^:private keyword-valued-pred-keys
   "The `pred` keys `epoch-matches?` compares against keywords with `=`."
@@ -86,6 +87,25 @@
                     (contains? m :touches-path)
                     (assoc :touches-path (args/parse-path-arg (wire/arg p :touches-path)))))
     :else       nil))
+
+(def ^:private timing-comparison-re
+  "The comparison strings the preload's `re-frame2-pair.pure/parse-timing-pred`
+  parses; it also takes a bare number."
+  #"\s*(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)\s*")
+
+(defn- timing-refusal
+  "The `:rf.mcp/invalid-arg` refusal for a `pred` whose `:timing-ms` the
+  runtime cannot parse, else nil. Such a predicate matches no epoch, so
+  without the refusal a typo (`\">100ms\"`) reads as a quiet ring."
+  [pred]
+  (let [t (:timing-ms pred)]
+    (when-not (or (nil? t)
+                  (number? t)
+                  (and (string? t) (re-matches timing-comparison-re t)))
+      (rf.mcp-base.cap/invalid-arg-marker
+        :pred t
+        (str "pred :timing-ms is a number of ms (meaning >= N) or a comparison string "
+             "with no unit: \">100\", \">=100\", \"<200\", \"<=50\", \"=42\".")))))
 
 (defn watch-epochs-tool [conn raw-args]
   (let [build-id  (wire/arg-build conn raw-args)
@@ -136,11 +156,13 @@
         cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))
         ;; `pred`'s keys are minted into keywords by
         ;; `:keywordize-keys` and PRINTED into the poll form; a key without
-        ;; keyword grammar would print as code, so it is refused.
-        key-refusal (args/invalid-key-refusal :pred pred-arg)]
+        ;; keyword grammar would print as code, so it is refused, as is a
+        ;; `:timing-ms` the runtime cannot parse.
+        pred-refusal (or (args/invalid-key-refusal :pred pred-arg)
+                         (timing-refusal pred-arg))]
     (cond
-      (some? key-refusal)
-      (js/Promise.resolve (wire/err-text key-refusal))
+      (some? pred-refusal)
+      (js/Promise.resolve (wire/err-text pred-refusal))
 
       (= :err since-tag)
       (js/Promise.resolve

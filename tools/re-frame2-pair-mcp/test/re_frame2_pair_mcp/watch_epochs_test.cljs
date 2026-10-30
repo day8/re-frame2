@@ -89,6 +89,18 @@
           (.catch (fn [e] (is false (str "rejected: " (.-message e)))))
           (.then (fn [_] (tu/restore-eval! stub orig) (done)))))))
 
+(deftest unparseable-timing-ms-is-refused-before-the-runtime
+  ;; The runtime matches no epoch on a `:timing-ms` it cannot parse, so a
+  ;; unit typo would otherwise read as a quiet ring. The conn is nil, so a
+  ;; poll that reached the runtime would fail with another reason.
+  (async done
+    (-> (we/watch-epochs-tool nil (tu/args->js {:pred #js {:timing-ms ">100ms"}}))
+        (.then (fn [r]
+                 (is (tu/error? r))
+                 (is (= {:arg :pred :value ">100ms"}
+                        (select-keys (:rf.mcp/invalid-arg (tu/extract-edn r)) [:arg :value])))
+                 (done))))))
+
 (deftest non-empty-matches-no-advisory
   (async done
     (-> (watch! {} {:matches [{:epoch-id :e1}] :id-aged-out? false :head-id :e1
