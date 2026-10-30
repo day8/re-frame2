@@ -35,6 +35,8 @@
     (when (and sentinel walker)
       (binding [*ns* (create-ns 'machine-describe-test.shipped)]
         (refer-clojure)
+        ;; The walk calls cljs.core's `regexp?`; the JVM predicate stands in.
+        (eval '(defn regexp? [x] (instance? java.util.regex.Pattern x)))
         (eval sentinel)
         (eval walker)
         @(ns-resolve 'machine-describe-test.shipped 'strip-fns)))))
