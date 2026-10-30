@@ -183,12 +183,28 @@
 
 (defn- nearest-tool
   "The listed tool name closest to `tool-name`, or nil when none is within
-  half its length (at least 2 edits) — a far-off suggestion misleads."
+  half its length (at least 2 edits) — a far-off suggestion misleads. A name
+  more than twice the longest listed one is past that threshold for every
+  name (the distance is at least the length difference), so it is not
+  searched."
   [tool-name names]
-  (let [[best d] (apply min-key second [nil ##Inf]
-                        (map (juxt identity #(edit-distance tool-name %)) names))]
-    (when (and best (<= d (max 2 (quot (count tool-name) 2))))
-      best)))
+  (when (<= (count tool-name) (* 2 (apply max 0 (map count names))))
+    (let [[best d] (apply min-key second [nil ##Inf]
+                          (map (juxt identity #(edit-distance tool-name %)) names))]
+      (when (and best (<= d (max 2 (quot (count tool-name) 2))))
+        best))))
+
+(def ^:private max-echoed-name-chars
+  "How much of an unknown tool name the refusal echoes. A longer name is no
+  typo of a listed one, and echoing it whole would make the refusal as large
+  as whatever the caller sent."
+  128)
+
+(defn- echoed-name
+  [tool-name]
+  (if (> (count tool-name) max-echoed-name-chars)
+    (str (subs tool-name 0 max-echoed-name-chars) "...")
+    tool-name))
 
 (defn- unknown-tool-result
   "The `isError` result for a `tools/call` naming no registered tool. A
@@ -196,16 +212,17 @@
   and many hosts surface a protocol error as a failed call instead of
   handing it to the model, so a typo would be a dead end. The result
   carries what the model needs to recover — the listed names and the
-  nearest one."
+  nearest one. An over-long name is echoed cut to `max-echoed-name-chars`."
   [tool-name]
   (let [names (mapv :name (rf.story-mcp.tools.registry/tool-descriptors))
-        near  (nearest-tool tool-name names)]
+        near  (nearest-tool tool-name names)
+        echo  (echoed-name tool-name)]
     (rf.story-mcp.tools.result/error-result
-      (str "Unknown tool `" tool-name "`; "
+      (str "Unknown tool `" echo "`; "
            (when near (str "did you mean `" near "`? "))
            "call `tools/list` for the available tools.")
       (cond-> {:rf.error        :rf.story-mcp/unknown-tool
-               :tool            tool-name
+               :tool            echo
                :available-tools names}
         near (assoc :did-you-mean near)))))
 
