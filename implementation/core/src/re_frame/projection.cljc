@@ -316,9 +316,26 @@
         (redact event owner)))
     event))
 
+(defn- project-resource-identity
+  "Apply the resource family's off-box identity rule to an event-shaped slot,
+  through the `:resources/project-fx-args-egress` carrier projector the epoch
+  tool-pair applies to the `:rf.event/v` tag: a resource's scope tokenizes and a
+  `:sensitive?` / `:large?` owner's params do too, wherever the event carries
+  them — a request's payload, or a continuation reply's scoped keys. The
+  registration pass cannot, because the dev trace it also serves keeps that
+  identity raw. Lifted by the trusted-local `:rf.egress/include-sensitive?`;
+  inert when no resources artefact is loaded.
+  Spec 016 §Resource registration spec."
+  [event elision-opts]
+  (if-let [project (when-not (true? (:rf.egress/include-sensitive? elision-opts))
+                     (rf.late-bind/get-fn :resources/project-fx-args-egress))]
+    (:rf.event/v (project {:rf.event/v event} (:frame elision-opts)))
+    event))
+
 (defn project-event-slot
   "Project an event-shaped slot: the event registration's marks FIRST (the
-  EVENT owner — EP-0015), then the frame-policy size/sensitive
+  EVENT owner — EP-0015), then the resource family's identity rule
+  (`project-resource-identity`), then the frame-policy size/sensitive
   walk. A sentinel the registration pass writes is inert under the subsequent
   walk.
 
@@ -330,6 +347,7 @@
   [event elision-opts]
   (-> event
       (redact-event-by-registration elision-opts)
+      (project-resource-identity elision-opts)
       (walk-slot elision-opts)))
 
 ;; ---- handled-event record (`:rf.observe/handled-event`) ------------------

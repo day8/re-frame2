@@ -1,6 +1,7 @@
 (ns re-frame.resources.trace-egress
   "Off-box egress projection for the resource and mutation trace family, the
-  resource and mutation read subs, and the family's data riding FX rows.
+  resource and mutation read subs, and the family's data riding FX and event
+  carriers.
 
   Scoped keys `[scope resource-id params]` copied into trace tags are
   invisible to the generic value-path walk, so the family projects them
@@ -413,19 +414,49 @@
   (and (scoped-key-frame? v)
        (or named? (some? (rf.resources.registry/resource-meta (nth v 1))))))
 
-(def ^:private fx-carrier-slot
-  "FX-owned tag slots the family's data rides in: `handle-one-fx` stamps an
-  effect's args under `:rf.fx/args` and `do-fx` the effect vector under
-  `:rf.event/fx`, on rows the family does not own."
-  #{:rf.fx/args :rf.event/fx})
+(def ^:private carrier-slot
+  "Tag slots the family's data rides in on rows the family does not own: the
+  FX carriers, where `handle-one-fx` stamps an effect's args under
+  `:rf.fx/args` and `do-fx` the effect vector under `:rf.event/fx`, and the
+  event carriers, the dispatched event vector under `:rf.event/v` and an
+  error trace's bare `:event`, which carry a resource request's payload and a
+  continuation reply riding its `:reply-to` target."
+  #{:rf.fx/args :rf.event/fx :rf.event/v :event})
+
+(defn- resource-request-event?
+  "Whether `v` is a `[:rf.resource/<op> {payload}]` request event, whose payload
+  names an entry by `:resource`, `:scope` and `:params`, the parts of its scoped
+  key. The event id is the proof: the namespace is the family's reserved
+  vocabulary."
+  [v]
+  (and (vector? v)
+       (>= (count v) 2)
+       (keyword? (nth v 0))
+       (= "rf.resource" (namespace (nth v 0)))
+       (map? (nth v 1))))
+
+(defn- project-request-identity
+  "A resource request event's `payload` with the identity rule its scoped key
+  takes (`project-trace-scoped-key`): `:scope` tokenizes, and `:params` project
+  through the owner `:resource` names. Returns `[payload' owner-redacted?]`;
+  `owner-redacted?` is false when the payload names no owner or no params."
+  [payload frame-id]
+  (let [owner?  (and (keyword? (:resource payload)) (contains? payload :params))
+        [[scope _ params] owner-redacted?]
+        (project-trace-scoped-key [(:scope payload) (:resource payload) (:params payload)]
+                                  frame-id)]
+    [(cond-> payload
+       (contains? payload :scope) (assoc :scope scope)
+       owner?                     (assoc :params params))
+     (and owner? owner-redacted?)]))
 
 (defn- project-embedded-keys
-  "Projects the family's own data inside an FX carrier value `v` and leaves
-  everything else untouched. Returns `[projected sensitive?]`. Unlike
-  `project-unknown-slot-value` it descends maps rather than tokenizing them,
-  because the carrier belongs to the FX family. `named?` is true when `v` sits
-  under a `resource`-namespaced key; it resets at each map entry and is
-  inherited through sequential collections.
+  "Projects the family's own data inside a carrier value `v` (`carrier-slot`)
+  and leaves everything else untouched. Returns `[projected sensitive?]`.
+  Unlike `project-unknown-slot-value` it descends maps rather than tokenizing
+  them, because the carrier belongs to another family. `named?` is true when
+  `v` sits under a `resource`-namespaced key; it resets at each map entry and
+  is inherited through sequential collections.
 
   Each arm fires on proof that the runtime planted the datum, never on a local
   cue, and each has its own grain:
@@ -436,7 +467,9 @@
     - `:value` / `:params` of a family reply (`family-reply?`) tokenize iff
       its owner redacts, and otherwise its owner's declared paths substitute,
       and its `:error` tokenizes unconditionally (`project-family-reply-slots`);
-    - a family reply's `:correlation` gives its `:scope` the scope rule.
+    - a family reply's `:correlation` gives its `:scope` the scope rule;
+    - a resource request event's (`resource-request-event?`) `:scope` and
+      `:params` take its scoped key's rule (`project-request-identity`).
   Spec 015 §Projection — applying classification at a boundary"
   [value frame-id named?]
   (cond
@@ -457,16 +490,22 @@
                   (project-embedded-keys nested-value frame-id nested-named?)]
               (record-sensitive-projection! sensitive? projected-value)))
           family-reply-carrier?   (and (map? value) (family-reply? value))
-          ;; The reply's owner slots project BEFORE the walk, so the sentinels
-          ;; ride out as scalars and the tokens as tokens; a reply nothing
-          ;; applied to leaves the row unstamped.
+          ;; A reply's owner slots and a request's identity project BEFORE the
+          ;; walk, so the sentinels ride out as scalars and the tokens as
+          ;; tokens; a reply nothing applied to leaves the row unstamped.
           declaration-projected-value
-          (if family-reply-carrier?
+          (cond
+            family-reply-carrier?
             (let [projected-reply (project-family-reply-slots value frame-id)]
               (if (= projected-reply value)
                 value
                 (record-sensitive-projection! true projected-reply)))
-            value)
+
+            (resource-request-event? value)
+            (let [[payload owner-redacted?] (project-request-identity (nth value 1) frame-id)]
+              (record-sensitive-projection! owner-redacted? (assoc value 1 payload)))
+
+            :else value)
 
           runtime-payload?
           (and (map? declaration-projected-value)
@@ -510,6 +549,16 @@
 
          (set? declaration-projected-value)
          (into #{} (map #(project-value % named?)) declaration-projected-value)
+
+         ;; The rest of the request is walked; its scope has taken the scope
+         ;; rule, which stamps nothing.
+         (resource-request-event? value)
+         (let [payload (nth declaration-projected-value 1)]
+           (into [(nth declaration-projected-value 0)
+                  (cond-> (project-value (dissoc payload :scope) named?)
+                    (contains? payload :scope) (assoc :scope (:scope payload)))]
+                 (map #(project-value % named?))
+                 (subvec declaration-projected-value 2)))
 
          (vector? declaration-projected-value)
          (mapv #(project-value % named?) declaration-projected-value)
@@ -645,12 +694,13 @@
       (cond-> projected-tags sensitive? (assoc :sensitive? true)))))
 
 (defn project-fx-args-egress
-  "Projects the `:rf.fx/args` / `:rf.event/fx` slots of any trace row with
-  `project-embedded-keys`, so the family's data riding an FX row classifies
-  exactly as it does on the family's own rows; otherwise one record could carry
-  the same secret redacted in one slot and raw in the next. Everything else on
-  the row rides, and a tags map with neither slot is returned as-is, so the
-  epoch consumer applies it to every row. Stamps `:sensitive? true` when
+  "Projects the carrier slots (`carrier-slot`) of any trace row with
+  `project-embedded-keys`, so the family's data riding an FX or event carrier
+  classifies exactly as it does on the family's own rows; otherwise one record
+  could carry the same secret redacted in one slot and raw in the next.
+  Everything else on the row rides, and a tags map with no carrier slot is
+  returned as-is, so the epoch consumer applies it to every row, and to a
+  record slot captured from one of these tags. Stamps `:sensitive? true` when
   anything redacted. Owners resolve in `frame-id`'s view. Idempotent.
   Spec 015 §Projection — applying classification at a boundary"
   [tags frame-id]
@@ -660,19 +710,19 @@
           projected-tags
           (in-frame-view
             frame-id
-            #(reduce (fn [projected-tags carrier-slot]
-                       (if-not (contains? projected-tags carrier-slot)
+            #(reduce (fn [projected-tags slot]
+                       (if-not (contains? projected-tags slot)
                          projected-tags
                          (let [[projected-value sensitive?]
                                (project-embedded-keys
-                                 (get projected-tags carrier-slot)
+                                 (get projected-tags slot)
                                  frame-id
                                  false)]
                            (when sensitive?
                              (vreset! sensitive-found? true))
-                           (assoc projected-tags carrier-slot projected-value))))
+                           (assoc projected-tags slot projected-value))))
                      tags
-                     fx-carrier-slot))]
+                     carrier-slot))]
       (cond-> projected-tags @sensitive-found? (assoc :sensitive? true)))))
 
 (defn project-reply-event-arg
