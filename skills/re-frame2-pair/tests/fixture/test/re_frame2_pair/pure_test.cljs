@@ -93,6 +93,15 @@
                                   {:event-id :x :trace-events []}))
         "an epoch with no timing bracket does not clear a numeric threshold")))
 
+(deftest an-unparseable-timing-ms-matches-no-epoch
+  ;; Read as no constraint, a unit typo would match every epoch in the ring.
+  (let [slow {:event-id :cart/add
+              :trace-events [{:op-type :rf.event :operation :rf.event/run-start :time 1000}
+                             {:op-type :rf.event :operation :rf.event/run-end   :time 1150}]}]
+    (doseq [bad [">100ms" "slow" "100 ms"]]
+      (is (not (pure/epoch-matches? {:timing-ms bad} slow)) bad))
+    (is (pure/epoch-matches? {:timing-ms ">=0"} slow) "control: a parseable comparison still matches")))
+
 (deftest touches-path-matches-only-epochs-that-changed-the-path
   (let [touches? (fn [before after]
                    (pure/epoch-matches? {:touches-path [:cart]}
@@ -230,6 +239,39 @@
                  false)]
     (is (= :ok (:outcome summary)))
     (is (nil? (:errors summary)))))
+
+(defn- committed-nothing [trace-events]
+  {:epoch-id 3 :frame :f :outcome :ok
+   :db-before {:x 1} :db-after {:x 1} :effects [] :trace-events trace-events})
+
+(deftest a-refused-event-is-an-error-not-a-no-op
+  ;; Each refusal settles the epoch `:outcome :ok` having committed nothing,
+  ;; so read off the epoch alone it is indistinguishable from a no-op. The
+  ;; traces carry the tags a real dispatch records.
+  (doseq [[label trace descriptor]
+          [["boundary :schema"     {:operation :rf.error/schema-validation-failure :tags {:where :event}}
+            {:operation :rf.error/schema-validation-failure :where :event}]
+           ["app-db rollback"      {:operation :rf.error/schema-validation-failure
+                                    :tags {:where :app-db :rollback? true}}
+            {:operation :rf.error/schema-validation-failure :where :app-db}]
+           ["refused effect map"   {:operation :rf.error/effect-map-shape :tags {}}
+            {:operation :rf.error/effect-map-shape}]]]
+    (let [summary (pure/cascade-summary (committed-nothing [trace]) false)
+          conseq  (pure/consequence-from-summary {:ok? true :cascade-summary summary})]
+      (is (= [:error [descriptor] false :error]
+             [(:outcome summary) (:errors summary) (:no-op? conseq) (:outcome conseq)])
+          label)))
+  (testing "a schema failure that leaves the event committed is no refusal"
+    (doseq [where [:sub-return :fx-args]]
+      (is (= :ok (:outcome (pure/cascade-summary
+                             (committed-nothing [{:operation :rf.error/schema-validation-failure
+                                                  :tags {:where where}}])
+                             false)))
+          (name where))))
+  (testing "control: a genuine no-op stays a no-op"
+    (let [summary (pure/cascade-summary (committed-nothing []) false)]
+      (is (= [:ok true] [(:outcome summary)
+                         (:no-op? (pure/consequence-from-summary {:ok? true :cascade-summary summary}))])))))
 
 (deftest consequence-from-summary-throw-is-not-a-no-op
   (let [summary (pure/cascade-summary thrown-action-epoch false)
