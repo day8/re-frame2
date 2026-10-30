@@ -667,6 +667,17 @@
   (is (not (contains? (:structuredContent (call-unknown "zzzzzzzzzzzzzzzzzzzz")) :did-you-mean))
       "no suggestion for a name nothing is near"))
 
+(deftest an-over-long-unknown-tool-name-is-echoed-cut
+  ;; Echoed whole, a name packed up to the 4 MB frame cap would come back
+  ;; twice over, uncapped, and the near-name search would stall the loop.
+  (let [r (call-unknown (apply str (repeat 32000 "x")))
+        s (:structuredContent r)]
+    (is (true? (:isError r)))
+    (is (= [:rf.story-mcp/unknown-tool (str (apply str (repeat 128 "x")) "...")]
+           [(:rf.error s) (:tool s)]))
+    (is (not (contains? s :did-you-mean)))
+    (is (< (count (pr-str r)) 4000) "the whole refusal stays small")))
+
 (deftest register-variant-overrides-caller-supplied-origin
   ;; spec/Cross-Cutting-Designs.md §5: every write surface tags its writes.
   (rf.story-mcp.config/set-allow-writes! true)
@@ -1205,9 +1216,34 @@
           (Thread/sleep 10)))
       (is (nil? (rf.story-mcp.tools.lifecycle/abandoned-run-error "run-variant" vid)) "the fence lifts when the run ends")
       (is (nil? (frame-container vid)) "the abandoned run's frame, late writes and all, is gone")
-      (is (= :pass (:status (:structuredContent (invoke "read-failures" {:variant-id "story.button/busy"})))))
+      (let [s (:structuredContent (invoke "read-failures" {:variant-id "story.button/busy"}))]
+        (is (= [:error 1 [:rf.error/run-failed]] [(:status s) (:total s) (mapv :assertion (:failures s))])
+            "the latest run reads as the deadline error it was, not as a run that never happened"))
       (is (= :pass (:status (:structuredContent (invoke "run-variant" {:variant-id "story.button/busy"}))))
-          "a fresh run of the variant proceeds"))))
+          "a fresh run of the variant proceeds")
+      (is (= :pass (:status (:structuredContent (invoke "read-failures" {:variant-id "story.button/busy"}))))
+          "and read-failures then reads that run"))))
+
+;; The run-variant reply and read-failures agree on a run whose recorded
+;; failure precedes its deadline: both read `:error`, never `:pass 0`.
+
+(deftest a-failed-then-abandoned-run-reads-as-its-deadline-error
+  (rf.story/reg-variant :story.button/fail-then-wait
+    {:doc    "fails, then overruns"
+     :script [[:dispatch-sync [:rf.assert/path-equals [:missing] "yes"]]
+              [:wait 3000]]})
+  (with-clean-frame [vid :story.button/fail-then-wait]
+    (is (= :error (:status (:structuredContent (invoke "run-variant" {:variant-id "story.button/fail-then-wait"
+                                                                      :timeout-ms 200}))))
+        "the deadline reply")
+    (let [deadline (+ (System/currentTimeMillis) 10000)]
+      (while (and (rf.story-mcp.tools.lifecycle/abandoned-run-error "read-failures" vid)
+                  (< (System/currentTimeMillis) deadline))
+        (Thread/sleep 10)))
+    (let [r (invoke "read-failures" {:variant-id "story.button/fail-then-wait"})
+          s (:structuredContent r)]
+      (is (not (error? r)) "the fence has lifted")
+      (is (= [:error 1 [:rf.error/run-failed]] [(:status s) (:total s) (mapv :assertion (:failures s))])))))
 
 ;; A worker still queued on the executor at the deadline never starts once it
 ;; is cancelled, so neither its run nor its `finally` executes. Its hold goes at

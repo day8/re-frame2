@@ -125,6 +125,27 @@
   ;; (see `run-variant-blocking` §An abandoned run is fenced, not stopped).
   (atom #{}))
 
+(defonce ^:private deadline-records
+  ;; Variant id -> the assertion records of its latest run's deadline
+  ;; outcome, kept from the deadline until the variant's next run. The
+  ;; abandoned run's frame is torn down, so without them `read-failures`
+  ;; would read the empty frame as a run that never happened.
+  (atom {}))
+
+(defn deadline-assertions
+  "The assertion records of `vk`'s latest run when that run overran its
+  deadline, else nil. `read-failures` reads these in place of the frame,
+  so the latest run reads as the `:error` its `run-variant` reply was."
+  [vk]
+  (get @deadline-records vk))
+
+(defn forget-deadline!
+  "Drop `vk`'s deadline records: a new run, or an unregistered variant, has
+  no deadline outcome to report."
+  [vk]
+  (swap! deadline-records dissoc vk)
+  nil)
+
 (defn abandoned-run-error
   "The refusal every tool that runs or reads a variant frame returns while
   an earlier run of `vk` overran its deadline and is still executing, or
@@ -192,7 +213,10 @@
   `abandoned-runs` until the worker really ends, and `abandoned-run-error`
   refuses every tool that would run or read that frame meanwhile. When the
   worker ends, its frame is destroyed before the hold is released, so no
-  later call reads the abandoned run's late writes or races them.
+  later call reads the abandoned run's late writes or races them. The
+  deadline outcome's records stay in `deadline-records` until the variant's
+  next run, so `read-failures` reports that `:error` rather than reading
+  the torn-down frame as a run that never happened.
 
   A worker still QUEUED on the executor at the deadline has run nothing,
   and once cancelled its body (the `finally` included) never runs, so the
@@ -210,8 +234,13 @@
   which clj-kondo would otherwise flag on the `.cljc`'s cljs branch)."
   [vk opts timeout-ms]
   #?(:clj
-     (let [state  (atom :queued)
-           worker (future
+     (let [_        (forget-deadline! vk)
+           deadline (fn []
+                      (let [outcome (deadline-outcome vk timeout-ms)]
+                        (swap! deadline-records assoc vk (:assertions outcome))
+                        outcome))
+           state    (atom :queued)
+           worker   (future
                     (when (compare-and-set! state :queued :running)
                       (try
                         (rf.story.async/deref-blocking (rf.story/run-variant vk opts))
@@ -231,9 +260,9 @@
                  (case (first (swap-vals! state {:queued :cancelled :running :abandoned :settled :settled}))
                    :queued  (do (future-cancel worker)
                                 (swap! abandoned-runs disj vk)
-                                (deadline-outcome vk timeout-ms))
+                                (deadline))
                    :running (do (future-cancel worker)
-                                (deadline-outcome vk timeout-ms))
+                                (deadline))
                    :settled (do (swap! abandoned-runs disj vk)
                                 @worker)))
              settled))

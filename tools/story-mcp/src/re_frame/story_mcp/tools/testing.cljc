@@ -370,7 +370,10 @@
       (or
        (rf.story-mcp.tools.lifecycle/abandoned-run-error "read-failures" vk)
        (let [incl?      (rf.story-mcp.tools.args/include-sensitive? arguments)
-             raw        (rf.story/read-assertions vk)
+             ;; A latest run that overran its deadline left no frame to
+             ;; read; its deadline outcome's records stand in for it.
+             raw        (or (rf.story-mcp.tools.lifecycle/deadline-assertions vk)
+                            (rf.story/read-assertions vk))
              [scrubbed dropped] (rf.story-mcp.tools.egress/scrub-assertions+count raw incl?)
              ;; Stamp the derived :status on every record so the agent reads
              ;; the SAME unified record shape `run-variant` emits.

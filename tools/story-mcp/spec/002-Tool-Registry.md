@@ -630,7 +630,10 @@ surfaces via the run-level `:status`. The retired `:passing?` boolean is
 gone. This is a re-READ of the accumulator, not a re-run: it has no epoch
 tape, so `:status` is the assertion-record aggregate only (it cannot apply
 the agreement floor or the runner-refusal fold a fresh `run-variant`
-does — re-run for the full run verdict).
+does — re-run for the full run verdict). When the variant's latest run
+overran its deadline, it reads that run's deadline outcome instead of the
+torn-down frame — `:status :error` with its one `:rf.error/run-failed`
+record — until the variant runs again.
 
 Assertion records carrying `:sensitive? true` are dropped at egress
 by default; `:include-sensitive true` opts back in subject to the

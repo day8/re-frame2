@@ -205,7 +205,9 @@ tool result instead: `:rf.error :rf.story-mcp/unknown-tool`, the `:tool`
 it named, the listed `:available-tools`, and a `:did-you-mean` when a
 listed name is near. Many hosts surface a protocol error as a failed
 call rather than handing it to the model, which would make a typo a dead
-end.
+end. A name longer than 128 characters is echoed as its first 128
+characters followed by `...`, so the result stays bounded however long
+the name.
 
 ## Error codes
 
