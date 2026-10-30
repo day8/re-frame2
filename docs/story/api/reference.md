@@ -57,7 +57,7 @@ The canonical facade. Every user-callable surface lives here.
 | `force-fx-stub-id` | Universal fx-mocking primitive — HTTP, websockets, analytics, storage, navigation. |
 | `layout-debug-measure-id` | Storybook-style layout measure overlay. |
 | `layout-debug-outline-id` | Pesticide-style coloured outlines. |
-| `layout-debug-pseudo-id` | Pseudo-state forcing (`:hover` / `:focus` / `:active` / `:visited`). |
+| `layout-debug-pseudo-id` | Pseudo-state outline (`:hover` / `:focus` / `:active` / `:visited`). |
 
 ### Execution verbs
 

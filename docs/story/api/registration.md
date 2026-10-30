@@ -412,7 +412,7 @@ Four built-in decorators ship with Story. Refer to each through its `*-id` Var o
 ### `layout-debug-pseudo-id`
 
 - **Kind**: Var
-- **Description**: The pseudo-state forcing decorator id. Ref-args is a set from `#{:hover :focus :active :visited}`; default is `#{:hover}`.
+- **Description**: The pseudo-state outline decorator id. Ref-args is a set from `#{:hover :focus :active :visited}`; default is `#{:hover}`.
 
 Worked example:
 

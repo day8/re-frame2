@@ -48,7 +48,7 @@ Four decorators are built in, each named by a Var so a typo fails to compile:
 | `rf.story/force-fx-stub-id` | Stubs one effect for this reference: `[rf.story/force-fx-stub-id :rf.http/managed {}]`. |
 | `rf.story/layout-debug-measure-id` | Overlays element sizes and spacing. |
 | `rf.story/layout-debug-outline-id` | Outlines every element in its own colour. |
-| `rf.story/layout-debug-pseudo-id` | Forces pseudo-states, `#{:hover}` by default, or any of `:hover`, `:focus`, `:active` and `:visited`: `[rf.story/layout-debug-pseudo-id #{:focus}]`. |
+| `rf.story/layout-debug-pseudo-id` | Outlines the variant's elements for each requested pseudo-state, `#{:hover}` by default, or any of `:hover`, `:focus`, `:active` and `:visited`: `[rf.story/layout-debug-pseudo-id #{:focus}]`. |
 
 The Layout-debug panel in the right rail switches the three layout-debug
 overlays on and off for the selected variant, without touching its source.
