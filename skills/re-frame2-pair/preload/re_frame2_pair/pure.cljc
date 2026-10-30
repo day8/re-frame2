@@ -257,7 +257,8 @@
 (defn epoch-matches?
   "Test an epoch record against a predicate map. Recognised keys: :event-id,
    :event-id-prefix, :effects, :touches-path, :sub-ran, :render, :origin,
-   :frame, :timing-ms. Absent key = no constraint on that axis (AND-composed)."
+   :frame, :timing-ms. Absent key = no constraint on that axis (AND-composed);
+   an unparseable :timing-ms matches no epoch."
   [pred {:keys [event-id sub-runs renders effects
                 trace-events frame db-before db-after]}]
   (let [{p-eid    :event-id
@@ -284,7 +285,11 @@
         (if p-render (some #(= p-render (str (:render-key %))) renders) true)
         (if p-origin (origin-matches? p-origin trace-events) true)
         (if p-frame  (= p-frame frame) true)
-        (if timing-fn (timing-fn (epoch-elapsed-ms {:trace-events trace-events})) true)))))
+        ;; A present `:timing-ms` that does not parse matches nothing: read as
+        ;; no constraint, a typo such as `">100ms"` would match every epoch.
+        (if (some? p-timing)
+          (and timing-fn (timing-fn (epoch-elapsed-ms {:trace-events trace-events})))
+          true)))))
 
 ;; ===========================================================================
 ;; Pair-epoch attribution (frame-qualified, queued-correct, bounded)
@@ -402,18 +407,41 @@
     :rf.error/flow-eval-exception
     :rf.error/machine-action-exception})
 
+(def cascade-refusal-ops
+  "Closed set of `:rf.error/*` trace ops by which the framework refuses an
+   epoch's event without anything throwing: a refused effect map, and a
+   schema failure at a boundary that refuses (see `cascade-refusal?`). The
+   epoch still settles `:outcome :ok` and commits nothing, so without this
+   set a refusal reads as a clean no-op. Spec 010 §Per-step recovery."
+  #{:rf.error/effect-map-shape
+    :rf.error/schema-validation-failure})
+
+(defn cascade-refusal?
+  "True when trace event `ev` records the framework refusing the epoch's
+   event. A schema failure counts only where it refuses: at the event vector
+   (`:where :event`, the handler never ran) or on the candidate transaction
+   (`:rollback? true`, nothing committed). One at a sub return or an fx's
+   args leaves the event committed."
+  [{:keys [operation tags]}]
+  (and (contains? cascade-refusal-ops operation)
+       (or (not= :rf.error/schema-validation-failure operation)
+           (= :event (:where tags))
+           (true? (:rollback? tags)))))
+
 (defn cascade-errors
-  "Project the contained cascade-exception trace events out of an epoch's
-   `:trace-events` into compact descriptors, or nil when the cascade carried
-   no contained throw."
+  "Project the contained cascade-exception and refusal trace events out of an
+   epoch's `:trace-events` into compact descriptors, or nil when the cascade
+   neither threw nor was refused."
   [trace-events]
   (let [picks (->> trace-events
-                   (filter (fn [ev] (contains? cascade-error-ops (:operation ev))))
+                   (filter (fn [ev] (or (contains? cascade-error-ops (:operation ev))
+                                        (cascade-refusal? ev))))
                    (mapv (fn [ev]
                            (let [t (:tags ev)]
                              (cond-> {:operation (:operation ev)}
                                (string? (:exception-message t))
                                (assoc :message (:exception-message t))
+                               (:where t)      (assoc :where (:where t))
                                (:machine-id t) (assoc :machine-id (:machine-id t))
                                (:action-id t)  (assoc :action-id (:action-id t)))))))]
     (when (seq picks) picks)))
@@ -479,8 +507,8 @@
 (defn consequence-from-summary
   "Project a dispatch-sync success envelope into the dispatch-consequence
    shape. A cascade that changed NO app-db path AND fired NO effect is a
-   visible no-op — UNLESS it contained a throw (the `:errors` slot excludes a
-   thrown-action epoch from the quiescence heuristic)."
+   visible no-op — UNLESS it threw or was refused (the `:errors` slot excludes
+   such an epoch from the quiescence heuristic)."
   [result]
   (let [{:keys [cascade-summary]} result
         {:keys [db-diff fx-fired outcome errors]} cascade-summary
@@ -489,8 +517,8 @@
                              (:removed-paths db-diff)))
         effects (vec (or fx-fired []))
         db-changed? (boolean (seq changed))
-        threw?  (boolean (seq errors))
-        no-op?  (and (not threw?) (not db-changed?) (empty? effects))]
+        errored? (boolean (seq errors))
+        no-op?  (and (not errored?) (not db-changed?) (empty? effects))]
     (-> result
         (assoc :db-changed?   db-changed?
                :changed-paths changed

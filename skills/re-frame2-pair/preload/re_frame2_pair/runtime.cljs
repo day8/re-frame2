@@ -829,10 +829,13 @@
 
 (defn- strip-fns
   "Recursively replace every Function value in `x` with `fn-slot-sentinel`,
-   leaving all other structure intact. Hand-rolled (the runtime preload
-   does not require `clojure.walk`) and shallow-cheap: a handler-meta map is
-   small. Maps/vectors/sets/seqs recurse; a fn becomes the sentinel; every
-   other scalar passes through.
+   and every RegExp with its source string, leaving all other structure
+   intact. EDN has no regex literal, so a RegExp (a Malli `[:re #\"…\"]`
+   in a registration's `:schema`) would make the reply unreadable just as a
+   fn would; `[:re \"…\"]` is the same Malli schema. Hand-rolled (the
+   runtime preload does not require `clojure.walk`) and shallow-cheap: a
+   handler-meta map is small. Maps/vectors/sets/seqs recurse; a fn becomes
+   the sentinel, a RegExp its source; every other scalar passes through.
 
    This is the general counterpart to the top-level `:handler-fn` dissoc:
    the resources-artefact kinds (`:resource` / `:mutation` /
@@ -846,6 +849,7 @@
   [x]
   (cond
     (fn? x)         fn-slot-sentinel
+    (regexp? x)     (.-source x)
     (map? x)        (reduce-kv (fn [m k v] (assoc m k (strip-fns v))) (empty x) x)
     (map-entry? x)  x
     (vector? x)     (mapv strip-fns x)
@@ -1664,13 +1668,13 @@
 ;;                          / `:error`, per `outcome->consumer-facing`).
 ;;                          Forced `:error` when the cascade
 ;;                          contained a thrown handler / machine action
-;;                          (a `:rf.error/*` op in `:trace-events`), even
-;;                          though the epoch itself settled `:outcome :ok`
-;;                          (the interceptor seam contained the throw).
+;;                          or the framework refused its event (a
+;;                          `:rf.error/*` op in `:trace-events`), even
+;;                          though the epoch itself settled `:outcome :ok`.
 ;;   :errors              — vector of compact `{:operation :message?
-;;                          :machine-id? :action-id?}` descriptors, one per
-;;                          contained cascade exception. Absent
-;;                          when the cascade threw nothing. Present ⇒
+;;                          :where? :machine-id? :action-id?}` descriptors,
+;;                          one per contained exception or refusal. Absent
+;;                          when the cascade neither threw nor was refused. Present ⇒
 ;;                          `:outcome :error` and the downstream
 ;;                          `dispatch-consequence!` reports `:no-op? false`.
 ;;   :db-diff             — {:changed-paths [...] :added-paths [...]
@@ -1723,10 +1727,12 @@
 ;; `pure/cascade-error-ops` MIRRORS the Xray Epoch panel's `cascade-exception-
 ;; ops` (`tools/xray/.../panels/epoch/projection.cljc`) — the structured
 ;; summary and the human panel agree on exactly which `:rf.error/*` ops
-;; count as a cascade-level throw. Schema-VALIDATION failures
-;; (`:rf.error/schema-validation-failure`) are deliberately NOT here: a
-;; rejected-but-rolled-back cascade is not a thrown action, and its
-;; outcome is governed elsewhere.
+;; count as a cascade-level throw. A REFUSAL is the same trap without a
+;; throw: an event its `:schema` rejected, a transaction an app-db or
+;; machine-data schema rolled back, an effect map refused pre-commit — each
+;; settles `:outcome :ok` having committed nothing. `pure/cascade-refusal?`
+;; folds those into the same `:errors` slot, beside the throw set rather
+;; than inside it, so the Xray mirror stays exact.
 
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape

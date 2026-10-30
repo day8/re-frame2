@@ -1,7 +1,20 @@
 (ns re-frame2-pair.runtime-reload-probe-test
-  (:require [cljs.test :refer [deftest is]]
+  (:require [cljs.reader]
+            [cljs.test :refer [deftest is]]
             [re-frame.core :as rf]
             [re-frame2-pair.runtime :as rt]))
+
+(deftest handler-meta-holding-a-regex-reads-back-as-edn
+  ;; The MCP server reads every reply back as EDN, which has no regex
+  ;; literal, so one RegExp left in the meta made the whole reply
+  ;; unserializable.
+  (rf/reg-event :review/regex-meta
+    {:schema [:cat [:= :review/regex-meta] [:map [:email [:re #"^\S+@\S+$"]]]]}
+    (fn [_ _] {}))
+  (let [described (rt/registrar-describe :event :review/regex-meta)]
+    (is (= [:cat [:= :review/regex-meta] [:map [:email [:re "^\\S+@\\S+$"]]]]
+           (:schema (cljs.reader/read-string (pr-str described))))
+        "the regex reads back as its source string")))
 
 (defn- handler-with-value [value]
   (fn [_ _] {:db {:value value}}))
